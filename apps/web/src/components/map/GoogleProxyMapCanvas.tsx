@@ -2,14 +2,13 @@
 
 /**
  * Google Maps engine for ProxyHubb (marketplace, explorer, network).
- * Roadmap-only (no satellite). Optional Map ID for vector styles + Advanced Markers.
- * viewMode 2d/3d toggles camera tilt on the same minimal vector basemap.
+ * Flat dark roadmap only (2D).
+ * Session Density uses an imperative HeatmapLayer + visualization library.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     GoogleMap,
-    HeatmapLayerF,
     InfoWindowF,
     OverlayView,
     OverlayViewF,
@@ -18,10 +17,10 @@ import {
 import Supercluster from 'supercluster';
 import type { NodeGeoPoint } from '@/lib/services/explorer';
 import { googleMapsMapId } from '@/lib/feature-flags';
-import type { ExplorerListingPin, MapViewMode, MapViewportBounds, ProxyMapCanvasProps } from './types';
+import type { ExplorerListingPin, MapViewportBounds, ProxyMapCanvasProps } from './types';
 import {
-    GOOGLE_MAP_DARK_STYLES,
     clusterPopup,
+    GOOGLE_MAP_DARK_STYLES,
     groupListingPins,
     listingClusterPopup,
     listingMarkerHtml,
@@ -41,10 +40,10 @@ const CONTAINER_STYLE: React.CSSProperties = {
 /** Stable refs — @react-google-maps/api re-applies center/zoom whenever the prop identity changes. */
 const INITIAL_CENTER: google.maps.LatLngLiteral = { lat: 20, lng: 10 };
 const INITIAL_ZOOM = 2;
-
-const TILT_3D = 45;
-const HEADING_3D = 20;
 const BOUNDS_DEBOUNCE_MS = 350;
+
+/** Bump when libraries change so browsers don't reuse a Maps JS load without visualization. */
+const MAPS_LOADER_ID = 'proxyhubb-google-maps-v3';
 
 type GoogleProxyMapCanvasProps = ProxyMapCanvasProps & { apiKey: string };
 
@@ -147,15 +146,35 @@ function HtmlMarker({
     );
 }
 
-function applyViewMode(map: google.maps.Map, mode: MapViewMode) {
-    map.setMapTypeId(google.maps.MapTypeId.ROADMAP);
-    if (mode === '3d') {
-        map.setTilt(TILT_3D);
-        map.setHeading(HEADING_3D);
+function buildFlatMapOptions(mapId: string): google.maps.MapOptions {
+    const base: google.maps.MapOptions = {
+        disableDefaultUI: false,
+        zoomControl: true,
+        mapTypeControl: false,
+        streetViewControl: false,
+        fullscreenControl: false,
+        rotateControl: false,
+        backgroundColor: '#050508',
+        minZoom: 1,
+        maxZoom: 18,
+        gestureHandling: 'greedy',
+        mapTypeId: 'roadmap',
+        center: INITIAL_CENTER,
+        zoom: INITIAL_ZOOM,
+        tilt: 0,
+        heading: 0,
+        tiltInteractionEnabled: false,
+        headingInteractionEnabled: false,
+    };
+
+    if (mapId) {
+        base.mapId = mapId;
     } else {
-        map.setTilt(0);
-        map.setHeading(0);
+        // Raster + JSON styles = classic flat dark roadmap (no globe sphere).
+        base.styles = GOOGLE_MAP_DARK_STYLES;
     }
+
+    return base;
 }
 
 export default function GoogleProxyMapCanvas({
@@ -172,28 +191,26 @@ export default function GoogleProxyMapCanvas({
     onBuyListing,
     selectedListingId,
     onBoundsChange,
-    viewMode = '2d',
 }: GoogleProxyMapCanvasProps) {
     const mapId = googleMapsMapId();
     const useAdvanced = Boolean(mapId);
-    const wantsVisualization = useRef(showHeatmap);
-    if (showHeatmap) wantsVisualization.current = true;
     const keptLoadedRef = useRef(false);
     const onBoundsChangeRef = useRef(onBoundsChange);
     onBoundsChangeRef.current = onBoundsChange;
     const lastEmittedBoundsRef = useRef<MapViewportBounds | null>(null);
+    const heatmapLayerRef = useRef<google.maps.visualization.HeatmapLayer | null>(null);
+    const [heatmapError, setHeatmapError] = useState<string | null>(null);
 
-    // Stable libraries array — changing identity can make useJsApiLoader remount the map.
-    const libraries = useMemo((): ('marker' | 'visualization')[] => {
-        const libs: ('marker' | 'visualization')[] = ['marker'];
-        if (wantsVisualization.current) libs.push('visualization');
-        return libs;
-    }, []); // eslint-disable-line react-hooks/exhaustive-deps -- intentionally frozen after first paint
+    // Always load visualization for Session Density. New loader id busts stale
+    // sessions that previously loaded Maps JS without the visualization library.
+    const libraries = useMemo((): ('marker' | 'visualization')[] => ['marker', 'visualization'], []);
+    const mapIds = useMemo(() => (mapId ? [mapId] : undefined), [mapId]);
 
     const { isLoaded, loadError } = useJsApiLoader({
-        id: 'proxyhubb-google-maps',
+        id: MAPS_LOADER_ID,
         googleMapsApiKey: apiKey,
         libraries,
+        ...(mapIds ? { mapIds } : {}),
     });
     if (isLoaded) keptLoadedRef.current = true;
     const showMap = keptLoadedRef.current || isLoaded;
@@ -209,33 +226,10 @@ export default function GoogleProxyMapCanvas({
     const [clusterTick, setClusterTick] = useState(0);
     const [statusTick, setStatusTick] = useState(0);
 
-    // Freeze Map options after first create. Re-passing a new `options` object makes
-    // @react-google-maps/api call map.setOptions(), which can snap the camera back.
+    // Freeze options after first create — re-passing a new object snaps the camera.
     const mapOptionsRef = useRef<google.maps.MapOptions | null>(null);
     if (!mapOptionsRef.current) {
-        const base: google.maps.MapOptions = {
-            disableDefaultUI: false,
-            zoomControl: true,
-            mapTypeControl: false,
-            streetViewControl: false,
-            fullscreenControl: false,
-            rotateControl: false,
-            backgroundColor: '#050508',
-            minZoom: 1,
-            maxZoom: 18,
-            gestureHandling: 'greedy',
-            mapTypeId: 'roadmap',
-            center: INITIAL_CENTER,
-            zoom: INITIAL_ZOOM,
-            tilt: 0,
-            heading: 0,
-        };
-        if (mapId) {
-            base.mapId = mapId;
-        } else {
-            base.styles = GOOGLE_MAP_DARK_STYLES;
-        }
-        mapOptionsRef.current = base;
+        mapOptionsRef.current = buildFlatMapOptions(mapId);
     }
     const mapOptions = mapOptionsRef.current;
 
@@ -262,7 +256,6 @@ export default function GoogleProxyMapCanvas({
         const next: [number, number, number, number] = [sw.lng(), sw.lat(), ne.lng(), ne.lat()];
         const nextZoom = map.getZoom() ?? 2;
 
-        // Avoid React re-renders during interaction unless cluster inputs actually changed.
         setZoom(z => (Math.round(z) === Math.round(nextZoom) ? z : nextZoom));
         setBbox(prev => {
             if (
@@ -304,16 +297,20 @@ export default function GoogleProxyMapCanvas({
     const onLoad = useCallback((map: google.maps.Map) => {
         mapRef.current = map;
         setMapInstance(map);
-        // Drop camera fields from frozen options so any later setOptions() cannot snap back.
         if (mapOptionsRef.current) {
             delete mapOptionsRef.current.center;
             delete mapOptionsRef.current.zoom;
         }
-        applyViewMode(map, viewMode);
+        map.setTilt(0);
+        map.setHeading(0);
         emitBounds(map);
-    }, [emitBounds, viewMode]);
+    }, [emitBounds]);
 
     const onUnmount = useCallback(() => {
+        if (heatmapLayerRef.current) {
+            heatmapLayerRef.current.setMap(null);
+            heatmapLayerRef.current = null;
+        }
         mapRef.current = null;
         setMapInstance(null);
         if (boundsTimerRef.current) clearTimeout(boundsTimerRef.current);
@@ -326,13 +323,6 @@ export default function GoogleProxyMapCanvas({
     const handleMapClick = useCallback(() => {
         setPopup(null);
     }, []);
-
-    useEffect(() => {
-        const map = mapRef.current;
-        if (!map) return;
-        map.setOptions({ rotateControl: viewMode === '3d' });
-        applyViewMode(map, viewMode);
-    }, [viewMode]);
 
     // Rebuild node index when the REST node set changes (positions).
     useEffect(() => {
@@ -351,20 +341,30 @@ export default function GoogleProxyMapCanvas({
         setStatusTick(t => t + 1);
     }, [nodes]);
 
-    // Live WS: status-only updates skip Supercluster rebuild; position changes rebuild.
+    // Live WS: match opaque marketplace ids; never invent ghost UUID markers.
     useEffect(() => {
         if (liveUpdates.length === 0) return;
         let statusChanged = false;
         let positionChanged = false;
         for (const upd of liveUpdates) {
-            const existing = nodeMapRef.current.get(upd.node_id);
-            if (existing) {
+            const lookupKeys = [upd.opaque_node_id, upd.node_id].filter(Boolean) as string[];
+            let key = '';
+            let existing: NodeGeoPoint | undefined;
+            for (const k of lookupKeys) {
+                const hit = nodeMapRef.current.get(k);
+                if (hit) {
+                    key = k;
+                    existing = hit;
+                    break;
+                }
+            }
+            if (existing && key) {
                 const nextLat = upd.lat ?? existing.lat;
                 const nextLon = upd.lon ?? existing.lon;
                 const moved =
                     (upd.lat != null && Math.abs(upd.lat - existing.lat) > 1e-6) ||
                     (upd.lon != null && Math.abs(upd.lon - existing.lon) > 1e-6);
-                nodeMapRef.current.set(upd.node_id, {
+                nodeMapRef.current.set(key, {
                     ...existing,
                     is_active: upd.is_active,
                     uptime_percent: upd.uptime_percent,
@@ -372,57 +372,42 @@ export default function GoogleProxyMapCanvas({
                     lat: nextLat,
                     lon: nextLon,
                 });
-                statusChanged = true;
                 if (moved) positionChanged = true;
-            } else if (upd.lat && upd.lon && Math.abs(upd.lat) > 0.001) {
-                nodeMapRef.current.set(upd.node_id, {
-                    node_id: upd.node_id,
-                    lat: upd.lat,
-                    lon: upd.lon,
-                    is_active: upd.is_active,
-                    is_validator: false,
-                    uptime_percent: upd.uptime_percent,
-                    active_sessions: upd.active_sessions,
-                    country: '',
-                    region: '',
-                });
-                positionChanged = true;
-                statusChanged = true;
+                else statusChanged = true;
             }
+            // Do not insert unknown WS node_ids — marketplace map uses opaque ids and
+            // inserting raw UUIDs creates duplicate ghost pins.
         }
         if (positionChanged) {
-            const all = Array.from(nodeMapRef.current.values());
             const sc = new Supercluster<NodeGeoPoint>({ radius: 60, maxZoom: 16, minZoom: 0 });
-            sc.load(
-                all
-                    .filter(n => Math.abs(n.lat) > 0.001 || Math.abs(n.lon) > 0.001)
-                    .map(n => ({
-                        type: 'Feature' as const,
-                        geometry: { type: 'Point' as const, coordinates: [n.lon, n.lat] },
-                        properties: n,
-                    })),
-            );
+            const features: GeoJSON.Feature<GeoJSON.Point, NodeGeoPoint>[] = Array.from(nodeMapRef.current.values())
+                .filter(n => Math.abs(n.lat) > 0.001 || Math.abs(n.lon) > 0.001)
+                .map(n => ({
+                    type: 'Feature',
+                    geometry: { type: 'Point', coordinates: [n.lon, n.lat] },
+                    properties: n,
+                }));
+            sc.load(features);
             clusterIndexRef.current = sc;
             setClusterTick(t => t + 1);
+        } else if (statusChanged) {
+            setStatusTick(t => t + 1);
         }
-        if (statusChanged) setStatusTick(t => t + 1);
     }, [liveUpdates]);
 
     const nodeClusters = useMemo((): ClusterFeat[] => {
         void clusterTick;
         void statusTick;
-        const sc = clusterIndexRef.current;
-        if (!sc) return [];
-        return sc.getClusters(bbox, Math.round(zoom)).map(feature => {
-            const [lon, lat] = feature.geometry.coordinates;
-            const props = feature.properties as NodeGeoPoint & {
-                cluster?: boolean;
-                cluster_id?: number;
-                point_count?: number;
-            };
+        const index = clusterIndexRef.current;
+        if (!index) return [];
+        const clusters = index.getClusters(bbox, Math.round(zoom));
+        return clusters.map(f => {
+            const { geometry, properties: props } = f;
+            const [lon, lat] = geometry.coordinates;
             let clusterNodes: NodeGeoPoint[];
-            if (props.cluster && props.cluster_id != null) {
-                clusterNodes = sc.getLeaves(props.cluster_id, Infinity).map(l => {
+            if ('cluster' in props && props.cluster) {
+                const leaves = index.getLeaves(props.cluster_id as number, Infinity);
+                clusterNodes = leaves.map(l => {
                     const id = (l.properties as NodeGeoPoint).node_id;
                     return nodeMapRef.current.get(id) ?? (l.properties as NodeGeoPoint);
                 });
@@ -441,16 +426,65 @@ export default function GoogleProxyMapCanvas({
         [listingPins],
     );
 
-    const heatmapData = useMemo(() => {
-        if (!showHeatmap || !isLoaded || typeof google === 'undefined') return [];
+    // Imperative Session Density heatmap — never throws into React render.
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!showHeatmap || !map || !isLoaded) {
+            if (heatmapLayerRef.current) {
+                heatmapLayerRef.current.setMap(null);
+                heatmapLayerRef.current = null;
+            }
+            setHeatmapError(null);
+            return;
+        }
+
         void statusTick;
-        return Array.from(nodeMapRef.current.values())
-            .filter(n => Math.abs(n.lat) > 0.001 || Math.abs(n.lon) > 0.001)
-            .map(n => ({
-                location: new google.maps.LatLng(n.lat, n.lon),
-                weight: n.is_active ? 1 + n.active_sessions * 0.3 : 0.3,
-            }));
-    }, [showHeatmap, isLoaded, statusTick, clusterTick]);
+        void clusterTick;
+
+        try {
+            if (!google.maps?.visualization?.HeatmapLayer) {
+                setHeatmapError('Session density library still loading — try again in a moment');
+                return;
+            }
+
+            const data = Array.from(nodeMapRef.current.values())
+                .filter(n => Math.abs(n.lat) > 0.001 || Math.abs(n.lon) > 0.001)
+                .map(n => ({
+                    location: new google.maps.LatLng(n.lat, n.lon),
+                    weight: n.is_active ? 1 + (Number(n.active_sessions) || 0) * 0.3 : 0.3,
+                }));
+
+            if (data.length === 0) {
+                if (heatmapLayerRef.current) {
+                    heatmapLayerRef.current.setMap(null);
+                    heatmapLayerRef.current = null;
+                }
+                setHeatmapError(null);
+                return;
+            }
+
+            if (!heatmapLayerRef.current) {
+                heatmapLayerRef.current = new google.maps.visualization.HeatmapLayer({
+                    data,
+                    map,
+                    radius: 28,
+                    opacity: 0.55,
+                    dissipating: true,
+                });
+            } else {
+                heatmapLayerRef.current.setData(data);
+                heatmapLayerRef.current.setMap(map);
+            }
+            setHeatmapError(null);
+        } catch (err) {
+            console.warn('[GoogleProxyMapCanvas] heatmap failed', err);
+            setHeatmapError('Session density unavailable');
+            if (heatmapLayerRef.current) {
+                heatmapLayerRef.current.setMap(null);
+                heatmapLayerRef.current = null;
+            }
+        }
+    }, [showHeatmap, isLoaded, statusTick, clusterTick, mapInstance]);
 
     // Fit only when the focus *values* change — refetch often recreates the same bbox array.
     const focusBoundsKey = focusBounds
@@ -465,7 +499,6 @@ export default function GoogleProxyMapCanvas({
         if (!map) return;
 
         if (!focusBounds || !focusBoundsKey) {
-            // Only snap to world when clearing a prior country/focus filter.
             if (prevKey) {
                 map.setCenter(INITIAL_CENTER);
                 map.setZoom(INITIAL_ZOOM);
@@ -493,7 +526,6 @@ export default function GoogleProxyMapCanvas({
         if (!map || !selectedNodeId) return;
         const node = nodeMapRef.current.get(selectedNodeId);
         if (node && (Math.abs(node.lat) > 0.001 || Math.abs(node.lon) > 0.001)) {
-            // Pan only — do not force zoom, which fought user-controlled zoom/search.
             map.panTo({ lat: node.lat, lng: node.lon });
             setPopup(null);
         }
@@ -572,11 +604,21 @@ export default function GoogleProxyMapCanvas({
         <div
             data-testid="proxy-map-canvas"
             data-map-engine="google"
-            data-map-view={viewMode}
+            data-map-view="2d"
             data-map-id={mapId ? 'cloud' : 'json-styles'}
+            data-map-rendering="raster"
             className="google-map-container"
             style={{ position: 'relative', width: '100%', height: '100%', minHeight: 480, borderRadius: 'inherit' }}
         >
+            {heatmapError && showHeatmap ? (
+                <div
+                    className="absolute top-3 left-1/2 z-[1000] -translate-x-1/2 rounded-xl border border-amber-500/40 bg-[#0a0a15]/90 px-4 py-2 text-[9px] font-black uppercase tracking-widest text-amber-300 backdrop-blur-sm"
+                    role="status"
+                >
+                    {heatmapError}
+                </div>
+            ) : null}
+
             <GoogleMap
                 mapContainerStyle={CONTAINER_STYLE}
                 options={mapOptions}
@@ -585,17 +627,6 @@ export default function GoogleProxyMapCanvas({
                 onIdle={handleIdle}
                 onClick={handleMapClick}
             >
-                {showHeatmap && heatmapData.length > 0 ? (
-                    <HeatmapLayerF
-                        data={heatmapData}
-                        options={{
-                            radius: 28,
-                            opacity: 0.55,
-                            dissipating: true,
-                        }}
-                    />
-                ) : null}
-
                 {nodeClusters.map(({ lat, lon, clusterNodes }) => {
                     const count = clusterNodes.length;
                     const isActive = clusterNodes.some(n => n.is_active);
@@ -656,18 +687,20 @@ export default function GoogleProxyMapCanvas({
                             useAdvanced={useAdvanced}
                             position={{ lat: pin.lat, lng: pin.lon }}
                             html={html}
-                            zIndex={selected ? 1000 : 500}
+                            zIndex={selected ? 850 : 80}
                             onClick={() => {
                                 if (count === 1) {
                                     onSelectListing?.(pin);
-                                    handleListingPopupOpen(
-                                        group,
-                                        listingPopup(pin, { buyAction: Boolean(onBuyListing) }),
-                                    );
-                                    return;
+                                    setPopup({
+                                        kind: 'listing',
+                                        position: { lat: pin.lat, lng: pin.lon },
+                                        html: listingPopup(pin),
+                                    });
+                                } else if (onSelectListingGroup) {
+                                    onSelectListingGroup(group);
+                                } else {
+                                    handleListingPopupOpen(group, listingClusterPopup(group));
                                 }
-                                onSelectListingGroup?.(group);
-                                handleListingPopupOpen(group, listingClusterPopup(group));
                             }}
                         />
                     );
@@ -677,12 +710,9 @@ export default function GoogleProxyMapCanvas({
                     <InfoWindowF
                         position={popup.position}
                         onCloseClick={() => setPopup(null)}
-                        options={{ disableAutoPan: true, maxWidth: 300, pixelOffset: new google.maps.Size(0, -12) }}
+                        options={{ pixelOffset: new google.maps.Size(0, -12), maxWidth: 320 }}
                     >
-                        <div
-                            dangerouslySetInnerHTML={{ __html: popup.html }}
-                            onClick={(e) => e.stopPropagation()}
-                        />
+                        <div dangerouslySetInnerHTML={{ __html: popup.html }} />
                     </InfoWindowF>
                 ) : null}
             </GoogleMap>

@@ -20,7 +20,7 @@ test.describe('marketplace map proof badges', () => {
     test.describe.configure({ mode: 'serial' });
     test.setTimeout(120_000);
 
-    test('shows verified offer and heartbeat proof on map pin detail', async ({ page }) => {
+    test('shows verified offer and quality signals on map pin detail', async ({ page }) => {
         await stubMarketplaceListingDetail(page);
 
         await page.goto(
@@ -33,7 +33,7 @@ test.describe('marketplace map proof badges', () => {
         });
         await expect(page.getByText('Offer proof')).toBeVisible();
         await expect(page.getByText('Provider signed').first()).toBeVisible();
-        await expect(page.getByText('Heartbeat proof')).toBeVisible();
+        await expect(page.getByText('High quality')).toBeVisible();
         await expect(page.getByText('Regional area')).toBeVisible();
         await expect(page.getByTestId('catalog-product-badge')).toBeVisible();
         await expect(page.getByTestId('catalog-product-badge')).toContainText('premium-austin-pool');

@@ -3,6 +3,7 @@
 import { useAuth } from "@/lib/auth";
 import { deleteListing, getMyListings, marketplaceKeys, updateListing, type Listing } from "@/lib/api/marketplace";
 import { displayListingTitle } from "@/lib/listing-display";
+import { evaluateListingPrice } from "@/lib/listing-price";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -85,6 +86,8 @@ export default function ManageListingsPage() {
         if (!editForm.title.trim()) return;
         if (Number.isNaN(price) || price <= 0) return;
         if (Number.isNaN(bandwidth) || bandwidth <= 0) return;
+        const guidance = evaluateListingPrice(price, editing.proxy_type);
+        if (guidance.overHardCap) return;
         editMutation.mutate({
             id: editing.id,
             payload: {
@@ -95,6 +98,10 @@ export default function ManageListingsPage() {
             },
         });
     };
+
+    const editPriceGuidance = editing
+        ? evaluateListingPrice(parseFloat(editForm.price_per_gb) || 0, editing.proxy_type)
+        : null;
 
     const listings = data?.listings ?? [];
     const total = data?.total ?? 0;
@@ -301,7 +308,7 @@ export default function ManageListingsPage() {
                         </label>
                         <div className="grid grid-cols-2 gap-4">
                             <label className="block space-y-1">
-                                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">SOL / GB</span>
+                                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">USD / GB</span>
                                 <input
                                     type="number"
                                     min={0}
@@ -310,6 +317,15 @@ export default function ManageListingsPage() {
                                     onChange={(e) => setEditForm((f) => ({ ...f, price_per_gb: e.target.value }))}
                                     className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm font-mono outline-none focus:border-purple-500/40"
                                 />
+                                {editPriceGuidance?.message && (
+                                    <span
+                                        className={`block text-[10px] font-mono ${
+                                            editPriceGuidance.overHardCap ? "text-red-400" : "text-amber-400"
+                                        }`}
+                                    >
+                                        {editPriceGuidance.message}
+                                    </span>
+                                )}
                             </label>
                             <label className="block space-y-1">
                                 <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Available GB</span>
@@ -338,7 +354,7 @@ export default function ManageListingsPage() {
                             </button>
                             <button
                                 type="button"
-                                disabled={editMutation.isPending}
+                                disabled={editMutation.isPending || Boolean(editPriceGuidance?.overHardCap)}
                                 onClick={submitEdit}
                                 className="px-4 py-2 rounded-lg bg-purple-600 text-[10px] font-bold uppercase tracking-widest disabled:opacity-50"
                             >

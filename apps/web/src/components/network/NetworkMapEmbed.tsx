@@ -28,7 +28,7 @@ const ProxyMapCanvas = dynamic(
 const MAP_FILTERS: MarketplaceMapFilters = {
     purchasable_only: true,
     include_nodes: true,
-    active_nodes_only: false,
+    active_nodes_only: true,
 };
 
 /**
@@ -123,10 +123,10 @@ export function NetworkMapEmbed() {
                 )}
                 {selectedNodeId && (
                     <Link
-                        href={`/explorer/nodes/${encodeURIComponent(selectedNodeId)}`}
+                        href="/explorer/map"
                         className="rounded-lg border border-primary/30 bg-primary/10 px-3 py-1.5 text-[9px] font-bold uppercase tracking-wider text-primary backdrop-blur hover:bg-primary/20"
                     >
-                        Open node in explorer
+                        Open network map
                     </Link>
                 )}
             </div>

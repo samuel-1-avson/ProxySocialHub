@@ -700,30 +700,15 @@ export const raiseDispute = async (
     }
 };
 
-// Request dispute resolution via backend (admin action)
+// Request dispute resolution via backend.
+// @deprecated W1.2 — centralized `/v1/solana/dispute/resolve` is not registered.
+// Use `/v1/disputes/jury/*` (create → vote → on-chain settle via oracle shortcut).
 export const requestDisputeResolution = async (
-    escrowPda: string,
-    buyerPercentage: number,
-    resolution: string
+    _escrowPda: string,
+    _buyerPercentage: number,
+    _resolution: string
 ) => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
-
-    const response = await fetch(`${apiUrl}/v1/solana/dispute/resolve`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            escrow_pda: escrowPda,
-            buyer_percentage: buyerPercentage,
-            resolution: resolution
-        })
-    });
-
-    if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Dispute resolution failed');
-    }
-
-    return response.json();
+    throw new Error(
+        'Centralized dispute resolve is disabled. Use /v1/disputes/jury/* for jury settlement.'
+    );
 };

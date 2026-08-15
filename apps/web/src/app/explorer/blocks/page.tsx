@@ -42,10 +42,10 @@ export default function BlocksExplorer() {
             className="space-y-8 font-mono"
         >
             {/* Header */}
-            <motion.header variants={itemVariants} className="flex flex-col gap-6 border-b border-white/5 pb-8">
+            <motion.header variants={itemVariants} className="flex flex-col gap-6 border-b border-border pb-8">
                 <Link
                     href="/explorer"
-                    className="flex items-center gap-2 text-[10px] font-black text-white/30 hover:text-primary transition-colors uppercase tracking-[0.3em] w-fit"
+                    className="flex items-center gap-2 text-[10px] font-black text-muted-foreground hover:text-primary transition-colors uppercase tracking-[0.3em] w-fit"
                 >
                     <ArrowLeft size={14} /> Back to Grid
                 </Link>
@@ -53,18 +53,18 @@ export default function BlocksExplorer() {
                 <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-6">
                     <div>
                         <div className="text-[10px] font-black text-primary uppercase tracking-[0.5em] mb-1">Grid Telemetry // Blocks</div>
-                        <h1 className="text-4xl font-black uppercase tracking-tighter text-white flex items-center gap-4">
+                        <h1 className="text-4xl font-black uppercase tracking-tighter text-foreground flex items-center gap-4">
                             <Box className="text-primary" size={32} /> 
                             Sequence Blocks
                         </h1>
-                        <p className="text-[11px] font-black text-white/30 uppercase tracking-widest mt-2">
+                        <p className="text-[11px] font-black text-muted-foreground uppercase tracking-widest mt-2">
                             Historical record of all verified segment hashes
                         </p>
                     </div>
                     
                     <div className="text-right">
-                        <p className="text-[9px] font-black text-white/20 uppercase tracking-[0.3em]">Total Blocks</p>
-                        <p className="text-3xl font-black text-white tracking-tighter">
+                        <p className="text-[9px] font-black text-muted-foreground uppercase tracking-[0.3em]">Total Blocks</p>
+                        <p className="text-3xl font-black text-foreground tracking-tighter">
                             {data?.total?.toLocaleString() || '0'}
                         </p>
                     </div>
@@ -73,11 +73,11 @@ export default function BlocksExplorer() {
 
             {/* Blocks Table */}
             <motion.section variants={itemVariants}>
-                <GlassCard className="overflow-hidden border-white/5 bg-white/[0.01]">
+                <GlassCard className="overflow-hidden border-border bg-card">
                     <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse">
                             <thead>
-                                <tr className="bg-white/5 text-white/40 text-[10px] uppercase tracking-[0.2em] font-black">
+                                <tr className="bg-muted text-muted-foreground text-[10px] uppercase tracking-[0.2em] font-black">
                                     <th className="px-6 py-4">Block</th>
                                     <th className="px-6 py-4">Hash</th>
                                     <th className="px-6 py-4">Time</th>
@@ -85,22 +85,22 @@ export default function BlocksExplorer() {
                                     <th className="px-6 py-4">Chain</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-white/5">
+                            <tbody className="divide-y divide-border">
                                 {isLoading ? (
                                     Array.from({ length: 10 }).map((_, i) => (
                                         <tr key={i} className="animate-pulse">
-                                            <td colSpan={5} className="px-6 py-4 h-14 bg-white/5"></td>
+                                            <td colSpan={5} className="px-6 py-4 h-14 bg-muted"></td>
                                         </tr>
                                     ))
                                 ) : data?.blocks?.length === 0 ? (
                                     <tr>
                                         <td colSpan={5} className="px-6 py-20 text-center">
                                             <div className="flex flex-col items-center gap-4">
-                                                <Database size={48} className="text-white/10" />
-                                                <p className="text-[10px] font-black text-white/20 uppercase tracking-[0.3em]">
+                                                <Database size={48} className="text-muted-foreground" />
+                                                <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.3em]">
                                                     No blocks indexed yet
                                                 </p>
-                                                <p className="text-[10px] text-white/10 max-w-md">
+                                                <p className="text-[10px] text-muted-foreground max-w-md">
                                                     The blockchain indexer is starting up. Blocks will appear here once the sync is complete.
                                                 </p>
                                             </div>
@@ -108,7 +108,7 @@ export default function BlocksExplorer() {
                                     </tr>
                                 ) : (
                                     data?.blocks?.map((block: any) => (
-                                        <tr key={block.block_hash} className="hover:bg-white/5 transition-colors group">
+                                        <tr key={block.block_hash} className="hover:bg-surface-hover transition-colors group">
                                             <td className="px-6 py-4">
                                                 <Link
                                                     href={`/explorer/blocks/${block.block_number}`}
@@ -118,23 +118,23 @@ export default function BlocksExplorer() {
                                                 </Link>
                                             </td>
                                             <td className="px-6 py-4">
-                                                <span className="font-mono text-[10px] text-white/30 group-hover:text-white/50 transition-colors">
+                                                <span className="font-mono text-[10px] text-muted-foreground group-hover:text-foreground transition-colors">
                                                     {block.block_hash?.slice(0, 20)}...{block.block_hash?.slice(-12)}
                                                 </span>
                                             </td>
-                                            <td className="px-6 py-4 text-[11px] text-white/40">
+                                            <td className="px-6 py-4 text-[11px] text-muted-foreground">
                                                 <div className="flex items-center gap-2">
                                                     <Clock size={12} />
                                                     {block.timestamp ? formatDistanceToNow(new Date(block.timestamp), { addSuffix: true }) : '-'}
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4 text-center">
-                                                <span className="px-3 py-1 rounded-lg bg-white/5 text-[10px] text-white/60 font-bold border border-white/10">
+                                                <span className="px-3 py-1 rounded-lg bg-muted text-[10px] text-muted-foreground font-bold border border-border">
                                                     {block.transaction_count} TXS
                                                 </span>
                                             </td>
                                             <td className="px-6 py-4">
-                                                <span className="text-[10px] text-white/30 font-mono uppercase tracking-widest">
+                                                <span className="text-[10px] text-muted-foreground font-mono uppercase tracking-widest">
                                                     {block.chain}
                                                 </span>
                                             </td>
@@ -146,29 +146,29 @@ export default function BlocksExplorer() {
                     </div>
 
                     {/* Pagination */}
-                    <div className="p-6 bg-white/5 flex items-center justify-between border-t border-white/5">
-                        <p className="text-[10px] font-black text-white/30 uppercase tracking-widest">
+                    <div className="p-6 bg-muted flex items-center justify-between border-t border-border">
+                        <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">
                             {hasBlocks ? (
                                 <>
-                                    Page <span className="text-white">{page}</span> of{' '}
-                                    <span className="text-white">{totalPages}</span>
+                                    Page <span className="text-foreground">{page}</span> of{' '}
+                                    <span className="text-foreground">{totalPages}</span>
                                 </>
                             ) : (
-                                <span className="text-white/20">No blocks indexed</span>
+                                <span className="text-muted-foreground">No blocks indexed</span>
                             )}
                         </p>
                         <div className="flex gap-2">
                             <button
                                 onClick={() => setPage(Math.max(1, page - 1))}
                                 disabled={!hasBlocks || page === 1}
-                                className="p-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                className="p-2 rounded-lg bg-muted border border-border hover:bg-surface-hover disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                             >
                                 <ChevronLeft className="w-5 h-5" />
                             </button>
                             <button
                                 onClick={() => setPage(Math.min(totalPages, page + 1))}
                                 disabled={!hasBlocks || page >= totalPages}
-                                className="p-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                className="p-2 rounded-lg bg-muted border border-border hover:bg-surface-hover disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                             >
                                 <ChevronRight className="w-5 h-5" />
                             </button>

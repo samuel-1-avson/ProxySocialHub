@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useAuth } from "@/lib/auth";
@@ -10,16 +10,23 @@ import { getMyNodes, type NodeRegistration } from "@/lib/api/provider";
 import {
     createListing,
     getListingProofPolicy,
+    getSuggestedListingPrice,
     marketplaceKeys,
     signListingOfferDev,
     type CreateListingRequest,
     type ListingProofPolicy,
+    type PriceSuggestion,
 } from "@/lib/api/marketplace";
 import { useQueryClient } from "@tanstack/react-query";
 import {
     canonicalListingFields,
     signListingOfferProof,
 } from "@/lib/proofs/listing-offer";
+import {
+    defaultListingPricePerGB,
+    evaluateListingPrice,
+    listingPriceBand,
+} from "@/lib/listing-price";
 
 export default function CreateListingPage() {
     const { user, isAuthenticated } = useAuth();
@@ -30,6 +37,8 @@ export default function CreateListingPage() {
     const [error, setError] = useState("");
     const [providerNodes, setProviderNodes] = useState<NodeRegistration[]>([]);
     const [proofPolicy, setProofPolicy] = useState<ListingProofPolicy | null>(null);
+    const [oracle, setOracle] = useState<PriceSuggestion | null>(null);
+    const [priceTouched, setPriceTouched] = useState(false);
 
     const [formData, setFormData] = useState({
         title: "",
@@ -39,7 +48,7 @@ export default function CreateListingPage() {
         rotation_type: "sticky",
         country: "US",
         isp: "",
-        price_per_gb: 5,
+        price_per_gb: defaultListingPricePerGB("residential"),
         min_purchase_gb: 1,
         available_bandwidth_gb: 100,
         max_concurrency: 10,
@@ -62,18 +71,64 @@ export default function CreateListingPage() {
             .catch(() => setProofPolicy(null));
     }, [isAuthenticated]);
 
+    useEffect(() => {
+        let cancelled = false;
+        getSuggestedListingPrice(formData.country, formData.proxy_type)
+            .then((suggestion) => {
+                if (cancelled) return;
+                setOracle(suggestion);
+                if (!priceTouched) {
+                    setFormData((prev) => ({
+                        ...prev,
+                        price_per_gb: suggestion.suggested_price,
+                    }));
+                }
+            })
+            .catch(() => {
+                if (cancelled) return;
+                setOracle(null);
+                if (!priceTouched) {
+                    setFormData((prev) => ({
+                        ...prev,
+                        price_per_gb: defaultListingPricePerGB(prev.proxy_type),
+                    }));
+                }
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [formData.country, formData.proxy_type, priceTouched]);
+
     const proofRequired =
         proofPolicy?.required ??
         process.env.NEXT_PUBLIC_PROVIDER_SIGNATURE_MODE === "enforce";
 
     const selectedNode = providerNodes.find(n => n.id === formData.provider_node_id);
 
+    const priceGuidance = useMemo(
+        () =>
+            evaluateListingPrice(
+                formData.price_per_gb,
+                formData.proxy_type,
+                oracle?.suggested_price
+            ),
+        [formData.price_per_gb, formData.proxy_type, oracle?.suggested_price]
+    );
+
+    const band = listingPriceBand(formData.proxy_type);
+
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
+        if (name === "price_per_gb") {
+            setPriceTouched(true);
+        }
+        if (name === "proxy_type") {
+            setPriceTouched(false);
+        }
         setFormData(prev => ({
             ...prev,
             [name]: name.includes("gb") || name.includes("users") || name === "price_per_gb" || name === "max_concurrency"
-                ? parseFloat(value)
+                ? parseFloat(value) || 0
                 : value
         }));
     };
@@ -82,6 +137,12 @@ export default function CreateListingPage() {
         e.preventDefault();
         setLoading(true);
         setError("");
+
+        if (priceGuidance.overHardCap) {
+            setError(priceGuidance.message || "Price exceeds the hard limit.");
+            setLoading(false);
+            return;
+        }
 
         try {
             const canon = canonicalListingFields(formData as CreateListingRequest);
@@ -348,10 +409,26 @@ export default function CreateListingPage() {
                                 type="number"
                                 name="price_per_gb"
                                 step="0.01"
+                                min={0.01}
+                                max={priceGuidance.hardCap}
                                 value={formData.price_per_gb}
                                 onChange={handleChange}
                                 className="w-full bg-secondary/10 border border-border p-2 text-sm font-mono rounded-sm focus:border-primary outline-none"
                             />
+                            <p className="text-[10px] text-muted-foreground font-mono">
+                                Suggested ${priceGuidance.suggested.toFixed(2)} · competitive band $
+                                {band.min.toFixed(2)}–${band.max.toFixed(2)} / GB
+                                {oracle?.currency ? ` (${oracle.currency})` : ""}
+                            </p>
+                            {priceGuidance.message && (
+                                <p
+                                    className={`text-[10px] font-mono ${
+                                        priceGuidance.overHardCap ? "text-red-400" : "text-amber-400"
+                                    }`}
+                                >
+                                    {priceGuidance.message}
+                                </p>
+                            )}
                         </div>
                         <div className="space-y-1.5">
                             <label className="text-[10px] font-mono font-bold uppercase">Available Bandwidth (GB)</label>

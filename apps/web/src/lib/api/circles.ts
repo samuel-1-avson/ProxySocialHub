@@ -65,10 +65,11 @@ export interface UpdateCircleRequest {
 // ============ API Functions ============
 
 /**
- * Get all circles
+ * Get all circles (backend responds with { circles: Circle[] })
  */
-export function getCircles() {
-    return apiGet<Circle[]>('/v1/circles');
+export async function getCircles(): Promise<Circle[]> {
+    const data = await apiGet<{ circles: Circle[] }>('/v1/circles');
+    return data.circles || [];
 }
 
 /**
@@ -79,10 +80,11 @@ export function getCircle(id: string) {
 }
 
 /**
- * Create a new circle
+ * Create a new circle (backend responds with { circle: Circle, message: string })
  */
-export function createCircle(data: CreateCircleRequest) {
-    return apiPost<Circle>('/v1/circles', data);
+export async function createCircle(data: CreateCircleRequest): Promise<Circle> {
+    const result = await apiPost<{ circle: Circle; message: string }>('/v1/circles', data);
+    return result.circle;
 }
 
 /**

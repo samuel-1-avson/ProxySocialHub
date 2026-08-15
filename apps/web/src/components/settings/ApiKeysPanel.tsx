@@ -14,14 +14,18 @@ export function ApiKeysPanel() {
     const [newKeyName, setNewKeyName] = useState("");
     const [createdKey, setCreatedKey] = useState<string | null>(null);
     const [copiedKey, setCopiedKey] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [creating, setCreating] = useState(false);
 
     const loadKeys = useCallback(async () => {
         setLoading(true);
+        setError(null);
         try {
             const keys = await listAPIKeys();
             setApiKeys(keys);
         } catch (err) {
             console.error("Failed to load API keys", err);
+            setError(err instanceof Error ? err.message : "Failed to load API keys");
         } finally {
             setLoading(false);
         }
@@ -32,23 +36,45 @@ export function ApiKeysPanel() {
     }, [loadKeys]);
 
     const handleCreateKey = async () => {
-        if (!newKeyName.trim()) return;
+        if (!newKeyName.trim() || creating) return;
+        setCreating(true);
+        setError(null);
         try {
-            const { api_key, ...keyData } = await createAPIKey(newKeyName.trim());
-            setCreatedKey(api_key);
-            setApiKeys([keyData as APIKey, ...apiKeys]);
+            const res = await createAPIKey(newKeyName.trim());
+            const plaintext = res.api_key?.key;
+            if (!plaintext) {
+                throw new Error("API did not return a one-time key secret");
+            }
+            setCreatedKey(plaintext);
+            setApiKeys([
+                {
+                    id: res.api_key.id,
+                    name: res.api_key.name,
+                    prefix: res.api_key.prefix || res.api_key.key_prefix || plaintext.slice(0, 12),
+                    permissions: res.api_key.permissions,
+                    rate_limit_per_minute: res.api_key.rate_limit_per_minute,
+                    created_at: res.api_key.created_at,
+                    expires_at: res.api_key.expires_at,
+                },
+                ...apiKeys,
+            ]);
             setNewKeyName("");
         } catch (err) {
             console.error("Failed to create key", err);
+            setError(err instanceof Error ? err.message : "Failed to create API key");
+        } finally {
+            setCreating(false);
         }
     };
 
     const handleRevokeKey = async (id: string) => {
+        setError(null);
         try {
             await revokeAPIKey(id);
             setApiKeys(apiKeys.filter((k) => k.id !== id));
         } catch (err) {
             console.error("Failed to revoke key", err);
+            setError(err instanceof Error ? err.message : "Failed to revoke API key");
         }
     };
 
@@ -68,7 +94,7 @@ export function ApiKeysPanel() {
                     API keys
                 </h2>
                 <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest mt-1 opacity-60">
-                    Tokens for CLI, agents, and automated nodes
+                    Tokens for agents and bulk/automation APIs (`pk_…`)
                 </p>
             </div>
 
@@ -89,9 +115,15 @@ export function ApiKeysPanel() {
 
                 <div className="p-10 space-y-8">
                     <p className="text-[11px] font-mono text-muted-foreground uppercase leading-relaxed max-w-2xl">
-                        Use identity tokens for automated nodes, AI agents, or CLI access. They provide
-                        limited-scope access without a wallet signature on every heartbeat.
+                        Use these `pk_` keys with `X-API-Key` for bulk/partner automation.
+                        Provider node CLI uses <span className="text-primary">Provider → API tokens</span>, not this page.
                     </p>
+
+                    {error ? (
+                        <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-xs font-mono text-rose-300">
+                            {error}
+                        </div>
+                    ) : null}
 
                     <div className="flex gap-4 p-4 rounded-2xl bg-black/40 border border-white/5">
                         <Input
@@ -101,11 +133,11 @@ export function ApiKeysPanel() {
                             className="h-12 bg-transparent border-none font-mono text-xs uppercase focus:ring-0"
                         />
                         <Button
-                            onClick={handleCreateKey}
-                            disabled={!newKeyName.trim()}
+                            onClick={() => void handleCreateKey()}
+                            disabled={!newKeyName.trim() || creating}
                             className="h-12 px-8 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black font-mono text-[10px] uppercase tracking-widest"
                         >
-                            Generate token
+                            {creating ? "Generating…" : "Generate token"}
                         </Button>
                     </div>
 

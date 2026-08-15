@@ -74,7 +74,7 @@ export default function SavedListingsPage() {
             )}
 
             {!isLoading && !error && entries.length === 0 && (
-                <div className="text-center py-16 border border-dashed border-white/10 rounded-2xl">
+                <div className="text-center py-16 border border-dashed border-border rounded-2xl">
                     <p className="text-muted-foreground mb-4">No saved listings yet.</p>
                     <Link href="/marketplace" className="text-purple-400 font-bold uppercase text-xs tracking-widest">
                         Browse marketplace
@@ -89,7 +89,7 @@ export default function SavedListingsPage() {
                     return (
                         <li
                             key={entry.id}
-                            className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl border border-white/10 bg-white/[0.02]"
+                            className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl border border-border bg-card"
                         >
                             <div className="min-w-0">
                                 <Link href={`/marketplace/${listing.id}`} className="font-bold hover:text-purple-400">
@@ -111,7 +111,7 @@ export default function SavedListingsPage() {
                                     type="button"
                                     disabled={unsaveMutation.isPending}
                                     onClick={() => unsaveMutation.mutate(listing.id)}
-                                    className="px-3 py-2 rounded-lg border border-white/10 text-[10px] font-bold uppercase tracking-widest hover:bg-white/5 inline-flex items-center gap-1"
+                                    className="px-3 py-2 rounded-lg border border-border text-[10px] font-bold uppercase tracking-widest hover:bg-surface-hover inline-flex items-center gap-1"
                                 >
                                     <Heart size={12} /> Remove
                                 </button>
@@ -127,7 +127,7 @@ export default function SavedListingsPage() {
                         type="button"
                         disabled={page <= 1}
                         onClick={() => setPage((p) => Math.max(1, p - 1))}
-                        className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest rounded-lg border border-white/10 disabled:opacity-40"
+                        className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest rounded-lg border border-border disabled:opacity-40"
                     >
                         Previous
                     </button>
@@ -138,7 +138,7 @@ export default function SavedListingsPage() {
                         type="button"
                         disabled={page >= totalPages}
                         onClick={() => setPage((p) => p + 1)}
-                        className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest rounded-lg border border-white/10 disabled:opacity-40"
+                        className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest rounded-lg border border-border disabled:opacity-40"
                     >
                         Next
                     </button>

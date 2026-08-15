@@ -22,6 +22,11 @@ export interface Proposal {
     thread_id?: string;
     ipfs_hash?: string;
     actions?: unknown[];
+    /** Present when the caller is authenticated and has already voted. */
+    my_vote?: {
+        choice: 'yes' | 'no' | string;
+        power: number;
+    };
 }
 
 export interface Vote {
@@ -32,6 +37,12 @@ export interface Vote {
     voting_power: number;
     power?: number;
     signature?: string;
+    yes_votes?: number;
+    no_votes?: number;
+    my_vote?: {
+        choice: 'yes' | 'no' | string;
+        power: number;
+    };
 }
 
 export interface GovernanceExecutionReport {
@@ -47,16 +58,55 @@ export interface GovernanceExecutionReport {
 type SignMessageFn = (message: Uint8Array) => Promise<Uint8Array>;
 type SignTransactionFn = (tx: Transaction) => Promise<Transaction>;
 
+function humanizeGovernanceBindError(raw: string): string {
+    const upper = raw.toUpperCase();
+    if (upper.includes('CREATEPROPOSALREQUEST.DESCRIPTION') && upper.includes("'MIN'")) {
+        return 'Description must be at least 20 characters.';
+    }
+    if (upper.includes('CREATEPROPOSALREQUEST.TITLE') && upper.includes("'MIN'")) {
+        return 'Title must be at least 5 characters.';
+    }
+    if (upper.includes('CREATEPROPOSALREQUEST.TITLE') && upper.includes("'MAX'")) {
+        return 'Title must be at most 255 characters.';
+    }
+    if (upper.includes('CREATEPROPOSALREQUEST.DURATION_DAYS')) {
+        return 'Voting duration must be between 1 and 14 days.';
+    }
+    return raw;
+}
+
 function governanceErrorMessage(payload: Record<string, unknown>, fallback: string): string {
     const base =
-        (typeof payload.error === 'string' && payload.error) ||
         (typeof payload.message === 'string' && payload.message) ||
+        (typeof payload.error === 'string' && payload.error) ||
+        (typeof payload.hint === 'string' && payload.hint) ||
         fallback;
+    const friendly = humanizeGovernanceBindError(base);
+    const details =
+        typeof payload.details === 'string'
+            ? payload.details
+            : typeof payload.detail === 'string'
+              ? payload.detail
+              : '';
+    const withDetails = details && !friendly.includes(details) ? `${friendly} — ${details}` : friendly;
     const exec = payload.governance_execution as GovernanceExecutionReport | undefined;
     if (exec?.message) {
-        return `${base} — ${exec.message}`;
+        return `${withDetails} — ${exec.message}`;
     }
-    return base;
+    return withDetails;
+}
+
+function normalizeMyVote(
+    raw: unknown
+): Proposal['my_vote'] | undefined {
+    if (!raw || typeof raw !== 'object') return undefined;
+    const mv = raw as Record<string, unknown>;
+    const choice = String(mv.choice ?? '').toLowerCase();
+    if (choice !== 'yes' && choice !== 'no') return undefined;
+    return {
+        choice,
+        power: Number(mv.power ?? 1),
+    };
 }
 
 function normalizeProposal(raw: Record<string, unknown>): Proposal {
@@ -83,6 +133,7 @@ function normalizeProposal(raw: Record<string, unknown>): Proposal {
         quorum: Number(raw.quorum ?? 100),
         thread_id: raw.thread_id ? String(raw.thread_id) : undefined,
         ipfs_hash: raw.ipfs_hash ? String(raw.ipfs_hash) : undefined,
+        my_vote: normalizeMyVote(raw.my_vote),
     };
 }
 
@@ -109,7 +160,14 @@ export async function getProposals(status?: string): Promise<Proposal[]> {
 }
 
 export async function getProposal(id: string): Promise<Proposal> {
-    const response = await fetch(`${API_BASE_URL}/v1/governance/proposals/${id}`);
+    const url = `${API_BASE_URL}/v1/governance/proposals/${id}`;
+    // Prefer auth so optional JWT attaches my_vote; fall back for public viewers.
+    let response: Response;
+    try {
+        response = await fetchWithAuth(url);
+    } catch {
+        response = await fetch(url);
+    }
     if (!response.ok) {
         throw new Error('Failed to fetch proposal');
     }
@@ -174,7 +232,10 @@ export async function createProposal(input: CreateProposalInput): Promise<Propos
     });
     const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
     if (!response.ok) {
-        throw new Error(governanceErrorMessage(data, 'Failed to create proposal'));
+        const fallback = response.status
+            ? `Failed to create proposal (HTTP ${response.status})`
+            : 'Failed to create proposal';
+        throw new Error(governanceErrorMessage(data, fallback));
     }
 
     const raw = (data.proposal ?? data) as Record<string, unknown>;
@@ -200,7 +261,8 @@ export async function castVote(
     walletAddress: string,
     onChainTxSig: string
 ): Promise<Vote> {
-    const mirrorDelaysMs = [400, 800, 1200, 2000, 3000, 4000, 5000];
+    // Mirror lags behind relay acceptance; give confirmation room before failing.
+    const mirrorDelaysMs = [800, 1200, 1600, 2000, 2500, 3000, 4000, 5000, 6000];
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt <= mirrorDelaysMs.length; attempt++) {
@@ -218,15 +280,31 @@ export async function castVote(
             }
         );
         const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-        if (response.ok) {
-            return data as unknown as Vote;
+        if (response.ok || response.status === 202) {
+            const myVote = normalizeMyVote(data.my_vote) ?? {
+                choice,
+                power: Number(data.power ?? 1),
+            };
+            return {
+                id: String(data.id ?? ''),
+                proposal_id: proposalId,
+                voter_id: '',
+                choice,
+                voting_power: myVote.power,
+                power: myVote.power,
+                yes_votes: data.yes_votes != null ? Number(data.yes_votes) : undefined,
+                no_votes: data.no_votes != null ? Number(data.no_votes) : undefined,
+                my_vote: myVote,
+            };
         }
 
         const message = governanceErrorMessage(data, 'Failed to cast vote');
         lastError = new Error(message);
         const retryable =
-            response.status === 409 &&
-            /not finalized|not found for wallet/i.test(message);
+            (response.status === 409 &&
+                /not finalized|not found for wallet|not visible yet/i.test(message)) ||
+            (response.status === 502 &&
+                /verify on-chain vote|vote PDA|not found/i.test(message));
         if (retryable && attempt < mirrorDelaysMs.length) {
             await sleep(mirrorDelaysMs[attempt]);
             continue;
@@ -266,6 +344,29 @@ export async function castGovernanceVote(
         throw new Error(governanceErrorMessage(buildData, 'Failed to build vote transaction'));
     }
 
+    if (buildData.already_voted) {
+        const myVote = normalizeMyVote(buildData.my_vote) ?? {
+            choice: String(buildData.choice ?? choice) === 'no' ? 'no' : 'yes',
+            power: Number(buildData.power ?? 1),
+        };
+        // Ensure DB mirror exists for already-on-chain ballots.
+        try {
+            return await castVote(proposalId, choice, signature, walletAddress, 'already-on-chain');
+        } catch {
+            return {
+                id: '',
+                proposal_id: proposalId,
+                voter_id: '',
+                choice: myVote.choice === 'no' ? 'no' : 'yes',
+                voting_power: myVote.power,
+                power: myVote.power,
+                yes_votes: buildData.yes_votes != null ? Number(buildData.yes_votes) : undefined,
+                no_votes: buildData.no_votes != null ? Number(buildData.no_votes) : undefined,
+                my_vote: myVote,
+            };
+        }
+    }
+
     const unsignedB64 = String(buildData.unsigned_transaction_base64 ?? '');
     if (!unsignedB64) {
         throw new Error('Vote build response missing unsigned transaction');
@@ -275,20 +376,50 @@ export async function castGovernanceVote(
     const signed = await signTransaction(tx);
     const signedB64 = Buffer.from(signed.serialize()).toString('base64');
 
-    const relayRes = await fetchWithAuth(
-        `${API_BASE_URL}/v1/governance/proposals/${proposalId}/vote/relay`,
-        {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                wallet_address: walletAddress,
-                signed_transaction_base64: signedB64,
-            }),
+    let relayData: Record<string, unknown> = {};
+    let relayRes: Response | null = null;
+    let lastRelayErr = '';
+    for (let attempt = 0; attempt < 4; attempt++) {
+        if (attempt > 0) {
+            await sleep(800 * attempt);
         }
-    );
-    const relayData = (await relayRes.json().catch(() => ({}))) as Record<string, unknown>;
-    if (!relayRes.ok) {
-        throw new Error(governanceErrorMessage(relayData, 'Failed to relay vote transaction'));
+        relayRes = await fetchWithAuth(
+            `${API_BASE_URL}/v1/governance/proposals/${proposalId}/vote/relay`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    wallet_address: walletAddress,
+                    signed_transaction_base64: signedB64,
+                }),
+            }
+        );
+        relayData = (await relayRes.json().catch(() => ({}))) as Record<string, unknown>;
+        if (relayRes.ok || relayData.already_voted) {
+            break;
+        }
+        lastRelayErr = governanceErrorMessage(relayData, 'Failed to relay vote transaction');
+        const retryable =
+            /rate.?limit|too many requests|temporar|429|-32029|blockhash|expired/i.test(
+                lastRelayErr
+            );
+        if (!retryable || attempt === 3) {
+            // Prior attempt may have landed the vote PDA — mirror without a fresh relay.
+            if (/already|exist|in use|custom program|0x0/i.test(lastRelayErr) || relayData.already_voted) {
+                await sleep(800);
+                return castVote(proposalId, choice, signature, walletAddress, 'already-on-chain');
+            }
+            throw new Error(lastRelayErr);
+        }
+    }
+
+    if (!relayRes || (!relayRes.ok && !relayData.already_voted)) {
+        throw new Error(lastRelayErr || 'Failed to relay vote transaction');
+    }
+
+    if (relayData.already_voted) {
+        await sleep(400);
+        return castVote(proposalId, choice, signature, walletAddress, 'already-on-chain');
     }
 
     const onChainTxSig = String(relayData.tx_sig ?? '');
@@ -296,5 +427,26 @@ export async function castGovernanceVote(
         throw new Error('Vote relay did not return a transaction signature');
     }
 
+    // Give RPC a beat to land the vote PDA before the first mirror attempt.
+    await sleep(1000);
     return castVote(proposalId, choice, signature, walletAddress, onChainTxSig);
+}
+
+/** Finalize on-chain voting (permissionless after end_slot). Does not auto-spend treasury. */
+export async function finalizeProposal(proposalId: string): Promise<{
+    status: string;
+    tx_sig?: string;
+}> {
+    const response = await fetchWithAuth(
+        `${API_BASE_URL}/v1/governance/proposals/${proposalId}/execute`,
+        { method: 'POST' }
+    );
+    const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!response.ok) {
+        throw new Error(governanceErrorMessage(data, 'Failed to finalize proposal'));
+    }
+    return {
+        status: String(data.status ?? data.message ?? 'finalized'),
+        tx_sig: typeof data.tx_sig === 'string' ? data.tx_sig : undefined,
+    };
 }

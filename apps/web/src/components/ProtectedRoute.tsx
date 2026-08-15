@@ -40,7 +40,7 @@ export function ProtectedRoute({ children, requireAuth = true, requiredRole }: P
             <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--background)" }}>
                 <div className="text-center">
                     <div className="spinner mx-auto mb-4" style={{ width: 40, height: 40 }}></div>
-                    <p style={{ color: "var(--muted)" }}>Loading...</p>
+                    <p style={{ color: "var(--muted-foreground)" }}>Loading...</p>
                 </div>
             </div>
         );
@@ -55,7 +55,7 @@ export function ProtectedRoute({ children, requireAuth = true, requiredRole }: P
         return (
             <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--background)" }}>
                 <div className="text-center">
-                    <p style={{ color: "var(--muted)" }}>Redirecting to login...</p>
+                    <p style={{ color: "var(--muted-foreground)" }}>Redirecting to login...</p>
                 </div>
             </div>
         );

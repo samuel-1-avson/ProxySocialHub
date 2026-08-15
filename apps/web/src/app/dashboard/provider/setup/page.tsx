@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { GlassCard } from '@/components/ui/glass-card';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -10,11 +10,12 @@ import {
     FileCode, Wifi, Loader2, AlertCircle, ChevronRight
 } from 'lucide-react';
 import {
-    createProviderToken, createNode,
+    createProviderToken, createNode, getProviderStatus,
     type CreateTokenResponse,
 } from '@/lib/api/provider';
 import { ProviderNodeConnectPanel } from '@/components/provider/ProviderNodeConnectPanel';
 import { saveProviderApiKey } from '@/lib/provider-config';
+import { normalizeCountryCode } from '@/lib/geo/regional-hubs';
 import Link from 'next/link';
 
 const STEPS = [
@@ -38,8 +39,22 @@ export default function SetupPage() {
     const [nodeName, setNodeName] = useState('');
     const [nodeCountry, setNodeCountry] = useState('');
     const [nodeCity, setNodeCity] = useState('');
+    const [countryTouched, setCountryTouched] = useState(false);
     const [nodeCreated, setNodeCreated] = useState(false);
     const [registeredNodeId, setRegisteredNodeId] = useState<string | null>(null);
+
+    const { data: providerStatus } = useQuery({
+        queryKey: ['provider-status'],
+        queryFn: getProviderStatus,
+        staleTime: 60_000,
+    });
+
+    // Prefill country from GeoIP; city stays optional / empty unless the user types it.
+    useEffect(() => {
+        if (countryTouched || nodeCountry.trim()) return;
+        const detected = normalizeCountryCode(providerStatus?.detected_geo?.country);
+        if (detected) setNodeCountry(detected);
+    }, [providerStatus?.detected_geo?.country, countryTouched, nodeCountry]);
 
     const tokenMutation = useMutation({
         mutationFn: () => createProviderToken({ name: tokenName }),
@@ -144,8 +159,16 @@ export default function SetupPage() {
                             name={nodeName}
                             country={nodeCountry}
                             city={nodeCity}
+                            countryDetected={
+                                !!normalizeCountryCode(providerStatus?.detected_geo?.country) &&
+                                normalizeCountryCode(nodeCountry) ===
+                                    normalizeCountryCode(providerStatus?.detected_geo?.country)
+                            }
                             onNameChange={setNodeName}
-                            onCountryChange={setNodeCountry}
+                            onCountryChange={(v) => {
+                                setCountryTouched(true);
+                                setNodeCountry(v.toUpperCase());
+                            }}
                             onCityChange={setNodeCity}
                             onRegister={() => nodeMutation.mutate()}
                             loading={nodeMutation.isPending}
@@ -275,7 +298,7 @@ function TokenStep({
 
 // ─────────────── Step 2: Node Registration ───────────────
 function NodeStep({
-    token, name, country, city,
+    token, name, country, city, countryDetected,
     onNameChange, onCountryChange, onCityChange,
     onRegister, loading, error, onBack,
 }: {
@@ -283,6 +306,7 @@ function NodeStep({
     name: string;
     country: string;
     city: string;
+    countryDetected?: boolean;
     onNameChange: (v: string) => void;
     onCountryChange: (v: string) => void;
     onCityChange: (v: string) => void;
@@ -297,7 +321,7 @@ function NodeStep({
                 <div>
                     <h2 className="text-lg font-bold font-mono mb-1">Register Your Node</h2>
                     <p className="text-xs text-muted-foreground font-mono">
-                        Give your node a name so you can identify it in the dashboard. Location is optional but improves routing.
+                        Give your node a name so you can identify it in the dashboard. Country is detected from your connection; city is optional and improves map routing.
                     </p>
                 </div>
 
@@ -326,16 +350,21 @@ function NodeStep({
                     <div className="grid grid-cols-2 gap-3">
                         <div>
                             <label className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground block mb-1.5">
-                                Country (optional)
+                                Country {countryDetected ? '(detected)' : ''}
                             </label>
                             <input
                                 type="text"
                                 value={country}
                                 onChange={(e) => onCountryChange(e.target.value)}
-                                placeholder="US"
+                                placeholder="e.g. GH"
                                 maxLength={2}
                                 className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm font-mono focus:outline-none focus:border-primary/50 transition-colors uppercase"
                             />
+                            {countryDetected && (
+                                <p className="mt-1 text-[10px] font-mono text-emerald-400/80">
+                                    Detected from your IP — you can edit if needed.
+                                </p>
+                            )}
                         </div>
                         <div>
                             <label className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground block mb-1.5">
@@ -345,7 +374,7 @@ function NodeStep({
                                 type="text"
                                 value={city}
                                 onChange={(e) => onCityChange(e.target.value)}
-                                placeholder="New York"
+                                placeholder="e.g. Bibiani"
                                 className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm font-mono focus:outline-none focus:border-primary/50 transition-colors"
                             />
                         </div>

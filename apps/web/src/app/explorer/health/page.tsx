@@ -62,8 +62,8 @@ function SubsystemCard({ label, status, icon: Icon, detail }: { label: string; s
                 <Icon size={18} className={`${iconColor} opacity-60`} />
                 <StatusIcon size={14} className={iconColor} />
             </div>
-            <div className="text-sm font-black text-white uppercase tracking-tighter">{label}</div>
-            {detail && <div className="text-[9px] font-black text-white/30 uppercase tracking-widest mt-1">{detail}</div>}
+            <div className="text-sm font-black text-foreground uppercase tracking-tighter">{label}</div>
+            {detail && <div className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mt-1">{detail}</div>}
             <div className={`text-[9px] font-black uppercase tracking-widest mt-3 ${iconColor}`}>{status}</div>
         </GlassCard>
     );
@@ -114,24 +114,24 @@ export default function HealthPage() {
     return (
         <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-8 font-mono">
             {/* Header */}
-            <motion.header variants={itemVariants} className="flex flex-col gap-6 border-b border-white/5 pb-8">
-                <Link href="/explorer" className="flex items-center gap-2 text-[10px] font-black text-white/30 hover:text-primary transition-colors uppercase tracking-[0.3em] w-fit">
+            <motion.header variants={itemVariants} className="flex flex-col gap-6 border-b border-border pb-8">
+                <Link href="/explorer" className="flex items-center gap-2 text-[10px] font-black text-muted-foreground hover:text-primary transition-colors uppercase tracking-[0.3em] w-fit">
                     <ArrowLeft size={14} /> Back to Grid
                 </Link>
                 <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-4">
                     <div>
                         <div className="text-[10px] font-black text-primary uppercase tracking-[0.5em] mb-1">Grid Telemetry // Health</div>
-                        <h1 className="text-4xl font-black uppercase tracking-tighter text-white flex items-center gap-4">
+                        <h1 className="text-4xl font-black uppercase tracking-tighter text-foreground flex items-center gap-4">
                             <Activity className="text-primary" size={32} /> Network Health
                         </h1>
-                        <p className="text-[11px] font-black text-white/30 uppercase tracking-widest mt-2">
+                        <p className="text-[11px] font-black text-muted-foreground uppercase tracking-widest mt-2">
                             Real-time subsystem status and historical uptime
                         </p>
                     </div>
                     {health && (
                         <div className="flex flex-col items-end gap-2">
                             <StatusIndicator status={health.status} />
-                            <span className="text-[8px] font-black text-white/20 uppercase tracking-widest">
+                            <span className="text-[8px] font-black text-muted-foreground uppercase tracking-widest">
                                 Last checked {formatDistanceToNow(new Date(health.last_checked), { addSuffix: true })}
                             </span>
                         </div>
@@ -152,15 +152,15 @@ export default function HealthPage() {
                         <div className="flex items-center gap-4">
                             <TrendingUp size={20} className={uptime24h >= 99 ? 'text-emerald-400' : uptime24h >= 95 ? 'text-yellow-400' : 'text-rose-400'} />
                             <div>
-                                <div className="text-[9px] font-black text-white/30 uppercase tracking-widest">24h Network Uptime</div>
+                                <div className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">24h Network Uptime</div>
                                 <div className={`text-3xl font-black tracking-tighter ${uptime24h >= 99 ? 'text-emerald-400' : uptime24h >= 95 ? 'text-yellow-400' : 'text-rose-400'}`}>
                                     {uptime24h.toFixed(2)}%
                                 </div>
                             </div>
                         </div>
                         <div className="text-right">
-                            <div className="text-[9px] font-black text-white/30 uppercase tracking-widest">Active Nodes</div>
-                            <div className="text-2xl font-black text-white">{health?.active_nodes ?? metrics?.active_nodes ?? '—'}</div>
+                            <div className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Active Nodes</div>
+                            <div className="text-2xl font-black text-foreground">{health?.active_nodes ?? metrics?.active_nodes ?? '—'}</div>
                         </div>
                     </div>
                 </motion.section>
@@ -181,14 +181,14 @@ export default function HealthPage() {
             {/* Charts */}
             {loadingHistory ? (
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                    {[0, 1].map(i => <div key={i} className="h-56 animate-pulse bg-white/[0.01] border border-white/5 rounded-[2rem]" />)}
+                    {[0, 1].map(i => <div key={i} className="h-56 animate-pulse bg-card border border-border rounded-[2rem]" />)}
                 </div>
             ) : (
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                     {/* Active Nodes History */}
                     <motion.section variants={itemVariants}>
-                        <GlassCard className="border-white/5 bg-white/[0.01] rounded-[2rem] !p-6">
-                            <h3 className="text-sm font-black uppercase tracking-tighter text-white mb-5 flex items-center gap-2">
+                        <GlassCard className="border-border bg-card rounded-[2rem] !p-6">
+                            <h3 className="text-sm font-black uppercase tracking-tighter text-foreground mb-5 flex items-center gap-2">
                                 <Server size={14} className="text-primary" /> Active Nodes — 24h
                             </h3>
                             {mounted && history.length > 0 ? (
@@ -208,9 +208,9 @@ export default function HealthPage() {
                                     </AreaChart>
                                 </ResponsiveContainer>
                             ) : (
-                                <div className="h-[160px] flex flex-col items-center justify-center border-2 border-dashed border-white/5 rounded-xl">
-                                    <History size={24} className="text-white/10 mb-2" />
-                                    <p className="text-[8px] font-black text-white/20 uppercase tracking-widest text-center px-4">
+                                <div className="h-[160px] flex flex-col items-center justify-center border-2 border-dashed border-border rounded-xl">
+                                    <History size={24} className="text-muted-foreground mb-2" />
+                                    <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest text-center px-4">
                                         {historyData?.message || 'No history data yet'}
                                     </p>
                                 </div>
@@ -220,8 +220,8 @@ export default function HealthPage() {
 
                     {/* Response Time History */}
                     <motion.section variants={itemVariants}>
-                        <GlassCard className="border-white/5 bg-white/[0.01] rounded-[2rem] !p-6">
-                            <h3 className="text-sm font-black uppercase tracking-tighter text-white mb-5 flex items-center gap-2">
+                        <GlassCard className="border-border bg-card rounded-[2rem] !p-6">
+                            <h3 className="text-sm font-black uppercase tracking-tighter text-foreground mb-5 flex items-center gap-2">
                                 <Clock size={14} className="text-yellow-400" /> Response Time — 24h
                             </h3>
                             {mounted && history.length > 0 ? (
@@ -237,9 +237,9 @@ export default function HealthPage() {
                                     </LineChart>
                                 </ResponsiveContainer>
                             ) : (
-                                <div className="h-[160px] flex flex-col items-center justify-center border-2 border-dashed border-white/5 rounded-xl">
-                                    <History size={24} className="text-white/10 mb-2" />
-                                    <p className="text-[8px] font-black text-white/20 uppercase tracking-widest text-center px-4">
+                                <div className="h-[160px] flex flex-col items-center justify-center border-2 border-dashed border-border rounded-xl">
+                                    <History size={24} className="text-muted-foreground mb-2" />
+                                    <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest text-center px-4">
                                         {historyData?.message || 'No history data yet'}
                                     </p>
                                 </div>
@@ -251,20 +251,20 @@ export default function HealthPage() {
 
             {/* Health Event Log */}
             <motion.section variants={itemVariants} className="space-y-4">
-                <h2 className="text-sm font-black uppercase tracking-tighter text-white flex items-center gap-2">
+                <h2 className="text-sm font-black uppercase tracking-tighter text-foreground flex items-center gap-2">
                     <History size={14} className="text-primary" /> Health Event Log
                 </h2>
-                <GlassCard className="overflow-hidden border-white/5 bg-white/[0.01] rounded-[2rem]">
+                <GlassCard className="overflow-hidden border-border bg-card rounded-[2rem]">
                     {healthEvents.length > 0 ? (
-                        <div className="divide-y divide-white/5">
+                        <div className="divide-y divide-border">
                             {healthEvents.map((ev: any, i: number) => (
                                 <div key={i} className="flex items-center gap-4 px-6 py-4">
                                     <div className={`w-2 h-2 rounded-full flex-shrink-0 ${ev.status === 'healthy' ? 'bg-emerald-500' : ev.status === 'degraded' ? 'bg-yellow-400' : 'bg-rose-500'}`} />
                                     <div className="flex-1 min-w-0">
-                                        <div className="text-[10px] font-black text-white">{ev.message || ev.status}</div>
-                                        <div className="text-[8px] text-white/30 mt-0.5">{ev.subsystem || 'Network'}</div>
+                                        <div className="text-[10px] font-black text-foreground">{ev.message || ev.status}</div>
+                                        <div className="text-[8px] text-muted-foreground mt-0.5">{ev.subsystem || 'Network'}</div>
                                     </div>
-                                    <div className="text-[8px] font-black text-white/20 uppercase tracking-wider flex-shrink-0">
+                                    <div className="text-[8px] font-black text-muted-foreground uppercase tracking-wider flex-shrink-0">
                                         {ev.timestamp ? (() => { try { return formatDistanceToNow(new Date(ev.timestamp), { addSuffix: true }); } catch { return '—'; } })() : '—'}
                                     </div>
                                 </div>
@@ -273,8 +273,8 @@ export default function HealthPage() {
                     ) : (
                         <div className="py-16 text-center">
                             <CheckCircle size={40} className="text-emerald-400/20 mx-auto mb-4" />
-                            <p className="text-[10px] font-black text-white/20 uppercase tracking-widest">No incidents recorded</p>
-                            <p className="text-[8px] font-black text-white/10 uppercase tracking-widest mt-2">All systems nominal</p>
+                            <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">No incidents recorded</p>
+                            <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest mt-2">All systems nominal</p>
                         </div>
                     )}
                 </GlassCard>

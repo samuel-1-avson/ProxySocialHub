@@ -10,11 +10,12 @@ function pointColor(n: NodeGeoPoint, selId?: string): string {
 }
 
 function pointRadius(n: NodeGeoPoint) {
-    return n.is_validator ? 0.06 : 0.04;
+    // Degrees of arc — keep large enough to see on a full-earth view.
+    return n.is_validator ? 0.55 : 0.4;
 }
 
 function pointAltitude(n: NodeGeoPoint) {
-    return n.is_active ? 0.025 : 0.008;
+    return n.is_active ? 0.04 : 0.02;
 }
 
 function listingPointColor(pin: ExplorerListingPin, selected: boolean): string {
@@ -23,7 +24,7 @@ function listingPointColor(pin: ExplorerListingPin, selected: boolean): string {
 }
 
 function listingPointRadius(_pin: ExplorerListingPin, selected: boolean): number {
-    return selected ? 0.32 : 0.2;
+    return selected ? 0.5 : 0.38;
 }
 
 export function globePointLat(p: GlobePoint): number {
@@ -73,7 +74,7 @@ function listingTooltip(pin: ExplorerListingPin): string {
         </div>
         <div style="font-size:10px;color:#fff;font-weight:600;margin-bottom:6px;">${pin.title.replace(/[<>&"']/g, '')}</div>
         <div style="color:rgba(255,255,255,.45);font-size:9px;margin-bottom:2px;">📍 ${loc}</div>
-        <div style="color:rgba(255,255,255,.35);font-size:9px;">${price} SOL/GB · click to inspect</div>
+        <div style="color:rgba(255,255,255,.35);font-size:9px;">$${price}/GB · click to inspect</div>
     </div>`;
 }
 

@@ -51,7 +51,7 @@ function StatusDot({ isActive, lastHeartbeat }: { isActive: boolean; lastHeartbe
 }
 
 function SortIcon({ field, sortField, sortDir }: { field: SortField; sortField: SortField; sortDir: SortDir }) {
-    if (field !== sortField) return <ArrowUpDown size={10} className="text-white/20" />;
+    if (field !== sortField) return <ArrowUpDown size={10} className="text-muted-foreground" />;
     return sortDir === 'desc'
         ? <ArrowDown size={10} className="text-primary" />
         : <ArrowUp size={10} className="text-primary" />;
@@ -135,19 +135,19 @@ export default function NodesPage() {
     return (
         <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-8 font-mono">
             {/* Header */}
-            <motion.header variants={itemVariants} className="flex flex-col gap-6 border-b border-white/5 pb-8">
-                <Link href="/explorer" className="flex items-center gap-2 text-[10px] font-black text-white/30 hover:text-primary transition-colors uppercase tracking-[0.3em] w-fit">
+            <motion.header variants={itemVariants} className="flex flex-col gap-6 border-b border-border pb-8">
+                <Link href="/explorer" className="flex items-center gap-2 text-[10px] font-black text-muted-foreground hover:text-primary transition-colors uppercase tracking-[0.3em] w-fit">
                     <ArrowLeft size={14} /> Back to Grid
                 </Link>
 
                 <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-6">
                     <div>
                         <div className="text-[10px] font-black text-primary uppercase tracking-[0.5em] mb-1">Grid Telemetry // Nodes</div>
-                        <h1 className="text-4xl font-black uppercase tracking-tighter text-white flex items-center gap-4">
+                        <h1 className="text-4xl font-black uppercase tracking-tighter text-foreground flex items-center gap-4">
                             <Server className="text-primary" size={32} />
                             Network Relays
                         </h1>
-                        <p className="text-[11px] font-black text-white/30 uppercase tracking-widest mt-2">
+                        <p className="text-[11px] font-black text-muted-foreground uppercase tracking-widest mt-2">
                             Active validators and proxy nodes powering the network
                         </p>
                         {searchQuery ? (
@@ -158,12 +158,12 @@ export default function NodesPage() {
                     </div>
                     <div className="flex items-center gap-6">
                         <div className="text-right">
-                            <p className="text-[9px] font-black text-white/20 uppercase tracking-[0.3em]">Active Nodes</p>
-                            <p className="text-3xl font-black text-white tracking-tighter">{data?.active?.toLocaleString() || '0'}</p>
+                            <p className="text-[9px] font-black text-muted-foreground uppercase tracking-[0.3em]">Active Nodes</p>
+                            <p className="text-3xl font-black text-foreground tracking-tighter">{data?.active?.toLocaleString() || '0'}</p>
                         </div>
                         <div className="text-right">
-                            <p className="text-[9px] font-black text-white/20 uppercase tracking-[0.3em]">Total</p>
-                            <p className="text-3xl font-black text-white/50 tracking-tighter">{data?.total?.toLocaleString() || '0'}</p>
+                            <p className="text-[9px] font-black text-muted-foreground uppercase tracking-[0.3em]">Total</p>
+                            <p className="text-3xl font-black text-muted-foreground tracking-tighter">{data?.total?.toLocaleString() || '0'}</p>
                         </div>
                     </div>
                 </div>
@@ -172,17 +172,17 @@ export default function NodesPage() {
             {/* Leaderboard Preview — same-day snapshot; official page may add period windows later */}
             {!isLoading && (top3Uptime.length > 0 || top3Bandwidth.length > 0) && (
                 <motion.section variants={itemVariants} className="space-y-3">
-                    <p className="text-[9px] font-black text-white/25 uppercase tracking-widest px-1">
+                    <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest px-1">
                         Preview rankings use current node counters, not a historical period. See{' '}
                         <Link href="/explorer/leaderboard" className="text-primary/60 hover:text-primary">official leaderboard</Link>{' '}
                         for API metadata.
                     </p>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {/* Top Uptime */}
-                    <GlassCard className="!p-6 border-white/5 bg-white/[0.01] rounded-[2rem]">
+                    <GlassCard className="!p-6 border-border bg-card rounded-[2rem]">
                         <div className="flex items-center gap-3 mb-4">
                             <Activity size={16} className="text-emerald-500" />
-                            <h3 className="text-[11px] font-black text-white/60 uppercase tracking-widest">Top Uptime</h3>
+                            <h3 className="text-[11px] font-black text-muted-foreground uppercase tracking-widest">Top Uptime</h3>
                         </div>
                         <div className="space-y-3">
                             {top3Uptime.map((node: any, i) => (
@@ -190,7 +190,7 @@ export default function NodesPage() {
                                     <div className="w-5 flex items-center justify-center">{getRankBadge(i)}</div>
                                     <div className="flex-1 min-w-0">
                                         <div className="text-[10px] font-black text-primary truncate">{node.node_id?.slice(0, 16)}...</div>
-                                        <div className="text-[8px] text-white/30">{node.country}</div>
+                                        <div className="text-[8px] text-muted-foreground">{node.country}</div>
                                     </div>
                                     <div className="text-right">
                                         <div className="text-sm font-black text-emerald-400">{(node.uptime_percent || 0).toFixed(2)}%</div>
@@ -204,10 +204,10 @@ export default function NodesPage() {
                     </GlassCard>
 
                     {/* Top Bandwidth */}
-                    <GlassCard className="!p-6 border-white/5 bg-white/[0.01] rounded-[2rem]">
+                    <GlassCard className="!p-6 border-border bg-card rounded-[2rem]">
                         <div className="flex items-center gap-3 mb-4">
                             <Zap size={16} className="text-yellow-500" />
-                            <h3 className="text-[11px] font-black text-white/60 uppercase tracking-widest">Top Bandwidth</h3>
+                            <h3 className="text-[11px] font-black text-muted-foreground uppercase tracking-widest">Top Bandwidth</h3>
                         </div>
                         <div className="space-y-3">
                             {top3Bandwidth.map((node: any, i) => (
@@ -215,7 +215,7 @@ export default function NodesPage() {
                                     <div className="w-5 flex items-center justify-center">{getRankBadge(i)}</div>
                                     <div className="flex-1 min-w-0">
                                         <div className="text-[10px] font-black text-primary truncate">{node.node_id?.slice(0, 16)}...</div>
-                                        <div className="text-[8px] text-white/30">{node.country}</div>
+                                        <div className="text-[8px] text-muted-foreground">{node.country}</div>
                                     </div>
                                     <div className="text-right">
                                         <div className="text-sm font-black text-yellow-400">{(node.bandwidth_gb || 0).toFixed(2)} GB</div>
@@ -233,16 +233,16 @@ export default function NodesPage() {
 
             {/* Filters */}
             <motion.section variants={itemVariants} className="flex flex-wrap items-center gap-3">
-                <div className="flex items-center gap-1.5 text-[9px] font-black text-white/20 uppercase tracking-widest">
+                <div className="flex items-center gap-1.5 text-[9px] font-black text-muted-foreground uppercase tracking-widest">
                     <Filter size={12} /> Filters:
                 </div>
                 {/* Type Filter */}
-                <div className="flex items-center gap-1 bg-white/[0.02] border border-white/5 rounded-xl p-1">
+                <div className="flex items-center gap-1 bg-muted border border-border rounded-xl p-1">
                     {(['all', 'validator', 'proxy'] as TypeFilter[]).map((t) => (
                         <button
                             key={t}
                             onClick={() => { setTypeFilter(t); setPage(1); }}
-                            className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all ${typeFilter === t ? 'bg-primary text-black' : 'text-white/30 hover:text-white/60'}`}
+                            className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all ${typeFilter === t ? 'bg-primary text-black' : 'text-muted-foreground hover:text-foreground'}`}
                         >
                             {t}
                         </button>
@@ -251,23 +251,23 @@ export default function NodesPage() {
                 {/* Active Only Toggle */}
                 <button
                     onClick={() => { setActiveOnly(v => !v); setPage(1); }}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-xl border text-[9px] font-black uppercase tracking-wider transition-all ${activeOnly ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-white/[0.02] border-white/5 text-white/30'}`}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-xl border text-[9px] font-black uppercase tracking-wider transition-all ${activeOnly ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-muted border-border text-muted-foreground'}`}
                 >
-                    <span className={`w-1.5 h-1.5 rounded-full ${activeOnly ? 'bg-emerald-500' : 'bg-white/20'}`} />
+                    <span className={`w-1.5 h-1.5 rounded-full ${activeOnly ? 'bg-emerald-500' : 'bg-border'}`} />
                     Active Only
                 </button>
-                <div className="ml-auto text-[9px] font-black text-white/20 uppercase tracking-widest">
+                <div className="ml-auto text-[9px] font-black text-muted-foreground uppercase tracking-widest">
                     Showing {displayNodes.length} nodes
                 </div>
             </motion.section>
 
             {/* Nodes Table */}
             <motion.section variants={itemVariants}>
-                <GlassCard className="overflow-hidden border-white/5 bg-white/[0.01]">
+                <GlassCard className="overflow-hidden border-border bg-card">
                     <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse">
                             <thead>
-                                <tr className="bg-white/5 text-white/40 text-[10px] uppercase tracking-[0.2em] font-black">
+                                <tr className="bg-muted text-muted-foreground text-[10px] uppercase tracking-[0.2em] font-black">
                                     <th className="px-3 py-4 w-10 text-center" title="Select to compare (max 3)">
                                         <BarChart2 size={10} className="mx-auto" />
                                     </th>
@@ -276,36 +276,36 @@ export default function NodesPage() {
                                     <th className="px-6 py-4">Location</th>
                                     <th className="px-6 py-4">Type</th>
                                     <th className="px-6 py-4 text-center">
-                                        <button onClick={() => handleSort('uptime_percent')} className="flex items-center gap-1.5 mx-auto hover:text-white/70 transition-colors">
+                                        <button onClick={() => handleSort('uptime_percent')} className="flex items-center gap-1.5 mx-auto hover:text-foreground transition-colors">
                                             Uptime <SortIcon field="uptime_percent" sortField={sortField} sortDir={sortDir} />
                                         </button>
                                     </th>
                                     <th className="px-6 py-4 text-right">
-                                        <button onClick={() => handleSort('bandwidth_gb')} className="flex items-center gap-1.5 ml-auto hover:text-white/70 transition-colors">
+                                        <button onClick={() => handleSort('bandwidth_gb')} className="flex items-center gap-1.5 ml-auto hover:text-foreground transition-colors">
                                             Bandwidth <SortIcon field="bandwidth_gb" sortField={sortField} sortDir={sortDir} />
                                         </button>
                                     </th>
                                     <th className="px-6 py-4 text-right">
-                                        <button onClick={() => handleSort('active_sessions')} className="flex items-center gap-1.5 ml-auto hover:text-white/70 transition-colors">
+                                        <button onClick={() => handleSort('active_sessions')} className="flex items-center gap-1.5 ml-auto hover:text-foreground transition-colors">
                                             Sessions <SortIcon field="active_sessions" sortField={sortField} sortDir={sortDir} />
                                         </button>
                                     </th>
                                     <th className="px-6 py-4 text-right">Last Seen</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-white/5">
+                            <tbody className="divide-y divide-border">
                                 {isLoading ? (
                                     Array.from({ length: 10 }).map((_, i) => (
                                         <tr key={i} className="animate-pulse">
-                                            <td colSpan={9} className="px-6 py-4 h-14 bg-white/5" />
+                                            <td colSpan={9} className="px-6 py-4 h-14 bg-muted" />
                                         </tr>
                                     ))
                                 ) : displayNodes.length === 0 ? (
                                     <tr>
                                         <td colSpan={9} className="px-6 py-20 text-center">
                                             <div className="flex flex-col items-center gap-4">
-                                                <Radio size={48} className="text-white/10" />
-                                                <p className="text-[10px] font-black text-white/20 uppercase tracking-[0.3em]">No nodes match the current filter</p>
+                                                <Radio size={48} className="text-muted-foreground" />
+                                                <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.3em]">No nodes match the current filter</p>
                                             </div>
                                         </td>
                                     </tr>
@@ -314,7 +314,7 @@ export default function NodesPage() {
                                         const isSelected = compareIds.includes(node.node_id);
                                         const atMax = compareIds.length >= 3 && !isSelected;
                                         return (
-                                        <tr key={node.node_id} className={`hover:bg-white/[0.03] transition-colors group cursor-pointer ${isSelected ? 'bg-primary/[0.04]' : ''}`}>
+                                        <tr key={node.node_id} className={`hover:bg-surface-hover transition-colors group cursor-pointer ${isSelected ? 'bg-primary/[0.04]' : ''}`}>
                                             <td className="px-3 py-4 text-center">
                                                 <button
                                                     onClick={e => { e.preventDefault(); toggleCompare(node.node_id); }}
@@ -324,8 +324,8 @@ export default function NodesPage() {
                                                         isSelected
                                                             ? 'bg-primary border-primary text-black'
                                                             : atMax
-                                                            ? 'border-white/10 text-white/10 cursor-not-allowed'
-                                                            : 'border-white/20 text-white/20 hover:border-primary/50 hover:text-primary/50'
+                                                            ? 'border-border text-muted-foreground cursor-not-allowed'
+                                                            : 'border-border text-muted-foreground hover:border-primary/50 hover:text-primary/50'
                                                     }`}
                                                 >
                                                     {isSelected ? <span className="text-[8px] font-black">✓</span> : <span className="text-[8px]">+</span>}
@@ -339,12 +339,12 @@ export default function NodesPage() {
                                                     <div className="font-mono text-primary text-[11px] font-bold group-hover:text-primary/80 transition-colors">
                                                         {node.node_id?.slice(0, 8)}...{node.node_id?.slice(-6)}
                                                     </div>
-                                                    {node.name && <div className="text-[9px] text-white/30 mt-0.5">{node.name}</div>}
+                                                    {node.name && <div className="text-[9px] text-muted-foreground mt-0.5">{node.name}</div>}
                                                 </Link>
                                             </td>
                                             <td className="px-6 py-4">
-                                                <div className="flex items-center gap-2 text-[11px] text-white/60">
-                                                    <MapPin size={12} className="text-white/20" />
+                                                <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                                                    <MapPin size={12} className="text-muted-foreground" />
                                                     {node.country}{node.region ? `, ${node.region}` : ''}
                                                 </div>
                                             </td>
@@ -361,7 +361,7 @@ export default function NodesPage() {
                                             </td>
                                             <td className="px-6 py-4 text-center">
                                                 <div className="flex items-center justify-center gap-3">
-                                                    <div className="w-16 bg-white/5 rounded-full h-1.5 overflow-hidden">
+                                                    <div className="w-16 bg-muted rounded-full h-1.5 overflow-hidden">
                                                         <div
                                                             className={`h-full transition-all ${
                                                                 (node.uptime_percent || 0) > 98
@@ -385,17 +385,17 @@ export default function NodesPage() {
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4 text-right">
-                                                <div className="font-mono text-white font-bold text-sm">
+                                                <div className="font-mono text-foreground font-bold text-sm">
                                                     {(node.bandwidth_gb || 0).toFixed(2)} GB
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4 text-right">
-                                                <div className="font-mono text-white/60 font-bold text-sm">
+                                                <div className="font-mono text-muted-foreground font-bold text-sm">
                                                     {node.active_sessions ?? 0}
                                                 </div>
-                                                <div className="text-[9px] text-white/20">active</div>
+                                                <div className="text-[9px] text-muted-foreground">active</div>
                                             </td>
-                                            <td className="px-6 py-4 text-right text-[11px] text-white/40">
+                                            <td className="px-6 py-4 text-right text-[11px] text-muted-foreground">
                                                 {node.last_heartbeat
                                                     ? formatDistanceToNow(new Date(node.last_heartbeat), { addSuffix: true })
                                                     : '-'}
@@ -419,7 +419,7 @@ export default function NodesPage() {
                             <div className="flex items-center gap-2">
                                 <button
                                     onClick={() => setCompareIds([])}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white/40 hover:text-white/70 text-[8px] font-black uppercase tracking-wider transition-all"
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted border border-border text-muted-foreground hover:text-foreground text-[8px] font-black uppercase tracking-wider transition-all"
                                 >
                                     <X size={9} /> Clear
                                 </button>
@@ -435,22 +435,22 @@ export default function NodesPage() {
                     )}
 
                     {/* Pagination */}
-                    <div className="p-6 bg-white/[0.02] flex items-center justify-between border-t border-white/5">
-                        <p className="text-[10px] font-black text-white/30 uppercase tracking-widest">
-                            Page <span className="text-white">{page}</span>{data?.total ? ` of ${Math.ceil(data.total / pageSize)}` : ''}
+                    <div className="p-6 bg-muted flex items-center justify-between border-t border-border">
+                        <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">
+                            Page <span className="text-foreground">{page}</span>{data?.total ? ` of ${Math.ceil(data.total / pageSize)}` : ''}
                         </p>
                         <div className="flex gap-2">
                             <button
                                 onClick={() => setPage(Math.max(1, page - 1))}
                                 disabled={page === 1 || isLoading}
-                                className="p-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                className="p-2 rounded-lg bg-card border border-border hover:bg-surface-hover disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                             >
                                 <ChevronLeft className="w-5 h-5" />
                             </button>
                             <button
                                 onClick={() => setPage(page + 1)}
                                 disabled={!data || page * pageSize >= (data.total ?? 0)}
-                                className="p-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                className="p-2 rounded-lg bg-card border border-border hover:bg-surface-hover disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                             >
                                 <ChevronRight className="w-5 h-5" />
                             </button>

@@ -11,14 +11,17 @@ import { GlassCard } from "@/components/ui/glass-card";
 export default function GovernancePage() {
     const [proposals, setProposals] = useState<Proposal[]>([]);
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState("");
 
     useEffect(() => {
         async function loadProposals() {
             try {
                 const data = await getProposals();
                 setProposals(data);
+                setLoadError("");
             } catch (err) {
                 console.error("Failed to load proposals", err);
+                setLoadError(err instanceof Error ? err.message : "Failed to load proposals");
             } finally {
                 setLoading(false);
             }
@@ -94,10 +97,10 @@ export default function GovernancePage() {
                         <div className="text-[10px] font-black uppercase tracking-[0.4em] text-muted-foreground/40 border-b border-white/5 pb-3">Voting Influence</div>
                         <div className="space-y-1">
                             <div className="text-2xl font-black tracking-tighter text-primary group-hover:text-emerald-400 transition-colors leading-tight">
-                                PHB-weighted
+                                1 wallet = 1 vote
                             </div>
                             <div className="text-[9px] font-black uppercase text-muted-foreground/20 flex items-center gap-2">
-                                <Shield size={10} /> VP applied when you vote on-chain
+                                <Shield size={10} /> Fixed on-chain weight (token VP later)
                             </div>
                         </div>
                     </div>
@@ -127,7 +130,7 @@ export default function GovernancePage() {
                         <div className="space-y-1">
                             <div className="text-4xl font-black tracking-tighter text-emerald-500">{proposals.filter(p => p.status === 'executed').length} TOTAL</div>
                             <div className="text-[9px] font-black uppercase text-muted-foreground/20 flex items-center gap-2">
-                                <CheckCircle size={10} /> Confirmed On-Chain
+                                <CheckCircle size={10} /> Votes recorded on-chain
                             </div>
                         </div>
                     </div>
@@ -160,6 +163,17 @@ export default function GovernancePage() {
                             >
                                 <Loader2 className="animate-spin text-primary" size={40} />
                                 <p className="font-mono text-[10px] uppercase font-black tracking-[0.4em] text-muted-foreground/30">Accessing Authority Vault...</p>
+                            </motion.div>
+                        ) : loadError ? (
+                            <motion.div
+                                key="error"
+                                initial={{ opacity: 0, scale: 0.95 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                className="text-center py-40 glass-card border border-rose-500/20 rounded-[3rem] bg-rose-500/[0.03]"
+                            >
+                                <XCircle size={48} className="mx-auto text-rose-400/60 mb-6" />
+                                <h3 className="font-black text-xl uppercase tracking-tighter opacity-80 mb-2">Failed to load</h3>
+                                <p className="font-mono text-[10px] text-rose-300/70 uppercase tracking-widest max-w-md mx-auto">{loadError}</p>
                             </motion.div>
                         ) : proposals.length === 0 ? (
                             <motion.div

@@ -151,7 +151,7 @@ export default function MarketplacePage() {
             className="space-y-16 pb-32 font-mono selection:bg-primary/30"
         >
             {/* Tactical Protocol Header */}
-            <motion.header variants={itemVariants} className="flex flex-col xl:flex-row justify-between items-start xl:items-end gap-12 border-b border-white/5 pb-16">
+            <motion.header variants={itemVariants} className="flex flex-col xl:flex-row justify-between items-start xl:items-end gap-12 border-b border-border pb-16">
                 <div className="space-y-6">
                     <div className="flex items-center gap-5">
                         <div className="w-20 h-20 rounded-[2rem] bg-gradient-to-br from-primary/20 to-emerald-500/5 flex items-center justify-center border border-primary/20 shadow-2xl group relative overflow-hidden">
@@ -163,10 +163,10 @@ export default function MarketplacePage() {
                                 <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
                                 Protocol Registry // Sector Active
                             </div>
-                            <h1 className="text-6xl font-black uppercase tracking-tighter leading-none bg-clip-text text-transparent bg-gradient-to-r from-primary via-emerald-400 to-white">Node Market</h1>
-                            <p className="text-muted-foreground/30 font-black text-[10px] uppercase tracking-widest flex items-center gap-3">
+                            <h1 className="text-6xl font-black uppercase tracking-tighter leading-none bg-clip-text text-transparent bg-gradient-to-r from-primary via-emerald-400 to-foreground">Node Market</h1>
+                            <p className="text-muted-foreground font-black text-[10px] uppercase tracking-widest flex items-center gap-3">
                                 Total Grid Capacity:{" "}
-                                <span className="text-foreground/60">{gridTotal.toLocaleString()} Units</span>
+                                <span className="text-foreground">{gridTotal.toLocaleString()} Units</span>
                             </p>
                         </div>
                     </div>
@@ -174,14 +174,14 @@ export default function MarketplacePage() {
 
                 <div className="flex flex-wrap items-center gap-10">
                     <MarketplaceDiscoverTabs />
-                    <div className="flex items-center gap-10 p-6 px-10 glass-card border-white/5 bg-white/[0.02] rounded-[2.5rem] shadow-2xl backdrop-blur-3xl">
+                    <div className="flex items-center gap-10 p-6 px-10 glass-card border-border bg-card rounded-[2.5rem] shadow-2xl backdrop-blur-3xl">
                         <div className="space-y-1">
-                            <div className="text-[10px] text-muted-foreground/40 uppercase tracking-[0.3em] font-black">Global Liquidity</div>
-                            <div className="text-3xl font-black tracking-tighter text-white">99.9<span className="text-sm opacity-20 ml-1">%</span></div>
+                            <div className="text-[10px] text-muted-foreground uppercase tracking-[0.3em] font-black">Global Liquidity</div>
+                            <div className="text-3xl font-black tracking-tighter text-foreground">99.9<span className="text-sm opacity-20 ml-1">%</span></div>
                         </div>
-                        <div className="w-px h-10 bg-white/5" />
+                        <div className="w-px h-10 bg-border" />
                         <div className="space-y-1">
-                            <div className="text-[10px] text-muted-foreground/40 uppercase tracking-[0.3em] font-black">Registry State</div>
+                            <div className="text-[10px] text-muted-foreground uppercase tracking-[0.3em] font-black">Registry State</div>
                             <div className="text-[11px] font-black uppercase text-emerald-500 flex items-center gap-2">
                                 <Activity size={12} className="animate-pulse" /> Normalized
                             </div>
@@ -234,7 +234,7 @@ export default function MarketplacePage() {
 
             {/* Grid Control Interface */}
             <div className="space-y-10">
-                <motion.div variants={itemVariants} className="flex flex-col lg:flex-row gap-6 items-center justify-between p-2 glass-card border border-white/10 !bg-white/[0.01] backdrop-blur-3xl rounded-[2.5rem] shadow-2xl">
+                <motion.div variants={itemVariants} className="flex flex-col lg:flex-row gap-6 items-center justify-between p-2 glass-card border border-border !bg-card backdrop-blur-3xl rounded-[2.5rem] shadow-2xl">
                     <div className="flex flex-wrap gap-2 p-1.5 flex-1">
                         {[
                             { id: '', label: 'Global Grid', icon: Globe },
@@ -251,7 +251,7 @@ export default function MarketplacePage() {
                                 }}
                                 className={`px-8 py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all gap-3 flex items-center whitespace-nowrap ${filters.proxy_type === type.id
                                     ? 'bg-primary text-primary-foreground shadow-xl shadow-primary/20'
-                                    : 'text-muted-foreground/40 hover:text-foreground hover:bg-white/5'
+                                    : 'text-muted-foreground hover:text-foreground hover:bg-surface-hover'
                                     }`}
                             >
                                 <type.icon size={14} className={filters.proxy_type === type.id ? 'opacity-100' : 'opacity-20'} />
@@ -260,7 +260,7 @@ export default function MarketplacePage() {
                         ))}
                     </div>
 
-                    <div className="flex items-center gap-4 p-2 pl-6 border-l border-white/5">
+                    <div className="flex items-center gap-4 p-2 pl-6 border-l border-border">
                         <button
                             onClick={() => {
                                 setActiveCollection(null);
@@ -274,14 +274,14 @@ export default function MarketplacePage() {
                                 });
                                 setPage(1);
                             }}
-                            className="p-4 rounded-2xl bg-white/5 border border-white/5 text-muted-foreground/30 hover:text-primary hover:border-primary/40 transition-all"
+                            className="p-4 rounded-2xl bg-muted border border-border text-muted-foreground hover:text-primary hover:border-primary/40 transition-all"
                             title="Reset Parameters"
                         >
                             <Filter size={18} />
                         </button>
                         <div className="relative">
                             <select
-                                className="bg-black/40 border border-white/5 text-[10px] font-black uppercase tracking-widest rounded-2xl px-8 py-4 outline-none focus:border-primary/40 text-foreground/60 appearance-none cursor-pointer min-w-[240px] transition-all"
+                                className="bg-background border border-border text-[10px] font-black uppercase tracking-widest rounded-2xl px-8 py-4 outline-none focus:border-primary/40 text-foreground appearance-none cursor-pointer min-w-[240px] transition-all"
                                 value={filters.sort_by}
                                 onChange={(e) => {
                                     setFilters({ ...filters, sort_by: e.target.value });
@@ -296,17 +296,17 @@ export default function MarketplacePage() {
                                 <option value="latency">LATENCY_OPTIMAL</option>
                                 <option value="quality">QUALITY_SCORE</option>
                             </select>
-                            <ChevronRight size={14} className="absolute right-5 top-1/2 -translate-y-1/2 rotate-90 text-white/10 pointer-events-none" />
+                            <ChevronRight size={14} className="absolute right-5 top-1/2 -translate-y-1/2 rotate-90 text-muted-foreground pointer-events-none" />
                         </div>
                     </div>
                 </motion.div>
 
                 <motion.div
                     variants={itemVariants}
-                    className="flex flex-wrap items-end gap-4 p-6 glass-card border border-white/10 !bg-white/[0.01] rounded-[2rem]"
+                    className="flex flex-wrap items-end gap-4 p-6 glass-card border border-border !bg-card rounded-[2rem]"
                 >
                     <label className="flex flex-col gap-2 min-w-[120px]">
-                        <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/50">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
                             Country (ISO)
                         </span>
                         <input
@@ -321,11 +321,11 @@ export default function MarketplacePage() {
                                 setFilters({ ...filters, country: e.target.value.toUpperCase() });
                                 setPage(1);
                             }}
-                            className="bg-black/40 border border-white/5 rounded-xl px-4 py-3 text-xs font-mono uppercase outline-none focus:border-primary/40"
+                            className="bg-background border border-border rounded-xl px-4 py-3 text-xs font-mono uppercase outline-none focus:border-primary/40 text-foreground placeholder:text-muted-foreground"
                         />
                     </label>
                     <label className="flex flex-col gap-2 min-w-[140px]">
-                        <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/50">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
                             Min USD/GB
                         </span>
                         <input
@@ -340,11 +340,11 @@ export default function MarketplacePage() {
                                 setFilters({ ...filters, min_price: e.target.value });
                                 setPage(1);
                             }}
-                            className="bg-black/40 border border-white/5 rounded-xl px-4 py-3 text-xs font-mono outline-none focus:border-primary/40"
+                            className="bg-background border border-border rounded-xl px-4 py-3 text-xs font-mono outline-none focus:border-primary/40 text-foreground placeholder:text-muted-foreground"
                         />
                     </label>
                     <label className="flex flex-col gap-2 min-w-[140px]">
-                        <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/50">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
                             Max USD/GB
                         </span>
                         <input
@@ -359,11 +359,11 @@ export default function MarketplacePage() {
                                 setFilters({ ...filters, max_price: e.target.value });
                                 setPage(1);
                             }}
-                            className="bg-black/40 border border-white/5 rounded-xl px-4 py-3 text-xs font-mono outline-none focus:border-primary/40"
+                            className="bg-background border border-border rounded-xl px-4 py-3 text-xs font-mono outline-none focus:border-primary/40 text-foreground placeholder:text-muted-foreground"
                         />
                     </label>
                     <label className="flex flex-col gap-2 min-w-[120px]">
-                        <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/50">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
                             Min rating
                         </span>
                         <input
@@ -379,7 +379,7 @@ export default function MarketplacePage() {
                                 setFilters({ ...filters, min_rating: e.target.value });
                                 setPage(1);
                             }}
-                            className="bg-black/40 border border-white/5 rounded-xl px-4 py-3 text-xs font-mono outline-none focus:border-primary/40"
+                            className="bg-background border border-border rounded-xl px-4 py-3 text-xs font-mono outline-none focus:border-primary/40 text-foreground placeholder:text-muted-foreground"
                         />
                     </label>
                     <button
@@ -437,17 +437,17 @@ export default function MarketplacePage() {
                                         <Loader2 className="animate-spin text-primary/40" size={32} />
                                     </div>
                                 </div>
-                                <p className="text-[10px] font-black text-muted-foreground/20 uppercase tracking-[0.8em] animate-pulse">Syncing Grid Segments...</p>
+                                <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.8em] animate-pulse">Syncing Grid Segments...</p>
                             </motion.div>
                         ) : gridListings.length === 0 ? (
                             <motion.div
                                 initial={{ opacity: 0, scale: 0.95 }}
                                 animate={{ opacity: 1, scale: 1 }}
-                                className="py-60 text-center border border-dashed border-white/5 rounded-[4rem] bg-white/[0.01]"
+                                className="py-60 text-center border border-dashed border-border rounded-[4rem] bg-muted"
                             >
-                                <Database size={80} className="mx-auto text-white/5 mb-10" />
-                                <h3 className="font-black text-3xl uppercase tracking-tighter opacity-80">Grid Sector Dark</h3>
-                                <p className="font-black text-[10px] text-muted-foreground/30 mt-6 uppercase tracking-[0.4em] max-w-sm mx-auto leading-relaxed">
+                                <Database size={80} className="mx-auto text-muted-foreground mb-10" />
+                                <h3 className="font-black text-3xl uppercase tracking-tighter text-foreground opacity-80">Grid Sector Dark</h3>
+                                <p className="font-black text-[10px] text-muted-foreground mt-6 uppercase tracking-[0.4em] max-w-sm mx-auto leading-relaxed">
                                     No node signatures detected in the current filter spectrum. Reset parameters or wait for mesh sync.
                                 </p>
                             </motion.div>
@@ -475,14 +475,14 @@ export default function MarketplacePage() {
                         <button
                             onClick={() => setPage(Math.max(1, page - 1))}
                             disabled={page === 1}
-                            className="w-16 h-16 rounded-[1.8rem] bg-white/[0.02] border border-white/5 flex items-center justify-center text-white hover:border-primary/40 transition-all disabled:opacity-10 group"
+                            className="w-16 h-16 rounded-[1.8rem] bg-muted border border-border flex items-center justify-center text-foreground hover:border-primary/40 transition-all disabled:opacity-10 group"
                         >
                             <ChevronRight size={24} className="rotate-180 group-hover:-translate-x-1 transition-transform" />
                         </button>
 
                         <div className="flex flex-col items-center gap-2">
-                            <div className="text-[10px] font-black text-white/20 uppercase tracking-[0.5em]">Sector Access</div>
-                            <div className="text-2xl font-black text-white px-10 py-3 rounded-2xl bg-white/5 border border-white/5">
+                            <div className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.5em]">Sector Access</div>
+                            <div className="text-2xl font-black text-foreground px-10 py-3 rounded-2xl bg-muted border border-border">
                                 {page} <span className="opacity-10 mx-3">/</span> {Math.ceil(gridTotal / 20)}
                             </div>
                         </div>

@@ -4,11 +4,48 @@ export interface APIKey {
     id: string;
     name: string;
     prefix: string;
+    key_prefix?: string;
     permissions: string[];
     rate_limit_per_minute: number;
     last_used_at?: string;
     expires_at?: string;
     created_at: string;
+}
+
+export interface CreatedAPIKeyResponse {
+    api_key: APIKey & { key: string };
+    message?: string;
+    warning?: string;
+}
+
+// --- API Key (Identity Token) Actions ---
+export async function listAPIKeys(): Promise<APIKey[]> {
+    const res = await fetchWithAuth(`${API_BASE_URL}/v1/api-keys`);
+    if (!res.ok) throw new Error('Failed to list API keys');
+    const data = await res.json();
+    const keys: APIKey[] = data.api_keys || [];
+    return keys.map((k) => ({
+        ...k,
+        prefix: k.prefix || k.key_prefix || '',
+    }));
+}
+
+export async function createAPIKey(
+    name: string,
+    permissions: string[] = ['read', 'proxy']
+): Promise<CreatedAPIKeyResponse> {
+    const res = await fetchWithAuth(`${API_BASE_URL}/v1/api-keys`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, permissions, rate_limit_per_minute: 100 }),
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(
+            typeof err.error === 'string' ? err.error : 'Failed to create API key'
+        );
+    }
+    return res.json();
 }
 
 export interface UserSession {
@@ -86,27 +123,14 @@ export async function regenerateBackupCodes(): Promise<{ backup_codes: string[] 
     return res.json();
 }
 
-// --- API Key (Identity Token) Actions ---
-export async function listAPIKeys(): Promise<APIKey[]> {
-    const res = await fetchWithAuth(`${API_BASE_URL}/v1/api-keys`);
-    if (!res.ok) throw new Error('Failed to list API keys');
-    const data = await res.json();
-    return data.api_keys || [];
-}
-
-export async function createAPIKey(name: string, permissions: string[] = ['read', 'proxy']): Promise<{ api_key: string & APIKey }> {
-    const res = await fetchWithAuth(`${API_BASE_URL}/v1/api-keys`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, permissions, rate_limit_per_minute: 100 })
-    });
-    if (!res.ok) throw new Error('Failed to create API key');
-    return res.json();
-}
-
 export async function revokeAPIKey(id: string): Promise<void> {
     const res = await fetchWithAuth(`${API_BASE_URL}/v1/api-keys/${id}`, { method: 'DELETE' });
-    if (!res.ok) throw new Error('Failed to revoke API key');
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(
+            typeof err.error === 'string' ? err.error : 'Failed to revoke API key'
+        );
+    }
 }
 
 // --- Session Actions ---

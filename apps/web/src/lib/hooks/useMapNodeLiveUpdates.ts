@@ -24,6 +24,7 @@ export function useMapNodeLiveUpdates(options: UseMapNodeLiveUpdatesOptions = {}
     const onNodeUpdate = useCallback((data: ExplorerNodeWsUpdate) => {
         pendingUpdatesRef.current.push({
             node_id: data.node_id,
+            opaque_node_id: data.opaque_node_id,
             is_active: data.is_active,
             uptime_percent: data.uptime_percent,
             active_sessions: data.active_sessions,

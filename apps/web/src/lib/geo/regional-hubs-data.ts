@@ -14,6 +14,7 @@ export const HUBS_BY_COUNTRY: Record<string, RegionalHub[]> = {
         h('Accra', 5.6037, -0.187, ['greater accra', 'tema', 'madina']),
         h('Kumasi', 6.6885, -1.6244, ['ashanti', 'ashanti region']),
         h('Takoradi', 4.8845, -1.7554, ['sekondi', 'western', 'western region']),
+        h('Bibiani', 6.4632, -2.3192, ['western north', 'western north region', 'sefwi', 'sefwi-wiawso', 'wiawso', 'bibiani']),
         h('Cape Coast', 5.1053, -1.2466, ['central', 'central region']),
         h('Tamale', 9.4035, -0.8429, ['northern', 'northern region']),
     ],

@@ -180,26 +180,7 @@ export async function stubExplorerApis(page: Page, options: StubExplorerOptions 
     });
 }
 
-const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:4011';
-
-const legacyGlobeEnabled = ['1', 'true', 'yes'].includes(
-    (process.env.NEXT_PUBLIC_LEGACY_EXPLORER_GLOBE ?? '').trim().toLowerCase(),
-);
-
-/** Navigate to explorer map and wait until the legacy WebGL globe shell is ready. */
-export async function gotoExplorerGlobeReady(page: Page) {
-    test.skip(!legacyGlobeEnabled, 'Requires NEXT_PUBLIC_LEGACY_EXPLORER_GLOBE=1');
-    await page.goto(`${BASE_URL}/explorer/map`, { waitUntil: 'domcontentloaded' });
-    await expect(page.getByRole('heading', { name: /network wide map|network 3d map|node globe/i })).toBeVisible({
-        timeout: 90_000,
-    });
-    await expect(page.getByTestId('proxy-map-canvas')).toBeVisible({ timeout: 90_000 });
-
-    const globeToggle = page.getByRole('button', { name: '3D Globe' });
-    await globeToggle.scrollIntoViewIfNeeded();
-    await globeToggle.click({ force: true });
-
-    await expect(page.getByTestId('proxy-map-canvas')).toBeHidden({ timeout: 120_000 });
-    await expect(page.getByRole('heading', { name: 'Node Globe' })).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByTestId('explorer-globe-ready')).toBeVisible({ timeout: 120_000 });
+/** Legacy WebGL globe was removed from the product; keep helper as an always-skip shim. */
+export async function gotoExplorerGlobeReady(_page: Page) {
+    test.skip(true, '3D explorer globe removed from product');
 }

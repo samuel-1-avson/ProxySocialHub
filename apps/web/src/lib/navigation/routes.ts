@@ -83,6 +83,8 @@ export const ROUTES = {
     register: "/register",
     onboarding: "/onboarding",
     help: "/help",
+    /** Public technical docs (separate host). */
+    docs: "https://docs.proxyhubb.com",
     guidelines: "/guidelines",
     contact: "/contact",
     terms: "/terms",
@@ -232,6 +234,7 @@ export const FOOTER_PLATFORM_LINKS = [
 ];
 
 export const FOOTER_SUPPORT_LINKS = [
+    { href: ROUTES.docs, label: "Docs" },
     { href: ROUTES.help, label: "Help Center" },
     { href: ROUTES.guidelines, label: "Community Guidelines" },
     { href: ROUTES.contact, label: "Contact Us" },

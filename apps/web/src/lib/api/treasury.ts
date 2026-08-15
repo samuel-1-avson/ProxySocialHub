@@ -12,6 +12,19 @@ export interface WalletBalanceView {
     max_balance_sol?: number;
     replenish_sol?: number;
     needs_replenish?: boolean;
+    balance_unavailable?: boolean;
+}
+
+export interface LiquidityMetrics {
+    queue_depth: number;
+    queue_oldest_age_secs?: number;
+    last_topup_at?: string;
+    last_topup_tx?: string;
+    last_topup_sol?: number;
+    last_topup_source?: string;
+    vault_daily_remaining_sol?: number;
+    vault_topup_max_sol?: number;
+    vault_reserve_floor_sol?: number;
 }
 
 export interface TreasuryStats {
@@ -19,9 +32,11 @@ export interface TreasuryStats {
     balance_sol: number;
     hot: WalletBalanceView;
     cold?: WalletBalanceView;
+    vault?: WalletBalanceView;
     combined_balance_sol: number;
     status: string;
     last_checked_at: string;
+    liquidity?: LiquidityMetrics;
 }
 
 export interface PublicBatchPayout {

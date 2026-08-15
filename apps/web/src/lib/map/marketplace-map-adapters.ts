@@ -3,24 +3,34 @@ import type { MapGeoMeta, MarketplaceMapPoint } from '@/lib/api/marketplace';
 import type { ExplorerListingPin } from '@/components/map/types';
 import type { NodeGeoPoint } from '@/lib/services/explorer';
 
-/** Listing pin with marketplace map proof and purchase fields. */
+/** Listing pin with marketplace map quality/privacy fields. */
 
 export type MarketplaceListingMapPin = ExplorerListingPin & {
     seller_id?: string;
     proxy_type?: string;
     protocol?: string;
     city?: string;
+    /** @deprecated Prefer network_class; raw ISP is no longer returned by map API. */
     isp?: string;
+    network_class?: string;
     available_bandwidth_gb: number;
     node_id?: string;
     node_active?: boolean;
     latency_ms?: number;
+    quality_score?: number;
+    success_rate?: number;
+    trust_badge?: string;
+    trust_label?: string;
     geo_resolved?: boolean;
     purchasable: boolean;
     geo_source?: string;
     geo?: MapGeoMeta;
     status?: string;
+    /** @deprecated Proof signer material is no longer returned by public map API. */
     listing_offer_signed_at?: string;
+    /** @deprecated Prefer listing_offer_verified boolean only. */
+    listing_offer_signer?: string;
+    listing_offer_verification_error?: string;
     heartbeat_verified?: boolean;
     heartbeat_signer?: string;
     heartbeat_signed_at?: string;
@@ -41,7 +51,7 @@ export function marketplacePointToListingPin(point: MarketplaceMapPoint): Market
         proxy_type: point.proxy_type ?? 'residential',
         protocol: point.protocol ?? 'http',
         country: point.country ?? '',
-        isp: point.isp,
+        network_class: point.network_class,
         city: point.city,
         price_per_gb: point.price_per_gb ?? 0,
         available_bandwidth_gb: point.available_bandwidth_gb ?? 0,
@@ -51,6 +61,10 @@ export function marketplacePointToListingPin(point: MarketplaceMapPoint): Market
         node_active: point.status === 'active',
         uptime_percent: point.uptime_percent ?? 0,
         latency_ms: point.latency_ms,
+        quality_score: point.quality_score,
+        success_rate: point.success_rate,
+        trust_badge: point.trust_badge,
+        trust_label: point.trust_label,
         sla_source: point.sla_source,
         geo_resolved: point.geo_source !== 'unknown',
         purchasable: point.purchasable,
@@ -59,13 +73,6 @@ export function marketplacePointToListingPin(point: MarketplaceMapPoint): Market
         geo: point.geo,
         status: point.status,
         listing_offer_verified: point.listing_offer_verified,
-        listing_offer_signer: point.listing_offer_signer,
-        listing_offer_signed_at: point.listing_offer_signed_at,
-        listing_offer_verification_error: point.listing_offer_verification_error,
-        heartbeat_verified: point.heartbeat_verified,
-        heartbeat_signer: point.heartbeat_signer,
-        heartbeat_signed_at: point.heartbeat_signed_at,
-        heartbeat_verification_error: point.heartbeat_verification_error,
         catalog_product: point.catalog_product,
     };
 }
@@ -82,7 +89,14 @@ export function marketplacePointToNode(point: MarketplaceMapPoint): NodeGeoPoint
         country: point.country ?? '',
         region: point.region ?? point.country ?? '',
         city: point.city,
-        isp: point.isp,
+        network_class: point.network_class,
+        title: point.title,
+        quality_score: point.quality_score,
+        success_rate: point.success_rate,
+        trust_badge: point.trust_badge,
+        trust_label: point.trust_label,
         geo_source: point.geo_source,
+        /** Opaque marketplace ids cannot deep-link to explorer node pages. */
+        explorer_linkable: false,
     };
 }

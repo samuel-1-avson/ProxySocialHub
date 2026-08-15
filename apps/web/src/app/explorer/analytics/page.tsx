@@ -76,9 +76,9 @@ function ChartTooltip({ active, payload, label, unit = '' }: any) {
 
 function EmptyChart({ height, label }: { height: number; label?: string }) {
     return (
-        <div className={`flex flex-col items-center justify-center bg-white/[0.01] border border-dashed border-white/5 rounded-xl`} style={{ height }}>
-            <BarChart2 size={24} className="text-white/10 mb-2" />
-            <p className="text-[8px] font-black text-white/20 uppercase tracking-widest">{label || 'No data yet'}</p>
+        <div className={`flex flex-col items-center justify-center bg-card border border-dashed border-border rounded-xl`} style={{ height }}>
+            <BarChart2 size={24} className="text-muted-foreground mb-2" />
+            <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest">{label || 'No data yet'}</p>
         </div>
     );
 }
@@ -100,8 +100,8 @@ function getRankIcon(rank: number) {
         </div>
     );
     return (
-        <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-white/[0.02] border border-white/5">
-            <span className="text-[9px] font-black text-white/30">#{rank}</span>
+        <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-muted border border-border">
+            <span className="text-[9px] font-black text-muted-foreground">#{rank}</span>
         </div>
     );
 }
@@ -216,19 +216,19 @@ export default function AnalyticsPage() {
     return (
         <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-10 font-mono">
             {/* Header */}
-            <motion.header variants={itemVariants} className="flex flex-col gap-6 border-b border-white/5 pb-8">
-                <Link href="/explorer" className="flex items-center gap-2 text-[10px] font-black text-white/30 hover:text-primary transition-colors uppercase tracking-[0.3em] w-fit">
+            <motion.header variants={itemVariants} className="flex flex-col gap-6 border-b border-border pb-8">
+                <Link href="/explorer" className="flex items-center gap-2 text-[10px] font-black text-muted-foreground hover:text-primary transition-colors uppercase tracking-[0.3em] w-fit">
                     <ArrowLeft size={14} /> Back to Grid
                 </Link>
 
                 <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-6">
                     <div>
                         <div className="text-[10px] font-black text-primary uppercase tracking-[0.5em] mb-1">Grid Telemetry // Analytics</div>
-                        <h1 className="text-4xl font-black uppercase tracking-tighter text-white flex items-center gap-4">
+                        <h1 className="text-4xl font-black uppercase tracking-tighter text-foreground flex items-center gap-4">
                             <BarChart2 className="text-primary" size={32} />
                             Network Analytics
                         </h1>
-                        <p className="text-[11px] font-black text-white/30 uppercase tracking-widest mt-2">
+                        <p className="text-[11px] font-black text-muted-foreground uppercase tracking-widest mt-2">
                             Historical performance, throughput, and node intelligence
                         </p>
                     </div>
@@ -236,12 +236,12 @@ export default function AnalyticsPage() {
                     <div className="flex flex-col items-end gap-2">
                         <div className="flex items-center gap-2">
                             {/* Preset buttons — dimmed when custom range is active */}
-                            <div className={`flex items-center gap-2 bg-white/[0.02] border border-white/5 rounded-2xl p-1.5 transition-opacity ${isCustomActive ? 'opacity-30 pointer-events-none' : ''}`}>
+                            <div className={`flex items-center gap-2 bg-muted border border-border rounded-2xl p-1.5 transition-opacity ${isCustomActive ? 'opacity-30 pointer-events-none' : ''}`}>
                                 {PERIODS.map((p) => (
                                     <button
                                         key={p.value}
                                         onClick={() => { setPeriod(p.value); clearCustomRange(); }}
-                                        className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${period === p.value && !isCustomActive ? 'bg-primary text-black' : 'text-white/30 hover:text-white/60'}`}
+                                        className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${period === p.value && !isCustomActive ? 'bg-primary text-black' : 'text-muted-foreground hover:text-foreground'}`}
                                     >
                                         {p.label}
                                     </button>
@@ -250,39 +250,39 @@ export default function AnalyticsPage() {
                             {/* Custom date range toggle */}
                             <button
                                 onClick={() => setShowDatePicker(v => !v)}
-                                className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${isCustomActive ? 'bg-primary/10 border-primary/30 text-primary' : 'bg-white/[0.02] border-white/5 text-white/30 hover:text-white/60'}`}
+                                className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${isCustomActive ? 'bg-primary/10 border-primary/30 text-primary' : 'bg-muted border-border text-muted-foreground hover:text-foreground'}`}
                             >
                                 <Calendar size={12} />
                                 {isCustomActive ? `${appliedFrom} → ${appliedTo}` : 'Custom'}
                             </button>
                             {isCustomActive && (
-                                <button onClick={clearCustomRange} className="p-2 rounded-xl bg-white/[0.02] border border-white/5 text-white/30 hover:text-rose-400 hover:border-rose-500/30 transition-all">
+                                <button onClick={clearCustomRange} className="p-2 rounded-xl bg-muted border border-border text-muted-foreground hover:text-rose-400 hover:border-rose-500/30 transition-all">
                                     <X size={12} />
                                 </button>
                             )}
                         </div>
                         {/* Date picker panel */}
                         {showDatePicker && (
-                            <div className="flex items-end gap-3 bg-white/[0.03] border border-white/10 rounded-2xl px-4 py-3">
+                            <div className="flex items-end gap-3 bg-muted border border-border rounded-2xl px-4 py-3">
                                 <div className="flex flex-col gap-1">
-                                    <label className="text-[8px] font-black text-white/30 uppercase tracking-widest">From</label>
+                                    <label className="text-[8px] font-black text-muted-foreground uppercase tracking-widest">From</label>
                                     <input
                                         type="date"
                                         value={customFrom}
                                         max={customTo || todayStr()}
                                         onChange={e => setCustomFrom(e.target.value)}
-                                        className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-[10px] font-mono text-white focus:outline-none focus:border-primary/50 [color-scheme:dark]"
+                                        className="bg-muted border border-border rounded-lg px-3 py-1.5 text-[10px] font-mono text-foreground focus:outline-none focus:border-primary/50"
                                     />
                                 </div>
                                 <div className="flex flex-col gap-1">
-                                    <label className="text-[8px] font-black text-white/30 uppercase tracking-widest">To</label>
+                                    <label className="text-[8px] font-black text-muted-foreground uppercase tracking-widest">To</label>
                                     <input
                                         type="date"
                                         value={customTo}
                                         min={customFrom}
                                         max={todayStr()}
                                         onChange={e => setCustomTo(e.target.value)}
-                                        className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-[10px] font-mono text-white focus:outline-none focus:border-primary/50 [color-scheme:dark]"
+                                        className="bg-muted border border-border rounded-lg px-3 py-1.5 text-[10px] font-mono text-foreground focus:outline-none focus:border-primary/50"
                                     />
                                 </div>
                                 <button
@@ -292,7 +292,7 @@ export default function AnalyticsPage() {
                                 >
                                     Apply
                                 </button>
-                                <button onClick={() => setShowDatePicker(false)} className="p-1.5 text-white/30 hover:text-white/60 transition-colors">
+                                <button onClick={() => setShowDatePicker(false)} className="p-1.5 text-muted-foreground hover:text-foreground transition-colors">
                                     <X size={12} />
                                 </button>
                             </div>
@@ -315,10 +315,10 @@ export default function AnalyticsPage() {
                     { label: 'Bandwidth (cumulative)', value: metrics ? `${Number(metrics.total_bandwidth_gb || 0).toFixed(1)} GB` : '—', icon: Zap, color: 'text-yellow-500' },
                     { label: 'Active Wallets', value: metrics ? (metrics.active_wallets || 0).toLocaleString() : '—', icon: Globe, color: 'text-blue-500' },
                 ].map((stat, i) => (
-                    <GlassCard key={i} className="!p-5 border-white/5 bg-white/[0.01] rounded-[1.5rem]">
+                    <GlassCard key={i} className="!p-5 border-border bg-card rounded-[1.5rem]">
                         <stat.icon size={16} className={`${stat.color} mb-3 opacity-60`} />
-                        <div className="text-2xl font-black text-white tracking-tighter">{stat.value}</div>
-                        <div className="text-[9px] font-black uppercase text-white/20 tracking-[0.2em] mt-1">{stat.label}</div>
+                        <div className="text-2xl font-black text-foreground tracking-tighter">{stat.value}</div>
+                        <div className="text-[9px] font-black uppercase text-muted-foreground tracking-[0.2em] mt-1">{stat.label}</div>
                     </GlassCard>
                 ))}
             </motion.section>
@@ -326,15 +326,15 @@ export default function AnalyticsPage() {
             {/* Charts Row */}
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
                 <motion.section variants={itemVariants}>
-                    <GlassCard className="!p-6 border-white/5 bg-white/[0.01] rounded-[2rem]">
+                    <GlassCard className="!p-6 border-border bg-card rounded-[2rem]">
                         <div className="mb-6">
-                            <h3 className="text-sm font-black uppercase tracking-tighter text-white flex items-center gap-2">
+                            <h3 className="text-sm font-black uppercase tracking-tighter text-foreground flex items-center gap-2">
                                 <TrendingUp size={14} className="text-primary" /> Transaction Volume
                             </h3>
-                            <p className="text-[9px] font-black text-white/20 uppercase tracking-widest mt-1">SOL settled on-chain</p>
+                            <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mt-1">SOL settled on-chain</p>
                         </div>
                         {loadingAnalytics ? (
-                            <div className="h-[180px] animate-pulse bg-white/5 rounded-xl" />
+                            <div className="h-[180px] animate-pulse bg-muted rounded-xl" />
                         ) : !mounted || volumeData.length === 0 ? (
                             <EmptyChart height={180} label={emptySeriesLabel} />
                         ) : (
@@ -358,15 +358,15 @@ export default function AnalyticsPage() {
                 </motion.section>
 
                 <motion.section variants={itemVariants}>
-                    <GlassCard className="!p-6 border-white/5 bg-white/[0.01] rounded-[2rem]">
+                    <GlassCard className="!p-6 border-border bg-card rounded-[2rem]">
                         <div className="mb-6">
-                            <h3 className="text-sm font-black uppercase tracking-tighter text-white flex items-center gap-2">
+                            <h3 className="text-sm font-black uppercase tracking-tighter text-foreground flex items-center gap-2">
                                 <Zap size={14} className="text-yellow-500" /> Bandwidth Throughput
                             </h3>
-                            <p className="text-[9px] font-black text-white/20 uppercase tracking-widest mt-1">GB proxied through network</p>
+                            <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mt-1">GB proxied through network</p>
                         </div>
                         {loadingAnalytics ? (
-                            <div className="h-[180px] animate-pulse bg-white/5 rounded-xl" />
+                            <div className="h-[180px] animate-pulse bg-muted rounded-xl" />
                         ) : !mounted || bandwidthData.length === 0 ? (
                             <EmptyChart height={180} label={emptySeriesLabel} />
                         ) : (
@@ -393,15 +393,15 @@ export default function AnalyticsPage() {
             {/* Active Nodes Chart + Region Pie */}
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
                 <motion.section variants={itemVariants} className="xl:col-span-2">
-                    <GlassCard className="!p-6 border-white/5 bg-white/[0.01] rounded-[2rem]">
+                    <GlassCard className="!p-6 border-border bg-card rounded-[2rem]">
                         <div className="mb-6">
-                            <h3 className="text-sm font-black uppercase tracking-tighter text-white flex items-center gap-2">
+                            <h3 className="text-sm font-black uppercase tracking-tighter text-foreground flex items-center gap-2">
                                 <Server size={14} className="text-blue-500" /> Active Relay Nodes
                             </h3>
-                            <p className="text-[9px] font-black text-white/20 uppercase tracking-widest mt-1">Node count over time</p>
+                            <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mt-1">Node count over time</p>
                         </div>
                         {loadingAnalytics ? (
-                            <div className="h-[160px] animate-pulse bg-white/5 rounded-xl" />
+                            <div className="h-[160px] animate-pulse bg-muted rounded-xl" />
                         ) : !mounted || nodeData.length === 0 ? (
                             <EmptyChart height={160} label={emptySeriesLabel} />
                         ) : (
@@ -419,18 +419,18 @@ export default function AnalyticsPage() {
                 </motion.section>
 
                 <motion.section variants={itemVariants}>
-                    <GlassCard className="!p-6 border-white/5 bg-white/[0.01] rounded-[2rem] h-full flex flex-col">
+                    <GlassCard className="!p-6 border-border bg-card rounded-[2rem] h-full flex flex-col">
                         <div className="mb-4">
-                            <h3 className="text-sm font-black uppercase tracking-tighter text-white flex items-center gap-2">
+                            <h3 className="text-sm font-black uppercase tracking-tighter text-foreground flex items-center gap-2">
                                 <Globe size={14} className="text-emerald-500" /> Region Split
                             </h3>
-                            <p className="text-[9px] font-black text-white/20 uppercase tracking-widest mt-1">Nodes by region</p>
+                            <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mt-1">Nodes by region</p>
                         </div>
                         {!mounted || regionData.length === 0 ? (
                             <div className="flex-1 flex items-center justify-center">
                                 <div className="text-center">
-                                    <Globe size={40} className="text-white/5 mx-auto mb-3" />
-                                    <p className="text-[9px] font-black text-white/20 uppercase tracking-widest">No region data</p>
+                                    <Globe size={40} className="text-muted-foreground mx-auto mb-3" />
+                                    <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">No region data</p>
                                 </div>
                             </div>
                         ) : (
@@ -452,9 +452,9 @@ export default function AnalyticsPage() {
                                         <div key={r.name} className="flex items-center justify-between text-[9px] font-black uppercase tracking-wider">
                                             <div className="flex items-center gap-2">
                                                 <div className="w-2 h-2 rounded-full" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
-                                                <span className="text-white/50">{r.name}</span>
+                                                <span className="text-muted-foreground">{r.name}</span>
                                             </div>
-                                            <span className="text-white">{r.value}</span>
+                                            <span className="text-foreground">{r.value}</span>
                                         </div>
                                     ))}
                                 </div>
@@ -468,17 +468,17 @@ export default function AnalyticsPage() {
             <motion.section variants={itemVariants}>
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                     <div>
-                        <h2 className="text-xl font-black uppercase tracking-tighter text-white flex items-center gap-3">
+                        <h2 className="text-xl font-black uppercase tracking-tighter text-foreground flex items-center gap-3">
                             <Trophy size={18} className="text-yellow-400" /> Node Leaderboard
                         </h2>
-                        <p className="text-[9px] font-black text-white/20 uppercase tracking-widest mt-1">Top performers ranked by category</p>
+                        <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mt-1">Top performers ranked by category</p>
                     </div>
-                    <div className="flex items-center gap-2 bg-white/[0.02] border border-white/5 rounded-2xl p-1.5">
+                    <div className="flex items-center gap-2 bg-muted border border-border rounded-2xl p-1.5">
                         {LEADERBOARD_CATEGORIES.map((cat) => (
                             <button
                                 key={cat.value}
                                 onClick={() => setLeaderboardCategory(cat.value)}
-                                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${leaderboardCategory === cat.value ? 'bg-primary text-black' : 'text-white/30 hover:text-white/60'}`}
+                                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${leaderboardCategory === cat.value ? 'bg-primary text-black' : 'text-muted-foreground hover:text-foreground'}`}
                             >
                                 <cat.icon size={10} /> {cat.label}
                             </button>
@@ -491,28 +491,28 @@ export default function AnalyticsPage() {
                         Leaderboard API unavailable
                     </div>
                 )}
-                <GlassCard className="overflow-hidden border-white/5 bg-white/[0.01]">
+                <GlassCard className="overflow-hidden border-border bg-card">
                     {loadingLeaderboard ? (
-                        <div className="space-y-0 divide-y divide-white/5">
+                        <div className="space-y-0 divide-y divide-border">
                             {Array.from({ length: 5 }).map((_, i) => (
-                                <div key={i} className="h-14 animate-pulse bg-white/[0.01]" />
+                                <div key={i} className="h-14 animate-pulse bg-card" />
                             ))}
                         </div>
                     ) : displayLeaderboard.length === 0 ? (
                         <div className="py-20 text-center">
-                            <Trophy size={48} className="text-white/5 mx-auto mb-4" />
-                            <p className="text-[10px] font-black text-white/20 uppercase tracking-widest">No nodes registered yet</p>
+                            <Trophy size={48} className="text-muted-foreground mx-auto mb-4" />
+                            <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">No nodes registered yet</p>
                         </div>
                     ) : (
-                        <div className="divide-y divide-white/5">
+                        <div className="divide-y divide-border">
                             {displayLeaderboard.map((node: any, i: number) => {
                                 const rank = node.rank ?? i + 1;
                                 return (
-                                    <Link key={node.node_id} href={`/explorer/nodes/${node.node_id}`} className="flex items-center gap-6 px-6 py-4 hover:bg-white/[0.03] transition-colors group">
+                                    <Link key={node.node_id} href={`/explorer/nodes/${node.node_id}`} className="flex items-center gap-6 px-6 py-4 hover:bg-surface-hover transition-colors group">
                                         <div className="w-8 flex items-center justify-center flex-shrink-0">{getRankIcon(rank)}</div>
                                         <div className="flex-1 min-w-0">
                                             <div className="text-[11px] font-black text-primary truncate">{node.node_id?.slice(0, 18)}...</div>
-                                            {node.name && <div className="text-[9px] text-white/30 mt-0.5">{node.name}</div>}
+                                            {node.name && <div className="text-[9px] text-muted-foreground mt-0.5">{node.name}</div>}
                                         </div>
                                         <div className="flex items-center gap-2 flex-shrink-0">
                                             {node.is_validator ? (
@@ -526,8 +526,8 @@ export default function AnalyticsPage() {
                                             )}
                                         </div>
                                         <div className="text-right flex-shrink-0">
-                                            <div className="text-sm font-black text-white">{getLeaderboardValue(node)}</div>
-                                            <div className="text-[9px] text-white/30">{node.country}{node.region ? `, ${node.region}` : ''}</div>
+                                            <div className="text-sm font-black text-foreground">{getLeaderboardValue(node)}</div>
+                                            <div className="text-[9px] text-muted-foreground">{node.country}{node.region ? `, ${node.region}` : ''}</div>
                                         </div>
                                     </Link>
                                 );
