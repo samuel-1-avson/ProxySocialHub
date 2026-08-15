@@ -368,9 +368,19 @@ export default function LeafletProxyMapCanvas({
 
         let changed = false;
         for (const upd of liveUpdates) {
-            const existing = nodeMapRef.current.get(upd.node_id);
-            if (existing) {
-                nodeMapRef.current.set(upd.node_id, {
+            const lookupKeys = [upd.opaque_node_id, upd.node_id].filter(Boolean) as string[];
+            let key = '';
+            let existing: NodeGeoPoint | undefined;
+            for (const k of lookupKeys) {
+                const hit = nodeMapRef.current.get(k);
+                if (hit) {
+                    key = k;
+                    existing = hit;
+                    break;
+                }
+            }
+            if (existing && key) {
+                nodeMapRef.current.set(key, {
                     ...existing,
                     is_active: upd.is_active,
                     uptime_percent: upd.uptime_percent,
@@ -379,20 +389,8 @@ export default function LeafletProxyMapCanvas({
                     lon: upd.lon ?? existing.lon,
                 });
                 changed = true;
-            } else if (upd.lat && upd.lon && Math.abs(upd.lat) > 0.001) {
-                nodeMapRef.current.set(upd.node_id, {
-                    node_id: upd.node_id,
-                    lat: upd.lat,
-                    lon: upd.lon,
-                    is_active: upd.is_active,
-                    is_validator: false,
-                    uptime_percent: upd.uptime_percent,
-                    active_sessions: upd.active_sessions,
-                    country: '',
-                    region: '',
-                });
-                changed = true;
             }
+            // Skip unknown WS ids — avoids ghost UUID pins beside opaque marketplace markers.
         }
 
         if (changed) {

@@ -88,6 +88,8 @@ export const ROUTE_POLICIES: Record<RouteKey, RoutePolicy> = {
     register: "public",
     onboarding: "authenticated",
     help: "public",
+    /** External docs host — listed for RouteKey completeness; not an in-app path. */
+    docs: "public",
     guidelines: "public",
     contact: "public",
     terms: "public",

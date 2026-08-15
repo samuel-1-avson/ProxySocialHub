@@ -1,41 +1,50 @@
 .walletContainer {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.walletContainerFull {
+  width: 100%;
+}
+
+.walletContainerFull :global(.wallet-adapter-button) {
+  width: 100% !important;
+  max-width: 100% !important;
+  justify-content: center !important;
 }
 
 .walletButton {
-    background: linear-gradient(135deg, #9945FF 0%, #14F195 100%) !important;
-    border: none !important;
-    border-radius: 12px !important;
-    padding: 0.75rem 1.5rem !important;
-    font-weight: 600 !important;
-    font-size: 0.875rem !important;
-    transition: all 0.3s ease !important;
-    box-shadow: 0 4px 20px rgba(153, 69, 255, 0.3) !important;
+  background: color-mix(in srgb, var(--primary) 18%, transparent) !important;
+  border: 1px solid color-mix(in srgb, var(--primary) 40%, var(--border)) !important;
+  border-radius: 12px !important;
+  padding: 0.75rem 1rem !important;
+  font-weight: 600 !important;
+  font-size: 0.8125rem !important;
+  line-height: 1.25 !important;
+  color: var(--foreground) !important;
+  height: auto !important;
+  min-height: 2.75rem !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  box-shadow: none !important;
 }
 
 .walletButton:hover {
-    transform: translateY(-2px) !important;
-    box-shadow: 0 6px 25px rgba(153, 69, 255, 0.4) !important;
+  background: color-mix(in srgb, var(--primary) 28%, transparent) !important;
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--border)) !important;
+  transform: none !important;
 }
 
 .walletButton:active {
-    transform: translateY(0) !important;
+  transform: none !important;
 }
 
-.walletInfo {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 1rem;
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.walletAddress {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.75rem;
-    color: rgba(255, 255, 255, 0.7);
+.walletButton :global(.wallet-adapter-button-start-icon) {
+  margin-right: 0.5rem !important;
+  flex-shrink: 0;
 }

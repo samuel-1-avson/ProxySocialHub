@@ -25,12 +25,12 @@ export function ExplorerTrustBadge({ className, windowSlots = 256 }: ExplorerTru
         : 0;
 
     const tone = !data || data.recent_slots_analyzed === 0
-        ? "text-white/60 border-white/15 bg-white/5"
+        ? "text-muted-foreground border-border bg-muted"
         : data.fully_decentralized
             ? "text-emerald-300 border-emerald-500/30 bg-emerald-500/10"
             : (data.conflicting_slots || 0) > 0
                 ? "text-rose-300 border-rose-500/30 bg-rose-500/10"
-                : "text-yellow-300 border-yellow-500/30 bg-yellow-500/10";
+                : "text-amber-950 border-amber-300 bg-amber-200 dark:text-yellow-300 dark:border-yellow-500/30 dark:bg-yellow-500/10";
 
     const label = !data || data.recent_slots_analyzed === 0
         ? "Trust: Bootstrapping"

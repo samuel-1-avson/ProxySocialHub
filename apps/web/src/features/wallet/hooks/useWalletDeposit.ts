@@ -19,6 +19,9 @@ type WalletLike = {
 
 type TreasuryConfigLike = {
   treasury_solana?: string | null;
+  deposit_address?: string | null;
+  destination_kind?: 'treasury' | 'vault' | string | null;
+  vault_address?: string | null;
 } | null | undefined;
 
 export function useWalletDeposit(opts: {
@@ -109,13 +112,14 @@ export function useWalletDeposit(opts: {
       setResult({ success: false, message: 'Enter a valid deposit amount' });
       return;
     }
-    const treasury = treasuryConfig?.treasury_solana;
+    const treasury =
+      treasuryConfig?.deposit_address || treasuryConfig?.treasury_solana;
     if (!treasury) {
       setResult({
         success: false,
         message: treasuryConfig
-          ? 'Platform treasury is not configured. Deposits are unavailable until an admin sets SOLANA_TREASURY_ADDRESS.'
-          : 'Treasury address is still loading — try again in a moment',
+          ? 'Platform deposit address is not configured. Deposits are unavailable until an admin sets SOLANA_TREASURY_ADDRESS or SOLANA_DEPOSIT_VAULT_ADDRESS.'
+          : 'Deposit address is still loading — try again in a moment',
       });
       return;
     }
@@ -182,10 +186,12 @@ export function useWalletDeposit(opts: {
   };
 
   const copyTreasuryAddress = async () => {
-    const addr = treasuryConfig?.treasury_solana;
+    const addr = treasuryConfig?.deposit_address || treasuryConfig?.treasury_solana;
     if (!addr) return;
     await navigator.clipboard.writeText(addr);
-    setResult({ success: true, message: 'Treasury address copied' });
+    const label =
+      treasuryConfig?.destination_kind === 'vault' ? 'Deposit vault address' : 'Treasury address';
+    setResult({ success: true, message: `${label} copied` });
   };
 
   return {

@@ -6,6 +6,7 @@ import { QueryProvider } from "@/providers/QueryProvider";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ToastContainer } from "@/components/Toast";
 import { SkipLink } from "@/components/Accessibility";
+import { TestnetEnvironmentBanner } from "@/components/TestnetEnvironmentBanner";
 
 export const metadata: Metadata = {
   title: "ProxyHub — Residential bandwidth with on-chain settlement",
@@ -35,6 +36,7 @@ export default function RootLayout({
         >
           <QueryProvider>
             <AuthProvider>
+              <TestnetEnvironmentBanner />
               <ErrorBoundary level="page">
                 {children}
               </ErrorBoundary>

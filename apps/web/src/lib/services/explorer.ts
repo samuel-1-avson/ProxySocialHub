@@ -305,7 +305,16 @@ export interface NodeGeoPoint {
     country: string;
     region: string;
     city?: string;
+    /** @deprecated Prefer network_class on marketplace map payloads. */
     isp?: string;
+    network_class?: string;
+    title?: string;
+    quality_score?: number;
+    success_rate?: number;
+    trust_badge?: string;
+    trust_label?: string;
+    /** When false, hide explorer deep-links (opaque marketplace node ids). */
+    explorer_linkable?: boolean;
     geo_source?: string;
     geo?: MapGeoMeta;
 }
@@ -318,6 +327,7 @@ export interface NodeGeoResponse {
 /** Payload for WebSocket `node_update` events (matches control-api explorer_ws.NodeUpdate). */
 export interface ExplorerNodeWsUpdate {
     node_id: string;
+    opaque_node_id?: string;
     is_active: boolean;
     uptime_percent: number;
     active_sessions: number;

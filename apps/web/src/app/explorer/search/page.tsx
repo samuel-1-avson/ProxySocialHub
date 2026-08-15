@@ -121,16 +121,16 @@ export default function SearchPage() {
     return (
         <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-8 font-mono max-w-4xl mx-auto">
             {/* Header */}
-            <motion.header variants={itemVariants} className="flex flex-col gap-6 border-b border-white/5 pb-8">
-                <Link href="/explorer" className="flex items-center gap-2 text-[10px] font-black text-white/30 hover:text-primary transition-colors uppercase tracking-[0.3em] w-fit">
+            <motion.header variants={itemVariants} className="flex flex-col gap-6 border-b border-border pb-8">
+                <Link href="/explorer" className="flex items-center gap-2 text-[10px] font-black text-muted-foreground hover:text-primary transition-colors uppercase tracking-[0.3em] w-fit">
                     <ArrowLeft size={14} /> Back to Grid
                 </Link>
                 <div>
                     <div className="text-[10px] font-black text-primary uppercase tracking-[0.5em] mb-1">Grid Telemetry // Search</div>
-                    <h1 className="text-4xl font-black uppercase tracking-tighter text-white flex items-center gap-4">
+                    <h1 className="text-4xl font-black uppercase tracking-tighter text-foreground flex items-center gap-4">
                         <Search className="text-primary" size={32} /> Advanced Search
                     </h1>
-                    <p className="text-[11px] font-black text-white/30 uppercase tracking-widest mt-2">
+                    <p className="text-[11px] font-black text-muted-foreground uppercase tracking-widest mt-2">
                         Search transactions, wallets, blocks, and nodes
                     </p>
                 </div>
@@ -142,16 +142,16 @@ export default function SearchPage() {
                 <div className="flex flex-wrap gap-2">
                     {SEARCH_TYPES.map(t => (
                         <button key={t.value} onClick={() => setSearchType(t.value)}
-                            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest border transition-all ${searchType === t.value ? 'bg-primary/10 border-primary/30 text-primary' : 'bg-white/[0.02] border-white/5 text-white/30 hover:text-white/60'}`}>
+                            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest border transition-all ${searchType === t.value ? 'bg-primary/10 border-primary/30 text-primary' : 'bg-muted border-border text-muted-foreground hover:text-foreground'}`}>
                             <t.icon size={10} /> {t.label}
                         </button>
                     ))}
                 </div>
 
                 {/* Input */}
-                <GlassCard className="border-white/5 bg-white/[0.01] rounded-[2rem] !p-2">
+                <GlassCard className="border-border bg-card rounded-[2rem] !p-2">
                     <div className="flex items-center gap-3">
-                        <Search size={16} className="text-white/20 ml-4 flex-shrink-0" />
+                        <Search size={16} className="text-muted-foreground ml-4 flex-shrink-0" />
                         <input
                             ref={inputRef}
                             type="text"
@@ -168,7 +168,7 @@ export default function SearchPage() {
                                 searchType === 'nodes_query' ? 'Search nodes by id, city, country...' :
                                 'Search transactions, wallets, blocks, nodes...'
                             }
-                            className="flex-1 bg-transparent text-white text-[11px] font-mono placeholder-white/20 outline-none py-4 pr-4"
+                            className="flex-1 bg-transparent text-foreground text-[11px] font-mono placeholder-muted-foreground outline-none py-4 pr-4"
                         />
                         <button
                             type="button"
@@ -182,7 +182,7 @@ export default function SearchPage() {
                 </GlassCard>
 
                 {searchType !== 'auto' && (
-                    <p className="text-[8px] font-black text-white/20 uppercase tracking-widest px-2">
+                    <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest px-2">
                         {SEARCH_TYPES.find(t => t.value === searchType)?.hint}
                     </p>
                 )}
@@ -194,20 +194,20 @@ export default function SearchPage() {
                     <motion.section key={submitted} variants={itemVariants} initial="hidden" animate="show" className="space-y-4">
                         <div className="flex items-center gap-3 px-2">
                             <Fingerprint size={12} className="text-primary" />
-                            <span className="text-[9px] font-black text-white/30 uppercase tracking-widest">
+                            <span className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">
                                 Results for: <span className="text-primary font-mono">{submitted.slice(0, 30)}{submitted.length > 30 ? '...' : ''}</span>
                             </span>
                             {!isLoading && (
-                                <span className="text-[8px] font-black text-white/20 uppercase tracking-widest ml-2">
+                                <span className="text-[8px] font-black text-muted-foreground uppercase tracking-widest ml-2">
                                     Type: {resolvedType}
                                 </span>
                             )}
                         </div>
 
                         {isLoading && (
-                            <GlassCard className="border-white/5 bg-white/[0.01] rounded-[2rem] !p-10 text-center">
+                            <GlassCard className="border-border bg-card rounded-[2rem] !p-10 text-center">
                                 <Loader size={24} className="animate-spin text-primary mx-auto mb-4" />
-                                <p className="text-[9px] font-black text-white/20 uppercase tracking-widest">Scanning network...</p>
+                                <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Scanning network...</p>
                             </GlassCard>
                         )}
 
@@ -231,9 +231,9 @@ export default function SearchPage() {
                                     { label: 'Type', value: txResult.tx_type?.replace(/_/g, ' ') },
                                     { label: 'Block', value: txResult.block_number?.toLocaleString() },
                                 ].map(f => (
-                                    <div key={f.label} className="flex justify-between items-center py-2 border-b border-white/5">
-                                        <span className="text-[8px] font-black text-white/30 uppercase tracking-wider">{f.label}</span>
-                                        <span className="text-[10px] font-black text-white font-mono truncate max-w-[60%] text-right">{f.value || '—'}</span>
+                                    <div key={f.label} className="flex justify-between items-center py-2 border-b border-border">
+                                        <span className="text-[8px] font-black text-muted-foreground uppercase tracking-wider">{f.label}</span>
+                                        <span className="text-[10px] font-black text-foreground font-mono truncate max-w-[60%] text-right">{f.value || '—'}</span>
                                     </div>
                                 ))}
                             </GlassCard>
@@ -258,9 +258,9 @@ export default function SearchPage() {
                                     { label: 'Transactions', value: walletResult.transaction_count?.toLocaleString() },
                                     { label: 'Contract', value: walletResult.is_contract ? 'Yes' : 'No' },
                                 ].map(f => (
-                                    <div key={f.label} className="flex justify-between items-center py-2 border-b border-white/5">
-                                        <span className="text-[8px] font-black text-white/30 uppercase tracking-wider">{f.label}</span>
-                                        <span className="text-[10px] font-black text-white font-mono truncate max-w-[60%] text-right">{f.value || '—'}</span>
+                                    <div key={f.label} className="flex justify-between items-center py-2 border-b border-border">
+                                        <span className="text-[8px] font-black text-muted-foreground uppercase tracking-wider">{f.label}</span>
+                                        <span className="text-[10px] font-black text-foreground font-mono truncate max-w-[60%] text-right">{f.value || '—'}</span>
                                     </div>
                                 ))}
                             </GlassCard>
@@ -285,9 +285,9 @@ export default function SearchPage() {
                                     { label: 'Transactions', value: blockResult.transaction_count?.toLocaleString() },
                                     { label: 'Validator', value: blockResult.validator_pubkey ? blockResult.validator_pubkey.slice(0, 20) + '...' : '—' },
                                 ].map(f => (
-                                    <div key={f.label} className="flex justify-between items-center py-2 border-b border-white/5">
-                                        <span className="text-[8px] font-black text-white/30 uppercase tracking-wider">{f.label}</span>
-                                        <span className="text-[10px] font-black text-white font-mono truncate max-w-[60%] text-right">{f.value || '—'}</span>
+                                    <div key={f.label} className="flex justify-between items-center py-2 border-b border-border">
+                                        <span className="text-[8px] font-black text-muted-foreground uppercase tracking-wider">{f.label}</span>
+                                        <span className="text-[10px] font-black text-foreground font-mono truncate max-w-[60%] text-right">{f.value || '—'}</span>
                                     </div>
                                 ))}
                             </GlassCard>
@@ -308,7 +308,7 @@ export default function SearchPage() {
                                         Browse matches <ChevronRight size={10} />
                                     </Link>
                                 </div>
-                                <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mt-4">
+                                <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mt-4">
                                     Opens the nodes grid filtered by id, region, country, or city.
                                 </p>
                             </GlassCard>
@@ -333,9 +333,9 @@ export default function SearchPage() {
                                     { label: 'Type', value: contractResult.contract_type },
                                     { label: 'Verified', value: contractResult.is_verified ? 'Yes' : 'No' },
                                 ].map(f => (
-                                    <div key={f.label} className="flex justify-between items-center py-2 border-b border-white/5">
-                                        <span className="text-[8px] font-black text-white/30 uppercase tracking-wider">{f.label}</span>
-                                        <span className="text-[10px] font-black text-white font-mono truncate max-w-[60%] text-right">{f.value || '—'}</span>
+                                    <div key={f.label} className="flex justify-between items-center py-2 border-b border-border">
+                                        <span className="text-[8px] font-black text-muted-foreground uppercase tracking-wider">{f.label}</span>
+                                        <span className="text-[10px] font-black text-foreground font-mono truncate max-w-[60%] text-right">{f.value || '—'}</span>
                                     </div>
                                 ))}
                             </GlassCard>
@@ -361,9 +361,9 @@ export default function SearchPage() {
                                     { label: 'Uptime', value: `${(nodeResult.uptime_percent || 0).toFixed(2)}%` },
                                     { label: 'Status', value: nodeResult.is_active ? 'Active' : 'Offline' },
                                 ].map(f => (
-                                    <div key={f.label} className="flex justify-between items-center py-2 border-b border-white/5">
-                                        <span className="text-[8px] font-black text-white/30 uppercase tracking-wider">{f.label}</span>
-                                        <span className="text-[10px] font-black text-white font-mono truncate max-w-[60%] text-right">{f.value || '—'}</span>
+                                    <div key={f.label} className="flex justify-between items-center py-2 border-b border-border">
+                                        <span className="text-[8px] font-black text-muted-foreground uppercase tracking-wider">{f.label}</span>
+                                        <span className="text-[10px] font-black text-foreground font-mono truncate max-w-[60%] text-right">{f.value || '—'}</span>
                                     </div>
                                 ))}
                             </GlassCard>
@@ -374,7 +374,7 @@ export default function SearchPage() {
                             <GlassCard className="border-rose-500/20 bg-rose-500/[0.02] rounded-[2rem] !p-10 text-center">
                                 <AlertCircle size={32} className="text-rose-400/40 mx-auto mb-4" />
                                 <p className="text-[10px] font-black text-rose-400/60 uppercase tracking-widest">Not Found</p>
-                                <p className="text-[8px] font-black text-white/20 uppercase tracking-widest mt-2">
+                                <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest mt-2">
                                     No {resolvedType} matches this query
                                 </p>
                             </GlassCard>
@@ -387,18 +387,18 @@ export default function SearchPage() {
             {!submitted && (
                 <motion.div variants={itemVariants} className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {/* Recent Transactions */}
-                    <GlassCard className="border-white/5 bg-white/[0.01] rounded-[2rem] !p-5">
-                        <h3 className="text-[10px] font-black text-white/40 uppercase tracking-widest mb-4 flex items-center gap-2">
+                    <GlassCard className="border-border bg-card rounded-[2rem] !p-5">
+                        <h3 className="text-[10px] font-black text-muted-foreground uppercase tracking-widest mb-4 flex items-center gap-2">
                             <ArrowRightLeft size={10} /> Recent Transactions
                         </h3>
                         <div className="space-y-2">
                             {(recentTx?.transactions || []).slice(0, 5).map((tx: any) => (
                                 <Link key={tx.tx_hash} href={`/explorer/transactions/${tx.tx_hash}`}
-                                    className="flex items-center justify-between py-2 border-b border-white/[0.03] hover:border-primary/20 transition-colors group">
+                                    className="flex items-center justify-between py-2 border-b border-border hover:border-primary/20 transition-colors group">
                                     <span className="font-mono text-[9px] text-primary group-hover:text-primary/80 transition-colors">
                                         {tx.tx_hash?.slice(0, 14)}...
                                     </span>
-                                    <span className="text-[8px] text-white/30">{tx.amount?.toFixed(3)} SOL</span>
+                                    <span className="text-[8px] text-muted-foreground">{tx.amount?.toFixed(3)} SOL</span>
                                 </Link>
                             ))}
                         </div>
@@ -408,18 +408,18 @@ export default function SearchPage() {
                     </GlassCard>
 
                     {/* Recent Blocks */}
-                    <GlassCard className="border-white/5 bg-white/[0.01] rounded-[2rem] !p-5">
-                        <h3 className="text-[10px] font-black text-white/40 uppercase tracking-widest mb-4 flex items-center gap-2">
+                    <GlassCard className="border-border bg-card rounded-[2rem] !p-5">
+                        <h3 className="text-[10px] font-black text-muted-foreground uppercase tracking-widest mb-4 flex items-center gap-2">
                             <Box size={10} /> Recent Blocks
                         </h3>
                         <div className="space-y-2">
                             {(recentBlocks?.blocks || []).slice(0, 5).map((b: any) => (
                                 <Link key={b.block_hash} href={`/explorer/blocks/${b.block_number}`}
-                                    className="flex items-center justify-between py-2 border-b border-white/[0.03] hover:border-primary/20 transition-colors group">
+                                    className="flex items-center justify-between py-2 border-b border-border hover:border-primary/20 transition-colors group">
                                     <span className="font-mono text-[9px] text-primary group-hover:text-primary/80 transition-colors">
                                         #{b.block_number?.toLocaleString()}
                                     </span>
-                                    <span className="text-[8px] text-white/30">{b.transaction_count} txs</span>
+                                    <span className="text-[8px] text-muted-foreground">{b.transaction_count} txs</span>
                                 </Link>
                             ))}
                         </div>

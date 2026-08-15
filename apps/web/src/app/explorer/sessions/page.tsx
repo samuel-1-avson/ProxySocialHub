@@ -39,7 +39,7 @@ const TYPE_CONFIG: Record<string, { color: string; bg: string }> = {
 };
 
 function StatusBadge({ status }: { status: string }) {
-    const cfg = STATUS_CONFIG[status] || { color: 'text-white/40', bg: 'bg-white/5', label: status, icon: Activity };
+    const cfg = STATUS_CONFIG[status] || { color: 'text-muted-foreground', bg: 'bg-muted', label: status, icon: Activity };
     const Icon = cfg.icon;
     return (
         <span className={`inline-flex items-center gap-1 text-[8px] font-black ${cfg.color} ${cfg.bg} px-2 py-1 rounded-lg uppercase tracking-wider`}>
@@ -101,28 +101,28 @@ export default function SessionsPage() {
     return (
         <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-8 font-mono">
             {/* Header */}
-            <motion.header variants={itemVariants} className="flex flex-col gap-6 border-b border-white/5 pb-8">
-                <Link href="/explorer" className="flex items-center gap-2 text-[10px] font-black text-white/30 hover:text-primary transition-colors uppercase tracking-[0.3em] w-fit">
+            <motion.header variants={itemVariants} className="flex flex-col gap-6 border-b border-border pb-8">
+                <Link href="/explorer" className="flex items-center gap-2 text-[10px] font-black text-muted-foreground hover:text-primary transition-colors uppercase tracking-[0.3em] w-fit">
                     <ArrowLeft size={14} /> Back to Grid
                 </Link>
                 <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-4">
                     <div>
                         <div className="text-[10px] font-black text-primary uppercase tracking-[0.5em] mb-1">Grid Telemetry // Sessions</div>
-                        <h1 className="text-4xl font-black uppercase tracking-tighter text-white flex items-center gap-4">
+                        <h1 className="text-4xl font-black uppercase tracking-tighter text-foreground flex items-center gap-4">
                             <Radio className="text-primary" size={32} /> Session Explorer
                         </h1>
-                        <p className="text-[11px] font-black text-white/30 uppercase tracking-widest mt-2">
+                        <p className="text-[11px] font-black text-muted-foreground uppercase tracking-widest mt-2">
                             Live and historical proxy session data
                         </p>
                     </div>
                     <div className="flex gap-3">
                         {[
-                            { label: 'Total', value: total, color: 'text-white' },
+                            { label: 'Total', value: total, color: 'text-foreground' },
                             { label: 'Active Now', value: data?.active_count ?? activeCount, color: 'text-emerald-400' },
                         ].map(s => (
-                            <GlassCard key={s.label} className="!p-4 border-white/5 bg-white/[0.01] rounded-2xl text-center">
+                            <GlassCard key={s.label} className="!p-4 border-border bg-card rounded-2xl text-center">
                                 <div className={`text-xl font-black ${s.color}`}>{s.value}</div>
-                                <div className="text-[8px] font-black text-white/30 uppercase tracking-widest mt-0.5">{s.label}</div>
+                                <div className="text-[8px] font-black text-muted-foreground uppercase tracking-widest mt-0.5">{s.label}</div>
                             </GlassCard>
                         ))}
                     </div>
@@ -133,23 +133,23 @@ export default function SessionsPage() {
             {!sessionsFeedDisabled && (
             <motion.div variants={itemVariants} className="flex flex-wrap items-center gap-3">
                 <button onClick={() => setShowFilters(!showFilters)}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest border transition-all ${showFilters ? 'bg-primary/10 border-primary/20 text-primary' : 'bg-white/[0.02] border-white/5 text-white/30 hover:text-white/60'}`}>
+                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest border transition-all ${showFilters ? 'bg-primary/10 border-primary/20 text-primary' : 'bg-muted border-border text-muted-foreground hover:text-foreground'}`}>
                     <Filter size={10} /> Filters
                 </button>
                 {showFilters && (
                     <>
-                        <div className="flex items-center gap-1 bg-white/[0.02] border border-white/5 rounded-xl p-1">
+                        <div className="flex items-center gap-1 bg-muted border border-border rounded-xl p-1">
                             {['', 'active', 'terminated', 'disabled'].map(s => (
                                 <button key={s} onClick={() => { setStatusFilter(s); setPage(1); }}
-                                    className={`px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-wider transition-all ${statusFilter === s ? 'bg-primary text-black' : 'text-white/30 hover:text-white/60'}`}>
+                                    className={`px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-wider transition-all ${statusFilter === s ? 'bg-primary text-black' : 'text-muted-foreground hover:text-foreground'}`}>
                                     {s || 'All Status'}
                                 </button>
                             ))}
                         </div>
-                        <div className="flex items-center gap-1 bg-white/[0.02] border border-white/5 rounded-xl p-1">
+                        <div className="flex items-center gap-1 bg-muted border border-border rounded-xl p-1">
                             {['', 'rotating', 'sticky'].map(t => (
                                 <button key={t} onClick={() => { setTypeFilter(t); setPage(1); }}
-                                    className={`px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-wider transition-all ${typeFilter === t ? 'bg-primary text-black' : 'text-white/30 hover:text-white/60'}`}>
+                                    className={`px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-wider transition-all ${typeFilter === t ? 'bg-primary text-black' : 'text-muted-foreground hover:text-foreground'}`}>
                                     {t || 'All Types'}
                                 </button>
                             ))}
@@ -162,10 +162,10 @@ export default function SessionsPage() {
                         ✕ Clear Filters
                     </button>
                 )}
-                <span className="ml-auto text-[9px] font-black text-white/20 uppercase tracking-wider">{total.toLocaleString()} sessions</span>
+                <span className="ml-auto text-[9px] font-black text-muted-foreground uppercase tracking-wider">{total.toLocaleString()} sessions</span>
                 <button onClick={handleExport} disabled={!sessions.length}
                     title="Export current page as CSV"
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/[0.02] border border-white/5 text-[8px] font-black uppercase tracking-widest text-white/30 hover:text-emerald-400 hover:border-emerald-500/30 disabled:opacity-20 disabled:cursor-not-allowed transition-all">
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-muted border border-border text-[8px] font-black uppercase tracking-widest text-muted-foreground hover:text-emerald-400 hover:border-emerald-500/30 disabled:opacity-20 disabled:cursor-not-allowed transition-all">
                     <Download size={10} /> CSV
                 </button>
             </motion.div>
@@ -173,20 +173,20 @@ export default function SessionsPage() {
 
             {/* Sessions Table */}
             <motion.section variants={itemVariants}>
-                <GlassCard className="overflow-hidden border-white/5 bg-white/[0.01] rounded-[2rem]">
+                <GlassCard className="overflow-hidden border-border bg-card rounded-[2rem]">
                     {isLoading ? (
-                        <div className="space-y-0 divide-y divide-white/5">
+                        <div className="space-y-0 divide-y divide-border">
                             {Array.from({ length: 8 }).map((_, i) => (
-                                <div key={i} className="h-16 animate-pulse bg-white/[0.01]" />
+                                <div key={i} className="h-16 animate-pulse bg-card" />
                             ))}
                         </div>
                     ) : sessionsFeedDisabled ? (
                         <div className="py-20 text-center max-w-md mx-auto">
-                            <Radio size={48} className="text-white/5 mx-auto mb-4" />
-                            <p className="text-[10px] font-black text-white/30 uppercase tracking-widest mb-2">
+                            <Radio size={48} className="text-muted-foreground mx-auto mb-4" />
+                            <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest mb-2">
                                 Public session feed disabled
                             </p>
-                            <p className="text-[9px] font-bold text-white/20 leading-relaxed">
+                            <p className="text-[9px] font-bold text-muted-foreground leading-relaxed">
                                 This deployment does not expose live session telemetry on the public explorer.
                                 Operators can enable it with <span className="text-primary/80">EXPLORER_PUBLIC_SESSIONS_ENABLED</span>.
                             </p>
@@ -196,20 +196,20 @@ export default function SessionsPage() {
                         </div>
                     ) : error ? (
                         <div className="py-20 text-center">
-                            <Radio size={48} className="text-white/5 mx-auto mb-4" />
-                            <p className="text-[10px] font-black text-white/20 uppercase tracking-widest">Session data unavailable</p>
+                            <Radio size={48} className="text-muted-foreground mx-auto mb-4" />
+                            <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Session data unavailable</p>
                         </div>
                     ) : sessions.length === 0 ? (
                         <div className="py-20 text-center">
-                            <Radio size={48} className="text-white/5 mx-auto mb-4" />
-                            <p className="text-[10px] font-black text-white/20 uppercase tracking-widest">No sessions found</p>
+                            <Radio size={48} className="text-muted-foreground mx-auto mb-4" />
+                            <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">No sessions found</p>
                         </div>
                     ) : (
                         <>
                             <div className="overflow-x-auto">
                                 <table className="w-full text-left border-collapse">
                                     <thead>
-                                        <tr className="bg-white/5 text-white/40 text-[9px] uppercase tracking-[0.2em] font-black">
+                                        <tr className="bg-muted text-muted-foreground text-[9px] uppercase tracking-[0.2em] font-black">
                                             <th className="px-6 py-4">Session ID</th>
                                             <th className="px-6 py-4">Type</th>
                                             <th className="px-6 py-4">Status</th>
@@ -218,9 +218,9 @@ export default function SessionsPage() {
                                             <th className="px-6 py-4">Started</th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-white/5">
+                                    <tbody className="divide-y divide-border">
                                         {sessions.map((s: any) => {
-                                            const typeCfg = TYPE_CONFIG[s.session_type] || { color: 'text-white/40', bg: 'bg-white/5' };
+                                            const typeCfg = TYPE_CONFIG[s.session_type] || { color: 'text-muted-foreground', bg: 'bg-muted' };
                                             const start = s.start_time ? new Date(s.start_time) : null;
                                             // For active sessions, use server-provided end_time or show "Active"
                                             // Avoid re-computing with new Date() on every render
@@ -229,7 +229,7 @@ export default function SessionsPage() {
                                             const durationMs = start && end ? end.getTime() - start.getTime() : 0;
                                             const durationMin = Math.floor(durationMs / 60000);
                                             return (
-                                                <tr key={s.session_id} className="hover:bg-white/[0.03] transition-colors">
+                                                <tr key={s.session_id} className="hover:bg-surface-hover transition-colors">
                                                     <td className="px-6 py-4">
                                                         <span className="font-mono text-primary text-[10px] font-bold">
                                                             {s.session_id?.slice(0, 8)}...{s.session_id?.slice(-6)}
@@ -243,14 +243,14 @@ export default function SessionsPage() {
                                                     <td className="px-6 py-4">
                                                         <StatusBadge status={s.status} />
                                                     </td>
-                                                    <td className="px-6 py-4 text-right font-mono text-[10px] font-black text-white">
+                                                    <td className="px-6 py-4 text-right font-mono text-[10px] font-black text-foreground">
                                                         {formatBytes(s.bytes_used || 0)}
                                                     </td>
-                                                    <td className="px-6 py-4 text-right font-mono text-[10px] font-black text-white/60">
+                                                    <td className="px-6 py-4 text-right font-mono text-[10px] font-black text-muted-foreground">
                                                         {isActive ? <span className="text-emerald-400">Active</span> : durationMin > 0 ? `${durationMin}m` : '<1m'}
                                                     </td>
                                                     <td className="px-6 py-4">
-                                                        <div className="flex items-center gap-2 text-[9px] text-white/40">
+                                                        <div className="flex items-center gap-2 text-[9px] text-muted-foreground">
                                                             <Clock size={9} />
                                                             {start ? formatDistanceToNow(start, { addSuffix: true }) : '—'}
                                                         </div>
@@ -263,17 +263,17 @@ export default function SessionsPage() {
                             </div>
 
                             {/* Pagination */}
-                            <div className="flex items-center justify-between px-6 py-4 border-t border-white/5">
-                                <span className="text-[9px] font-black text-white/30 uppercase tracking-wider">
+                            <div className="flex items-center justify-between px-6 py-4 border-t border-border">
+                                <span className="text-[9px] font-black text-muted-foreground uppercase tracking-wider">
                                     Page {page} of {totalPages || 1}
                                 </span>
                                 <div className="flex gap-2">
                                     <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
-                                        className="flex items-center gap-1 px-3 py-2 rounded-xl bg-white/[0.02] border border-white/5 text-white/30 hover:text-primary hover:border-primary/20 disabled:opacity-30 text-[9px] font-black uppercase tracking-wider transition-all">
+                                        className="flex items-center gap-1 px-3 py-2 rounded-xl bg-muted border border-border text-muted-foreground hover:text-primary hover:border-primary/20 disabled:opacity-30 text-[9px] font-black uppercase tracking-wider transition-all">
                                         <ChevronLeft size={10} /> Prev
                                     </button>
                                     <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
-                                        className="flex items-center gap-1 px-3 py-2 rounded-xl bg-white/[0.02] border border-white/5 text-white/30 hover:text-primary hover:border-primary/20 disabled:opacity-30 text-[9px] font-black uppercase tracking-wider transition-all">
+                                        className="flex items-center gap-1 px-3 py-2 rounded-xl bg-muted border border-border text-muted-foreground hover:text-primary hover:border-primary/20 disabled:opacity-30 text-[9px] font-black uppercase tracking-wider transition-all">
                                         Next <ChevronRight size={10} />
                                     </button>
                                 </div>

@@ -65,24 +65,24 @@ export default function BlockDetailPage() {
     return (
         <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-8 font-mono">
             {/* Header */}
-            <motion.header variants={itemVariants} className="flex flex-col gap-6 border-b border-white/5 pb-8">
+            <motion.header variants={itemVariants} className="flex flex-col gap-6 border-b border-border pb-8">
                 <div className="flex items-center gap-4">
-                    <Link href="/explorer/blocks" className="flex items-center gap-2 text-[10px] font-black text-white/30 hover:text-primary transition-colors uppercase tracking-[0.3em]">
+                    <Link href="/explorer/blocks" className="flex items-center gap-2 text-[10px] font-black text-muted-foreground hover:text-primary transition-colors uppercase tracking-[0.3em]">
                         <ArrowLeft size={14} /> All Blocks
                     </Link>
-                    <span className="text-white/10">/</span>
-                    <span className="text-[10px] font-black text-white/30 uppercase tracking-[0.3em]">#{blockNumber}</span>
+                    <span className="text-muted-foreground">/</span>
+                    <span className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.3em]">#{blockNumber}</span>
                 </div>
 
                 <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-6">
                     <div>
                         <div className="text-[10px] font-black text-primary uppercase tracking-[0.5em] mb-1">Grid Telemetry // Block</div>
-                        <h1 className="text-4xl font-black uppercase tracking-tighter text-white flex items-center gap-4">
+                        <h1 className="text-4xl font-black uppercase tracking-tighter text-foreground flex items-center gap-4">
                             <Box className="text-primary" size={32} />
                             Block #{blockNumber}
                         </h1>
                         {block?.timestamp && (
-                            <p className="text-[11px] font-black text-white/30 uppercase tracking-widest mt-2 flex items-center gap-2">
+                            <p className="text-[11px] font-black text-muted-foreground uppercase tracking-widest mt-2 flex items-center gap-2">
                                 <Clock size={11} />
                                 {formatDistanceToNow(new Date(block.timestamp), { addSuffix: true })}
                             </p>
@@ -93,13 +93,13 @@ export default function BlockDetailPage() {
                     <div className="flex items-center gap-2">
                         <button
                             onClick={() => router.push(`/explorer/blocks/${Number(blockNumber) - 1}`)}
-                            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white/[0.02] border border-white/5 text-white/30 hover:text-primary hover:border-primary/20 text-[9px] font-black uppercase tracking-widest transition-all"
+                            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-muted border border-border text-muted-foreground hover:text-primary hover:border-primary/20 text-[9px] font-black uppercase tracking-widest transition-all"
                         >
                             <ChevronLeft size={12} /> Prev
                         </button>
                         <button
                             onClick={() => router.push(`/explorer/blocks/${Number(blockNumber) + 1}`)}
-                            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white/[0.02] border border-white/5 text-white/30 hover:text-primary hover:border-primary/20 text-[9px] font-black uppercase tracking-widest transition-all"
+                            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-muted border border-border text-muted-foreground hover:text-primary hover:border-primary/20 text-[9px] font-black uppercase tracking-widest transition-all"
                         >
                             Next <ChevronRight size={12} />
                         </button>
@@ -110,7 +110,7 @@ export default function BlockDetailPage() {
             {isLoading ? (
                 <div className="space-y-4">
                     {Array.from({ length: 6 }).map((_, i) => (
-                        <div key={i} className="h-16 bg-white/[0.01] animate-pulse border border-white/5 rounded-2xl" />
+                        <div key={i} className="h-16 bg-card animate-pulse border border-border rounded-2xl" />
                     ))}
                 </div>
             ) : error ? (
@@ -125,15 +125,15 @@ export default function BlockDetailPage() {
                 <>
                     {/* Block Fields */}
                     <motion.section variants={itemVariants}>
-                        <GlassCard className="overflow-hidden border-white/5 bg-white/[0.01] rounded-[2rem]">
-                            <div className="divide-y divide-white/5">
+                        <GlassCard className="overflow-hidden border-border bg-card rounded-[2rem]">
+                            <div className="divide-y divide-border">
                                 {fields.map((f, i) => (
                                     <div key={i} className="flex items-start gap-6 px-8 py-5">
                                         <div className="flex items-center gap-3 w-40 flex-shrink-0">
-                                            <f.icon size={14} className="text-white/20" />
-                                            <span className="text-[9px] font-black text-white/30 uppercase tracking-widest">{f.label}</span>
+                                            <f.icon size={14} className="text-muted-foreground" />
+                                            <span className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">{f.label}</span>
                                         </div>
-                                        <div className={`flex-1 min-w-0 text-[12px] font-black ${f.mono ? 'font-mono text-primary' : 'text-white'} ${f.truncate ? 'truncate' : 'break-all'}`}>
+                                        <div className={`flex-1 min-w-0 text-[12px] font-black ${f.mono ? 'font-mono text-primary' : 'text-foreground'} ${f.truncate ? 'truncate' : 'break-all'}`}>
                                             {f.value || '—'}
                                         </div>
                                     </div>
@@ -146,7 +146,7 @@ export default function BlockDetailPage() {
                     {(block?.transaction_count ?? 0) > 0 && (
                         <motion.section variants={itemVariants} className="space-y-5">
                             <div className="flex justify-between items-center px-2">
-                                <h2 className="text-lg font-black uppercase tracking-tighter text-white flex items-center gap-3">
+                                <h2 className="text-lg font-black uppercase tracking-tighter text-foreground flex items-center gap-3">
                                     <ArrowRightLeft size={16} className="text-primary" />
                                     Transactions ({block?.transaction_count?.toLocaleString()})
                                 </h2>
@@ -164,39 +164,39 @@ function BlockTransactions({ transactions }: { transactions?: TransactionSummary
     const txs = transactions || [];
 
     if (!txs.length) return (
-        <div className="py-12 text-center border-2 border-dashed border-white/5 rounded-[2rem]">
-            <ArrowRightLeft size={36} className="mx-auto text-white/5 mb-4" />
-            <p className="text-[9px] font-black text-white/20 uppercase tracking-widest">No transactions indexed for this block</p>
+        <div className="py-12 text-center border-2 border-dashed border-border rounded-[2rem]">
+            <ArrowRightLeft size={36} className="mx-auto text-muted-foreground mb-4" />
+            <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">No transactions indexed for this block</p>
         </div>
     );
 
     return (
-        <GlassCard className="overflow-hidden border-white/5 bg-white/[0.01] rounded-[2rem]">
+        <GlassCard className="overflow-hidden border-border bg-card rounded-[2rem]">
             <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                     <thead>
-                        <tr className="bg-white/5 text-white/40 text-[10px] uppercase tracking-[0.2em] font-black">
+                        <tr className="bg-muted text-muted-foreground text-[10px] uppercase tracking-[0.2em] font-black">
                             <th className="px-6 py-4">Tx Hash</th>
                             <th className="px-6 py-4">Type</th>
                             <th className="px-6 py-4 text-right">Amount</th>
                             <th className="px-6 py-4 text-center">Status</th>
                         </tr>
                     </thead>
-                    <tbody className="divide-y divide-white/5">
+                    <tbody className="divide-y divide-border">
                         {txs.map((tx: any) => (
-                            <tr key={tx.tx_hash} className="hover:bg-white/[0.03] transition-colors">
+                            <tr key={tx.tx_hash} className="hover:bg-surface-hover transition-colors">
                                 <td className="px-6 py-4">
                                     <Link href={`/explorer/transactions/${tx.tx_hash}`} className="font-mono text-primary hover:text-primary/80 text-[11px] font-bold truncate max-w-[160px] block transition-colors">
                                         {tx.tx_hash?.slice(0, 12)}...{tx.tx_hash?.slice(-8)}
                                     </Link>
                                 </td>
                                 <td className="px-6 py-4">
-                                    <span className="px-2 py-1 rounded-lg text-[9px] font-black bg-white/5 text-white/50 uppercase tracking-wider">
+                                    <span className="px-2 py-1 rounded-lg text-[9px] font-black bg-muted text-muted-foreground uppercase tracking-wider">
                                         {tx.tx_type?.replace(/_/g, ' ')}
                                     </span>
                                 </td>
-                                <td className="px-6 py-4 text-right font-mono text-white font-bold text-sm">
-                                    {(tx.amount || 0).toFixed(4)} <span className="text-white/30 text-[9px]">{tx.currency || 'SOL'}</span>
+                                <td className="px-6 py-4 text-right font-mono text-foreground font-bold text-sm">
+                                    {(tx.amount || 0).toFixed(4)} <span className="text-muted-foreground text-[9px]">{tx.currency || 'SOL'}</span>
                                 </td>
                                 <td className="px-6 py-4 text-center">
                                     {tx.status === 'confirmed' ? (

@@ -17,16 +17,16 @@ export function mapLiveOnMarketplaceEnabled(): boolean {
 }
 
 /**
- * Legacy WebGL globe (deprecated). Primary Explorer UX is Google Maps 2D / tilt-3D.
- * Keep off unless explicitly validating old globe topology paths.
+ * Legacy WebGL explorer globe — removed from product UI.
+ * Flags kept as no-ops so old env configs do not break builds.
  */
 export function legacyExplorerGlobeEnabled(): boolean {
-    return envFlag('NEXT_PUBLIC_LEGACY_EXPLORER_GLOBE');
+    return false;
 }
 
-/** Real session-derived topology arcs on the legacy 3D globe. */
+/** Real session-derived topology arcs on the legacy 3D globe (disabled). */
 export function globeTopologyEnabled(): boolean {
-    return envFlag('NEXT_PUBLIC_GLOBE_TOPOLOGY');
+    return false;
 }
 
 export function googleMapsApiKey(): string {
@@ -36,4 +36,12 @@ export function googleMapsApiKey(): string {
 /** Optional Cloud Map ID for vector basemap + Advanced Markers (GCP Map Management). */
 export function googleMapsMapId(): string {
     return (process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID ?? '').trim();
+}
+
+/** Force-show or hide the global Testnet/devnet honesty strip. */
+export function showTestnetBannerForced(): boolean | null {
+    const raw = process.env.NEXT_PUBLIC_SHOW_TESTNET_BANNER?.trim().toLowerCase();
+    if (raw === '1' || raw === 'true' || raw === 'yes') return true;
+    if (raw === '0' || raw === 'false' || raw === 'no') return false;
+    return null;
 }

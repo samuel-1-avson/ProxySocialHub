@@ -1,16 +1,18 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { getProposal, castGovernanceVote, type Proposal } from "@/lib/services/governance";
+import { getProposal, castGovernanceVote, finalizeProposal, type Proposal } from "@/lib/services/governance";
 import { useWallet } from "@solana/wallet-adapter-react";
+import { useAuth } from "@/lib/auth";
 import { Loader2, ArrowLeft, CheckCircle, XCircle, MessageSquare, Box, ShieldCheck, Clock, Hexagon, Zap, Target, BarChart3, Fingerprint, Terminal, FileText } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from "recharts";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard } from "@/components/ui/glass-card";
 import { ProposalImpactPreview } from "@/components/governance/ProposalImpactPreview";
 import { ProposalTreasuryAudit } from "@/components/governance/ProposalTreasuryAudit";
+import { UnlockWalletPrompt } from "@/components/UnlockWalletPrompt";
 
 export default function ProposalDetailsPage() {
     const params = useParams();
@@ -20,10 +22,21 @@ export default function ProposalDetailsPage() {
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<'discussion' | 'votes' | 'execution'>('votes');
     const [voting, setVoting] = useState(false);
+    const [finalizing, setFinalizing] = useState(false);
     const [voteChoice, setVoteChoice] = useState<'yes' | 'no' | null>(null);
     const [voteError, setVoteError] = useState("");
+    const [finalizeError, setFinalizeError] = useState("");
 
-    const { signMessage, signTransaction, publicKey } = useWallet();
+    const { signMessage, signTransaction, publicKey, connected, wallet } = useWallet();
+    const { user } = useAuth();
+    const linkedWallet = user?.wallet_address?.trim() || "";
+    const adapterWallet = publicKey?.toBase58() || "";
+    const walletMatchesLinked =
+        !!linkedWallet && !!adapterWallet && linkedWallet === adapterWallet;
+    const walletName = wallet?.adapter?.name?.trim() || "";
+    const walletLooksLikeMetaMask = /metamask/i.test(walletName);
+    const solanaNetwork = (process.env.NEXT_PUBLIC_SOLANA_NETWORK || "devnet").trim() || "devnet";
+    const canSignVote = walletMatchesLinked && !walletLooksLikeMetaMask;
 
     useEffect(() => {
         if (id) {
@@ -34,6 +47,11 @@ export default function ProposalDetailsPage() {
         }
     }, [id]);
 
+    const votingClosed = useMemo(() => {
+        if (!proposal?.end_time) return false;
+        return new Date(proposal.end_time).getTime() <= Date.now();
+    }, [proposal?.end_time]);
+
     const handleVote = async () => {
         if (!voteChoice || !proposal) return;
 
@@ -43,26 +61,109 @@ export default function ProposalDetailsPage() {
             );
             return;
         }
+        if (!linkedWallet) {
+            setVoteError("Link a Solana wallet on your account before voting.");
+            return;
+        }
+        if (!walletMatchesLinked) {
+            setVoteError(
+                `Connected wallet does not match your linked account wallet (${linkedWallet.slice(0, 4)}…${linkedWallet.slice(-4)}). Disconnect and connect the correct wallet.`
+            );
+            return;
+        }
+        if (walletLooksLikeMetaMask) {
+            setVoteError(
+                `MetaMask is on Solana Mainnet; ProxyHubb Testnet uses ${solanaNetwork}. Cancel in MetaMask, disconnect it, then connect Phantom (or Solflare) on ${solanaNetwork}.`
+            );
+            return;
+        }
 
         setVoting(true);
         setVoteError("");
         try {
-            await castGovernanceVote(
+            const cast = await castGovernanceVote(
                 proposal.id,
                 voteChoice,
-                publicKey.toBase58(),
+                adapterWallet,
                 signMessage,
                 signTransaction
             );
 
-            const updated = await getProposal(proposal.id);
-            setProposal(updated);
+            const myVote = cast.my_vote ?? {
+                choice: cast.choice,
+                power: cast.power ?? cast.voting_power ?? 1,
+            };
+
+            // Apply on-chain tallies immediately so the chart updates before refetch.
+            setProposal((prev) => {
+                if (!prev) return prev;
+                const yes =
+                    cast.yes_votes != null ? cast.yes_votes : prev.yes_votes;
+                const no = cast.no_votes != null ? cast.no_votes : prev.no_votes;
+                return {
+                    ...prev,
+                    yes_votes: yes,
+                    no_votes: no,
+                    votes_for: yes,
+                    votes_against: no,
+                    total_votes: yes + no + (prev.votes_abstain || 0),
+                    my_vote: myVote,
+                };
+            });
+
+            // Refetch with auth so my_vote + chain overlay stay consistent.
+            try {
+                const updated = await getProposal(proposal.id);
+                const yes = cast.yes_votes ?? updated.yes_votes;
+                const no = cast.no_votes ?? updated.no_votes;
+                setProposal({
+                    ...updated,
+                    my_vote: updated.my_vote ?? myVote,
+                    yes_votes: yes,
+                    no_votes: no,
+                    votes_for: yes,
+                    votes_against: no,
+                    total_votes: yes + no + (updated.votes_abstain || 0),
+                });
+            } catch {
+                // Keep optimistic state if refetch fails.
+            }
         } catch (err) {
             console.error("Vote failed", err);
-            setVoteError(err instanceof Error ? err.message : "Vote failed");
+            const raw = err instanceof Error ? err.message : "Vote failed";
+            if (/already.?vot/i.test(raw)) {
+                try {
+                    const updated = await getProposal(proposal.id);
+                    setProposal(updated);
+                    setVoteError("");
+                } catch {
+                    setVoteError("You have already voted on this proposal.");
+                }
+            } else if (/simulat|revert|mainnet|User rejected|rejected the request|WalletSignTransactionError/i.test(raw)) {
+                setVoteError(
+                    `Wallet could not sign the ${solanaNetwork} vote tx (often MetaMask Mainnet or wrong cluster). Cancel the wallet popup, use Phantom on ${solanaNetwork}, then retry. Details: ${raw}`
+                );
+            } else {
+                setVoteError(raw);
+            }
         } finally {
             setVoting(false);
             setVoteChoice(null);
+        }
+    };
+
+    const handleFinalize = async () => {
+        if (!proposal) return;
+        setFinalizing(true);
+        setFinalizeError("");
+        try {
+            await finalizeProposal(proposal.id);
+            const updated = await getProposal(proposal.id);
+            setProposal(updated);
+        } catch (err) {
+            setFinalizeError(err instanceof Error ? err.message : "Finalize failed");
+        } finally {
+            setFinalizing(false);
         }
     };
 
@@ -281,8 +382,9 @@ export default function ProposalDetailsPage() {
                                     <div className="flex items-start gap-4 p-6 bg-primary/5 border border-primary/10 rounded-2xl">
                                         <Zap size={20} className="text-primary shrink-0" />
                                         <p className="text-[10px] font-black uppercase tracking-widest leading-relaxed text-muted-foreground/40">
-                                            Sequence is verified and executed via target authority link.
-                                            Manual override is restricted by atomic protocol safety.
+                                            Closing a vote finalizes on-chain status (passed/rejected). Treasury
+                                            payloads are queued for custody review — they are not auto-spent from
+                                            the operational hot wallet.
                                         </p>
                                     </div>
                                 </div>
@@ -320,40 +422,113 @@ export default function ProposalDetailsPage() {
                                     <Fingerprint size={16} className="animate-pulse" />
                                 </h3>
 
-                                <div className="space-y-4">
-                                    {[
-                                        { id: 'yes', label: 'Support Unit', icon: CheckCircle, color: 'hover:border-emerald-500/50 hover:bg-emerald-500/5', active: 'border-emerald-500 bg-emerald-500/10 text-emerald-500 shadow-lg shadow-emerald-500/10' },
-                                        { id: 'no', label: 'Reject Unit', icon: XCircle, color: 'hover:border-rose-500/50 hover:bg-rose-500/5', active: 'border-rose-500 bg-rose-500/10 text-rose-500 shadow-lg shadow-rose-500/10' },
-                                    ].map((option) => (
-                                        <button
-                                            key={option.id}
-                                            onClick={() => setVoteChoice(option.id as any)}
-                                            className={`w-full p-5 rounded-2xl border border-white/5 flex items-center justify-between text-[11px] font-black uppercase tracking-widest transition-all ${voteChoice === option.id ? option.active : `bg-black/40 ${option.color} text-muted-foreground/40`
-                                                }`}
-                                        >
-                                            {option.label}
-                                            <option.icon size={18} />
-                                        </button>
-                                    ))}
-
-                                    <button
-                                        onClick={handleVote}
-                                        disabled={!voteChoice || voting}
-                                        className="w-full mt-6 py-5 bg-primary text-primary-foreground rounded-2xl font-black text-xs uppercase tracking-[0.4em] flex items-center justify-center gap-3 hover:shadow-[0_0_40px_rgba(16,185,129,0.3)] transition-all active:scale-[0.98] disabled:opacity-20"
-                                    >
-                                        {voting ? <Loader2 className="animate-spin" size={20} /> : <Zap size={20} />}
-                                        {voting ? "INITIALIZING SIGNATURE..." : "Confirm Sequence"}
-                                    </button>
-                                    {voteError && (
-                                        <p className="text-[9px] text-center font-black uppercase tracking-widest text-rose-400 leading-relaxed mt-4">
-                                            {voteError}
+                                {proposal.my_vote ? (
+                                    <div className="space-y-4">
+                                        <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-5 flex items-center justify-between">
+                                            <div>
+                                                <p className="text-[10px] font-black uppercase tracking-widest text-emerald-400/80 mb-1">
+                                                    Ballot recorded
+                                                </p>
+                                                <p className="text-sm font-semibold text-emerald-300">
+                                                    {proposal.my_vote.choice === 'no'
+                                                        ? 'Reject Unit'
+                                                        : 'Support Unit'}
+                                                </p>
+                                            </div>
+                                            <CheckCircle size={22} className="text-emerald-400" />
+                                        </div>
+                                        <p className="text-xs text-muted-foreground leading-relaxed">
+                                            One vote per linked wallet. You cannot change or cast again on this proposal.
                                         </p>
-                                    )}
-                                    <p className="text-[9px] text-center font-black uppercase tracking-[0.3em] text-muted-foreground/20 leading-relaxed mt-4">
-                                        Signs vote:{proposal.id}:yes|no, builds an on-chain tx, and mirrors after relay.
-                                        Abstain is not supported on-chain.
+                                    </div>
+                                ) : (
+                                    <>
+                                        {linkedWallet && !walletMatchesLinked && (
+                                            <div className="mb-6">
+                                                <UnlockWalletPrompt
+                                                    expectedAddress={linkedWallet}
+                                                    mismatch={connected}
+                                                />
+                                            </div>
+                                        )}
+                                        {walletLooksLikeMetaMask && (
+                                            <div className="mb-6 rounded-xl border border-rose-500/40 bg-rose-500/10 p-4 space-y-2">
+                                                <p className="text-sm font-semibold text-rose-300">
+                                                    MetaMask cannot vote on Testnet
+                                                </p>
+                                                <p className="text-sm text-rose-200/90 leading-relaxed">
+                                                    That popup is signing on Solana Mainnet. ProxyHubb Testnet
+                                                    is {solanaNetwork}. Cancel MetaMask, disconnect it here,
+                                                    then connect Phantom or Solflare with the network set to{" "}
+                                                    {solanaNetwork}.
+                                                </p>
+                                            </div>
+                                        )}
+
+                                        <div className="space-y-4">
+                                            {[
+                                                { id: 'yes', label: 'Support Unit', icon: CheckCircle, color: 'hover:border-emerald-500/50 hover:bg-emerald-500/5', active: 'border-emerald-500 bg-emerald-500/10 text-emerald-500 shadow-lg shadow-emerald-500/10' },
+                                                { id: 'no', label: 'Reject Unit', icon: XCircle, color: 'hover:border-rose-500/50 hover:bg-rose-500/5', active: 'border-rose-500 bg-rose-500/10 text-rose-500 shadow-lg shadow-rose-500/10' },
+                                            ].map((option) => (
+                                                <button
+                                                    key={option.id}
+                                                    onClick={() => setVoteChoice(option.id as any)}
+                                                    className={`w-full p-5 rounded-2xl border border-white/5 flex items-center justify-between text-[11px] font-black uppercase tracking-widest transition-all ${voteChoice === option.id ? option.active : `bg-black/40 ${option.color} text-muted-foreground/40`
+                                                        }`}
+                                                >
+                                                    {option.label}
+                                                    <option.icon size={18} />
+                                                </button>
+                                            ))}
+
+                                            <button
+                                                onClick={handleVote}
+                                                disabled={!voteChoice || voting || !canSignVote}
+                                                className="w-full mt-6 py-5 bg-primary text-primary-foreground rounded-2xl font-black text-xs uppercase tracking-[0.4em] flex items-center justify-center gap-3 hover:shadow-[0_0_40px_rgba(16,185,129,0.3)] transition-all active:scale-[0.98] disabled:opacity-20"
+                                            >
+                                                {voting ? <Loader2 className="animate-spin" size={20} /> : <Zap size={20} />}
+                                                {voting ? "INITIALIZING SIGNATURE..." : "Confirm Sequence"}
+                                            </button>
+                                            {voteError && (
+                                                <p className="text-[9px] text-center font-black uppercase tracking-widest text-rose-400 leading-relaxed mt-4">
+                                                    {voteError}
+                                                </p>
+                                            )}
+                                            <p className="text-[9px] text-center font-black uppercase tracking-[0.3em] text-muted-foreground/20 leading-relaxed mt-4">
+                                                Signs vote:{proposal.id}:yes|no, builds an on-chain tx, and mirrors after relay.
+                                                Weight is fixed at 1 per wallet. Abstain is not supported on-chain.
+                                            </p>
+                                        </div>
+                                    </>
+                                )}
+                            </GlassCard>
+                        </motion.div>
+                    )}
+
+                    {proposal.status === 'active' && votingClosed && (
+                        <motion.div variants={itemVariants}>
+                            <GlassCard className="!p-8 border-amber-500/20 bg-amber-500/[0.03]">
+                                <h3 className="text-[11px] font-black uppercase tracking-[0.4em] mb-4 text-muted-foreground">
+                                    Close voting
+                                </h3>
+                                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/40 mb-6 leading-relaxed">
+                                    Voting window ended. Finalize on-chain to set passed/rejected.
+                                    Treasury payloads still require custody — no hot-wallet auto-spend.
+                                </p>
+                                <button
+                                    type="button"
+                                    onClick={handleFinalize}
+                                    disabled={finalizing}
+                                    className="w-full py-4 bg-amber-500/20 border border-amber-500/40 text-amber-200 rounded-2xl font-black text-xs uppercase tracking-[0.3em] flex items-center justify-center gap-3 hover:bg-amber-500/30 transition-all disabled:opacity-40"
+                                >
+                                    {finalizing ? <Loader2 className="animate-spin" size={18} /> : <Clock size={18} />}
+                                    {finalizing ? 'Finalizing…' : 'Finalize on-chain'}
+                                </button>
+                                {finalizeError && (
+                                    <p className="text-[9px] text-center font-black uppercase tracking-widest text-rose-400 leading-relaxed mt-4">
+                                        {finalizeError}
                                     </p>
-                                </div>
+                                )}
                             </GlassCard>
                         </motion.div>
                     )}

@@ -12,6 +12,7 @@ interface LiveSession {
   buyer_id: string;
   provider_id: string;
   status: string;
+  kind?: "session" | "intent";
   bytes_used: number;
   bandwidth_limit: number;
   started_at: string;
@@ -39,16 +40,16 @@ function formatBytes(bytes: number): string {
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
-  const isActive = status === "active";
+  const isLive = status === "active" || status === "routed" || status === "closing";
   return (
     <span
       className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-sm border text-[10px] font-bold uppercase font-mono ${
-        isActive
+        isLive
           ? "bg-green-500/10 text-green-500 border-green-500/20"
           : "bg-secondary text-muted-foreground border-border"
       }`}
     >
-      {isActive && (
+      {isLive && (
         <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
       )}
       {status}
@@ -101,6 +102,11 @@ function SessionCard({ session }: { session: LiveSession }) {
           <span className="text-[10px] font-black font-mono text-primary/70 uppercase tracking-widest">
             {truncate(session.id, 8)}
           </span>
+          {session.kind === "intent" && (
+            <span className="text-[9px] font-mono uppercase text-muted-foreground/60 border border-white/10 px-1.5 py-0.5 rounded">
+              intent
+            </span>
+          )}
         </div>
         <StatusBadge status={session.status} />
       </div>
@@ -286,7 +292,10 @@ export function SessionLiveCard() {
           <div className="flex flex-col items-center justify-center py-16 gap-3 opacity-30">
             <Activity size={28} />
             <p className="text-[9px] font-black font-mono uppercase tracking-[0.4em]">
-              No Active Sessions
+              No Active Paths
+            </p>
+            <p className="text-[8px] font-mono uppercase tracking-widest text-center px-6 opacity-70">
+              Authorized intents appear here after gateway CONNECT
             </p>
           </div>
         )}

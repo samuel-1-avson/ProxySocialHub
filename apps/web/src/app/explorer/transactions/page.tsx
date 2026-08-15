@@ -126,32 +126,32 @@ export default function TransactionsPage() {
     return (
         <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-8 font-mono">
             {/* Header */}
-            <motion.header variants={itemVariants} className="flex flex-col gap-6 border-b border-white/5 pb-8">
-                <Link href="/explorer" className="flex items-center gap-2 text-[10px] font-black text-white/30 hover:text-primary transition-colors uppercase tracking-[0.3em] w-fit">
+            <motion.header variants={itemVariants} className="flex flex-col gap-6 border-b border-border pb-8">
+                <Link href="/explorer" className="flex items-center gap-2 text-[10px] font-black text-muted-foreground hover:text-primary transition-colors uppercase tracking-[0.3em] w-fit">
                     <ArrowLeft size={14} /> Back to Grid
                 </Link>
 
                 <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-6">
                     <div>
                         <div className="text-[10px] font-black text-primary uppercase tracking-[0.5em] mb-1">Grid Telemetry // Transactions</div>
-                        <h1 className="text-4xl font-black uppercase tracking-tighter text-white flex items-center gap-4">
+                        <h1 className="text-4xl font-black uppercase tracking-tighter text-foreground flex items-center gap-4">
                             <ArrowRightLeft className="text-primary" size={32} />
                             Settlement Stream
                         </h1>
-                        <p className="text-[11px] font-black text-white/30 uppercase tracking-widest mt-2">
+                        <p className="text-[11px] font-black text-muted-foreground uppercase tracking-widest mt-2">
                             Live protocol transaction history
                         </p>
                     </div>
                     <div className="flex items-center gap-4">
                         <div className="text-right">
-                            <p className="text-[9px] font-black text-white/20 uppercase tracking-[0.3em]">Total Transactions</p>
-                            <p className="text-3xl font-black text-white tracking-tighter">{data?.total?.toLocaleString() || '0'}</p>
+                            <p className="text-[9px] font-black text-muted-foreground uppercase tracking-[0.3em]">Total Transactions</p>
+                            <p className="text-3xl font-black text-foreground tracking-tighter">{data?.total?.toLocaleString() || '0'}</p>
                         </div>
                         <button
                             onClick={handleExport}
                             disabled={!displayTxs.length}
                             title="Export current page as CSV"
-                            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all bg-white/[0.02] border-white/5 text-white/30 hover:text-emerald-400 hover:border-emerald-500/30 disabled:opacity-20 disabled:cursor-not-allowed"
+                            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all bg-muted border-border text-muted-foreground hover:text-emerald-400 hover:border-emerald-500/30 disabled:opacity-20 disabled:cursor-not-allowed"
                         >
                             <Download size={12} />
                             CSV
@@ -161,7 +161,7 @@ export default function TransactionsPage() {
                             className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all relative ${
                                 hasFilters
                                     ? 'bg-primary/10 border-primary/30 text-primary'
-                                    : 'bg-white/[0.02] border-white/5 text-white/30 hover:text-white/60'
+                                    : 'bg-muted border-border text-muted-foreground hover:text-foreground'
                             }`}
                         >
                             <Filter size={12} />
@@ -181,9 +181,9 @@ export default function TransactionsPage() {
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
                 >
-                    <GlassCard className="!p-6 border-white/5 bg-primary/[0.02] rounded-[2rem] space-y-5">
+                    <GlassCard className="!p-6 border-border bg-primary/[0.02] rounded-[2rem] space-y-5">
                         <div className="flex items-center justify-between">
-                            <h3 className="text-[10px] font-black text-white/50 uppercase tracking-widest flex items-center gap-2">
+                            <h3 className="text-[10px] font-black text-muted-foreground uppercase tracking-widest flex items-center gap-2">
                                 <Filter size={12} /> Filter Options
                             </h3>
                             {hasFilters && (
@@ -195,7 +195,7 @@ export default function TransactionsPage() {
 
                         {/* Transaction Type */}
                         <div>
-                            <p className="text-[9px] font-black text-white/20 uppercase tracking-widest mb-2">Type</p>
+                            <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mb-2">Type</p>
                             <div className="flex flex-wrap gap-1.5">
                                 {TX_TYPES.map((t) => (
                                     <button
@@ -204,7 +204,7 @@ export default function TransactionsPage() {
                                         className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all border ${
                                             typeFilter === t
                                                 ? 'bg-primary text-black border-primary'
-                                                : 'bg-white/[0.02] border-white/5 text-white/30 hover:text-white/60 hover:border-white/10'
+                                                : 'bg-muted border-border text-muted-foreground hover:text-foreground hover:border-border-strong'
                                         }`}
                                     >
                                         {t.replace(/_/g, ' ')}
@@ -215,7 +215,7 @@ export default function TransactionsPage() {
 
                         {/* Status */}
                         <div>
-                            <p className="text-[9px] font-black text-white/20 uppercase tracking-widest mb-2">Status</p>
+                            <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mb-2">Status</p>
                             <div className="flex flex-wrap gap-1.5">
                                 {TX_STATUSES.map((s) => (
                                     <button
@@ -224,7 +224,7 @@ export default function TransactionsPage() {
                                         className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all border ${
                                             statusFilter === s
                                                 ? 'bg-primary text-black border-primary'
-                                                : 'bg-white/[0.02] border-white/5 text-white/30 hover:text-white/60 hover:border-white/10'
+                                                : 'bg-muted border-border text-muted-foreground hover:text-foreground hover:border-border-strong'
                                         }`}
                                     >
                                         {s}
@@ -235,7 +235,7 @@ export default function TransactionsPage() {
 
                         {/* Chain */}
                         <div>
-                            <p className="text-[9px] font-black text-white/20 uppercase tracking-widest mb-2">Chain</p>
+                            <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mb-2">Chain</p>
                             <div className="flex flex-wrap gap-1.5">
                                 {['all', 'solana'].map((c) => (
                                     <button
@@ -244,7 +244,7 @@ export default function TransactionsPage() {
                                         className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all border ${
                                             (c === 'all' ? !chainFilter : chainFilter === c)
                                                 ? 'bg-primary text-black border-primary'
-                                                : 'bg-white/[0.02] border-white/5 text-white/30 hover:text-white/60 hover:border-white/10'
+                                                : 'bg-muted border-border text-muted-foreground hover:text-foreground hover:border-border-strong'
                                         }`}
                                     >
                                         {c}
@@ -262,19 +262,19 @@ export default function TransactionsPage() {
                     {typeFilter !== 'all' && (
                         <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 border border-primary/20 text-primary text-[9px] font-black uppercase tracking-wider">
                             Type: {typeFilter.replace(/_/g, ' ')}
-                            <button onClick={() => setTypeFilter('all')} className="hover:text-white transition-colors"><XCircle size={10} /></button>
+                            <button onClick={() => setTypeFilter('all')} className="hover:text-foreground transition-colors"><XCircle size={10} /></button>
                         </span>
                     )}
                     {statusFilter !== 'all' && (
                         <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 border border-primary/20 text-primary text-[9px] font-black uppercase tracking-wider">
                             Status: {statusFilter}
-                            <button onClick={() => setStatusFilter('all')} className="hover:text-white transition-colors"><XCircle size={10} /></button>
+                            <button onClick={() => setStatusFilter('all')} className="hover:text-foreground transition-colors"><XCircle size={10} /></button>
                         </span>
                     )}
                     {chainFilter && (
                         <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 border border-primary/20 text-primary text-[9px] font-black uppercase tracking-wider">
                             Chain: {chainFilter}
-                            <button onClick={() => setChainFilter(undefined)} className="hover:text-white transition-colors"><XCircle size={10} /></button>
+                            <button onClick={() => setChainFilter(undefined)} className="hover:text-foreground transition-colors"><XCircle size={10} /></button>
                         </span>
                     )}
                 </motion.div>
@@ -282,11 +282,11 @@ export default function TransactionsPage() {
 
             {/* Transactions Table */}
             <motion.section variants={itemVariants}>
-                <GlassCard className="overflow-hidden border-white/5 bg-white/[0.01]">
+                <GlassCard className="overflow-hidden border-border bg-card">
                     <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse">
                             <thead>
-                                <tr className="bg-white/5 text-white/40 text-[10px] uppercase tracking-[0.2em] font-black">
+                                <tr className="bg-muted text-muted-foreground text-[10px] uppercase tracking-[0.2em] font-black">
                                     <th className="px-6 py-4">Tx Hash</th>
                                     <th className="px-6 py-4">Type</th>
                                     <th className="px-6 py-4">From / To</th>
@@ -295,19 +295,19 @@ export default function TransactionsPage() {
                                     <th className="px-6 py-4 text-right">Time</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-white/5">
+                            <tbody className="divide-y divide-border">
                                 {isLoading ? (
                                     Array.from({ length: 10 }).map((_, i) => (
                                         <tr key={i} className="animate-pulse">
-                                            <td colSpan={6} className="px-6 py-4 h-14 bg-white/5" />
+                                            <td colSpan={6} className="px-6 py-4 h-14 bg-muted" />
                                         </tr>
                                     ))
                                 ) : displayTxs.length === 0 ? (
                                     <tr>
                                         <td colSpan={6} className="px-6 py-20 text-center">
                                             <div className="flex flex-col items-center gap-4">
-                                                <Fingerprint size={48} className="text-white/10" />
-                                                <p className="text-[10px] font-black text-white/20 uppercase tracking-[0.3em]">
+                                                <Fingerprint size={48} className="text-muted-foreground" />
+                                                <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.3em]">
                                                     {hasFilters ? 'No transactions match the current filters' : 'No transactions indexed yet'}
                                                 </p>
                                                 {hasFilters && (
@@ -316,7 +316,7 @@ export default function TransactionsPage() {
                                                     </button>
                                                 )}
                                                 {!hasFilters && (
-                                                    <p className="text-[10px] text-white/10 max-w-md">
+                                                    <p className="text-[10px] text-muted-foreground max-w-md">
                                                         The blockchain indexer is starting up. Transactions will appear here once the sync is complete.
                                                     </p>
                                                 )}
@@ -325,9 +325,9 @@ export default function TransactionsPage() {
                                     </tr>
                                 ) : (
                                     displayTxs.map((tx: any) => {
-                                        const typeColor = TX_TYPE_COLORS[tx.tx_type] || 'text-white/50 bg-white/5';
+                                        const typeColor = TX_TYPE_COLORS[tx.tx_type] || 'text-muted-foreground bg-muted';
                                         return (
-                                            <tr key={tx.tx_hash} className="hover:bg-white/[0.03] transition-colors group">
+                                            <tr key={tx.tx_hash} className="hover:bg-surface-hover transition-colors group">
                                                 <td className="px-6 py-4">
                                                     <div className="flex items-center gap-3">
                                                         <div className="w-1 h-8 rounded-full bg-primary/40" />
@@ -346,27 +346,27 @@ export default function TransactionsPage() {
                                                 </td>
                                                 <td className="px-6 py-4">
                                                     <div className="flex flex-col gap-1 font-mono text-[10px]">
-                                                        <Link href={`/explorer/wallets/${tx.from_address}`} className="text-white/30 hover:text-white/60 truncate max-w-[120px] transition-colors">
+                                                        <Link href={`/explorer/wallets/${tx.from_address}`} className="text-muted-foreground hover:text-foreground truncate max-w-[120px] transition-colors">
                                                             {tx.from_address?.slice(0, 8)}...{tx.from_address?.slice(-6)}
                                                         </Link>
-                                                        <div className="flex items-center gap-1 text-white/10">
+                                                        <div className="flex items-center gap-1 text-muted-foreground">
                                                             <ArrowRightLeft size={10} className="rotate-90" />
-                                                            <Link href={`/explorer/wallets/${tx.to_address}`} className="text-white/30 hover:text-white/60 truncate max-w-[120px] transition-colors">
+                                                            <Link href={`/explorer/wallets/${tx.to_address}`} className="text-muted-foreground hover:text-foreground truncate max-w-[120px] transition-colors">
                                                                 {tx.to_address?.slice(0, 8)}...{tx.to_address?.slice(-6)}
                                                             </Link>
                                                         </div>
                                                     </div>
                                                 </td>
                                                 <td className="px-6 py-4 text-right">
-                                                    <div className="font-mono text-white font-bold text-sm">
+                                                    <div className="font-mono text-foreground font-bold text-sm">
                                                         {tx.amount != null ? tx.amount.toLocaleString(undefined, { maximumFractionDigits: 6 }) : '—'}
                                                     </div>
-                                                    <div className="text-[9px] text-white/30 uppercase">{tx.currency || 'SOL'}</div>
+                                                    <div className="text-[9px] text-muted-foreground uppercase">{tx.currency || 'SOL'}</div>
                                                 </td>
                                                 <td className="px-6 py-4 text-center">
                                                     <StatusBadge status={tx.status} />
                                                 </td>
-                                                <td className="px-6 py-4 text-right text-[11px] text-white/40">
+                                                <td className="px-6 py-4 text-right text-[11px] text-muted-foreground">
                                                     {tx.timestamp
                                                         ? formatDistanceToNow(new Date(tx.timestamp), { addSuffix: true })
                                                         : '-'}
@@ -380,14 +380,14 @@ export default function TransactionsPage() {
                     </div>
 
                     {/* Pagination */}
-                    <div className="p-6 bg-white/[0.02] flex items-center justify-between border-t border-white/5">
+                    <div className="p-6 bg-muted flex items-center justify-between border-t border-border">
                         <div className="flex items-center gap-4">
-                            <p className="text-[10px] font-black text-white/30 uppercase tracking-widest">
-                                Page <span className="text-white">{page}</span>
+                            <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">
+                                Page <span className="text-foreground">{page}</span>
                                 {data?.total ? ` of ${Math.ceil(data.total / pageSize)}` : ''}
                             </p>
                             {hasFilters && (
-                                <p className="text-[9px] font-black text-white/20 uppercase tracking-widest">
+                                <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">
                                     {displayTxs.length} results
                                 </p>
                             )}
@@ -396,14 +396,14 @@ export default function TransactionsPage() {
                             <button
                                 onClick={() => setPage(p => Math.max(1, p - 1))}
                                 disabled={page === 1 || isLoading}
-                                className="p-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                className="p-2 rounded-lg bg-muted border border-border hover:bg-surface-hover disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                             >
                                 <ChevronLeft className="w-5 h-5" />
                             </button>
                             <button
                                 onClick={() => setPage(p => p + 1)}
                                 disabled={!data || page * pageSize >= (data.total ?? 0)}
-                                className="p-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                className="p-2 rounded-lg bg-muted border border-border hover:bg-surface-hover disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                             >
                                 <ChevronRight className="w-5 h-5" />
                             </button>

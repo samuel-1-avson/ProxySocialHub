@@ -130,6 +130,15 @@ export default function CreateProposalPage() {
 
         try {
 
+            const title = formData.title.trim();
+            const description = formData.description.trim();
+            if (title.length < 5) {
+                throw new Error("Title must be at least 5 characters");
+            }
+            if (description.length < 20) {
+                throw new Error("Description must be at least 20 characters");
+            }
+
             const durationDays = Number(formData.durationDays);
 
             if (!Number.isInteger(durationDays) || durationDays < 1 || durationDays > 14) {
@@ -190,9 +199,9 @@ export default function CreateProposalPage() {
 
             const created = await createProposal({
 
-                title: formData.title,
+                title,
 
-                description: formData.description,
+                description,
 
                 durationDays,
 
@@ -332,11 +341,21 @@ export default function CreateProposalPage() {
 
                             required
 
+                            minLength={5}
+
+                            maxLength={255}
+
                             className="w-full bg-black/40 border border-white/5 p-4 rounded-xl font-black text-sm text-foreground focus:border-primary/50 focus:outline-none transition-all placeholder:text-white/5"
 
                             placeholder="e.g. Reduce platform fee to 8%"
 
                         />
+
+                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/40">
+
+                            Min 5 characters (API binding).
+
+                        </p>
 
                     </div>
 
@@ -416,7 +435,8 @@ export default function CreateProposalPage() {
 
                             <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/40">
 
-                                On-chain voting window: 1–14 days. Quorum uses PHB voting power (VP). Abstain is recorded on-chain but does not add to For/Against bars.
+                                On-chain voting window: 1–14 days. Each linked wallet casts one vote.
+                                Abstain is not supported on-chain. Quorum is enforced when closing from DB fallback.
 
                             </p>
 
@@ -444,6 +464,8 @@ export default function CreateProposalPage() {
 
                             required
 
+                            minLength={20}
+
                             rows={6}
 
                             className="w-full bg-black/40 border border-white/5 p-4 rounded-xl font-black text-xs text-foreground focus:border-primary/50 focus:outline-none transition-all placeholder:text-white/5 resize-none leading-relaxed"
@@ -451,6 +473,12 @@ export default function CreateProposalPage() {
                             placeholder="Detailed technical specification and rationale for this consensus adjustment..."
 
                         />
+
+                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/40">
+
+                            Min 20 characters — {formData.description.trim().length}/20
+
+                        </p>
 
                     </div>
 
@@ -611,11 +639,9 @@ export default function CreateProposalPage() {
                         </button>
 
                         <p className="text-[9px] text-center font-black uppercase tracking-[0.3em] text-muted-foreground/20 leading-relaxed max-w-sm mx-auto">
-
-                            INITIALIZATION REQUIRES A 100 PROX STAKE DEPOSIT.
-
-                            RESOURCES WILL BE RETURNED UPON QUORUM SUCCESS.
-
+                            Requires a linked Solana wallet. When PHB_TOKEN_MINT is configured,
+                            proposers need ≥100 PHB. Voting is one wallet = one vote on-chain.
+                            Treasury transfers queue for custody — they do not auto-spend the hot wallet.
                         </p>
 
                     </div>

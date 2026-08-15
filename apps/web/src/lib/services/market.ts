@@ -91,6 +91,8 @@ export interface SolanaPaymentParams {
     amount_sol: number;
     bandwidth_gb: number;
     oracle_pubkey: string;
+    escrow_seed_kind?: string;
+    escrow_expires_at?: number;
 }
 
 export async function createOrder(listingId: string, bandwidthGb: number): Promise<Order> {

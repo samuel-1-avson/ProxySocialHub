@@ -300,10 +300,12 @@ export function buildWindowsInstallScript(toml: string): string {
 export function buildWindowsSetupThisPcScript(toml: string, apiBase = 'https://api.proxyhubb.com'): string {
     const escaped = toml.replace(/'/g, "''");
     const api = apiBase.replace(/\/$/, '').replace(/'/g, "''");
+    // Keep this script ASCII-only: Windows PowerShell 5.1 reads .ps1 without a BOM as
+    // system ANSI, which turns UTF-8 arrows (e.g. U+2192) into mojibake that breaks quotes.
     return [
         `$ErrorActionPreference = 'Stop'`,
         `Write-Host ''`,
-        `Write-Host 'ProxyHubb — Setup this PC' -ForegroundColor Cyan`,
+        `Write-Host 'ProxyHubb - Setup this PC' -ForegroundColor Cyan`,
         `Write-Host 'This writes your node config, installs the CLI if needed, and starts it.'`,
         `Write-Host ''`,
         `$cfgDir = Join-Path $env:APPDATA 'proxyhubb'`,
@@ -334,6 +336,10 @@ export function buildWindowsSetupThisPcScript(toml: string, apiBase = 'https://a
         `    if ($bytes.Length -ge 2 -and $bytes[0] -eq 0x50 -and $bytes[1] -eq 0x4B) { $isZip = $true }`,
         `  } catch {}`,
         `  if ($isZip) {`,
+        `    # Expand-Archive only accepts a .zip extension (content alone is not enough).`,
+        `    $zipPath = [System.IO.Path]::ChangeExtension($tmp, '.zip')`,
+        `    Move-Item -Force -LiteralPath $tmp -Destination $zipPath`,
+        `    $tmp = $zipPath`,
         `    $unzip = Join-Path $env:TEMP ('proxyhubb-unz-' + [guid]::NewGuid().ToString())`,
         `    New-Item -ItemType Directory -Force -Path $unzip | Out-Null`,
         `    Expand-Archive -LiteralPath $tmp -DestinationPath $unzip -Force`,
@@ -360,7 +366,7 @@ export function buildWindowsSetupThisPcScript(toml: string, apiBase = 'https://a
         `& $exe doctor`,
         `Write-Host ''`,
         `Write-Host 'Done. Keep this PC on and connected to the internet.' -ForegroundColor Cyan`,
-        `Write-Host 'Open Dashboard → My nodes to confirm ONLINE.'`,
+        `Write-Host 'Open Dashboard -> My nodes to confirm ONLINE.'`,
         `Write-Host ''`,
     ].join('\n');
 }
@@ -402,7 +408,7 @@ export function buildUnixSetupThisPcScript(toml: string, apiBase = 'https://api.
     return [
         'set -euo pipefail',
         'echo ""',
-        'echo "ProxyHubb — Setup this PC"',
+        'echo "ProxyHubb - Setup this PC"',
         'mkdir -p ~/.config/proxyhubb',
         "cat > ~/.config/proxyhubb/provider.toml << 'PROXYHUBB_EOF'",
         toml.trimEnd(),
@@ -435,7 +441,7 @@ export function buildUnixSetupThisPcScript(toml: string, apiBase = 'https://api.
         'sleep 3',
         '"$EXE" doctor || true',
         'echo ""',
-        'echo "Done. Keep this machine online. Check Dashboard → My nodes."',
+        'echo "Done. Keep this machine online. Check Dashboard -> My nodes."',
         '',
     ].join('\n');
 }
@@ -446,7 +452,11 @@ export function isWindowsClient(): boolean {
 }
 
 export function downloadTextFile(filename: string, contents: string, mime = 'text/plain;charset=utf-8') {
-    const blob = new Blob([contents], { type: mime });
+    // UTF-8 BOM so Windows PowerShell 5.1 parses .ps1 as UTF-8 (not system ANSI).
+    const body = /\.ps1$/i.test(filename) && !contents.startsWith('\uFEFF')
+        ? `\uFEFF${contents}`
+        : contents;
+    const blob = new Blob([body], { type: mime });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;

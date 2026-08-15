@@ -63,7 +63,7 @@ import {
 function SparkTooltip({ active, payload }: any) {
     if (!active || !payload?.length) return null;
     return (
-        <div className="bg-black/80 border border-white/10 rounded-lg px-2 py-1 text-[8px] font-mono font-black text-white">
+        <div className="bg-card border border-border rounded-lg px-2 py-1 text-[8px] font-mono font-black text-foreground">
             {typeof payload[0].value === 'number' ? payload[0].value.toFixed(2) : payload[0].value}
         </div>
     );
@@ -72,7 +72,7 @@ function SparkTooltip({ active, payload }: any) {
 function TrendIcon({ trend }: { trend: 'up' | 'down' | 'flat' }) {
     if (trend === 'up') return <TrendingUp size={10} className="text-emerald-400" />;
     if (trend === 'down') return <TrendingDown size={10} className="text-rose-400" />;
-    return <Minus size={10} className="text-white/20" />;
+    return <Minus size={10} className="text-muted-foreground" />;
 }
 
 export default function ExplorerDashboard() {
@@ -336,7 +336,7 @@ export default function ExplorerDashboard() {
         ? `${(decentralization.quorum_ratio * 100).toFixed(1)}%`
         : '—';
     const consensusColor = !decentralization || decentralization.recent_slots_analyzed === 0
-        ? 'text-white/40'
+        ? 'text-muted-foreground'
         : decentralization.conflicting_slots > 0
             ? 'text-rose-400'
             : decentralization.fully_decentralized
@@ -352,7 +352,7 @@ export default function ExplorerDashboard() {
                 : 'Partial Quorum';
 
     const trustColor = !decentralization || decentralization.recent_slots_analyzed === 0
-        ? 'text-white/40'
+        ? 'text-muted-foreground'
         : decentralization.fully_decentralized
             ? 'text-emerald-400'
             : decentralization.conflicting_slots > 0
@@ -364,7 +364,7 @@ export default function ExplorerDashboard() {
     return (
         <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-12 font-mono">
             {/* Tactical HUD Header */}
-            <motion.header variants={itemVariants} className="flex flex-col xl:flex-row justify-between items-start xl:items-end gap-10 border-b border-white/5 pb-10">
+            <motion.header variants={itemVariants} className="flex flex-col xl:flex-row justify-between items-start xl:items-end gap-10 border-b border-border pb-10">
                 <div className="space-y-4">
                     <div className="flex items-center gap-3">
                         <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center relative group overflow-hidden">
@@ -373,7 +373,7 @@ export default function ExplorerDashboard() {
                         </div>
                         <div>
                             <div className="text-[10px] font-black text-primary uppercase tracking-[0.5em] mb-1">Grid Telemetry // System 1.0</div>
-                            <h1 className="text-4xl font-black uppercase tracking-tighter text-white">ProxyExplorer</h1>
+                            <h1 className="text-4xl font-black uppercase tracking-tighter text-foreground">ProxyExplorer</h1>
                         </div>
                     </div>
                 </div>
@@ -381,11 +381,11 @@ export default function ExplorerDashboard() {
                 <div className="flex flex-wrap items-center gap-6 w-full xl:w-auto">
                     <div className="flex-1 xl:w-96 relative group">
                         <div className="absolute -inset-1 bg-primary/5 blur-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
-                        <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-white/20 w-4 h-4 pointer-events-none" />
+                        <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4 pointer-events-none" />
                         <input
                             type="text"
                             placeholder="INTERCEPT ID, HASH, OR WALLET..."
-                            className="w-full bg-white/[0.02] border border-white/5 rounded-2xl py-4 pl-14 pr-24 text-[10px] uppercase font-black tracking-widest text-white placeholder:text-white/10 outline-none focus:border-primary/40 focus:bg-white/[0.05] transition-all"
+                            className="w-full bg-muted border border-border rounded-2xl py-4 pl-14 pr-24 text-[10px] uppercase font-black tracking-widest text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/40 focus:bg-surface-hover transition-all"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(searchQuery); }}
@@ -398,10 +398,10 @@ export default function ExplorerDashboard() {
                         </button>
                     </div>
 
-                    <div className="flex items-center gap-3 px-5 py-4 rounded-2xl bg-white/[0.02] border border-white/5">
+                    <div className="flex items-center gap-3 px-5 py-4 rounded-2xl bg-muted border border-border">
                         <div className={`w-2 h-2 rounded-full ${healthStatus === 'optimal' ? 'bg-emerald-500 animate-pulse' : healthStatus === 'degraded' ? 'bg-yellow-500' : 'bg-rose-500'}`} />
                         <div className="flex flex-col items-end">
-                            <div className="text-[8px] font-black text-white/10 uppercase tracking-widest">Network Load</div>
+                            <div className="text-[8px] font-black text-muted-foreground uppercase tracking-widest">Network Load</div>
                             <div className={`text-[11px] font-black uppercase flex items-center gap-2 ${healthColor}`}>
                                 <Activity size={12} /> {healthStatus.charAt(0).toUpperCase() + healthStatus.slice(1)}
                             </div>
@@ -431,7 +431,7 @@ export default function ExplorerDashboard() {
                     { href: '/explorer/wallets', label: 'Wallets', icon: Database },
                     { href: '/explorer/contracts', label: 'Contracts', icon: Network },
                 ].map((nav) => (
-                    <Link key={nav.href} href={nav.href} prefetch={false} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/[0.02] border border-white/5 text-white/30 hover:text-primary hover:border-primary/20 hover:bg-primary/5 text-[9px] font-black uppercase tracking-widest transition-all">
+                    <Link key={nav.href} href={nav.href} prefetch={false} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-muted border border-border text-muted-foreground hover:text-primary hover:border-primary/20 hover:bg-primary/5 text-[9px] font-black uppercase tracking-widest transition-all">
                         <nav.icon size={11} /> {nav.label}
                     </Link>
                 ))}
@@ -440,23 +440,23 @@ export default function ExplorerDashboard() {
             {/* Live Metrics Matrix with Sparklines */}
             <motion.section variants={itemVariants} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 {metricCards.map((stat, i) => (
-                    <GlassCard key={i} className="!p-6 border-white/5 bg-white/[0.01] rounded-[2rem] group hover:bg-white/[0.03] transition-all overflow-hidden relative">
+                    <GlassCard key={i} className="!p-6 border-border bg-card rounded-[2rem] group hover:bg-surface-hover transition-all overflow-hidden relative">
                         <div className="flex justify-between items-start mb-4 relative z-10">
                             <stat.icon size={18} className={`${stat.color} opacity-40 group-hover:opacity-100 transition-opacity`} />
-                            <div className="flex items-center gap-1.5 text-[8px] font-black uppercase tracking-widest text-white/20">
+                            <div className="flex items-center gap-1.5 text-[8px] font-black uppercase tracking-widest text-muted-foreground">
                                 <TrendIcon trend={stat.trend} />
                                 {stat.trend !== 'flat' ? stat.trend : 'stable'}
                             </div>
                         </div>
-                        <div className="text-2xl font-black text-white tracking-tighter mb-0.5 relative z-10">
+                        <div className="text-2xl font-black text-foreground tracking-tighter mb-0.5 relative z-10">
                             {loadingMetrics
-                                ? <div className="h-7 w-24 bg-white/5 animate-pulse rounded" />
+                                ? <div className="h-7 w-24 bg-muted animate-pulse rounded" />
                                 : stat.value
                             }
                         </div>
-                        <div className="text-[9px] font-black uppercase text-white/20 tracking-[0.2em] mb-3 relative z-10">{stat.label}</div>
+                        <div className="text-[9px] font-black uppercase text-muted-foreground tracking-[0.2em] mb-3 relative z-10">{stat.label}</div>
                         {stat.sub && (
-                            <div className="text-[8px] text-white/20 font-mono relative z-10 mb-2">{stat.sub}</div>
+                            <div className="text-[8px] text-muted-foreground font-mono relative z-10 mb-2">{stat.sub}</div>
                         )}
                         {/* Sparkline — only rendered when real 24h data is available */}
                         {mounted && stat.sparkData && stat.sparkData.length > 1 && (
@@ -493,10 +493,10 @@ export default function ExplorerDashboard() {
                                 <ShieldCheck size={32} />
                             </div>
                             <div className="space-y-1">
-                                <h3 className="text-2xl font-black uppercase tracking-tighter text-white">
+                                <h3 className="text-2xl font-black uppercase tracking-tighter text-foreground">
                                     System Status: {(health?.status || 'OPTIMAL').toUpperCase()}
                                 </h3>
-                                <div className="flex flex-wrap items-center gap-6 text-[10px] font-black uppercase tracking-widest text-white/30">
+                                <div className="flex flex-wrap items-center gap-6 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                                     <span className="flex items-center gap-2">
                                         <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${health?.solana_health === 'healthy' ? 'bg-emerald-500' : 'bg-rose-500'}`} />
                                         Blockchain Indexer
@@ -514,22 +514,22 @@ export default function ExplorerDashboard() {
                         </div>
                         <div className="flex gap-12 items-center">
                             <div className="text-right">
-                                <div className="text-[8px] font-black text-white/10 uppercase tracking-[0.3em] mb-1">Response Latency</div>
+                                <div className="text-[8px] font-black text-muted-foreground uppercase tracking-[0.3em] mb-1">Response Latency</div>
                                 <div className={`text-3xl font-black ${(health?.avg_response_time_ms || 0) < 50 ? 'text-emerald-400' : (health?.avg_response_time_ms || 0) < 200 ? 'text-yellow-400' : 'text-rose-400'}`}>
                                     {health?.avg_response_time_ms?.toFixed(0) || '—'}<span className="text-sm opacity-40 ml-1">ms</span>
                                 </div>
                             </div>
-                            <div className="w-px h-12 bg-white/5 hidden lg:block" />
+                            <div className="w-px h-12 bg-border hidden lg:block" />
                             <div className="text-right">
-                                <div className="text-[8px] font-black text-white/10 uppercase tracking-[0.3em] mb-1">Consensus Rate</div>
+                                <div className="text-[8px] font-black text-muted-foreground uppercase tracking-[0.3em] mb-1">Consensus Rate</div>
                                 <div className={`text-3xl font-black ${consensusColor}`}>{consensusRate}</div>
                             </div>
-                            <div className="w-px h-12 bg-white/5 hidden lg:block" />
+                            <div className="w-px h-12 bg-border hidden lg:block" />
                             <div className="text-right">
                                 <Link href="/explorer/analytics" prefetch={false} className="flex items-center gap-2 text-[9px] font-black text-primary/60 hover:text-primary uppercase tracking-widest transition-colors">
                                     Analytics <ChevronRight size={12} />
                                 </Link>
-                                <div className="text-[8px] text-white/20 mt-0.5">View full charts</div>
+                                <div className="text-[8px] text-muted-foreground mt-0.5">View full charts</div>
                             </div>
                         </div>
                     </div>
@@ -538,84 +538,84 @@ export default function ExplorerDashboard() {
 
             {/* Decentralization Trust Panel */}
             <motion.section variants={itemVariants} className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-                <GlassCard className="xl:col-span-5 !p-6 border-white/5 bg-white/[0.01] rounded-[2rem]">
+                <GlassCard className="xl:col-span-5 !p-6 border-border bg-card rounded-[2rem]">
                     <div className="flex items-center justify-between mb-5">
-                        <h3 className="text-lg font-black uppercase tracking-tighter text-white flex items-center gap-2">
+                        <h3 className="text-lg font-black uppercase tracking-tighter text-foreground flex items-center gap-2">
                             <ShieldCheck size={16} className="text-primary" /> Explorer Trust
                         </h3>
                         <div className={`text-[9px] font-black uppercase tracking-widest ${trustColor}`}>{trustLabel}</div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
-                        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
-                            <div className="text-[8px] font-black uppercase tracking-widest text-white/20">Writers</div>
-                            <div className="text-xl font-black text-white mt-1">
+                        <div className="rounded-xl border border-border bg-muted p-3">
+                            <div className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Writers</div>
+                            <div className="text-xl font-black text-foreground mt-1">
                                 {decentralization?.unique_writers ?? 0}
-                                <span className="text-[10px] text-white/30 ml-1">/ {decentralization?.min_writers_required ?? 0}</span>
+                                <span className="text-[10px] text-muted-foreground ml-1">/ {decentralization?.min_writers_required ?? 0}</span>
                             </div>
                         </div>
-                        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
-                            <div className="text-[8px] font-black uppercase tracking-widest text-white/20">Quorum Slots</div>
-                            <div className="text-xl font-black text-white mt-1">
+                        <div className="rounded-xl border border-border bg-muted p-3">
+                            <div className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Quorum Slots</div>
+                            <div className="text-xl font-black text-foreground mt-1">
                                 {decentralization?.slots_meeting_quorum ?? 0}
-                                <span className="text-[10px] text-white/30 ml-1">/ {decentralization?.recent_slots_analyzed ?? 0}</span>
+                                <span className="text-[10px] text-muted-foreground ml-1">/ {decentralization?.recent_slots_analyzed ?? 0}</span>
                             </div>
                         </div>
-                        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
-                            <div className="text-[8px] font-black uppercase tracking-widest text-white/20">Conflicting Slots</div>
+                        <div className="rounded-xl border border-border bg-muted p-3">
+                            <div className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Conflicting Slots</div>
                             <div className={`text-xl font-black mt-1 ${(decentralization?.conflicting_slots || 0) > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
                                 {decentralization?.conflicting_slots ?? 0}
                             </div>
                         </div>
-                        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
-                            <div className="text-[8px] font-black uppercase tracking-widest text-white/20">Mode</div>
-                            <div className="text-[10px] font-black text-white mt-2 uppercase tracking-wider truncate">
+                        <div className="rounded-xl border border-border bg-muted p-3">
+                            <div className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Mode</div>
+                            <div className="text-[10px] font-black text-foreground mt-2 uppercase tracking-wider truncate">
                                 {(decentralization?.explorer_mode || 'unknown').replaceAll('_', ' ')}
                             </div>
                         </div>
                     </div>
                 </GlassCard>
 
-                <GlassCard className="xl:col-span-7 !p-6 border-white/5 bg-white/[0.01] rounded-[2rem]">
+                <GlassCard className="xl:col-span-7 !p-6 border-border bg-card rounded-[2rem]">
                     <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-lg font-black uppercase tracking-tighter text-white flex items-center gap-2">
+                        <h3 className="text-lg font-black uppercase tracking-tighter text-foreground flex items-center gap-2">
                             <Server size={16} className="text-primary" /> Writer Health
                         </h3>
-                        <div className="text-[8px] text-white/30 uppercase tracking-widest">identity / lag / conflicts / participation</div>
+                        <div className="text-[8px] text-muted-foreground uppercase tracking-widest">identity / lag / conflicts / participation</div>
                     </div>
 
                     {!writerRows.length ? (
-                        <div className="text-[10px] text-white/30 uppercase tracking-widest py-10 text-center border border-dashed border-white/10 rounded-2xl">
+                        <div className="text-[10px] text-muted-foreground uppercase tracking-widest py-10 text-center border border-dashed border-border rounded-2xl">
                             No writer attestations in current window
                         </div>
                     ) : (
                         <div className="space-y-2">
                             {writerRows.map((w) => (
-                                <div key={w.writer_id} className="grid grid-cols-12 gap-3 items-center rounded-xl border border-white/5 bg-white/[0.02] px-3 py-2">
+                                <div key={w.writer_id} className="grid grid-cols-12 gap-3 items-center rounded-xl border border-border bg-muted px-3 py-2">
                                     <div className="col-span-5 min-w-0">
                                         <div className="flex items-center gap-2">
                                             <div className="text-[10px] font-black text-primary truncate">{w.writer_id}</div>
-                                            <span className={`rounded-full border px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest ${w.identity_verified ? 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10' : 'border-white/20 text-white/50 bg-white/5'}`}>
+                                            <span className={`rounded-full border px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest ${w.identity_verified ? 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10' : 'border-border text-muted-foreground bg-muted'}`}>
                                                 {w.identity_verified ? 'verified' : 'unverified'}
                                             </span>
                                         </div>
-                                        <div className="text-[8px] text-white/25 truncate">{w.rpc_endpoint || 'rpc endpoint hidden'}</div>
+                                        <div className="text-[8px] text-muted-foreground truncate">{w.rpc_endpoint || 'rpc endpoint hidden'}</div>
                                     </div>
                                     <div className="col-span-2 text-right">
-                                        <div className="text-[8px] text-white/20 uppercase tracking-widest">Lag</div>
+                                        <div className="text-[8px] text-muted-foreground uppercase tracking-widest">Lag</div>
                                         <div className={`text-[11px] font-black ${w.lag_slots === 0 ? 'text-emerald-400' : w.lag_slots <= 2 ? 'text-yellow-400' : 'text-rose-400'}`}>
                                             {w.lag_slots}
                                         </div>
                                     </div>
                                     <div className="col-span-2 text-right">
-                                        <div className="text-[8px] text-white/20 uppercase tracking-widest">Conflicts</div>
+                                        <div className="text-[8px] text-muted-foreground uppercase tracking-widest">Conflicts</div>
                                         <div className={`text-[11px] font-black ${w.conflicting_slots > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
                                             {w.conflicting_slots}
                                         </div>
                                     </div>
                                     <div className="col-span-3 text-right">
-                                        <div className="text-[8px] text-white/20 uppercase tracking-widest">Participation</div>
-                                        <div className="text-[11px] font-black text-white">
+                                        <div className="text-[8px] text-muted-foreground uppercase tracking-widest">Participation</div>
+                                        <div className="text-[11px] font-black text-foreground">
                                             {(w.participation_ratio * 100).toFixed(1)}%
                                         </div>
                                     </div>
@@ -632,12 +632,12 @@ export default function ExplorerDashboard() {
                 <motion.section variants={itemVariants} className="xl:col-span-8 space-y-6">
                     <div className="flex justify-between items-end px-4">
                         <div className="space-y-1">
-                            <h2 className="text-xl font-black uppercase tracking-tighter text-white flex items-center gap-3">
+                            <h2 className="text-xl font-black uppercase tracking-tighter text-foreground flex items-center gap-3">
                                 <Activity size={18} className="text-primary" /> Settlement Stream
                             </h2>
-                            <p className="text-[9px] font-black text-white/20 uppercase tracking-widest">Live protocol transactions</p>
+                            <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Live protocol transactions</p>
                         </div>
-                        <Link href="/explorer/transactions" className="text-[9px] font-black uppercase tracking-[0.3em] text-white/20 hover:text-primary transition-colors flex items-center gap-2">
+                        <Link href="/explorer/transactions" className="text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground hover:text-primary transition-colors flex items-center gap-2">
                             Full Ledger <ChevronRight size={12} />
                         </Link>
                     </div>
@@ -645,30 +645,30 @@ export default function ExplorerDashboard() {
                     <div className="space-y-3">
                         {loadingTx && !(wsLive && liveTxs.length > 0) ? (
                             Array.from({ length: 5 }).map((_, i) => (
-                                <div key={i} className="h-16 bg-white/[0.01] animate-pulse border border-white/5 rounded-2xl" />
+                                <div key={i} className="h-16 bg-card animate-pulse border border-border rounded-2xl" />
                             ))
                         ) : !liveTxs.length ? (
-                            <div className="py-20 text-center border-2 border-dashed border-white/5 rounded-[2.5rem] bg-white/[0.01]">
-                                <Fingerprint size={48} className="mx-auto text-white/5 mb-6" />
-                                <p className="text-[10px] font-black text-white/10 uppercase tracking-[0.5em]">No activity detected in segment</p>
+                            <div className="py-20 text-center border-2 border-dashed border-border rounded-[2.5rem] bg-card">
+                                <Fingerprint size={48} className="mx-auto text-muted-foreground mb-6" />
+                                <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.5em]">No activity detected in segment</p>
                             </div>
                         ) : (
                             liveTxs.map((tx: any, i: number) => (
-                                <GlassCard key={tx.tx_hash || i} className="group !p-4 border-white/5 bg-white/[0.01] rounded-2xl hover:bg-white/[0.03] transition-all">
+                                <GlassCard key={tx.tx_hash || i} className="group !p-4 border-border bg-card rounded-2xl hover:bg-surface-hover transition-all">
                                     <div className="flex items-center justify-between gap-6">
                                         <div className="flex items-center gap-4 min-w-0">
-                                            <div className="w-9 h-9 rounded-xl bg-black border border-white/5 flex items-center justify-center text-primary group-hover:border-primary/20 transition-colors flex-shrink-0">
+                                            <div className="w-9 h-9 rounded-xl bg-black border border-border flex items-center justify-center text-primary group-hover:border-primary/20 transition-colors flex-shrink-0">
                                                 <Target size={14} />
                                             </div>
                                             <div className="min-w-0">
                                                 <Link href={`/explorer/transactions/${tx.tx_hash}`} className="text-[11px] font-black text-primary hover:text-primary/80 truncate uppercase tracking-wider block transition-colors">
                                                     {tx.tx_hash?.slice(0, 14)}...{tx.tx_hash?.slice(-8)}
                                                 </Link>
-                                                <div className="text-[9px] font-black text-white/20 uppercase tracking-widest mt-0.5 flex items-center gap-2">
+                                                <div className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mt-0.5 flex items-center gap-2">
                                                     <Clock size={9} />
                                                     {tx.timestamp ? formatDistanceToNow(new Date(tx.timestamp), { addSuffix: true }) : 'Processing...'}
                                                     {tx.tx_type && (
-                                                        <span className="text-white/30 bg-white/5 px-1.5 py-0.5 rounded text-[8px]">
+                                                        <span className="text-muted-foreground bg-muted px-1.5 py-0.5 rounded text-[8px]">
                                                             {tx.tx_type.replace(/_/g, ' ')}
                                                         </span>
                                                     )}
@@ -676,7 +676,7 @@ export default function ExplorerDashboard() {
                                             </div>
                                         </div>
                                         <div className="text-right flex-shrink-0">
-                                            <div className="text-sm font-black text-white">{(tx.amount || 0).toFixed(4)} {tx.currency || 'SOL'}</div>
+                                            <div className="text-sm font-black text-foreground">{(tx.amount || 0).toFixed(4)} {tx.currency || 'SOL'}</div>
                                             <div className={`text-[8px] font-black uppercase tracking-widest mt-1 ${tx.status === 'confirmed' ? 'text-emerald-500' : tx.status === 'failed' ? 'text-rose-500' : 'text-yellow-500'}`}>
                                                 {tx.status || 'Processing'}
                                             </div>
@@ -694,12 +694,12 @@ export default function ExplorerDashboard() {
                     <motion.section variants={itemVariants} className="space-y-4">
                         <div className="space-y-1 px-4 flex justify-between items-center">
                             <div>
-                                <h2 className="text-xl font-black uppercase tracking-tighter text-white flex items-center gap-3">
+                                <h2 className="text-xl font-black uppercase tracking-tighter text-foreground flex items-center gap-3">
                                     <Box size={18} className="text-primary" /> Sequence Blocks
                                 </h2>
-                                <p className="text-[9px] font-black text-white/20 uppercase tracking-widest mt-0.5">Verified segment hashes</p>
+                                <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mt-0.5">Verified segment hashes</p>
                             </div>
-                            <Link href="/explorer/blocks" className="text-[9px] font-black text-white/20 hover:text-primary uppercase tracking-widest flex items-center gap-1 transition-colors">
+                            <Link href="/explorer/blocks" className="text-[9px] font-black text-muted-foreground hover:text-primary uppercase tracking-widest flex items-center gap-1 transition-colors">
                                 All <ChevronRight size={10} />
                             </Link>
                         </div>
@@ -707,28 +707,28 @@ export default function ExplorerDashboard() {
                         <div className="space-y-3">
                             {loadingBlocks && !(wsLive && liveBlocks.length > 0) ? (
                                 Array.from({ length: 3 }).map((_, i) => (
-                                    <div key={i} className="h-20 bg-white/[0.01] animate-pulse border border-white/5 rounded-[1.5rem]" />
+                                    <div key={i} className="h-20 bg-card animate-pulse border border-border rounded-[1.5rem]" />
                                 ))
                             ) : !liveBlocks.length ? (
-                                <div className="py-12 text-center border-2 border-dashed border-white/5 rounded-[2rem] bg-white/[0.01]">
-                                    <Hexagon size={36} className="mx-auto text-white/5 mb-4" />
-                                    <p className="text-[9px] font-black text-white/10 uppercase tracking-widest">Syncing chain state...</p>
+                                <div className="py-12 text-center border-2 border-dashed border-border rounded-[2rem] bg-card">
+                                    <Hexagon size={36} className="mx-auto text-muted-foreground mb-4" />
+                                    <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Syncing chain state...</p>
                                 </div>
                             ) : (
                                 liveBlocks.map((block: any, i: number) => (
                                     <Link key={block.block_hash || i} href={`/explorer/blocks/${block.block_number}`}>
-                                        <GlassCard className="group !p-5 border-white/5 bg-white/[0.01] rounded-2xl hover:bg-white/[0.03] transition-all relative overflow-hidden">
+                                        <GlassCard className="group !p-5 border-border bg-card rounded-2xl hover:bg-surface-hover transition-all relative overflow-hidden">
                                             <div className="absolute right-0 top-0 p-3 opacity-5 group-hover:opacity-10 transition-opacity">
                                                 <History size={32} />
                                             </div>
                                             <div className="flex items-center justify-between relative z-10">
                                                 <div>
-                                                    <div className="text-[9px] font-black text-white/20 uppercase tracking-[0.3em]">Block</div>
-                                                    <div className="text-xl font-black text-white tracking-tighter">#{(block.block_number || 0).toLocaleString()}</div>
+                                                    <div className="text-[9px] font-black text-muted-foreground uppercase tracking-[0.3em]">Block</div>
+                                                    <div className="text-xl font-black text-foreground tracking-tighter">#{(block.block_number || 0).toLocaleString()}</div>
                                                 </div>
                                                 <div className="text-right">
-                                                    <div className="text-[8px] text-white/20 font-black uppercase tracking-widest">{block.transaction_count ?? 0} txs</div>
-                                                    <div className="text-[8px] text-white/20 mt-0.5">
+                                                    <div className="text-[8px] text-muted-foreground font-black uppercase tracking-widest">{block.transaction_count ?? 0} txs</div>
+                                                    <div className="text-[8px] text-muted-foreground mt-0.5">
                                                         {block.timestamp ? formatDistanceToNow(new Date(block.timestamp), { addSuffix: true }) : '—'}
                                                     </div>
                                                 </div>
@@ -744,20 +744,20 @@ export default function ExplorerDashboard() {
                     {sortedTopNodes.length > 0 && (
                         <motion.section variants={itemVariants} className="space-y-4">
                             <div className="px-4 flex justify-between items-center">
-                                <h2 className="text-xl font-black uppercase tracking-tighter text-white flex items-center gap-3">
+                                <h2 className="text-xl font-black uppercase tracking-tighter text-foreground flex items-center gap-3">
                                     <Trophy size={18} className="text-yellow-400" /> Top Relays
                                 </h2>
-                                <Link href="/explorer/nodes" className="text-[9px] font-black text-white/20 hover:text-primary uppercase tracking-widest flex items-center gap-1 transition-colors">
+                                <Link href="/explorer/nodes" className="text-[9px] font-black text-muted-foreground hover:text-primary uppercase tracking-widest flex items-center gap-1 transition-colors">
                                     All <ChevronRight size={10} />
                                 </Link>
                             </div>
-                            <GlassCard className="!p-0 border-white/5 bg-white/[0.01] rounded-[2rem] overflow-hidden divide-y divide-white/5">
+                            <GlassCard className="!p-0 border-border bg-card rounded-[2rem] overflow-hidden divide-y divide-border">
                                 {sortedTopNodes.map((node: any, i) => (
-                                    <Link key={node.node_id} href={`/explorer/nodes/${node.node_id}`} className="flex items-center gap-4 px-5 py-4 hover:bg-white/[0.03] transition-colors">
-                                        <div className="text-[10px] font-black text-white/20 w-4">{i + 1}</div>
+                                    <Link key={node.node_id} href={`/explorer/nodes/${node.node_id}`} className="flex items-center gap-4 px-5 py-4 hover:bg-surface-hover transition-colors">
+                                        <div className="text-[10px] font-black text-muted-foreground w-4">{i + 1}</div>
                                         <div className="flex-1 min-w-0">
                                             <div className="text-[10px] font-black text-primary truncate">{node.node_id?.slice(0, 14)}...</div>
-                                            <div className="flex items-center gap-1 text-[8px] text-white/30 mt-0.5">
+                                            <div className="flex items-center gap-1 text-[8px] text-muted-foreground mt-0.5">
                                                 <MapPin size={8} /> {node.country}
                                             </div>
                                         </div>

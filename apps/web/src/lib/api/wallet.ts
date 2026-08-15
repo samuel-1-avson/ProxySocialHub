@@ -156,16 +156,21 @@ export async function withdrawWallet(
 ) {
     void phone;
     void network;
-    const data = await apiPost<{ status: string; tx_hash?: string; solscan_url?: string; new_balance: number }>(
-        '/v1/wallet/withdraw/sol',
-        { amount, nonce: opts?.nonce, signature: opts?.signature }
-    );
+    const data = await apiPost<{
+        status: string;
+        tx_hash?: string;
+        reference?: string;
+        solscan_url?: string;
+        new_balance: number;
+        message?: string;
+    }>('/v1/wallet/withdraw/sol', { amount, nonce: opts?.nonce, signature: opts?.signature });
     return {
         status: data.status,
-        reference: data.tx_hash || '',
+        reference: data.reference || data.tx_hash || '',
         tx_hash: data.tx_hash,
         solscan_url: data.solscan_url,
         new_balance: data.new_balance,
+        message: data.message,
     };
 }
 

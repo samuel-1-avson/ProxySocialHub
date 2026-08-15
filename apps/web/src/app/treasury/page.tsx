@@ -4,12 +4,17 @@ import React, { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { GlassCard } from '@/components/ui/glass-card';
-import { getPublicTreasury } from '@/lib/api/treasury';
+import { getPublicTreasury, type WalletBalanceView } from '@/lib/api/treasury';
 import { ArrowLeft, ExternalLink, Wallet, Shield, Activity } from 'lucide-react';
-import { motion } from 'framer-motion';
 
 function formatSOL(n: number) {
     return n.toLocaleString(undefined, { maximumFractionDigits: 4 });
+}
+
+function balanceLabel(wallet: WalletBalanceView | undefined, emptyLabel: string) {
+    if (!wallet?.address) return emptyLabel;
+    if (wallet.balance_unavailable) return 'Unavailable';
+    return `${formatSOL(wallet.balance_sol ?? 0)} SOL`;
 }
 
 export default function TreasuryPage() {
@@ -24,6 +29,9 @@ export default function TreasuryPage() {
 
     const treasury = data?.treasury;
     const cluster = data?.network === 'mainnet-beta' || data?.network === 'mainnet' ? 'mainnet' : data?.network;
+    const rpcDegraded = treasury?.status === 'RPC_UNAVAILABLE'
+        || treasury?.hot?.balance_unavailable
+        || treasury?.cold?.balance_unavailable;
 
     return (
         <div className="min-h-screen bg-[#050508] text-white pb-24">
@@ -56,14 +64,24 @@ export default function TreasuryPage() {
                     </GlassCard>
                 )}
 
+                {rpcDegraded && (
+                    <GlassCard className="!p-4 border border-amber-500/30 mb-6">
+                        <p className="text-amber-300/90 text-xs">
+                            Solana RPC could not refresh balances. Addresses below are still configured — try again shortly.
+                        </p>
+                    </GlassCard>
+                )}
+
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
                     <GlassCard className="!p-5 border border-white/5">
                         <Wallet size={18} className="text-emerald-400/70 mb-3" />
                         <div className="text-[9px] font-black text-white/30 uppercase tracking-widest">Hot wallet</div>
                         <div className="text-2xl font-black mt-1">
-                            {mounted && !isLoading ? formatSOL(treasury?.hot?.balance_sol ?? 0) : '—'} SOL
+                            {mounted && !isLoading
+                                ? balanceLabel(treasury?.hot, 'Not configured')
+                                : '—'}
                         </div>
-                        {treasury?.hot?.needs_replenish && (
+                        {treasury?.hot?.needs_replenish && !treasury.hot.balance_unavailable && (
                             <p className="text-[9px] text-amber-400 font-black uppercase tracking-widest mt-2">Below minimum</p>
                         )}
                     </GlassCard>
@@ -71,9 +89,9 @@ export default function TreasuryPage() {
                         <Shield size={18} className="text-blue-400/70 mb-3" />
                         <div className="text-[9px] font-black text-white/30 uppercase tracking-widest">Cold wallet</div>
                         <div className="text-2xl font-black mt-1">
-                            {treasury?.cold
-                                ? `${formatSOL(treasury.cold.balance_sol)} SOL`
-                                : 'Not configured'}
+                            {mounted && !isLoading
+                                ? balanceLabel(treasury?.cold, 'Not configured')
+                                : '—'}
                         </div>
                     </GlassCard>
                     <GlassCard className="!p-5 border border-white/5">
@@ -88,7 +106,49 @@ export default function TreasuryPage() {
                     </GlassCard>
                 </div>
 
-                {treasury && (
+                {(treasury?.vault?.address || treasury?.liquidity) && (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                        {treasury?.vault?.address && (
+                            <GlassCard className="!p-5 border border-white/5">
+                                <div className="text-[9px] font-black text-white/30 uppercase tracking-widest">Deposit vault</div>
+                                <div className="text-2xl font-black mt-1">
+                                    {mounted && !isLoading
+                                        ? balanceLabel(treasury.vault, '—')
+                                        : '—'}
+                                </div>
+                            </GlassCard>
+                        )}
+                        <GlassCard className="!p-5 border border-white/5">
+                            <div className="text-[9px] font-black text-white/30 uppercase tracking-widest">Payout queue</div>
+                            <div className="text-2xl font-black mt-1">
+                                {mounted && !isLoading ? (treasury?.liquidity?.queue_depth ?? 0) : '—'}
+                            </div>
+                            {(treasury?.liquidity?.queue_oldest_age_secs ?? 0) > 0 && (
+                                <p className="text-[9px] text-white/30 mt-2">
+                                    Oldest ~{Math.round((treasury?.liquidity?.queue_oldest_age_secs ?? 0) / 60)} min
+                                </p>
+                            )}
+                        </GlassCard>
+                        <GlassCard className="!p-5 border border-white/5">
+                            <div className="text-[9px] font-black text-white/30 uppercase tracking-widest">Last vault→hot</div>
+                            <div className="text-lg font-black mt-1">
+                                {mounted && !isLoading && treasury?.liquidity?.last_topup_sol
+                                    ? `${formatSOL(treasury.liquidity.last_topup_sol)} SOL`
+                                    : '—'}
+                            </div>
+                            {treasury?.liquidity?.last_topup_at && (
+                                <p className="text-[9px] text-white/30 mt-2 font-mono">
+                                    {new Date(treasury.liquidity.last_topup_at).toLocaleString()}
+                                    {treasury.liquidity.last_topup_source
+                                        ? ` · ${treasury.liquidity.last_topup_source}`
+                                        : ''}
+                                </p>
+                            )}
+                        </GlassCard>
+                    </div>
+                )}
+
+                {treasury?.hot?.address && (
                     <GlassCard className="!p-6 border border-white/5 mb-8">
                         <h2 className="text-sm font-black uppercase tracking-tighter mb-4">Addresses</h2>
                         <dl className="space-y-3 text-sm">
@@ -96,15 +156,25 @@ export default function TreasuryPage() {
                                 <dt className="text-[9px] font-black text-white/30 uppercase tracking-widest">Hot</dt>
                                 <dd className="font-mono text-xs break-all mt-1">{treasury.hot.address}</dd>
                             </div>
-                            {treasury.cold && (
+                            {treasury.cold?.address && (
                                 <div>
                                     <dt className="text-[9px] font-black text-white/30 uppercase tracking-widest">Cold</dt>
                                     <dd className="font-mono text-xs break-all mt-1">{treasury.cold.address}</dd>
                                 </div>
                             )}
+                            {treasury.vault?.address && (
+                                <div>
+                                    <dt className="text-[9px] font-black text-white/30 uppercase tracking-widest">Vault</dt>
+                                    <dd className="font-mono text-xs break-all mt-1">{treasury.vault.address}</dd>
+                                </div>
+                            )}
                             <div>
                                 <dt className="text-[9px] font-black text-white/30 uppercase tracking-widest">Combined</dt>
-                                <dd className="font-black mt-1">{formatSOL(treasury.combined_balance_sol)} SOL · {treasury.status}</dd>
+                                <dd className="font-black mt-1">
+                                    {treasury.hot.balance_unavailable || treasury.cold?.balance_unavailable
+                                        ? `Balances unavailable · ${treasury.status}`
+                                        : `${formatSOL(treasury.combined_balance_sol)} SOL · ${treasury.status}`}
+                                </dd>
                             </div>
                         </dl>
                         <div className="flex flex-wrap gap-3 mt-4">
@@ -116,7 +186,7 @@ export default function TreasuryPage() {
                             >
                                 Solscan (hot) <ExternalLink size={12} />
                             </a>
-                            {treasury.cold && (
+                            {treasury.cold?.address && (
                                 <a
                                     href={`https://solscan.io/account/${treasury.cold.address}${cluster && cluster !== 'mainnet' ? `?cluster=${cluster}` : ''}`}
                                     target="_blank"
@@ -124,6 +194,16 @@ export default function TreasuryPage() {
                                     className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-blue-400/80 hover:text-blue-300"
                                 >
                                     Solscan (cold) <ExternalLink size={12} />
+                                </a>
+                            )}
+                            {treasury.vault?.address && (
+                                <a
+                                    href={`https://solscan.io/account/${treasury.vault.address}${cluster && cluster !== 'mainnet' ? `?cluster=${cluster}` : ''}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-violet-400/80 hover:text-violet-300"
+                                >
+                                    Solscan (vault) <ExternalLink size={12} />
                                 </a>
                             )}
                         </div>

@@ -45,15 +45,15 @@ export function Sidebar() {
 
     return (
         <aside
-            className={`fixed left-0 top-0 h-screen glass-card !rounded-none border-0 border-r border-white/5 hidden md:flex flex-col z-40 transition-all duration-300 ease-in-out ${isSidebarCollapsed ? "w-20" : "w-64"
+            className={`fixed left-0 top-0 h-screen bg-card border-0 border-r border-border hidden md:flex flex-col z-40 transition-all duration-300 ease-in-out ${isSidebarCollapsed ? "w-20" : "w-64"
                 }`}
         >
             {/* Header */}
-            <div className={`p-6 border-b border-white/5 flex items-center ${isSidebarCollapsed ? "justify-center" : "gap-3"}`}>
+            <div className={`p-6 border-b border-border flex items-center ${isSidebarCollapsed ? "justify-center" : "gap-3"}`}>
                 <Link href={ROUTES.home} className="flex items-center gap-3 group relative">
                     <motion.div
                         whileHover={{ scale: 1.1, rotate: 5 }}
-                        className="w-10 h-10 rounded-xl flex items-center justify-center bg-primary text-primary-foreground shadow-[0_0_20px_rgba(16,185,129,0.3)] group-hover:shadow-[0_0_30px_rgba(16,185,129,0.5)] transition-all"
+                        className="w-10 h-10 rounded-xl flex items-center justify-center bg-primary text-primary-foreground shadow-sm group-hover:shadow-md transition-all"
                     >
                         <span className="font-black font-sans text-base">PH</span>
                     </motion.div>
@@ -61,7 +61,7 @@ export function Sidebar() {
                         <motion.span
                             initial={{ opacity: 0, x: -10 }}
                             animate={{ opacity: 1, x: 0 }}
-                            className="text-xl font-black font-sans uppercase tracking-tighter"
+                            className="text-xl font-black font-sans uppercase tracking-tighter text-foreground"
                         >
                             Proxy<span className="text-primary">Hubb</span>
                         </motion.span>
@@ -70,20 +70,20 @@ export function Sidebar() {
             </div>
 
             {/* User Status */}
-            <div className={`border-b border-white/5 bg-white/2 transition-all duration-300 ${isSidebarCollapsed ? "p-3" : "p-4"}`}>
-                <div className={`flex items-center gap-3 rounded-2xl transition-all ${isSidebarCollapsed ? "justify-center" : "p-2 bg-white/5 border border-white/5"}`}>
-                    <div className="w-10 h-10 min-w-[40px] rounded-xl bg-primary/20 flex items-center justify-center border border-primary/20 relative group">
+            <div className={`border-b border-border bg-muted/40 transition-all duration-300 ${isSidebarCollapsed ? "p-3" : "p-4"}`}>
+                <div className={`flex items-center gap-3 rounded-2xl transition-all ${isSidebarCollapsed ? "justify-center" : "p-2 bg-muted border border-border"}`}>
+                    <div className="w-10 h-10 min-w-[40px] rounded-xl bg-primary/15 flex items-center justify-center border border-primary/25 relative group">
                         <span className="font-sans text-xs font-black text-primary">
                             {user?.email?.slice(0, 2).toUpperCase() || "OP"}
                         </span>
-                        <span className="absolute -bottom-1 -right-1 w-3 h-3 rounded-full bg-emerald-500 border-2 border-[#18181b] animate-pulse"></span>
+                        <span className="absolute -bottom-1 -right-1 w-3 h-3 rounded-full bg-emerald-500 border-2 border-card"></span>
                     </div>
 
                     {!isSidebarCollapsed && (
                         <div className="overflow-hidden">
-                            <p className="text-[12px] font-bold font-sans truncate text-foreground/80 tracking-tight">{user?.email || "OPERATOR"}</p>
+                            <p className="text-[12px] font-bold font-sans truncate text-foreground tracking-tight">{user?.email || "OPERATOR"}</p>
                             <div className="flex items-center gap-1.5">
-                                <span className="text-[10px] text-emerald-500 font-bold font-sans uppercase tracking-widest">Authorized</span>
+                                <span className="text-[10px] text-primary font-bold font-sans uppercase tracking-widest">Authorized</span>
                             </div>
                         </div>
                     )}
@@ -111,7 +111,7 @@ export function Sidebar() {
             </div>
 
             {/* Bottom Actions */}
-            <div className="p-4 border-t border-white/5 space-y-1">
+            <div className="p-4 border-t border-border space-y-1">
                 {SIDEBAR_BOTTOM_ITEMS.map((item) => (
                     <Link
                         key={item.href}
@@ -119,8 +119,8 @@ export function Sidebar() {
                         prefetch={false}
                         className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all ${
                             isActive(item.href)
-                                ? "bg-white/10 text-foreground font-bold"
-                                : "text-muted-foreground hover:text-foreground hover:bg-white/5"
+                                ? "bg-muted text-foreground font-bold"
+                                : "text-muted-foreground hover:text-foreground hover:bg-surface-hover"
                         }`}
                     >
                         <item.icon size={18} />
@@ -134,7 +134,7 @@ export function Sidebar() {
                     onClick={logout}
                     aria-label="Log out"
                     title="Log out"
-                    className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-red-400 hover:bg-red-500/10 transition-all font-sans text-[13px] font-medium tracking-wide"
+                    className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-destructive hover:bg-destructive/10 transition-all font-sans text-[13px] font-medium tracking-wide"
                 >
                     <LogOut size={18} />
                     {!isSidebarCollapsed && <span>Logout</span>}
@@ -175,7 +175,7 @@ function SidebarSection({
                     type="button"
                     onClick={() => onToggleSection(section.id)}
                     className={`w-full px-3 mb-2 flex items-center justify-between rounded-lg py-1 transition-colors ${
-                        hasActiveItem ? "text-primary bg-primary/5" : "text-muted-foreground/60 hover:text-foreground hover:bg-white/5"
+                        hasActiveItem ? "text-primary bg-primary/5" : "text-muted-foreground hover:text-foreground hover:bg-surface-hover"
                     }`}
                 >
                     <p className="text-[10px] font-bold font-sans uppercase tracking-[0.2em]">
@@ -201,14 +201,14 @@ function SidebarSection({
                         title={item.label}
                         className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all group relative overflow-hidden ${
                             active
-                                ? "bg-primary text-primary-foreground font-bold shadow-[0_0_15px_rgba(16,185,129,0.2)] border border-primary/30"
-                                : "text-muted-foreground hover:text-foreground hover:bg-white/5 border border-transparent"
+                                ? "bg-primary text-primary-foreground font-bold shadow-sm border border-primary/30"
+                                : "text-muted-foreground hover:text-foreground hover:bg-surface-hover border border-transparent"
                         }`}
                     >
                         <div className="relative">
-                            <item.icon size={18} className={`transition-all ${active ? "stroke-[2px]" : "stroke-[1.5px] opacity-70 group-hover:opacity-100"}`} />
+                            <item.icon size={18} className={`transition-all ${active ? "stroke-[2px]" : "stroke-[1.5px] opacity-80 group-hover:opacity-100"}`} />
                             {badge && !isCollapsed && (
-                                <span className="absolute -top-1 -right-1 w-2 h-2 bg-amber-400 rounded-full" />
+                                <span className="absolute -top-1 -right-1 w-2 h-2 bg-amber-500 rounded-full" />
                             )}
                         </div>
                         
@@ -216,7 +216,7 @@ function SidebarSection({
                             <div className="flex-1 min-w-0">
                                 <span className="font-sans text-[14px] font-medium tracking-wide block">{item.label}</span>
                                 {badge && (
-                                    <span className="mt-1 inline-flex text-[8px] font-black uppercase tracking-widest text-amber-400/80">
+                                    <span className="mt-1 inline-flex text-[8px] font-black uppercase tracking-widest text-amber-600 dark:text-amber-400">
                                         {badge}
                                     </span>
                                 )}

@@ -87,32 +87,32 @@ export default function EarningsPage() {
     return (
         <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-8 font-mono">
             {/* Header */}
-            <motion.header variants={itemVariants} className="flex flex-col gap-6 border-b border-white/5 pb-8">
-                <Link href="/explorer" className="flex items-center gap-2 text-[10px] font-black text-white/30 hover:text-primary transition-colors uppercase tracking-[0.3em] w-fit">
+            <motion.header variants={itemVariants} className="flex flex-col gap-6 border-b border-border pb-8">
+                <Link href="/explorer" className="flex items-center gap-2 text-[10px] font-black text-muted-foreground hover:text-primary transition-colors uppercase tracking-[0.3em] w-fit">
                     <ArrowLeft size={14} /> Back to Grid
                 </Link>
                 <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-4">
                     <div>
                         <div className="text-[10px] font-black text-primary uppercase tracking-[0.5em] mb-1">Grid Telemetry // Earnings</div>
-                        <h1 className="text-4xl font-black uppercase tracking-tighter text-white flex items-center gap-4">
+                        <h1 className="text-4xl font-black uppercase tracking-tighter text-foreground flex items-center gap-4">
                             <Coins className="text-emerald-400" size={32} /> Provider Earnings
                         </h1>
-                        <p className="text-[11px] font-black text-white/30 uppercase tracking-widest mt-2">
+                        <p className="text-[11px] font-black text-muted-foreground uppercase tracking-widest mt-2">
                             On-chain SOL earnings per relay provider
                         </p>
                     </div>
                     <div className="flex items-center gap-3">
-                        <div className="flex items-center gap-2 bg-white/[0.02] border border-white/5 rounded-2xl p-1.5">
+                        <div className="flex items-center gap-2 bg-muted border border-border rounded-2xl p-1.5">
                             {PERIODS.map(p => (
                                 <button key={p.value} onClick={() => setPeriod(p.value)}
-                                    className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${period === p.value ? 'bg-primary text-black' : 'text-white/30 hover:text-white/60'}`}>
+                                    className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${period === p.value ? 'bg-primary text-black' : 'text-muted-foreground hover:text-foreground'}`}>
                                     {p.label}
                                 </button>
                             ))}
                         </div>
                         <button onClick={handleExport} disabled={!providers.length}
                             title="Export current page as CSV"
-                            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all bg-white/[0.02] border-white/5 text-white/30 hover:text-emerald-400 hover:border-emerald-500/30 disabled:opacity-20 disabled:cursor-not-allowed">
+                            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all bg-muted border-border text-muted-foreground hover:text-emerald-400 hover:border-emerald-500/30 disabled:opacity-20 disabled:cursor-not-allowed">
                             <Download size={12} /> CSV
                         </button>
                     </div>
@@ -121,12 +121,12 @@ export default function EarningsPage() {
 
             {earningsFeedDisabled ? (
                 <motion.section variants={itemVariants}>
-                    <GlassCard className="py-20 text-center max-w-md mx-auto border-white/5 bg-white/[0.01] rounded-[2rem]">
-                        <Coins size={48} className="text-white/5 mx-auto mb-4" />
-                        <p className="text-[10px] font-black text-white/30 uppercase tracking-widest mb-2">
+                    <GlassCard className="py-20 text-center max-w-md mx-auto border-border bg-card rounded-[2rem]">
+                        <Coins size={48} className="text-muted-foreground mx-auto mb-4" />
+                        <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest mb-2">
                             Public earnings feed disabled
                         </p>
-                        <p className="text-[9px] font-bold text-white/20 leading-relaxed">
+                        <p className="text-[9px] font-bold text-muted-foreground leading-relaxed">
                             This deployment does not expose aggregated provider payouts on the public explorer.
                             Operators can enable it with <span className="text-primary/80">EXPLORER_PUBLIC_EARNINGS_ENABLED</span>.
                         </p>
@@ -145,24 +145,24 @@ export default function EarningsPage() {
                     { label: 'Avg Earning', value: summary ? `${summary.avg_earning.toFixed(4)} SOL` : '—', icon: TrendingUp, color: 'text-yellow-400' },
                     { label: 'Transactions', value: summary?.tx_count ?? '—', icon: ArrowRightLeft, color: 'text-blue-400' },
                 ].map((s, i) => (
-                    <GlassCard key={i} className="!p-5 border-white/5 bg-white/[0.01] rounded-[1.5rem]">
+                    <GlassCard key={i} className="!p-5 border-border bg-card rounded-[1.5rem]">
                         <s.icon size={16} className={`${s.color} mb-3 opacity-60`} />
                         <div className={`text-2xl font-black tracking-tighter ${s.color}`}>{s.value}</div>
-                        <div className="text-[9px] font-black uppercase text-white/20 tracking-[0.2em] mt-1">{s.label}</div>
+                        <div className="text-[9px] font-black uppercase text-muted-foreground tracking-[0.2em] mt-1">{s.label}</div>
                     </GlassCard>
                 ))}
             </motion.section>
 
             {/* Earnings Volume Chart */}
             <motion.section variants={itemVariants}>
-                <GlassCard className="border-white/5 bg-white/[0.01] rounded-[2rem] !p-6">
-                    <h3 className="text-sm font-black uppercase tracking-tighter text-white mb-6 flex items-center gap-2">
+                <GlassCard className="border-border bg-card rounded-[2rem] !p-6">
+                    <h3 className="text-sm font-black uppercase tracking-tighter text-foreground mb-6 flex items-center gap-2">
                         <BarChart2 size={14} className="text-emerald-400" /> Payout Volume Over Time
                     </h3>
                     {!mounted || chartData.length === 0 ? (
-                        <div className="h-[180px] flex flex-col items-center justify-center border-2 border-dashed border-white/5 rounded-xl">
-                            <BarChart2 size={24} className="text-white/10 mb-2" />
-                            <p className="text-[8px] font-black text-white/20 uppercase tracking-widest">No payout data yet</p>
+                        <div className="h-[180px] flex flex-col items-center justify-center border-2 border-dashed border-border rounded-xl">
+                            <BarChart2 size={24} className="text-muted-foreground mb-2" />
+                            <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest">No payout data yet</p>
                         </div>
                     ) : (
                         <div className="h-[180px] min-h-[180px]">
@@ -188,33 +188,33 @@ export default function EarningsPage() {
 
             {/* Provider Earnings Table */}
             <motion.section variants={itemVariants} className="space-y-4">
-                <h2 className="text-sm font-black uppercase tracking-tighter text-white flex items-center gap-2">
+                <h2 className="text-sm font-black uppercase tracking-tighter text-foreground flex items-center gap-2">
                     <Zap size={14} className="text-primary" /> Provider Breakdown
                 </h2>
-                <GlassCard className="overflow-hidden border-white/5 bg-white/[0.01] rounded-[2rem]">
+                <GlassCard className="overflow-hidden border-border bg-card rounded-[2rem]">
                     {isLoading ? (
-                        <div className="divide-y divide-white/5">
+                        <div className="divide-y divide-border">
                             {Array.from({ length: 8 }).map((_, i) => (
-                                <div key={i} className="h-14 animate-pulse bg-white/[0.01]" />
+                                <div key={i} className="h-14 animate-pulse bg-card" />
                             ))}
                         </div>
                     ) : error ? (
                         <div className="py-20 text-center">
-                            <Coins size={48} className="text-white/5 mx-auto mb-4" />
-                            <p className="text-[10px] font-black text-white/20 uppercase tracking-widest">Earnings data unavailable</p>
+                            <Coins size={48} className="text-muted-foreground mx-auto mb-4" />
+                            <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Earnings data unavailable</p>
                         </div>
                     ) : providers.length === 0 ? (
                         <div className="py-20 text-center">
-                            <Coins size={48} className="text-white/5 mx-auto mb-4" />
-                            <p className="text-[10px] font-black text-white/20 uppercase tracking-widest">No earnings data yet</p>
-                            <p className="text-[8px] font-black text-white/10 uppercase tracking-widest mt-2">Payouts are recorded on-chain as sessions complete</p>
+                            <Coins size={48} className="text-muted-foreground mx-auto mb-4" />
+                            <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">No earnings data yet</p>
+                            <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest mt-2">Payouts are recorded on-chain as sessions complete</p>
                         </div>
                     ) : (
                         <>
                             <div className="overflow-x-auto">
                                 <table className="w-full text-left border-collapse">
                                     <thead>
-                                        <tr className="bg-white/5 text-white/40 text-[9px] uppercase tracking-[0.2em] font-black">
+                                        <tr className="bg-muted text-muted-foreground text-[9px] uppercase tracking-[0.2em] font-black">
                                             <th className="px-6 py-4">Rank</th>
                                             <th className="px-6 py-4">Provider / Node</th>
                                             <th className="px-6 py-4 text-right">Sessions</th>
@@ -223,11 +223,11 @@ export default function EarningsPage() {
                                             <th className="px-6 py-4">Last Payout</th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-white/5">
+                                    <tbody className="divide-y divide-border">
                                         {providers.map((p: any, i: number) => (
-                                            <tr key={p.node_id || i} className="hover:bg-white/[0.03] transition-colors">
+                                            <tr key={p.node_id || i} className="hover:bg-surface-hover transition-colors">
                                                 <td className="px-6 py-4">
-                                                    <span className="text-[10px] font-black text-white/30">#{(page - 1) * 20 + i + 1}</span>
+                                                    <span className="text-[10px] font-black text-muted-foreground">#{(page - 1) * 20 + i + 1}</span>
                                                 </td>
                                                 <td className="px-6 py-4">
                                                     <Link href={p.node_id ? `/explorer/nodes/${p.node_id}` : '#'}
@@ -235,10 +235,10 @@ export default function EarningsPage() {
                                                         {p.node_id ? `${p.node_id.slice(0, 16)}...` : p.provider_address?.slice(0, 16) + '...'}
                                                     </Link>
                                                 </td>
-                                                <td className="px-6 py-4 text-right font-mono text-[10px] font-black text-white">
+                                                <td className="px-6 py-4 text-right font-mono text-[10px] font-black text-foreground">
                                                     {(p.session_count || 0).toLocaleString()}
                                                 </td>
-                                                <td className="px-6 py-4 text-right font-mono text-[10px] font-black text-white">
+                                                <td className="px-6 py-4 text-right font-mono text-[10px] font-black text-foreground">
                                                     {(p.bandwidth_gb || 0).toFixed(2)} GB
                                                 </td>
                                                 <td className="px-6 py-4 text-right">
@@ -247,7 +247,7 @@ export default function EarningsPage() {
                                                     </span>
                                                 </td>
                                                 <td className="px-6 py-4">
-                                                    <div className="flex items-center gap-1 text-[9px] text-white/40">
+                                                    <div className="flex items-center gap-1 text-[9px] text-muted-foreground">
                                                         <Clock size={9} />
                                                         {p.last_payout ? (() => {
                                                             try { return format(new Date(p.last_payout), 'MMM d, HH:mm'); }
@@ -260,17 +260,17 @@ export default function EarningsPage() {
                                     </tbody>
                                 </table>
                             </div>
-                            <div className="flex items-center justify-between px-6 py-4 border-t border-white/5">
-                                <span className="text-[9px] font-black text-white/30 uppercase tracking-wider">
+                            <div className="flex items-center justify-between px-6 py-4 border-t border-border">
+                                <span className="text-[9px] font-black text-muted-foreground uppercase tracking-wider">
                                     {total.toLocaleString()} providers · Page {page} of {totalPages || 1}
                                 </span>
                                 <div className="flex gap-2">
                                     <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
-                                        className="flex items-center gap-1 px-3 py-2 rounded-xl bg-white/[0.02] border border-white/5 text-white/30 hover:text-primary hover:border-primary/20 disabled:opacity-30 text-[9px] font-black uppercase tracking-wider transition-all">
+                                        className="flex items-center gap-1 px-3 py-2 rounded-xl bg-muted border border-border text-muted-foreground hover:text-primary hover:border-primary/20 disabled:opacity-30 text-[9px] font-black uppercase tracking-wider transition-all">
                                         <ChevronLeft size={10} /> Prev
                                     </button>
                                     <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
-                                        className="flex items-center gap-1 px-3 py-2 rounded-xl bg-white/[0.02] border border-white/5 text-white/30 hover:text-primary hover:border-primary/20 disabled:opacity-30 text-[9px] font-black uppercase tracking-wider transition-all">
+                                        className="flex items-center gap-1 px-3 py-2 rounded-xl bg-muted border border-border text-muted-foreground hover:text-primary hover:border-primary/20 disabled:opacity-30 text-[9px] font-black uppercase tracking-wider transition-all">
                                         Next <ChevronRight size={10} />
                                     </button>
                                 </div>

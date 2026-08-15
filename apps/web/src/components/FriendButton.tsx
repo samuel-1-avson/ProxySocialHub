@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/lib/auth";
 import {
     sendFriendRequest,
@@ -19,7 +19,6 @@ import {
     Check,
     X,
 } from "lucide-react";
-import { getErrorMessage } from "@/lib/utils";
 
 type FriendshipStatus = "none" | "friends" | "request_sent" | "request_received" | "loading";
 
@@ -27,6 +26,7 @@ interface FriendButtonProps {
     userId: string;
     username: string;
     variant?: "default" | "outline" | "compact";
+    /** Fired only after a user-initiated friend action — not on initial status fetch. */
     onStatusChange?: (status: FriendshipStatus) => void;
 }
 
@@ -41,28 +41,38 @@ export function FriendButton({
     const [requestId, setRequestId] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
 
-    // Don't show button for self
-    if (user?.id === userId || !isAuthenticated) {
-        return null;
-    }
+    const isSelf = !!user?.id && user.id === userId;
+    const canShow = isAuthenticated && !isSelf;
 
     useEffect(() => {
-        loadStatus();
-    }, [userId]);
-
-    const loadStatus = async () => {
-        try {
-            const data = await getFriendshipStatus(userId);
-            setStatus(data.status);
-            if (data.request_id) {
-                setRequestId(data.request_id);
-            }
-            onStatusChange?.(data.status);
-        } catch (err) {
-            console.error("Failed to load friendship status:", err);
+        if (!canShow) {
             setStatus("none");
+            return;
         }
-    };
+        let cancelled = false;
+        (async () => {
+            try {
+                const data = await getFriendshipStatus(userId);
+                if (cancelled) return;
+                setStatus(data.status);
+                setRequestId(data.request_id ?? null);
+                // Do NOT call onStatusChange here — that caused PeopleYouMayKnow to
+                // reload → remount → refetch status in an infinite loop.
+            } catch {
+                if (!cancelled) setStatus("none");
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [userId, canShow]);
+
+    const notify = useCallback(
+        (next: FriendshipStatus) => {
+            onStatusChange?.(next);
+        },
+        [onStatusChange],
+    );
 
     const handleAddFriend = async () => {
         setLoading(true);
@@ -70,7 +80,7 @@ export function FriendButton({
             const request = await sendFriendRequest(userId);
             setStatus("request_sent");
             setRequestId(request.id);
-            onStatusChange?.("request_sent");
+            notify("request_sent");
         } catch (err: unknown) {
             console.error("Failed to send friend request:", err);
         } finally {
@@ -84,7 +94,7 @@ export function FriendButton({
         try {
             await acceptFriendRequest(requestId);
             setStatus("friends");
-            onStatusChange?.("friends");
+            notify("friends");
         } catch (err) {
             console.error("Failed to accept request:", err);
         } finally {
@@ -99,7 +109,7 @@ export function FriendButton({
             await rejectFriendRequest(requestId);
             setStatus("none");
             setRequestId(null);
-            onStatusChange?.("none");
+            notify("none");
         } catch (err) {
             console.error("Failed to reject request:", err);
         } finally {
@@ -114,7 +124,7 @@ export function FriendButton({
             await cancelFriendRequest(requestId);
             setStatus("none");
             setRequestId(null);
-            onStatusChange?.("none");
+            notify("none");
         } catch (err) {
             console.error("Failed to cancel request:", err);
         } finally {
@@ -127,13 +137,17 @@ export function FriendButton({
         try {
             await removeFriend(userId);
             setStatus("none");
-            onStatusChange?.("none");
+            notify("none");
         } catch (err) {
             console.error("Failed to remove friend:", err);
         } finally {
             setLoading(false);
         }
     };
+
+    if (!canShow) {
+        return null;
+    }
 
     // Compact variant (icon only)
     if (variant === "compact") {
@@ -181,13 +195,19 @@ export function FriendButton({
                         </button>
                     </div>
                 );
+            case "loading":
+                return (
+                    <div className="p-2 rounded-lg bg-secondary/50 text-muted-foreground" aria-hidden>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                    </div>
+                );
             default:
                 return (
                     <button
                         onClick={handleAddFriend}
                         disabled={loading}
                         className="p-2 rounded-lg bg-secondary/50 hover:bg-primary/10 hover:text-primary transition-colors"
-                        title="Add friend"
+                        title={`Add ${username}`}
                     >
                         {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
                     </button>
@@ -240,6 +260,12 @@ export function FriendButton({
                             Decline
                         </button>
                     </div>
+                );
+            case "loading":
+                return (
+                    <button disabled className="inline-flex items-center gap-2 px-4 py-2 border border-border rounded-lg font-mono text-sm text-muted-foreground">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                    </button>
                 );
             default:
                 return (
@@ -305,6 +331,12 @@ export function FriendButton({
                         Decline
                     </button>
                 </div>
+            );
+        case "loading":
+            return (
+                <button disabled className="inline-flex items-center gap-2 px-6 py-3 bg-secondary text-muted-foreground rounded-lg font-bold font-mono text-sm">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                </button>
             );
         default:
             return (

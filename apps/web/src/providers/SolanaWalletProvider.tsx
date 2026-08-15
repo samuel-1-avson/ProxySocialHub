@@ -14,6 +14,7 @@ import { clusterApiUrl, Keypair, PublicKey, Transaction, VersionedTransaction } 
 
 // Import default styles
 import '@solana/wallet-adapter-react-ui/styles.css';
+import { WalletAuthSync } from '@/components/WalletAuthSync';
 
 interface Props {
     children: ReactNode;
@@ -199,6 +200,7 @@ export const SolanaWalletProvider: FC<Props> = ({ children }) => {
             }}>
                 <WalletModalProvider>
                     <PlaywrightWalletConnector />
+                    <WalletAuthSync />
                     {children}
                 </WalletModalProvider>
             </WalletProvider>

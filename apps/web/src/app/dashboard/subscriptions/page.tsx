@@ -104,11 +104,33 @@ export default function AccessPassesPage() {
                 new PublicKey(prepared.treasury),
                 prepared.amount_lamports,
             );
-            await confirmPassPurchase({
-                tx_signature: sig,
-                purchase_id: prepared.purchase_id,
-                tier: item.tier,
-            });
+            // Backend polls RPC for the tx; retry confirm if indexing lags briefly.
+            let lastConfirmErr: unknown;
+            for (let attempt = 0; attempt < 5; attempt++) {
+                try {
+                    await confirmPassPurchase({
+                        tx_signature: sig,
+                        purchase_id: prepared.purchase_id,
+                        tier: item.tier,
+                    });
+                    lastConfirmErr = null;
+                    break;
+                } catch (confirmErr) {
+                    lastConfirmErr = confirmErr;
+                    const msg = getErrorMessage(confirmErr).toLowerCase();
+                    const retryable =
+                        msg.includes('not found') ||
+                        msg.includes('failed to fetch transaction') ||
+                        msg.includes('transaction not found');
+                    if (!retryable || attempt === 4) {
+                        throw confirmErr;
+                    }
+                    await new Promise((r) => setTimeout(r, 2000));
+                }
+            }
+            if (lastConfirmErr) {
+                throw lastConfirmErr;
+            }
             setMessage(
                 `Payment confirmed for ${item.name}. Entitlement is active; NFT mint/transfer to your wallet completes on-chain ownership.`,
             );
@@ -129,23 +151,23 @@ export default function AccessPassesPage() {
         <div className="space-y-6 p-4 md:p-6 max-w-5xl mx-auto">
             <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40 mb-2">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground mb-2">
                         Entitlements
                     </p>
-                    <h1 className="text-2xl md:text-3xl font-black tracking-tight text-white flex items-center gap-3">
+                    <h1 className="text-2xl md:text-3xl font-black tracking-tight text-foreground flex items-center gap-3">
                         <Layers className="text-emerald-400" size={28} />
                         Access Passes
                     </h1>
-                    <p className="text-sm text-white/50 mt-2 max-w-xl">
+                    <p className="text-sm text-muted-foreground mt-2 max-w-xl">
                         Hold a Bronze, Silver, or Gold pass NFT in your linked wallet for higher marketplace
-                        quotas. Mint payment uses your <span className="text-white/70">linked Solana wallet</span>
+                        quotas. Mint payment uses your <span className="text-foreground">linked Solana wallet</span>
                         {" "}(not platform balance). Bandwidth is still purchased via escrow.
                     </p>
                 </div>
                 <button
                     type="button"
                     onClick={() => void load()}
-                    className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-white/10 text-xs font-bold uppercase tracking-widest text-white/70 hover:bg-white/5"
+                    className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-border text-xs font-bold uppercase tracking-widest text-foreground hover:bg-surface-hover"
                 >
                     <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
                     Refresh
@@ -168,15 +190,15 @@ export default function AccessPassesPage() {
             )}
 
             <GlassCard className="p-5 space-y-3">
-                <p className="text-[10px] font-black uppercase tracking-widest text-white/40">Current pass</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Current pass</p>
                 {loading ? (
-                    <div className="flex items-center gap-2 text-white/50 text-sm">
+                    <div className="flex items-center gap-2 text-muted-foreground text-sm">
                         <Loader2 size={16} className="animate-spin" /> Loading…
                     </div>
                 ) : (
                     <>
-                        <p className="text-xl font-black text-white capitalize">{me?.name || currentTier}</p>
-                        <div className="flex flex-wrap gap-3 text-xs font-mono text-white/50">
+                        <p className="text-xl font-black text-foreground capitalize">{me?.name || currentTier}</p>
+                        <div className="flex flex-wrap gap-3 text-xs font-mono text-muted-foreground">
                             <span>Source: {me?.source || "free"}</span>
                             {me?.wallet && (
                                 <span className="inline-flex items-center gap-1">
@@ -186,7 +208,7 @@ export default function AccessPassesPage() {
                             {legacyUntil && <span>Legacy grace until: {legacyUntil}</span>}
                         </div>
                         {me && (
-                            <p className="text-sm text-white/60">
+                            <p className="text-sm text-muted-foreground">
                                 {me.quota.unlimited
                                     ? "Unlimited GB / period"
                                     : `${me.quota.remaining_gb.toFixed(1)} GB remaining of ${me.quota.limit_gb} GB`}
@@ -218,7 +240,7 @@ export default function AccessPassesPage() {
                             )}
                             <Link
                                 href={ROUTES.dashboardWallet}
-                                className="px-4 py-2 rounded-xl border border-white/15 text-xs font-bold uppercase tracking-widest text-white/80 hover:bg-white/5"
+                                className="px-4 py-2 rounded-xl border border-border text-xs font-bold uppercase tracking-widest text-foreground hover:bg-surface-hover"
                             >
                                 Wallet settings
                             </Link>
@@ -234,8 +256,8 @@ export default function AccessPassesPage() {
                     return (
                         <GlassCard key={item.tier} className="p-5 flex flex-col gap-4">
                             <div>
-                                <p className="text-lg font-black text-white">{item.name}</p>
-                                <ul className="text-xs text-white/55 space-y-1 font-mono mt-2">
+                                <p className="text-lg font-black text-foreground">{item.name}</p>
+                                <ul className="text-xs text-muted-foreground space-y-1 font-mono mt-2">
                                     {item.benefits?.map((b) => (
                                         <li key={b}>{b}</li>
                                     )) || (
@@ -250,10 +272,10 @@ export default function AccessPassesPage() {
                             </div>
                             <p className="font-mono text-2xl font-black text-emerald-400">
                                 {!paid ? "Free" : `${Number(item.price_sol || 0).toFixed(2)} SOL`}
-                                {paid && <span className="text-xs text-white/40 font-bold ml-1">once</span>}
+                                {paid && <span className="text-xs text-muted-foreground font-bold ml-1">once</span>}
                             </p>
                             {item.mint && (
-                                <p className="text-[10px] font-mono text-white/30 break-all">Mint {item.mint}</p>
+                                <p className="text-[10px] font-mono text-muted-foreground break-all">Mint {item.mint}</p>
                             )}
                             <button
                                 type="button"
@@ -277,11 +299,11 @@ export default function AccessPassesPage() {
             </div>
 
             {treasury && (
-                <p className="text-[11px] text-white/30 font-mono">Primary-sale treasury: {treasury}</p>
+                <p className="text-[11px] text-muted-foreground font-mono">Primary-sale treasury: {treasury}</p>
             )}
 
             {!loading && catalog.length === 0 && (
-                <p className="text-sm text-white/40">No Access Passes are published yet.</p>
+                <p className="text-sm text-muted-foreground">No Access Passes are published yet.</p>
             )}
         </div>
     );
