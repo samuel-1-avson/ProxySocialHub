@@ -1,0 +1,73 @@
+# ProxyHubb product load (Artillery) — API browse + optional auth.
+# Prefer testing/product_load.k6.js when k6 is available.
+#
+# Usage:
+#   npm i -g artillery
+#   artillery run testing/product_load.artillery.yml
+#   API_BASE=https://api.proxyhubb.com BUYER_JWT=... artillery run testing/product_load.artillery.yml
+#
+# Note: testing/load_test.yml remains Solana-RPC-only (legacy); use this file for product SLOs.
+
+config:
+  target: "{{ $processEnvironment.API_BASE }}"
+  phases:
+    - duration: 30
+      arrivalRate: 2
+      rampTo: 8
+      name: warm_up
+    - duration: 120
+      arrivalRate: 10
+      name: steady
+    - duration: 30
+      arrivalRate: 3
+      name: cool_down
+  defaults:
+    headers:
+      Content-Type: application/json
+  environments:
+    live:
+      target: "https://api.proxyhubb.com"
+    local:
+      target: "http://127.0.0.1:18080"
+
+scenarios:
+  - name: public_browse
+    weight: 80
+    flow:
+      - get:
+          url: "/health"
+          expect:
+            - statusCode: 200
+      - get:
+          url: "/v1/health/system"
+      - get:
+          url: "/v1/network/status"
+      - get:
+          url: "/v1/listings?limit=20"
+      - get:
+          url: "/v1/system/config/public"
+      - get:
+          url: "/v1/health/nodes"
+          expect:
+            # SEC-R1: must not return 200 with node inventory
+            - statusCode:
+                - 404
+                - 401
+                - 403
+
+  - name: authenticated_wallet
+    weight: 20
+    flow:
+      - function: "skipIfNoJwt"
+      - get:
+          url: "/v1/wallet"
+          headers:
+            Authorization: "Bearer {{ $processEnvironment.BUYER_JWT }}"
+      - get:
+          url: "/v1/usage/me"
+          headers:
+            Authorization: "Bearer {{ $processEnvironment.BUYER_JWT }}"
+
+before:
+  flow:
+    - log: "Product load against {{ target }} (set API_BASE / BUYER_JWT as needed)"
