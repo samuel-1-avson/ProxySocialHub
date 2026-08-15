@@ -19,6 +19,24 @@ paths = [
   '''\.agent/''',
 ]
 regexes = [
+  # Public Solana addresses. High base58 entropy trips generic-api-key, but an
+  # account address is not a credential: these are published in
+  # docs/ops/evidence and are asserted in scripts as expected-authority guards
+  # (refuse to run if the on-chain authority is not this key). Real key
+  # material is 64-byte JSON arrays or base58 seeds, caught by the
+  # proxyhubb-solana-keypair-json rule below and by *keypair*.json in
+  # .gitignore.
+  '''6thzwmrfijDA5eukKzMAbQnL86RqdxiLx2maM94bRJcR''',
+  '''8P4uuapgGfW8L7VvdQJ9W7RpJqpfyifhPx9UQaHnKii2''',
+  '''8g7WUuPosAg82Uu7iGYCx6HBnoTBFb4QuyiJCEGzktU4''',
+  '''8LZji2G9nn7ywoLwopgcREpm5xQHpvRJY1az1R9hHRzm''',
+  '''FeunrDoACmUi4fFQtiw3fPHAqB3N9UrAsj8ZzqSsGPa3''',
+  '''3MrGGqkGKSfmgBBY8s537HX2Sk4zK4qCHCDdW3yGwCCZ''',
+  '''GG9tJqK1ZM2nSFruCWxuanLECvjJbveAWXrmvCiG8y8p''',
+  '''AZGhGfvsiGJQ5S91nkdhGi9qvSNKv3sBZyVJ63KQLfvu''',
+  '''EnVE6ehKA2dYi69B3Lo8wt2wyDgzLw4tdtSEKoMYe5bF''',
+  '''7nvrNVaNWcG4DzcPygEyXoVC3k19ePUAncGE25dUEyi5''',
+  '''8TP21JyrghboxZqXMozx2sVzrDrNSZyN2hkf1D7dQGmb''',
   '''test-jwt-secret-for-ci-min-32-chars-long''',
   '''test-session-secret-for-ci-min-32-chars''',
   '''test-token-hmac-secret-for-ci-32-chars''',
