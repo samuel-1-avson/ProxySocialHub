@@ -3,6 +3,7 @@ name = "proxyhub"
 version = "0.1.0"
 description = "Created with Anchor"
 edition = "2021"
+rust-version = "1.84.0"
 
 [lib]
 crate-type = ["cdylib", "lib"]
@@ -18,12 +19,21 @@ idl-build = ["anchor-lang/idl-build"]
 anchor-debug = []
 custom-heap = []
 custom-panic = []
+# BC-11-B: real alt_bn128 Groth16 verify + ZKBatchPDA write.
+onchain-groth16 = ["dep:groth16-solana", "dep:num-bigint"]
 
 
 [dependencies]
 anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }
 solana-program = "2.2.2"
+groth16-solana = { version = "0.2.0", optional = true }
+num-bigint = { version = "0.4", default-features = false, optional = true }
 
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
+
+[dev-dependencies]
+solana-program-test = "2.2.2"
+solana-sdk = "2.2.2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

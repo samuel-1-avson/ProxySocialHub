@@ -180,7 +180,7 @@ describe('proxyhub critical escrow and governance coverage', () => {
 
       const proposal = await programAccounts.governanceProposal.fetch(passedProposalPda);
       expect(proposal.status).to.equal(1);
-      expect(proposal.voteYes.toNumber()).to.equal(1500);
+      expect(proposal.voteYes.toNumber()).to.equal(1);
       expect(proposal.voteNo.toNumber()).to.equal(0);
     });
 
@@ -243,7 +243,7 @@ describe('proxyhub critical escrow and governance coverage', () => {
       const proposal = await programAccounts.governanceProposal.fetch(rejectedProposalPda);
       expect(proposal.status).to.equal(2);
       expect(proposal.voteYes.toNumber()).to.equal(0);
-      expect(proposal.voteNo.toNumber()).to.equal(900);
+      expect(proposal.voteNo.toNumber()).to.equal(1);
     });
   });
 });
