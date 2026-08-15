@@ -78,7 +78,26 @@ curl -sS -o /dev/null -w "api_health=%{http_code}\n" "$API/health"
 
 echo "=== vault deposit smoke ==="
 if [[ -x "$PROJECT_DIR/scripts/gcp-smoke-vault-deposit.sh" ]]; then
-  bash "$PROJECT_DIR/scripts/gcp-smoke-vault-deposit.sh"
+  ORACLE_KP_CHECK="${ORACLE_KP:-/opt/proxyhubb/infra/oracle-keypair.json}"
+  SKIP_VAULT=1
+  if [[ -f "$ORACLE_KP_CHECK" ]]; then
+    if python3 -c '
+import json,sys
+from pathlib import Path
+p=Path(sys.argv[1]); d=json.loads(p.read_text())
+assert isinstance(d,list) and len(d)==64
+ex=Path("/opt/proxyhubb/infra/oracle-keypair.json.example")
+if ex.exists() and p.read_text().strip()==ex.read_text().strip():
+  raise SystemExit(1)
+' "$ORACLE_KP_CHECK" 2>/dev/null; then
+      SKIP_VAULT=0
+    fi
+  fi
+  if [[ "$SKIP_VAULT" -eq 0 ]]; then
+    bash "$PROJECT_DIR/scripts/gcp-smoke-vault-deposit.sh"
+  else
+    echo "SKIP vault deposit smoke: no usable local oracle keypair (GCP KMS oracle — expected)"
+  fi
 else
   echo "WARN: gcp-smoke-vault-deposit.sh missing; skipping deposit"
 fi

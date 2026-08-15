@@ -23,6 +23,7 @@ rm -rf "$tmpdir"
 
 # Strip CRLF from synced TS/TSX (Windows hosts)
 find "$PROJECT_DIR/apps/web/src/components/map" \
+  "$PROJECT_DIR/apps/web/src/app/explorer/map" \
   "$PROJECT_DIR/apps/web/src/app/marketplace/map" \
   "$PROJECT_DIR/apps/web/src/app/marketplace/create" \
   -type f \( -name '*.ts' -o -name '*.tsx' \) \
@@ -50,12 +51,25 @@ test -f "$PROJECT_DIR/apps/web/src/components/map/GoogleProxyMapCanvas.tsx" \
   || { echo "GoogleProxyMapCanvas.tsx missing after extract" >&2; exit 1; }
 grep -q '@react-google-maps/api' "$PROJECT_DIR/apps/web/package.json" \
   || { echo "package.json missing @react-google-maps/api" >&2; exit 1; }
+grep -qE "proxyhubb-google-maps-v3|visualization" "$PROJECT_DIR/apps/web/src/components/map/GoogleProxyMapCanvas.tsx" \
+  || { echo "GoogleProxyMapCanvas missing visualization loader (Session Density)" >&2; exit 1; }
+grep -q 'GOOGLE_MAP_DARK_STYLES' "$PROJECT_DIR/apps/web/src/components/map/GoogleProxyMapCanvas.tsx" \
+  || { echo "GoogleProxyMapCanvas missing GOOGLE_MAP_DARK_STYLES (2D flat raster)" >&2; exit 1; }
+grep -q 'HeatmapLayer' "$PROJECT_DIR/apps/web/src/components/map/GoogleProxyMapCanvas.tsx" \
+  || { echo "GoogleProxyMapCanvas missing HeatmapLayer (Session Density)" >&2; exit 1; }
+# Explorer map is 2D-only (WebGL globe removed from product UI)
+grep -q 'proxy-map-canvas\|MapCanvas\|GoogleProxyMapCanvas' "$PROJECT_DIR/apps/web/src/app/explorer/map/page.tsx" \
+  || { echo "explorer map page missing 2D MapCanvas wiring" >&2; exit 1; }
+if grep -qE 'showGlobe|3D Globe|GlobeMap' "$PROJECT_DIR/apps/web/src/app/explorer/map/page.tsx"; then
+  echo "explorer map page still references 3D globe UI — remove before deploy" >&2
+  exit 1
+fi
 
 echo "GOOGLE_MAPS_KEY=present"
 if grep -qE '^NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID=.+' "$PROJECT_DIR/.env"; then
   echo "GOOGLE_MAPS_MAP_ID=present (vector + Advanced Markers)"
 else
-  echo "GOOGLE_MAPS_MAP_ID=unset — run gcp-sync or set Map ID from GCP Map Management"
+  echo "GOOGLE_MAPS_MAP_ID=unset — cloud Map ID optional for 2D dark styles"
 fi
 echo "Google canvas + compose/Dockerfile wiring OK"
 
