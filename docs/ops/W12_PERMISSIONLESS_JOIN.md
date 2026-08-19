@@ -61,9 +61,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/w12b-permissionless-
 ```
 
 Those scripts **do not** send a bond tx (no operator SOL key in CI). They prove
-keygen → sign → bundle verify with **no Postgres**. Bond remains a manual
-`CONFIRM_W12B_BOND=1` step. `sign-from-keygen` defaults to
-`org_id=ext-operator-org-1` (override with `W12B_ORG_ID`).
+keygen → sign → bundle verify with **no Postgres**. Bond is a manual
+`CONFIRM_W12B_BOND=1` step. Live `edge-ext` bond 2026-08-18:
+[`evidence/W12_B_edge_ext_bond_20260818.md`](evidence/W12_B_edge_ext_bond_20260818.md).
+`sign-from-keygen` defaults to `org_id=ext-operator-org-1` (override with
+`W12B_ORG_ID`).
 
 ## Edges / buyers (pin, no seed)
 
@@ -78,17 +80,22 @@ PROXYHUB_OPERATOR_BUNDLE_PATH=/etc/proxyhubb/operators-ext.json
 ## Platform (ProxyHubb)
 
 May refuse merchandising (no `catalog_products` row, no title on proxyhubb.com).
+Directory titles for `edge-ext` / `edge-org3` were set 2026-08-19
+(`W12B_MERCHANDISE_TITLES_OK`;
+[`evidence/W12_B_merchandise_titles_20260819.md`](evidence/W12_B_merchandise_titles_20260819.md)).
+Join hosts were stopped (not deleted) the same day
+([`evidence/W7_D_join_hosts_stopped_20260819.md`](evidence/W7_D_join_hosts_stopped_20260819.md)).
 Must not require a seed of `gateway_operators` for the bundle to verify.
 Must not hold the operator’s `signing_key`.
-`CONFIRM_W7D_EXTERNAL_VPS=1` is a **live foreign host** claim and stays
-unclaimed until a volunteer exists.
+`CONFIRM_W7D_EXTERNAL_VPS=1` is a **live foreign host** claim. Claimed
+2026-08-18 (`W7D_EXTERNAL_VPS_OK`):
+[`evidence/W7_D_external_vps_20260818.md`](evidence/W7_D_external_vps_20260818.md).
 
 ## Honesty
 
-- `operator_org_diversity` stays `same_org` until a foreign org is **cached or
-  pinned and counted** on the soak fleet.
-- This runbook does not make `multi_org`.
-- Not permissionless **shop listing**.
+- `operator_org_diversity` is **`multi_org`** when a foreign org is cached
+  (live 2026-08-18: `edge-ext` / `fiffi-500411`).
+- This runbook does not make join permissionless **shop listing**.
 - Not DePIN.
 
 ## Non-claims

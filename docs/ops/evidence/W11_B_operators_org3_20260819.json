@@ -1,0 +1,24 @@
+{
+  "message_type": "PROXYHUB_OPERATOR_MANIFEST_BUNDLE",
+  "version": "1",
+  "issued_at": 1787117196,
+  "operators": [
+    {
+      "slug": "edge-org3",
+      "display_name": "edge-org3",
+      "pubkey": "FuivUFqevfZA6XA9GSsxUFLJ2HTQggb5QcpUD1GHLyRo",
+      "host_id": "gce-proxyhubb-w11b-org3",
+      "org_id": "gen-lang-client-0098858574",
+      "buyer_base_url": "http://34.30.97.166:8090",
+      "health_url": "http://34.30.97.166:8090/health",
+      "tunnel_addrs": ["34.30.97.166:3128"],
+      "peer_urls": null,
+      "min_stake_lamports": 0,
+      "bonded": true,
+      "status": "active",
+      "manifest_payload": "PROXYHUB_OPERATOR_MANIFEST:v1:edge-org3|FuivUFqevfZA6XA9GSsxUFLJ2HTQggb5QcpUD1GHLyRo|gce-proxyhubb-w11b-org3|http://34.30.97.166:8090|34.30.97.166:3128|||0|1|1789709196",
+      "manifest_signature": "5tBb2sUpYntwAfeTEo8ywD5b4xxF1s5BFPQZz8TXXdPMyPegzpcFxgrzsoGMUheAVZ4itqMNUWpmWb1TTnVmEoqm",
+      "manifest_expires_at": 1789709196
+    }
+  ]
+}

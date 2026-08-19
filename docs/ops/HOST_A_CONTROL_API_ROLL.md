@@ -1,10 +1,20 @@
 # Host-A control-api roll
 
-**Scheduled: after the 2026-08-21 W10.A decision record. Do not run before it.**
+**Ran 2026-08-17**, then **2026-08-18** (KMS listing-commitment account meta
++ transient RPC retries so shop publish can write a PDA).
+Evidence: [`evidence/HOST_A_CONTROL_API_ROLL_20260817.md`](evidence/HOST_A_CONTROL_API_ROLL_20260817.md),
+[`evidence/W10_B_listing_commitment_shop_publish_20260818.md`](evidence/W10_B_listing_commitment_shop_publish_20260818.md).
+W10.A observe **restarts** on the 08-18 image (due **2026-08-25**).
 
-The running Host-A binary was built 2026-08-14 and lags the repo. Until this
-roll happens, three things are **in-repo only** regardless of any wave
-checkbox:
+Rollback tags on the VM: `proxyhubb-control-api:pre-roll-20260817` (pre-08-17
+binary) and `proxyhubb-control-api:pre-roll-20260818` (pre-KMS-fix swap).
+
+Compose for control-api recreate must include
+`docker-compose.w10-listing-observe.yml` or listing drops back to `off`.
+Never `--remove-orphans`.
+
+Before that roll the live binary lagged the repo. The three strings below
+are **present** on `/server` as of 2026-08-17:
 
 | Missing on the live binary | Wave | Effect today |
 |---------------------------|------|--------------|
@@ -21,11 +31,11 @@ bash scripts/gcp-host-a-control-api-drift-probe.sh
 The probe greps the running `/server` binary. `present` for all three is the
 exit condition.
 
-## Why it waits
+## Why it waited
 
-W10.A capability observe runs to 2026-08-21. A binary swap mid-window is a
-change to the thing being observed. Roll **after** the decision record, in
-the same maintenance step as whatever the decision says.
+W10.A capability observe had been running to 2026-08-21. A binary swap
+mid-window changes the thing being observed. The operator waived that
+calendar on 2026-08-17; the soak clock restarts on this image.
 
 ## Preconditions
 
@@ -53,11 +63,12 @@ sudo docker compose \
   -f docker-compose.gcp-testnet.yml \
   -f docker-compose.w6-host-a-private.yml \
   -f docker-compose.w10-observe.yml \
+  -f docker-compose.w10-listing-observe.yml \
   build control-api
 
-# 3. Swap. All five overlays. Never --remove-orphans (J2 edges, redis-ha, and
+# 3. Swap. All six overlays. Never --remove-orphans (J2 edges, redis-ha, and
 #    the observe edges look like orphans to an API-only compose).
-sudo docker compose <same five -f flags> up -d --no-deps control-api
+sudo docker compose <same six -f flags> up -d --no-deps --force-recreate control-api
 ```
 
 ## Verification (all must pass)
@@ -77,7 +88,8 @@ Expected honesty deltas, and nothing else:
 - `session_capability_issuer` `control_api` → `operators_and_control_api`
   (a bundle pin is configured)
 - a `bonded_gateway_program` field appears
-- `listing_commitment_mode` stays `off`
+- `listing_commitment_mode` `off` → `observe` when
+  `docker-compose.w10-listing-observe.yml` is included (left on 2026-08-18)
 
 `live_economic_slash` must stay **false**. `operator_org_diversity` must stay
 `same_org`. If either moves, roll back.

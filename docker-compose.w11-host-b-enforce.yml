@@ -1,0 +1,8 @@
+# Wave 11.A — capability ENFORCE on Host-B edge-b.
+# Last overlay after docker-compose.w10-host-b-observe.yml.
+# Host-B is still same_org. Never slash. Do not start control-api here.
+
+services:
+  edge-gateway-b:
+    environment:
+      - PROXYHUB_SESSION_CAPABILITY=enforce

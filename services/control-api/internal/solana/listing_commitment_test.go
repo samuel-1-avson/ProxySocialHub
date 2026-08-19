@@ -116,13 +116,63 @@ func TestFetchListingCommitmentRejectsSession(t *testing.T) {
 }
 
 func TestRegisterListingCommitmentParamsRejectZeroHash(t *testing.T) {
-	c := &OracleClient{programID: sol.SystemProgramID}
-	_, err := c.RegisterListingCommitmentOnChain(context.Background(), RegisterListingCommitmentParams{
+	k, err := GenerateRandomKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &OracleClient{programID: sol.SystemProgramID, hsm: NewMockHSMSigner(k)}
+	_, err = c.RegisterListingCommitmentOnChain(context.Background(), RegisterListingCommitmentParams{
 		Provider:  sol.SystemProgramID,
 		OfferHash: [32]byte{},
 		ListingID: uuid.New(),
 	})
 	if err == nil {
 		t.Fatal("zero hash must fail before RPC")
+	}
+}
+
+func TestRegisterListingCommitmentUsesHSMPubkeyWhenFileKeyEmpty(t *testing.T) {
+	k, err := GenerateRandomKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &OracleClient{
+		programID: sol.SystemProgramID,
+		hsm:       NewMockHSMSigner(k),
+		// oracleKey left empty — gcp-testnet Cloud KMS path
+	}
+	var hash [32]byte
+	hash[0] = 0xab
+	id := uuid.MustParse("52b8b39b-15bd-454d-aa75-fb0f2a544aa6")
+	provider := sol.MustPublicKeyFromBase58("9L4PsojpEY5sZvchMVcDtQTaSFS6teWhThuvKGJBX8Hp")
+	ix, pda, err := BuildRegisterListingCommitmentInstruction(
+		c.programID, c.GetOraclePublicKey(), provider, hash, id,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pda == (sol.PublicKey{}) {
+		t.Fatal("PDA must be derived")
+	}
+	accs := ix.Accounts()
+	if len(accs) < 2 {
+		t.Fatalf("accounts=%d", len(accs))
+	}
+	if !accs[1].PublicKey.Equals(k.PublicKey()) {
+		t.Fatalf("oracle account=%s want HSM %s", accs[1].PublicKey, k.PublicKey())
+	}
+}
+
+func TestRegisterListingCommitmentRejectsMissingSigner(t *testing.T) {
+	c := &OracleClient{programID: sol.SystemProgramID}
+	var hash [32]byte
+	hash[0] = 0xab
+	_, err := c.RegisterListingCommitmentOnChain(context.Background(), RegisterListingCommitmentParams{
+		Provider:  sol.SystemProgramID,
+		OfferHash: hash,
+		ListingID: uuid.New(),
+	})
+	if err == nil {
+		t.Fatal("missing KMS/file oracle must fail before RPC")
 	}
 }

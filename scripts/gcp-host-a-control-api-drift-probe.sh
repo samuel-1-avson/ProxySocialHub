@@ -20,6 +20,7 @@ echo "binary=${CANDIDATE:-not_found}"
 echo "--- feature strings in the running binary ---"
 for s in \
   "listing commitment registered on-chain" \
+  "listing commitment: register started" \
   "PROXYHUB_USAGE_CHALLENGE" \
   "operators_and_control_api" \
   "bonded_gateway_program" \
