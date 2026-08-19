@@ -84,10 +84,17 @@ Mode restored to **off**.
 Operators mint with `cmd/w7a-capability-sign` using the bundle `signing_key`
 (issuer pubkey must match a **verified** row). Platform env key remains valid.
 
-Live soak of `session_mint=operator_capability` is a **separate** claim after
-the W10.A observe decision. Do not flip enforce during that observe week.
+Live soak of `session_mint=operator_capability` claimed 2026-08-19
+(`W11A_OPERATOR_MINT_CONNECT_OK` + `W7C_REDIS_OPTIONAL_CONNECT_OK`) on Host-A
+J2 `:18091` and Host-B. Public `:8090` stays HMAC. The 08-14 soak edge binary
+took extra issuers from comma-separated
+`PROXYHUB_SESSION_CAPABILITY_ISSUER_PUBKEY` (not in-process bundle
+`verified_issuer_pubkeys`).
 
-Evidence: [`evidence/W11_A_operator_mint_issuers_20260814.md`](evidence/W11_A_operator_mint_issuers_20260814.md).
+Evidence: [`evidence/W11_A_operator_mint_issuers_20260814.md`](evidence/W11_A_operator_mint_issuers_20260814.md)
+(in-repo) and
+[`evidence/W11_A_enforce_soak_20260819.md`](evidence/W11_A_enforce_soak_20260819.md)
+(live).
 
 ## Non-claims
 
@@ -95,4 +102,4 @@ Evidence: [`evidence/W11_A_operator_mint_issuers_20260814.md`](evidence/W11_A_op
 - Issuer may still be control-api at mint
 - Redis may still cache the blob (W7.A) or hold usage counters (W7.C)
 - Not `programs/session` / on-chain lease PDA
-- Host-B still `same_org` (not W11.B)
+- Host-B still `same_org` (not a foreign org; W11.B is the join-host cache)

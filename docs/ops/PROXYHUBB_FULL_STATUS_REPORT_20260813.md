@@ -25,11 +25,11 @@ Added in-repo (not live): operator-minted capability issuers (W11.A),
 permissionless join runbook (W12.B). W12.A slice 1 now has a live **release**
 soak; slash soak and buyer-to-chain (slice 2) stay unclaimed.
 
-**Live binary drift (measured 2026-08-15).** The running Host-A control-api
-was built 2026-08-14 and does **not** contain `listing_commitment_sync`,
-the W11.A `operators_and_control_api` issuer label, or the
-`bonded_gateway_program` honesty field. Treat those three as in-repo only
-until a roll is evidenced. Probe:
+**Live binary (measured 2026-08-17).** Host-A control-api was rolled
+2026-08-17 (`HOST_A_CONTROL_API_ROLL_OK`). `/server` contains
+`listing_commitment_sync`, the W11.A `operators_and_control_api` issuer
+label, and the `bonded_gateway_program` honesty field. GCP listing mode
+stays `off`. Probe:
 `scripts/gcp-host-a-control-api-drift-probe.sh`.
 
 Unchanged and still true: one org, one control plane, HMAC + Redis
@@ -102,28 +102,28 @@ Shared SoT on Host-A: Postgres, Redis, NATS, control-api. Host-B is a **second m
 ## 3. Default live honesty (after soaks restored off)
 
 Public config (`https://api.proxyhubb.com/v1/system/config/public`), measured
-2026-08-15:
+2026-08-18:
 
 ```
-session_capability_mode=observe        # W10.A soak until 2026-08-21
+session_capability_mode=observe        # W10.A soak restarted 2026-08-17; due 2026-08-24
 session_mint=control_api_hmac
-session_capability_issuer=control_api  # W11.A not on this binary
+session_capability_issuer=operators_and_control_api  # bundle pin; not operator mint
 redis_optional_connect=false
 remaining_spof=control_api_hmac_and_redis
 operator_org_diversity=same_org
 operator_host_diversity=two_hosts
 operator_manifest_mode=observe
 discovery_sot=postgres_cache
-listing_commitment_mode=off
+listing_commitment_mode=observe        # W10.B standing soak; not enforce
+listing_commitments=ed25519_offer_hash+listing_commitment_pda
 live_economic_slash=false
 programs_session=unsafe_do_not_deploy
 zk_onchain_groth16_ready=true
 ```
 
 Capability issuer pubkey: `GG9tJqK1ZM2nSFruCWxuanLECvjJbveAWXrmvCiG8y8p`.
-There is no `bonded_gateway_program` field on this binary, so the public
-config does **not** yet reflect the devnet bond. That is conservative, not a
-claim.
+`bonded_gateway_program=localnet_soak` is hardcoded honesty on this binary
+even though the tiny bond is on **devnet**. Conservative, not a slash claim.
 
 **How to read this:** soaks proved *capability*. Production defaults stay
 conservative. `observe` attaches a capability token but HMAC + Redis still

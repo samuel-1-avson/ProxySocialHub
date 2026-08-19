@@ -29,6 +29,10 @@ resolve_slash is not a CLI command (prefer resolve_release).
 
 Usage:
   w8-gateway-bond id
+  w8-gateway-bond keygen
+    (writes a Solana JSON keypair to stdout; pubkey on stderr. Keep it offline.)
+  w8-gateway-bond pubkey
+    (prints SOLANA_ORACLE_KEYPAIR pubkey; needs the file, not Host-A)
   w8-gateway-bond pda <operator_base58>
   w8-gateway-bond gates
   w8-gateway-bond fetch [operator_base58]
@@ -58,6 +62,10 @@ func main() {
 	enc.SetEscapeHTML(false)
 	rpcURL := soakRPC()
 	switch strings.ToLower(os.Args[1]) {
+	case "keygen":
+		cmdSolanaKeygen()
+	case "pubkey":
+		fmt.Println(mustOracle(rpcURL).GetOraclePublicKey().String())
 	case "id":
 		id, err := solana.GatewayBondProgramID()
 		if err != nil {
@@ -721,6 +729,24 @@ func waitChallenge(ctx context.Context, rpcURL, id string, operator sol.PublicKe
 		}
 	}
 	return nil, last
+}
+
+func cmdSolanaKeygen() {
+	kp, err := sol.NewRandomPrivateKey()
+	if err != nil {
+		fatalf("keygen: %v", err)
+	}
+	raw := []byte(kp)
+	nums := make([]int, len(raw))
+	for i, b := range raw {
+		nums[i] = int(b)
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(nums); err != nil {
+		fatalf("keygen encode: %v", err)
+	}
+	fmt.Fprintf(os.Stderr, "pubkey=%s\n", kp.PublicKey().String())
 }
 
 func soakRPC() string {

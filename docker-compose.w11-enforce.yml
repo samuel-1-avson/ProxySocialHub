@@ -1,0 +1,10 @@
+# Wave 11.A — capability ENFORCE + operator mint honesty on Host-A control-api.
+# Must be last overlay after docker-compose.w10-observe.yml.
+# Keep listing observe overlay. Never slash gates. Never --remove-orphans.
+# Public :8090 (edge-a) stays HMAC control group.
+
+services:
+  control-api:
+    environment:
+      - PROXYHUB_SESSION_CAPABILITY=enforce
+      - PROXYHUB_SESSION_CAPABILITY_OPERATOR_MINT=enforce

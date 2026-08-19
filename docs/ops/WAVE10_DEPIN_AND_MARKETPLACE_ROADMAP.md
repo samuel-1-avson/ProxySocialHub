@@ -133,7 +133,10 @@ refused.
 - [x] `CONFIRM_W9A_LIVE=1` register soak → PDA
       (`Ci1FqUWEdMZ8AtYjeoLrn3k9hkyW7rXR4zLb7RHZYC8R`,
       [`evidence/W9_A_listing_commitment_pda_live_20260813.md`](evidence/W9_A_listing_commitment_pda_live_20260813.md))
-- [ ] Optional PG `listing_commitment_on_chain` if observe mode on for soak
+- [x] Optional PG `listing_commitment_on_chain` if observe mode on for soak
+      (shop path 2026-08-18:
+      [`evidence/W10_B_listing_commitment_shop_publish_20260818.md`](evidence/W10_B_listing_commitment_shop_publish_20260818.md);
+      PDA `FGRAc7KGFMKAexL8LeXHee3UWy2wTfwa28osymBz6bkH`)
 - [ ] gcp default may return **off**
 - [ ] Evidence `W9_A_listing_commitment_live_*`
 
@@ -143,9 +146,14 @@ Host-B does **not** count (`same_org`).
 
 - [x] Apply live migration `000151` (`org_id`) if not applied
       ([`evidence/P0_3_host_b_bundle_migration_20260813.md`](evidence/P0_3_host_b_bundle_migration_20260813.md))
-- [ ] Volunteer VPS `CONFIRM_W7D_EXTERNAL_VPS=1`
-- [x] Honesty `operator_org_diversity` — still **`same_org`** (no volunteer;
-      Host-B does not count). Documented `W7D_EXTERNAL_VPS_SKIPPED`
+- [x] Volunteer VPS `CONFIRM_W7D_EXTERNAL_VPS=1` /
+      `W7D_EXTERNAL_VPS_OK` 2026-08-18 — VM `proxyhubb-w7d-ext` in GCP
+      project `fiffi-500411` (not Host-B). Seed stayed on that host.
+      ([`evidence/W7_D_external_vps_20260818.md`](evidence/W7_D_external_vps_20260818.md))
+- [x] Honesty `operator_org_diversity` — live **`multi_org`** (`edge-ext`
+      `org_id=fiffi-500411`). Host-B in `gen-lang-client-0022105784` still
+      does not count. Same Google account; not a third-party company; not
+      DePIN. Host-A control-api was **not** restarted.
 - [x] HTTP `GET /v1/gateways/operators/bundle` live (`W7B_HTTP_BUNDLE_OK`)
 - [x] Roll Host-B to Wave 7 edge binary (`W7_HOST_B_ROLL_OK`; capability **off**)
 
@@ -193,17 +201,31 @@ cannot decentralize if the default product is the SPOF.
 
 - [x] Pick **one** soak fleet (Host-A J2 edge-b *and* rolled Host-B)
       ([`evidence/W10_A_capability_observe_started_20260814.md`](evidence/W10_A_capability_observe_started_20260814.md))
-- [ ] `PROXYHUB_SESSION_CAPABILITY=observe` for that fleet for ≥7 days
-      (**started 2026-08-14**; due **2026-08-21**; not restored off)
-- [ ] Host-A control-api roll is queued behind that decision
-      ([`HOST_A_CONTROL_API_ROLL.md`](HOST_A_CONTROL_API_ROLL.md)); the live
-      binary lacks W11.A labels, `listing_commitment_sync`, and
-      `bonded_gateway_program`
+- [ ] `PROXYHUB_SESSION_CAPABILITY=observe` for that fleet for ≥7 days —
+      **not completed**. Restarted 2026-08-18 after the listing KMS/retry roll;
+      wait waived then **written enforce** 2026-08-19. 08-17 restart:
+      [`evidence/W10_A_observe_restarted_20260817.md`](evidence/W10_A_observe_restarted_20260817.md).
+      08-18 shop proof:
+      [`evidence/W10_B_listing_commitment_shop_publish_20260818.md`](evidence/W10_B_listing_commitment_shop_publish_20260818.md).
+- [x] Host-A control-api roll
+      ([`HOST_A_CONTROL_API_ROLL.md`](HOST_A_CONTROL_API_ROLL.md);
+      [`evidence/HOST_A_CONTROL_API_ROLL_20260817.md`](evidence/HOST_A_CONTROL_API_ROLL_20260817.md);
+      issuer `operators_and_control_api`; `listing_commitment_sync` in
+      binary)
 - [x] Honesty while observe: `session_mint=control_api_hmac`,
       `remaining_spof=control_api_hmac_and_redis` (enforce’s `token_issuer`
       label is not used until capability is admission)
-- [x] Kill-API CONNECT week 1 (`W10A_KILL_API_CONNECT_OK`); next **2026-08-21**
-- [ ] Decision record: stay observe vs enforce vs revert (after ≥7 days)
+- [x] Kill-API CONNECT on the **08-17** image
+      ([`evidence/W10_A_kill_api_20260818.md`](evidence/W10_A_kill_api_20260818.md))
+      and on the **08-18** KMS/retry image
+      ([`evidence/W10_A_kill_api_20260818_current.md`](evidence/W10_A_kill_api_20260818_current.md);
+      `W10A_KILL_API_CONNECT_OK`; `docker start` restore)
+- [x] Decision record: **written enforce** 2026-08-19 (same-day stay-observe
+      waiver superseded)
+      ([`evidence/W11_A_enforce_soak_20260819.md`](evidence/W11_A_enforce_soak_20260819.md);
+      prior waiver
+      [`evidence/W10_A_wait_waived_stay_observe_20260819.md`](evidence/W10_A_wait_waived_stay_observe_20260819.md)).
+      Public `:8090` (`edge-a`) stays HMAC. Soak CONNECT is `:18091`.
 
 **Non-claim:** Issuer can still be control-api. That is Phase B.
 
@@ -212,7 +234,11 @@ cannot decentralize if the default product is the SPOF.
 - [x] After live PDAs: W9.B bundles with `on_chain=true`
       ([`evidence/W9_B_on_chain_true_20260813.md`](evidence/W9_B_on_chain_true_20260813.md))
 - [x] Browse honesty `listing_commitments=ed25519_offer_hash+listing_commitment_pda` when observe
-      ([`evidence/W10_B_browse_honesty_observe_20260813.md`](evidence/W10_B_browse_honesty_observe_20260813.md); GCP restored **off**)
+      ([`evidence/W10_B_browse_honesty_observe_20260813.md`](evidence/W10_B_browse_honesty_observe_20260813.md);
+      restored **off** that day; **left on** 2026-08-18 after the roll
+      [`evidence/W10_B_listing_commitment_observe_left_on_20260818.md`](evidence/W10_B_listing_commitment_observe_left_on_20260818.md);
+      shop `POST /v1/listings` wrote PDA + PG mirror
+      [`evidence/W10_B_listing_commitment_shop_publish_20260818.md`](evidence/W10_B_listing_commitment_shop_publish_20260818.md))
 - [ ] Optional enforce: hide listings with verified offer but no PDA
 - [x] Delist still platform (ADR 0008) — `delist_authority=platform_moderation` during observe
 
@@ -231,7 +257,9 @@ cannot decentralize if the default product is the SPOF.
 - [x] Pinned rows are **signed** and verify offline (2026-08-15;
       [`evidence/W6_B_operator_manifest_signed_20260815.md`](evidence/W6_B_operator_manifest_signed_20260815.md);
       `W6B_MANIFEST_SIGNED_OK`; `verified=2 failed=0` on both hosts and on the
-      public bundle endpoint. Platform holds both keys — still `same_org`)
+      public bundle endpoint. Platform holds both keys — still `same_org` on
+      that date. 2026-08-18 pin merged `edge-ext` / `fiffi-500411`
+      ([`evidence/W7_D_external_vps_20260818.md`](evidence/W7_D_external_vps_20260818.md)))
 - [x] `discovery_sot=postgres_cache` on the soak fleet
 - [x] HTTP operator bundle export claimed
 
@@ -252,19 +280,27 @@ session issuer.
 - [x] Canonical bytes already exist (`PROXYHUB_SESSION_CAPABILITY:v1`)
 - [x] Operator signing keys in the pinned bundle (W10.D)
 - [x] Edge accepts issuer ∈ operator key set (not only platform issuer
-      `GG9tJqK1…`) — **in-repo**; live edges not rolled during W10.A observe
-      ([`evidence/W11_A_operator_mint_issuers_20260814.md`](evidence/W11_A_operator_mint_issuers_20260814.md))
-- [ ] Honesty `session_mint=operator_capability` on soak — code emits this
-      only when `enforce` + `PROXYHUB_SESSION_CAPABILITY_OPERATOR_MINT`.
-      Do **not** flip while W10.A HMAC still gates (decision 2026-08-21).
+      `GG9tJqK1…`) — **in-repo** 2026-08-14; live 08-14 soak binary used
+      comma-separated env issuers (n=5) rather than in-process
+      `verified_issuer_pubkeys`
+      ([`evidence/W11_A_operator_mint_issuers_20260814.md`](evidence/W11_A_operator_mint_issuers_20260814.md);
+      live [`evidence/W11_A_enforce_soak_20260819.md`](evidence/W11_A_enforce_soak_20260819.md))
+- [x] Honesty `session_mint=operator_capability` on soak — 2026-08-19
+      written enforce (`W11A_OPERATOR_MINT_CONNECT_OK` + Redis-optional
+      CONNECT). Public `:8090` HMAC control group left off.
 - [x] Control-api may still mint as a convenience cache
 
 ### W11.B — Three-org proof
 
-- [ ] Org 1: ProxyHubb GCP
-- [ ] Org 2: foreign VPS (W7.D)
-- [ ] Org 3: second foreign (volunteer or paid colo)
-- [ ] Each has distinct `org_id`, pubkey, bond (even if small, observe)
+- [x] Org 1: ProxyHubb GCP (`edge-a` / `edge-b`; oracle soak bond
+      `H9a8FNvtRM5o7TWV9TVeaAvBiGGeXyNajUQ9Pgb8nbcq`)
+- [x] Org 2: foreign VPS (W7.D) — `fiffi-500411` / `edge-ext` 2026-08-18;
+      distinct bond PDA `HxmZVafPyn4NEcxwzCnX1eGwni7E7CEj42Bj2wnZYBAM`
+- [x] Org 3: second foreign — `gen-lang-client-0098858574` / `edge-org3`
+      2026-08-19; bond PDA `DGBQMrzy29W7oTpSQRvCgKFdcH2PPPLpnDg2WDEqpUnz`
+      ([`evidence/W11_B_three_org_20260819.md`](evidence/W11_B_three_org_20260819.md))
+- [x] Each has distinct `org_id`, pubkey, bond (observe; platform bond is
+      the 2026-08-14 oracle soak). Same Google account. Not DePIN.
 
 ### W11.C — Live bond observe on public cluster
 
@@ -322,8 +358,13 @@ physics” and “you join if we seed you.”
 - [x] Platform may still refuse **merchandising** (title on proxyhubb.com)
 - [x] Discovery bundle can include the operator anyway (censorship of the
       **shop UI** ≠ censorship of the commitment set)
-- [ ] Live foreign org still required before `multi_org` /
-      `CONFIRM_W7D_EXTERNAL_VPS=1`
+- [x] Live foreign org (`multi_org`, `W7D_EXTERNAL_VPS_OK` 2026-08-18).
+      Distinct on-chain bond for `edge-ext` 2026-08-18
+      ([`evidence/W12_B_edge_ext_bond_20260818.md`](evidence/W12_B_edge_ext_bond_20260818.md);
+      PDA `HxmZVafPyn4NEcxwzCnX1eGwni7E7CEj42Bj2wnZYBAM`). Shop merchandising
+      titles 2026-08-19 (`W12B_MERCHANDISE_TITLES_OK`;
+      [`evidence/W12_B_merchandise_titles_20260819.md`](evidence/W12_B_merchandise_titles_20260819.md);
+      directory `display_name` only, no CONNECT / no `catalog_products`).
 
 ### W12.C — Optional second control-api / operator relay
 
@@ -369,10 +410,10 @@ PDA **or** a dated RPC blocker still open after a paid keyed endpoint.
 1. [x] Host-B Wave 7 binary roll (does not make W7.D).
 2. [x] HTTP operator bundle export.
 3. [x] Migration `000151` on live DB.
-4. [x] Foreign VPS join **or** document no volunteer
-      (`W7D_EXTERNAL_VPS_SKIPPED` in
-      [`evidence/P0_3_host_b_bundle_migration_20260813.md`](evidence/P0_3_host_b_bundle_migration_20260813.md)).
-      Live `CONFIRM_W7D_EXTERNAL_VPS=1` remains open if a volunteer appears.
+4. [x] Foreign VPS join **claimed** 2026-08-18 (`W7D_EXTERNAL_VPS_OK`;
+      [`evidence/W7_D_external_vps_20260818.md`](evidence/W7_D_external_vps_20260818.md)).
+      Prior skip: `W7D_EXTERNAL_VPS_SKIPPED` in
+      [`evidence/P0_3_host_b_bundle_migration_20260813.md`](evidence/P0_3_host_b_bundle_migration_20260813.md).
 
 ### Week 3
 
@@ -388,9 +429,10 @@ PDA **or** a dated RPC blocker still open after a paid keyed endpoint.
 ### Dual-track after week 3
 
 - Marketplace: W10.B–D (bundles in the shop path, settlement auditor soak).
-- Network: W11.A in-repo (bundle issuers + ADR 0013 D5). Live
-  `operator_capability` soak after the W10.A decision. Orgs 2–3 still
-  required for W11.B.
+- Network: W11.A live `operator_capability` soak 2026-08-19
+  ([`evidence/W11_A_enforce_soak_20260819.md`](evidence/W11_A_enforce_soak_20260819.md)).
+  W11.B three-org claimed 2026-08-19. Join hosts stopped (not deleted)
+  ([`evidence/W7_D_join_hosts_stopped_20260819.md`](evidence/W7_D_join_hosts_stopped_20260819.md)).
 
 ---
 
@@ -399,10 +441,10 @@ PDA **or** a dated RPC blocker still open after a paid keyed endpoint.
 | Work | Track | Blocks DePIN? |
 |------|--------|----------------|
 | W9.A live upgrade | Marketplace | Yes — no on-chain listing commitments |
-| W7.D foreign VPS | Network | Yes — still `same_org` |
+| W7.D foreign VPS | Network | Live `multi_org` 2026-08-18; still not DePIN |
 | W8 `.so` public cluster | Network | Yes — slash is still theater on GCP |
 | Capability default/observe fleet | Marketplace + network | Yes — default HMAC is the CONNECT SPOF |
-| Operator-minted tokens | Network | Yes — ProxyHubb still the issuer |
+| Operator-minted tokens | Network | Soak 2026-08-19; `remaining_spof` is still `token_issuer` |
 | Usage challenge | DePIN physics | Yes — edge is still undisputed SoT |
 | Permissionless join | DePIN | Yes — seeded operators only |
 | Host-B Wave 7 roll | Hygiene | No for DePIN; yes for honest two-host capability |
