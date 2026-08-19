@@ -39,12 +39,14 @@ type Pool struct {
 
 // ProxyCredentials is returned inside GET /v1/orders/:id/credentials.
 type ProxyCredentials struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	Protocol string `json:"protocol"`
-	Endpoint string `json:"endpoint"`
+	Username        string `json:"username"`
+	Password        string `json:"password"`
+	LegacyPassword  string `json:"legacy_password,omitempty"`
+	AuthForEndpoint string `json:"auth_for_endpoint,omitempty"`
+	Host            string `json:"host"`
+	Port            int    `json:"port"`
+	Protocol        string `json:"protocol"`
+	Endpoint        string `json:"endpoint"`
 }
 
 // SessionIntentResponse is returned by POST /v1/sessions/intent.

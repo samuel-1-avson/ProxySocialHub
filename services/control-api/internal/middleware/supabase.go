@@ -91,6 +91,10 @@ func SupabaseAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 			}
 			c.Set("userEmail", claims.Email)
 			c.Set("userRole", claims.Role)
+			if !bindExtensionDeviceClaims(c, claims) {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "extension device revoked"})
+				return
+			}
 			c.Next()
 			return
 		}
@@ -140,6 +144,10 @@ func SupabaseAuthMiddlewareOptional(cfg *config.Config) gin.HandlerFunc {
 			}
 			c.Set("userEmail", claims.Email)
 			c.Set("userRole", claims.Role)
+			if !bindExtensionDeviceClaims(c, claims) {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "extension device revoked"})
+				return
+			}
 		}
 
 		// Provider CLI token fallback

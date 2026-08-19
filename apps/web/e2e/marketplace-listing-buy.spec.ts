@@ -52,6 +52,7 @@ test.describe('marketplace listing detail buy', () => {
         await page.getByTestId('buy-listing-start-connection').click();
 
         await expect(page.getByTestId('buy-listing-modal-success')).toBeVisible({ timeout: 20000 });
+        await expect(page.getByTestId('extension-connect-card')).toBeVisible();
         await expect(page.getByText(mockProxyCredentials.endpoint)).toBeVisible();
         await expect(page.getByText(mockProxyCredentials.username)).toBeVisible();
     });

@@ -14,6 +14,7 @@ import {
     type MarketplaceProxyCredentials,
 } from '@/lib/api/marketplace';
 import { MarketplaceOrderCredentials } from '@/components/marketplace/MarketplaceOrderCredentials';
+import { ExtensionConnectCard } from '@/components/marketplace/ExtensionConnectCard';
 import { formatListingTotalUSD } from '@/lib/listing-price';
 
 function orderTotal(order: { total_price?: number; price_total?: number }) {
@@ -45,7 +46,12 @@ export function MarketplaceOrderDetailView({
         queryKey: marketplaceKeys.orderCredentials(orderId),
         queryFn: async () => {
             const response = await getOrderProxyCredentials(orderId);
-            return response.proxy_credentials as MarketplaceProxyCredentials;
+            const creds = (response.proxy_credentials ?? {}) as MarketplaceProxyCredentials;
+            return {
+                ...creds,
+                session_capability: response.session_capability ?? creds.session_capability,
+                session_capability_note: response.session_capability_note ?? creds.session_capability_note,
+            };
         },
         enabled: isAuthenticated && Boolean(orderId) && credentialsEligible,
         retry: 2,
@@ -123,10 +129,16 @@ export function MarketplaceOrderDetailView({
                     )}
 
                     {credentialsEligible && credentialsQuery.data && (
-                        <MarketplaceOrderCredentials
-                            credentials={credentialsQuery.data}
-                            orderId={order.id}
-                        />
+                        <>
+                            <ExtensionConnectCard
+                                orderId={order.id}
+                                listingTitle={order.listing?.title}
+                            />
+                            <MarketplaceOrderCredentials
+                                credentials={credentialsQuery.data}
+                                orderId={order.id}
+                            />
+                        </>
                     )}
 
                     {credentialsEligible && credentialsQuery.isError && (

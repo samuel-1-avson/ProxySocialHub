@@ -203,6 +203,21 @@ build_errors.txt
 !*.example
 tmp-map.json
 
+# Chrome extension packing / Web Store (private key + packed binaries)
+# chrome://extensions "Pack extension" writes a PEM next to the folder.
+*.crx
+*.nex
+*.xpi
+chrome-extension*.pem
+**/extension-key.pem
+**/chrome-web-store.pem
+apps/extension/*.zip
+apps/extension/web-store/*.zip
+apps/extension/web-store/*.pem
+apps/extension/.env
+apps/extension/.env.*
+!apps/extension/.env.example
+
 # Local Docker runtime configuration may contain service credentials.
 
 # Files containing test or deployment credentials are local-only.
@@ -244,6 +259,7 @@ web_endpoint_refs_raw.csv
 !/README.md
 !docs/
 !docs/**
+!apps/extension/README.md
 
 # Local security and tooling material (including development TLS keypairs).
 certs/

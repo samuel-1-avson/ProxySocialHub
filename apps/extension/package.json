@@ -1,0 +1,16 @@
+{
+  "name": "extension",
+  "private": true,
+  "version": "0.5.0",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "node scripts/test-hmac.mjs && node scripts/test-verify.mjs && node scripts/test-reliability.mjs && tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.1.4",
+    "esbuild": "^0.25.9",
+    "typescript": "^5.9.2"
+  }
+}

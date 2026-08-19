@@ -225,7 +225,10 @@ class ProxyHubClient:
         """Fetch proxy credentials after escrow activation (requires JWT).
 
         Returns the API payload, typically
-        ``{"proxy_credentials": {username, password, host, port, protocol, endpoint}}``.
+        ``{"proxy_credentials": {username, password, host, port, protocol, endpoint},
+        "session_capability": "..."}``.
+        Use ``proxy_credentials.password`` (HMAC) for ``proxy.proxyhubb.com:8090``.
+        ``session_capability`` is a soak-only ``phubb1.`` token, not that password.
         """
         if not order_id:
             raise ValueError("order_id is required")

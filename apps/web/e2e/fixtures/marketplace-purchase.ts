@@ -14,14 +14,15 @@ export const e2eOrderId = 'order-map-e2e-1';
 
 
 export const mockProxyCredentials = {
-
     endpoint: 'proxy.e2e.test:8080',
-
     username: 'e2e-map-buyer',
-
     password: 'e2e-map-secret',
-
+    legacy_password: 'e2e-map-secret',
+    auth_for_endpoint: 'hmac' as const,
 };
+
+/** Soak-only token. Must never appear in the shop curl snippet. */
+export const mockSessionCapability = 'phubb1.e2e-soak-not-for-public-endpoint';
 
 
 
@@ -148,6 +149,10 @@ export async function stubPurchaseApis(
 
                     total_price: verifiedMapPoint.price_per_gb,
 
+                    listing: {
+                        title: 'E2E map listing',
+                    },
+
                 }),
 
             });
@@ -166,7 +171,12 @@ export async function stubPurchaseApis(
 
                 contentType: 'application/json',
 
-                body: JSON.stringify({ proxy_credentials: mockProxyCredentials }),
+                body: JSON.stringify({
+                    proxy_credentials: mockProxyCredentials,
+                    session_capability: mockSessionCapability,
+                    session_capability_note:
+                        'Soak CONNECT token. Public buyer edge uses proxy_credentials.password (HMAC).',
+                }),
 
             });
 
@@ -207,5 +217,66 @@ export async function stubPurchaseApis(
     });
 
 }
+
+export async function stubExtensionPairStart(page: import('@playwright/test').Page) {
+    await page.route((url) => {
+        try {
+            return new URL(url).pathname.endsWith('/v1/extension/pair/start');
+        } catch {
+            return false;
+        }
+    }, async (route) => {
+        if (route.request().method() !== 'POST') {
+            await route.continue();
+            return;
+        }
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ code: 'ABCD2345', expires_in: 60 }),
+        });
+    });
+}
+
+/** Page-side chrome.runtime mock so Connect with ProxyHubb can one-click without a real MV3 extension. */
+export async function mockExtensionHandoff(page: import('@playwright/test').Page) {
+    await page.addInitScript(() => {
+        const w = window as Window & {
+            __PROXYHUB_EXTENSION_ID__?: string;
+            chrome?: {
+                runtime?: {
+                    sendMessage: (extensionId: string, message: unknown, cb?: (response: unknown) => void) => void;
+                };
+            };
+        };
+        w.__PROXYHUB_EXTENSION_ID__ = 'abcdefghijklmnopabcdefghijklmnop';
+        w.chrome = {
+            runtime: {
+                sendMessage: (_extensionId, message, cb) => {
+                    const payload = message as { type?: string; orderId?: string };
+                    const reply = (response: unknown) => {
+                        if (cb) {
+                            queueMicrotask(() => cb(response));
+                        }
+                    };
+                    if (payload?.type === 'ping') {
+                        reply({ ok: true, installed: true, signedIn: false, version: '0.4.0' });
+                        return;
+                    }
+                    if (payload?.type === 'pair') {
+                        reply({ ok: true, email: 'buyer-e2e@proxyhubb.test' });
+                        return;
+                    }
+                    if (payload?.type === 'connect') {
+                        reply({ ok: true, status: { state: 'on', orderId: payload.orderId } });
+                        return;
+                    }
+                    reply({ ok: false, error: 'unknown' });
+                },
+            },
+        };
+    });
+}
+
 
 

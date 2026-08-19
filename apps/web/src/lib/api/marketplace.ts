@@ -242,8 +242,29 @@ export interface MarketplaceProxyCredentials {
     username: string;
     password: string;
     endpoint: string;
+    host?: string;
+    port?: number;
+    protocol?: string;
     seller_name?: string;
     listing_title?: string;
+    /** Alias of HMAC password (same value as `password` after the :8090 contract fix). */
+    legacy_password?: string;
+    /** CONNECT auth for the published `endpoint`. Public :8090 is always `hmac`. */
+    auth_for_endpoint?: 'hmac' | 'capability';
+    /** Soak-only `phubb1.` token. Not the password for proxy.proxyhubb.com:8090. */
+    session_capability?: string;
+    session_capability_note?: string;
+    /** Marketplace session expiry (RFC3339) when the linked session has ExpiresAt. */
+    expires_at?: string;
+}
+
+export interface MarketplaceOrderCredentialsResponse {
+    proxy_credentials: MarketplaceProxyCredentials;
+    session_capability?: string;
+    session_capability_note?: string;
+    session_capability_error?: string;
+    /** Same value as proxy_credentials.expires_at when the linked session has ExpiresAt. */
+    expires_at?: string;
 }
 
 export interface SessionFromListingResponse {
@@ -664,7 +685,7 @@ export async function getOrder(id: string) {
 }
 
 export function getOrderProxyCredentials(orderId: string) {
-    return apiGet<{ proxy_credentials: MarketplaceProxyCredentials }>(`/v1/orders/${orderId}/credentials`);
+    return apiGet<MarketplaceOrderCredentialsResponse>(`/v1/orders/${orderId}/credentials`);
 }
 
 export async function waitForOrderActive(

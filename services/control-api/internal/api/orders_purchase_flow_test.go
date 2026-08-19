@@ -13,16 +13,23 @@ import (
 	"github.com/proxyhubb/control-api/internal/marketplace"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/prices"
+	"github.com/proxyhubb/control-api/internal/proofs"
 	"github.com/proxyhubb/control-api/internal/redis"
 	"github.com/proxyhubb/control-api/internal/testutil"
 )
 
-// TestPurchaseFlow_CreateActivateCredentials covers the escrow stand-in path:
-// create order → activate-dev (mock pay) → credentials, including Redis sync.
-func TestPurchaseFlow_CreateActivateCredentials(t *testing.T) {
+type purchaseCredentialsFixture struct {
+	providerNode models.ProviderNode
+	order        models.Order
+	session      models.Session
+	credBody     []byte
+}
+
+func purchaseActivateAndFetchCredentials(t *testing.T) purchaseCredentialsFixture {
+	t.Helper()
 	t.Setenv("PROXYHUB_ALLOW_DEV_ESCROW_ACTIVATE", "true")
 	prices.SetTestSOLPrice(100)
-	defer prices.SetTestSOLPrice(0)
+	t.Cleanup(func() { prices.SetTestSOLPrice(0) })
 
 	testutil.SetupTestDB(t)
 	testutil.SetupTestRedis(t)
@@ -113,15 +120,6 @@ func TestPurchaseFlow_CreateActivateCredentials(t *testing.T) {
 	if credW.Code != http.StatusOK {
 		t.Fatalf("credentials: expected 200, got %d body=%s", credW.Code, credW.Body.String())
 	}
-	var credResp struct {
-		ProxyCredentials map[string]interface{} `json:"proxy_credentials"`
-	}
-	if err := json.Unmarshal(credW.Body.Bytes(), &credResp); err != nil {
-		t.Fatalf("decode credentials: %v", err)
-	}
-	if credResp.ProxyCredentials["username"] == nil || credResp.ProxyCredentials["username"] == "" {
-		t.Fatalf("missing credentials username: %v", credResp.ProxyCredentials)
-	}
 
 	var order models.Order
 	if err := db.DB.First(&order, "id = ?", createResp.Order.ID).Error; err != nil {
@@ -140,11 +138,50 @@ func TestPurchaseFlow_CreateActivateCredentials(t *testing.T) {
 	if session.Status != models.SessionActive {
 		t.Fatalf("session status=%s want active", session.Status)
 	}
-	redisSession, err := redis.GetSession(session.CredentialsUser)
+
+	return purchaseCredentialsFixture{
+		providerNode: providerNode,
+		order:        order,
+		session:      session,
+		credBody:     credW.Body.Bytes(),
+	}
+}
+
+// TestPurchaseFlow_CreateActivateCredentials covers the escrow stand-in path:
+// create order → activate-dev (mock pay) → credentials, including Redis sync.
+func TestPurchaseFlow_CreateActivateCredentials(t *testing.T) {
+	fx := purchaseActivateAndFetchCredentials(t)
+
+	var credResp struct {
+		ProxyCredentials map[string]interface{} `json:"proxy_credentials"`
+	}
+	if err := json.Unmarshal(fx.credBody, &credResp); err != nil {
+		t.Fatalf("decode credentials: %v", err)
+	}
+	if credResp.ProxyCredentials["username"] == nil || credResp.ProxyCredentials["username"] == "" {
+		t.Fatalf("missing credentials username: %v", credResp.ProxyCredentials)
+	}
+	pass, _ := credResp.ProxyCredentials["password"].(string)
+	legacy, _ := credResp.ProxyCredentials["legacy_password"].(string)
+	auth, _ := credResp.ProxyCredentials["auth_for_endpoint"].(string)
+	if pass != fx.session.CredentialsPass {
+		t.Fatalf("password=%q want HMAC %q", pass, fx.session.CredentialsPass)
+	}
+	if proofs.LooksLikeSessionCapabilityToken(pass) {
+		t.Fatal("password must not be a phubb1. capability token")
+	}
+	if legacy != pass {
+		t.Fatalf("legacy_password=%q want %q", legacy, pass)
+	}
+	if auth != publishedBuyerAuthHMAC {
+		t.Fatalf("auth_for_endpoint=%q want %q", auth, publishedBuyerAuthHMAC)
+	}
+
+	redisSession, err := redis.GetSession(fx.session.CredentialsUser)
 	if err != nil {
 		t.Fatalf("redis session: %v", err)
 	}
-	if redisSession.NodeID != marketplace.GatewayRoutingNodeID(&providerNode) {
+	if redisSession.NodeID != marketplace.GatewayRoutingNodeID(&fx.providerNode) {
 		t.Fatalf("redis node mismatch: %q", redisSession.NodeID)
 	}
 }
