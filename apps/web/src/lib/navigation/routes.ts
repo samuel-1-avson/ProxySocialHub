@@ -89,6 +89,7 @@ export const ROUTES = {
     contact: "/contact",
     terms: "/terms",
     privacy: "/privacy",
+    extensionPrivacy: "/privacy/extension",
 } as const;
 
 export type AppRoute = (typeof ROUTES)[keyof typeof ROUTES];
@@ -216,6 +217,7 @@ export const ROUTE_LABELS: Record<string, RouteLabel> = {
     [ROUTES.contact]: { label: "Contact" },
     [ROUTES.terms]: { label: "Terms of Service", breadcrumb: "Terms" },
     [ROUTES.privacy]: { label: "Privacy Policy", breadcrumb: "Privacy" },
+    [ROUTES.extensionPrivacy]: { label: "Chrome extension privacy", breadcrumb: "Extension" },
 };
 
 export const PRIMARY_PUBLIC_NAV = [

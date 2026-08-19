@@ -30,4 +30,4 @@ Manual check: Turn on → popup shows a green egress IP that is not your home IP
 
 Verify loads `api.ipify.org` / `httpbin.org/ip` in a short-lived background tab. The service worker does not `fetch` those URLs (SW fetch can skip `chrome.proxy`). Offscreen is not used: Chrome has no NETWORK reason for offscreen documents.
 
-See [EXTENSION_IMPLEMENTATION_PLAN.md](../product/EXTENSION_IMPLEMENTATION_PLAN.md) PR-G.
+See [EXTENSION_IMPLEMENTATION_PLAN.md](EXTENSION_IMPLEMENTATION_PLAN.md) PR-G and [EXTENSION_CWS.md](EXTENSION_CWS.md) for Chrome Web Store packing.

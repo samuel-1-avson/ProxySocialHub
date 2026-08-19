@@ -212,8 +212,7 @@ chrome-extension*.pem
 **/extension-key.pem
 **/chrome-web-store.pem
 apps/extension/*.zip
-apps/extension/web-store/*.zip
-apps/extension/web-store/*.pem
+apps/extension/web-store/
 apps/extension/.env
 apps/extension/.env.*
 !apps/extension/.env.example
