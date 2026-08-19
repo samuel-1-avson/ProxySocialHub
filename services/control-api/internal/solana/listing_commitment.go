@@ -60,43 +60,33 @@ func (c *OracleClient) GetListingCommitmentPDA(provider sol.PublicKey, offerHash
 // RegisterListingCommitmentOnChain creates a ListingCommitment account.
 // Oracle pays rent. Idempotent at the Go layer if the PDA already exists
 // (caller may treat already-initialized as success).
+//
+// The oracle account meta must be GetOraclePublicKey() (Cloud KMS / HSM),
+// not oracleKey.PublicKey(). On gcp-testnet SOLANA_ORACLE_KEYPAIR is empty
+// and oracleKey is unset; calling PublicKey() on it panics and the shop
+// path never sends RegisterListingCommitment.
 func (c *OracleClient) RegisterListingCommitmentOnChain(ctx context.Context, params RegisterListingCommitmentParams) (string, error) {
-	if params.OfferHash == [32]byte{} {
-		return "", fmt.Errorf("offer hash must be non-zero")
+	if c.hsm == nil && len(c.oracleKey) == 0 {
+		return "", fmt.Errorf("oracle signer unavailable")
 	}
-
-	commitmentPDA, _, err := c.GetListingCommitmentPDA(params.Provider, params.OfferHash)
+	ix, _, err := BuildRegisterListingCommitmentInstruction(
+		c.programID,
+		c.GetOraclePublicKey(),
+		params.Provider,
+		params.OfferHash,
+		params.ListingID,
+	)
 	if err != nil {
-		return "", fmt.Errorf("GetListingCommitmentPDA: %w", err)
+		return "", err
 	}
-	statePDA, _, err := sol.FindProgramAddress([][]byte{[]byte("program_state")}, c.programID)
-	if err != nil {
-		return "", fmt.Errorf("GetProgramStatePDA: %w", err)
-	}
-
-	// Borsh: [8] disc + [32] provider + [32] offer_hash + [16] listing_id
-	data := make([]byte, 8+32+32+16)
-	copy(data[0:8], discRegisterListingCommitment[:])
-	copy(data[8:40], params.Provider.Bytes())
-	copy(data[40:72], params.OfferHash[:])
-	copy(data[72:88], params.ListingID[:])
-
-	instruction := &GenericInstruction{
-		programID: c.programID,
-		accounts: []*sol.AccountMeta{
-			{PublicKey: commitmentPDA, IsSigner: false, IsWritable: true},
-			{PublicKey: c.oracleKey.PublicKey(), IsSigner: true, IsWritable: true},
-			{PublicKey: statePDA, IsSigner: false, IsWritable: false},
-			{PublicKey: sol.SystemProgramID, IsSigner: false, IsWritable: false},
-		},
-		data: data,
-	}
-
-	return c.sendInstruction(ctx, instruction)
+	return c.sendInstruction(ctx, ix)
 }
 
 // DeactivateListingCommitmentOnChain marks a commitment inactive.
 func (c *OracleClient) DeactivateListingCommitmentOnChain(ctx context.Context, provider sol.PublicKey, offerHash [32]byte) (string, error) {
+	if c.hsm == nil && len(c.oracleKey) == 0 {
+		return "", fmt.Errorf("oracle signer unavailable")
+	}
 	commitmentPDA, _, err := c.GetListingCommitmentPDA(provider, offerHash)
 	if err != nil {
 		return "", fmt.Errorf("GetListingCommitmentPDA: %w", err)
@@ -115,7 +105,7 @@ func (c *OracleClient) DeactivateListingCommitmentOnChain(ctx context.Context, p
 		programID: c.programID,
 		accounts: []*sol.AccountMeta{
 			{PublicKey: commitmentPDA, IsSigner: false, IsWritable: true},
-			{PublicKey: c.oracleKey.PublicKey(), IsSigner: true, IsWritable: false},
+			{PublicKey: c.GetOraclePublicKey(), IsSigner: true, IsWritable: false},
 			{PublicKey: statePDA, IsSigner: false, IsWritable: false},
 		},
 		data: data,

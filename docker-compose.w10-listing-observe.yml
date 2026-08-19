@@ -1,0 +1,8 @@
+# W10.B standing soak — listing commitment observe on Host-A control-api.
+# Shop publishes may best-effort RegisterListingCommitment (oracle pays fees).
+# Keep with docker-compose.w10-observe.yml. Never slash gates. Not enforce.
+
+services:
+  control-api:
+    environment:
+      - PROXYHUB_LISTING_COMMITMENT=observe

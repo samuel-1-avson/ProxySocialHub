@@ -1,0 +1,24 @@
+{
+  "message_type": "PROXYHUB_OPERATOR_MANIFEST_BUNDLE",
+  "version": "1",
+  "issued_at": 1787094862,
+  "operators": [
+    {
+      "slug": "edge-ext",
+      "display_name": "edge-ext",
+      "pubkey": "AH7dzbx9wk7ekb2jQdiH6Jron5xd7Q9q6zfKMQpk9EVq",
+      "host_id": "gce-proxyhubb-w7d-ext",
+      "org_id": "fiffi-500411",
+      "buyer_base_url": "http://35.224.195.113:8090",
+      "health_url": "http://35.224.195.113:8090/health",
+      "tunnel_addrs": ["35.224.195.113:3128"],
+      "peer_urls": null,
+      "min_stake_lamports": 0,
+      "bonded": true,
+      "status": "active",
+      "manifest_payload": "PROXYHUB_OPERATOR_MANIFEST:v1:edge-ext|AH7dzbx9wk7ekb2jQdiH6Jron5xd7Q9q6zfKMQpk9EVq|gce-proxyhubb-w7d-ext|http://35.224.195.113:8090|35.224.195.113:3128|||0|1|1789686862",
+      "manifest_signature": "2kBLqdy6AxAC5s7vqzbXwRjto3dDspSU3hNmr47sWPg64BQMnSDXdq8SBJxPAAkir9Jnp6phZUgCMdojpvgTxYBC",
+      "manifest_expires_at": 1789686862
+    }
+  ]
+}

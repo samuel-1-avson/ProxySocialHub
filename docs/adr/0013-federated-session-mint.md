@@ -2,8 +2,8 @@
 
 - **Status:** Accepted for D1–D2 and W7.C. Live A–C claimed 2026-08-13
   (`W7_CLAIMED_20260813.md`). W7.D honesty/join path implemented 2026-08-13
-  (live foreign VPS unclaimed). D5 operator issuers in-repo 2026-08-14
-  (live `operator_capability` soak unclaimed). D3 remains open (`programs/session`).
+  (live foreign VPS claimed 2026-08-18). D5 operator issuers in-repo 2026-08-14;
+  live `operator_capability` soak 2026-08-19. D3 remains open (`programs/session`).
 - **Date:** 2026-08-12
 - **Related:** ADR 0012, `WAVE7_DECENTRALIZATION_PLAN.md`, W5.C.2 credential HMAC
 - **Non-goals:** DePIN marketing, unsafe `programs/session`, trustless egress
@@ -104,11 +104,13 @@ Honesty:
 - W10.A observe (`session_mint=control_api_hmac`) must not claim
   `operator_capability` while HMAC still gates CONNECT
 
-Live enforce soak of operator-minted CONNECT is a **separate** claim after the
-W10.A written decision. This addendum does not make `operator_org_diversity`
-multi-org and is not DePIN.
+Live enforce soak of operator-minted CONNECT claimed 2026-08-19
+([`W11_A_enforce_soak_20260819.md`](../ops/evidence/W11_A_enforce_soak_20260819.md)).
+This addendum is not DePIN. `operator_org_diversity=multi_org` is a separate
+W7.D / W11.B cache claim.
 
-Evidence: [`W11_A_operator_mint_issuers_20260814.md`](../ops/evidence/W11_A_operator_mint_issuers_20260814.md).
+Evidence: [`W11_A_operator_mint_issuers_20260814.md`](../ops/evidence/W11_A_operator_mint_issuers_20260814.md)
+(in-repo).
 
 ## Consequences
 

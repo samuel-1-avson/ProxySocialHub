@@ -1,0 +1,8 @@
+# Wave 11.A — capability ENFORCE on Host-A J2 edge-b (lab :18091).
+# Last overlay after docker-compose.w10-observe-edge.yml.
+# Do not apply to edge-a (:8090 HMAC control group). Never slash gates.
+
+services:
+  edge-gateway-b:
+    environment:
+      - PROXYHUB_SESSION_CAPABILITY=enforce

@@ -1,5 +1,6 @@
 # Wave 10.A/C/D — Host-A control-api observe + pinned bundle + settlement signing.
-# Do not include slash dual-gates. Listing commitment stays off.
+# Do not include slash dual-gates. Listing observe is a separate overlay
+# (docker-compose.w10-listing-observe.yml) when that soak is on.
 # Recreate MUST keep docker-compose.w6-host-a-private.yml.
 
 services:

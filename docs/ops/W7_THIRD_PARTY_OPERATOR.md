@@ -84,8 +84,10 @@ CONFIRM_W7D_EXTERNAL_VPS=1 ./scripts/gcp-smoke-sprint-w7d-third-party-operator.s
 ```
 
 Without that env, the script only checks keygen → sign → bundle verify
-(`W7D_JOIN_CLI_OK`). Live foreign VPS is **unclaimed** (2026-08-13:
-`W7D_EXTERNAL_VPS_SKIPPED` — no volunteer); Host-B remains `same_org`.
+(`W7D_JOIN_CLI_OK`). Live foreign VPS claimed 2026-08-18
+(`W7D_EXTERNAL_VPS_OK`, `operator_org_diversity=multi_org`):
+[`evidence/W7_D_external_vps_20260818.md`](evidence/W7_D_external_vps_20260818.md).
+Host-B in `gen-lang-client-0022105784` still does not count.
 Wave 7 A–C live: [`evidence/W7_CLAIMED_20260813.md`](evidence/W7_CLAIMED_20260813.md).
 P0.3 Host-B Wave 7 roll + HTTP bundle + `000151`:
 [`evidence/P0_3_host_b_bundle_migration_20260813.md`](evidence/P0_3_host_b_bundle_migration_20260813.md).
