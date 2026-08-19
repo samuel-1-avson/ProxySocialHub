@@ -19,6 +19,10 @@ export default function PrivacyPage() {
                     title: "Security data",
                     body: "ProxyHubb may process authentication, audit, notification, and security event data to protect users, providers, and the marketplace.",
                 },
+                {
+                    title: "Chrome extension",
+                    body: "The ProxyHubb Chrome extension has a dedicated policy at /privacy/extension. It holds device and HMAC credentials in session storage, talks to api.proxyhubb.com and proxy.proxyhubb.com:8090, and does not read browsing history or page content.",
+                },
             ]}
         />
     );

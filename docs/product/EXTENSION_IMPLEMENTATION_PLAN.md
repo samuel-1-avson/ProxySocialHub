@@ -217,11 +217,27 @@ own `fetch`.
 
 ---
 
+## PR-H — Chrome Web Store (testers)
+
+**Status (2026-08-19):** Package prep in working tree (0.6.0). Not listed yet. Privacy policy URL: `https://proxyhubb.com/privacy/extension` (needs a web deploy). Pack with `cd apps/extension && npm run pack`. Publish **Unlisted** in the Chrome Web Store dashboard. Do not set `NEXT_PUBLIC_EXTENSION_CWS_URL` until Google gives a listing URL.
+
+**Goal:** Testers install from a store link instead of Load unpacked.
+
+- Privacy policy page (no history / no page content)
+- Icons 16/32/48/128
+- Store zip without localhost hosts or source maps
+- Permission justifications for `proxy`, `webRequestAuthProvider`, `<all_urls>`
+- Unlisted listing for testers
+
+**Done when** an unlisted CWS URL installs, pairs, and Turn on works against HMAC `:8090`.
+
+---
+
 ## Later (not the start)
 
 | When | What |
 |------|------|
-| After PR-E | CWS listing, privacy policy, permission justifications |
+| After PR-E | CWS listing — see PR-H (unlisted testers, then public) |
 | Phase 6 | PAC allowlists, WebRTC policy (`privacy` optional permission) |
 | Phase 7 | Desktop agent (SOCKS5 auth, OS proxy) |
 | Never in this track | `programs/session`, client-side billing, auto-buy failover |
@@ -250,6 +266,9 @@ cd apps/web && npm run test:e2e:order-credentials
 
 # PR-C+ (after scaffold)
 cd apps/extension && npm test && npm run build   # then chrome://extensions → Load unpacked
+
+# PR-H store zip (gitignored)
+cd apps/extension && npm run pack
 ```
 
 Host-A HMAC check stays on `:8090`. Do not point the store extension at
