@@ -406,6 +406,10 @@ func main() {
 			}
 		}
 
+		if allowOrigin == "" && middleware.ChromeExtensionOriginAllowed(origin) {
+			allowOrigin = origin
+		}
+
 		// 2. Fallback: Allow localhost-only origins in development mode.
 		// Uses APP_ENV (aligned with docker-compose.yml). Never reflects arbitrary origins —
 		// only http://localhost:* and http://127.0.0.1:* patterns are permitted.
@@ -531,6 +535,7 @@ func main() {
 		api.RegisterHealthRoutes(v1)
 		api.RegisterMonitoringRoutes(v1)
 		api.RegisterAuthRoutes(v1)
+		api.RegisterExtensionPublicRoutes(v1)
 		api.RegisterMarketplaceGeoRoutes(v1) // Before /listings/:id (map pins)
 		api.RegisterMapTopologyRoutes(v1)
 		api.RegisterListingRoutes(v1)       // Mix of public/private
@@ -570,6 +575,7 @@ func main() {
 	// Bulk Proxy + B2B purchase API: JWT session or X-API-Key (phub_ / pk_)
 	bulkAuth := v1.Group("/")
 	bulkAuth.Use(middleware.RequireAuthOrAPIKey())
+	bulkAuth.Use(middleware.RestrictExtensionDevice())
 	{
 		api.RegisterBulkRoutes(bulkAuth)
 		api.RegisterPartnerPurchaseRoutes(bulkAuth)
@@ -578,6 +584,7 @@ func main() {
 	// Protected Routes (Require Authentication)
 	protected := v1.Group("/")
 	protected.Use(middleware.RequireAuth())
+	protected.Use(middleware.RestrictExtensionDevice())
 	{
 		providerOps := protected.Group("/")
 		providerOps.Use(middleware.RequireProviderRole())
@@ -601,6 +608,7 @@ func main() {
 		api.RegisterOrderRoutes(protected)
 		api.RegisterEscrowRoutes(protected)
 		api.RegisterUsageRoutes(protected)
+		api.RegisterExtensionProtectedRoutes(protected)
 		api.RegisterStakingRoutes(protected)
 
 		api.RegisterSmartMatchingRoutes(protected)

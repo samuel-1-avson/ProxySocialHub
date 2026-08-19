@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "ProxyHubb",
+  "version": "0.5.0",
+  "description": "Turn on HTTP CONNECT for your ProxyHubb purchases. HMAC proxy.proxyhubb.com:8090 — not a VPN.",
+  "minimum_chrome_version": "116",
+  "permissions": [
+    "proxy",
+    "storage",
+    "alarms",
+    "scripting",
+    "webRequest",
+    "webRequestAuthProvider"
+  ],
+  "host_permissions": [
+    "https://api.proxyhubb.com/*",
+    "https://proxyhubb.com/*",
+    "https://*.proxyhubb.com/*",
+    "http://localhost:18080/*",
+    "http://127.0.0.1:18080/*",
+    "http://localhost:4011/*",
+    "<all_urls>"
+  ],
+  "externally_connectable": {
+    "matches": [
+      "https://proxyhubb.com/*",
+      "https://*.proxyhubb.com/*",
+      "http://localhost:4011/*",
+      "http://127.0.0.1:4011/*"
+    ]
+  },
+  "incognito": "spanning",
+  "background": {
+    "service_worker": "sw.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup/index.html",
+    "default_title": "ProxyHubb"
+  }
+}

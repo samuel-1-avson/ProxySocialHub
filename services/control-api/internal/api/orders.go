@@ -47,7 +47,6 @@ func RegisterPartnerPurchaseRoutes(rg *gin.RouterGroup) {
 	rg.POST("/orders/:id/activate-dev", requireBulkScope("orders:create"), activateDevOrder)
 }
 
-
 // initiateSolanaPayment prepares a non-custodial escrow transaction
 func initiateSolanaPayment(c *gin.Context) {
 	setAuthorityHeaders(c, authorityModeDBAuthoritative, "read_only_balance_check", "source_of_truth")
@@ -405,8 +404,8 @@ func createOrder(c *gin.Context) {
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Failed to create session",
-			"code":  "session_create_failed",
+			"error":  "Failed to create session",
+			"code":   "session_create_failed",
 			"detail": errMsg,
 		})
 		return
@@ -521,16 +520,34 @@ func orderCredentialsEligible(status models.OrderStatus) bool {
 	return status == models.OrderStatusActive || status == models.OrderStatusCompleted
 }
 
+// publishedBuyerAuthHMAC is the CONNECT scheme for BuyerProxyConnectInfo()
+// (public proxy.proxyhubb.com:8090). Capability soak is a separate endpoint.
+const publishedBuyerAuthHMAC = "hmac"
+
+func sessionExpiresAtRFC3339(session *models.Session) string {
+	if session == nil || session.ExpiresAt == nil || session.ExpiresAt.IsZero() {
+		return ""
+	}
+	return session.ExpiresAt.UTC().Format(time.RFC3339)
+}
+
 func buildProxyCredentialsResponse(session *models.Session) gin.H {
 	host, port, endpoint := BuyerProxyConnectInfo()
-	return gin.H{
-		"username": session.CredentialsUser,
-		"password": session.CredentialsPass,
-		"host":     host,
-		"port":     port,
-		"protocol": "http",
-		"endpoint": endpoint,
+	hmacPass := session.CredentialsPass
+	out := gin.H{
+		"username":          session.CredentialsUser,
+		"password":          hmacPass,
+		"legacy_password":   hmacPass,
+		"auth_for_endpoint": publishedBuyerAuthHMAC,
+		"host":              host,
+		"port":              port,
+		"protocol":          "http",
+		"endpoint":          endpoint,
 	}
+	if iso := sessionExpiresAtRFC3339(session); iso != "" {
+		out["expires_at"] = iso
+	}
+	return out
 }
 
 // getOrderCredentials returns proxy credentials after escrow activation.
@@ -633,6 +650,9 @@ func getOrderCredentials(c *gin.Context) {
 	resp := gin.H{
 		"proxy_credentials": buildProxyCredentialsResponse(&session),
 	}
+	if iso := sessionExpiresAtRFC3339(&session); iso != "" {
+		resp["expires_at"] = iso
+	}
 	if decentralization.CredentialProofEnabled() {
 		if art := proofs.BuildOrderCredentialArtifact(proofs.OrderCredentialPayload{
 			OrderID:      order.ID,
@@ -665,14 +685,7 @@ func getOrderCredentials(c *gin.Context) {
 			}
 		} else if wire != "" {
 			resp["session_capability"] = wire
-			resp["session_capability_note"] = "W7.C: present as CONNECT password (phubb1.…). Edge verifies locally; Redis session: optional. Remaining SPOF is the token issuer."
-			if decentralization.SessionCapabilityEnforce() {
-				if creds, ok := resp["proxy_credentials"].(gin.H); ok {
-					creds["legacy_password"] = session.CredentialsPass
-					creds["password"] = wire
-					resp["proxy_credentials"] = creds
-				}
-			}
+			resp["session_capability_note"] = "Soak CONNECT token (phubb1.…) for Host-A :18091. Public proxy.proxyhubb.com:8090 uses proxy_credentials.password (HMAC). Capability verify is local; Redis session is optional. Remaining SPOF is the token issuer."
 		}
 	}
 

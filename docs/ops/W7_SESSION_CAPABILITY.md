@@ -60,9 +60,12 @@ token `phubb1.` + base64url(JSON of lease fields + signature + issuer). The edge
 verifies Ed25519 locally and **does not GET Redis `session:`**. Usage WAL still
 tries Redis and treats a miss as 0 bytes used.
 
-`GET /v1/orders/:id/credentials` in enforce puts the token in
-`proxy_credentials.password` and keeps the old password as `legacy_password`.
-Observe leaves the password unchanged and adds `session_capability`.
+`GET /v1/orders/:id/credentials` always puts HMAC in
+`proxy_credentials.password` (public `:8090`). When capability mint succeeds,
+`session_capability` is the `phubb1.` soak token (Host-A `:18091`).
+`legacy_password` aliases HMAC. `auth_for_endpoint` is `hmac` while the
+published buyer endpoint is the HMAC control group. Do not send `phubb1.` to
+`:8090`.
 
 Honesty (`session_capability` on `GET /v1/system/config/public`):
 

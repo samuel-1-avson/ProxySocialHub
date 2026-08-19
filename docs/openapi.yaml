@@ -100,6 +100,8 @@ tags:
       Metric semantics: see ExplorerMetrics schema field descriptions.
   - name: Community
     description: Forum, activity feed, direct messages, and realtime websocket tickets
+  - name: Extension
+    description: Chrome/Edge MV3 pairing. Device JWT is limited to GET orders, credentials, usage, and extension bootstrap. Does not set Chrome proxy.
 paths:
   # ==================== Auth ====================
   /v1/auth/wallet/challenge:
@@ -215,6 +217,101 @@ paths:
                 created_at: "2026-07-01T12:00:00Z"
         '401':
           $ref: '#/components/responses/Unauthorized'
+
+  /v1/extension/pair/start:
+    post:
+      tags: [Extension]
+      summary: Mint a 60s one-time pairing code (website JWT only)
+      operationId: startExtensionPair
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Pairing code
+          content:
+            application/json:
+              example:
+                code: AB3K7N2P
+                expires_in: 60
+        '403':
+          description: Extension device token cannot mint codes
+
+  /v1/extension/pair/finish:
+    post:
+      tags: [Extension]
+      summary: Exchange pairing code + extension id for a device JWT
+      operationId: finishExtensionPair
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, extension_id]
+              properties:
+                code: { type: string }
+                extension_id: { type: string, description: 32-char Chrome id (a-p) }
+                name: { type: string }
+      responses:
+        '200':
+          description: Device session
+          content:
+            application/json:
+              example:
+                token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example
+                refresh_token: hex
+                device_id: 55555555-6666-7777-8888-999999999999
+                user:
+                  id: 11111111-2222-3333-4444-555555555555
+                  email: buyer@example.com
+                  label: buyer@example.com
+        '401':
+          description: Invalid or expired code
+
+  /v1/extension/bootstrap:
+    get:
+      tags: [Extension]
+      summary: Signed-in user label, devices, and active orders (no passwords)
+      operationId: getExtensionBootstrap
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Bootstrap payload
+          content:
+            application/json:
+              example:
+                user:
+                  email: buyer@example.com
+                  label: buyer@example.com
+                connect_ready: true
+                proxy:
+                  endpoint: proxy.proxyhubb.com:8090
+                  auth_for_endpoint: hmac
+                  protocol: http
+
+  /v1/extension/refresh:
+    post:
+      tags: [Extension]
+      summary: Rotate a device refresh token (JSON body, not the web cookie)
+      operationId: refreshExtensionDevice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token: { type: string }
+
+  /v1/extension/revoke:
+    post:
+      tags: [Extension]
+      summary: Revoke the calling extension device
+      operationId: revokeExtensionDevice
+      security:
+        - bearerAuth: []
 
   # ==================== Sessions ====================
   /v1/sessions:
@@ -2346,6 +2443,12 @@ paths:
     get:
       tags: [Orders, B2B]
       summary: Fetch proxy credentials after escrow activation
+      description: |
+        `proxy_credentials.password` is HMAC for the published buyer edge
+        (`proxy.proxyhubb.com:8090`, HTTP CONNECT). When session capability is
+        on, `session_capability` is a soak-only `phubb1.` token (Host-A :18091),
+        not the public CONNECT password. `legacy_password` aliases HMAC.
+        `auth_for_endpoint` is `hmac` while :8090 is the HMAC control group.
       operationId: getOrderCredentials
       security:
         - bearerAuth: []
@@ -2365,10 +2468,14 @@ paths:
                 proxy_credentials:
                   username: order_user_abc
                   password: order_pass_xyz
+                  legacy_password: order_pass_xyz
+                  auth_for_endpoint: hmac
                   host: proxy.proxyhubb.com
                   port: 8090
                   protocol: http
                   endpoint: proxy.proxyhubb.com:8090
+                session_capability: phubb1.example-soak-token
+                session_capability_note: Soak CONNECT token for Host-A :18091. Public :8090 uses proxy_credentials.password (HMAC).
         '409':
           description: Order not yet active
           content:
@@ -4079,6 +4186,14 @@ components:
           type: string
         password:
           type: string
+          description: HMAC password for the published buyer endpoint (public :8090).
+        legacy_password:
+          type: string
+          description: Alias of HMAC password (same value as password).
+        auth_for_endpoint:
+          type: string
+          enum: [hmac, capability]
+          description: CONNECT auth scheme for `endpoint`. Public :8090 is hmac.
         host:
           type: string
         port:

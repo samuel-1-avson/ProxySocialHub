@@ -139,6 +139,8 @@ func SetupTestDB(t *testing.T) {
 			&models.ProviderScore{},
 			&models.ProviderToken{},
 			&models.ProviderNodeRegistration{},
+			&models.ExtensionDevice{},
+			&models.ExtensionPairCode{},
 		)
 		if err != nil {
 			t.Skipf("Skipping test: Failed to run migrations: %v", err)

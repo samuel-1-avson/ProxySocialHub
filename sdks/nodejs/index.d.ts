@@ -130,6 +130,10 @@ export interface ProxyEndpoint {
 export interface ProxyCredentials {
   username: string;
   password: string;
+  /** Alias of HMAC password (same as password for public :8090). */
+  legacy_password?: string;
+  /** CONNECT auth for endpoint. Public :8090 is "hmac". */
+  auth_for_endpoint?: "hmac" | "capability";
   host?: string;
   port?: number;
   protocol?: string;
@@ -150,7 +154,11 @@ export declare class ProxyHubClient {
   ): Promise<Record<string, unknown>>;
   sessionIntentProxyUrl(token: string): string;
 
-  getOrderCredentials(orderId: string): Promise<{ proxy_credentials: ProxyCredentials }>;
+  getOrderCredentials(orderId: string): Promise<{
+    proxy_credentials: ProxyCredentials;
+    session_capability?: string;
+    session_capability_note?: string;
+  }>;
   proxyUrlFromCredentials(
     credentials: ProxyCredentials | { proxy_credentials: ProxyCredentials }
   ): string;
