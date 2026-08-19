@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>ProxyHubb</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <p class="kicker">ProxyHubb</p>
+      <h1>Connect</h1>
+      <p id="status" class="status">Checking session…</p>
+      <p id="proxy-control" class="muted"></p>
+
+      <section id="connect-panel" hidden>
+        <label class="field">
+          Purchased proxy
+          <select id="order"></select>
+        </label>
+        <div class="row">
+          <button id="connect" type="button">Turn on</button>
+          <button id="disconnect" type="button" class="secondary">Turn off</button>
+        </div>
+        <p id="switch-note" class="muted" hidden>
+          One Chrome profile = one proxy. Switching replaces HMAC CONNECT; reload open tabs.
+        </p>
+        <p id="expiry" class="muted"></p>
+        <p id="verify" class="verify"></p>
+        <button id="recheck" type="button" class="secondary">Check IP</button>
+        <p class="muted">
+          HTTP CONNECT to proxy.proxyhubb.com:8090 with HMAC. Chrome uses local DNS. QUIC and WebRTC
+          can bypass the proxy — this is not a VPN.
+        </p>
+      </section>
+      <p id="incognito" class="muted"></p>
+
+      <label class="field">
+        Pairing code
+        <input id="code" type="text" autocomplete="off" spellcheck="false" maxlength="16" placeholder="From proxyhubb.com" />
+      </label>
+      <button id="pair" type="button" class="secondary">Pair this browser</button>
+      <p id="error" class="error" hidden></p>
+
+      <label class="field">
+        API
+        <input id="api-base" type="url" />
+      </label>
+      <button id="save-api" type="button" class="secondary">Save API URL</button>
+    </main>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

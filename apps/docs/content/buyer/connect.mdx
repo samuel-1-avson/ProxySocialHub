@@ -39,6 +39,20 @@ curl -x "http://session-intent:TOKEN@proxy.proxyhubb.com:8090" https://httpbin.o
 
 Do not put the token in the username field. Username is literally `session-intent`; password is the token.
 
+## Marketplace order credentials
+
+After escrow, `GET /v1/orders/{id}/credentials` returns CONNECT username/password
+for the **public** buyer edge (`proxy.proxyhubb.com:8090`). Use
+`proxy_credentials.password` (HMAC). Chrome HTTP CONNECT and curl `-x` take that
+password. A `session_capability` `phubb1.` token, when present, is soak-only
+(Host-A `:18091`) — not the store-extension or shop curl password.
+
+After purchase, **Connect with ProxyHubb** on the success modal or order page
+pairs this browser (one-time code) and turns on Chrome HTTP CONNECT for that
+order. Testnet: load the unpacked extension and set `NEXT_PUBLIC_EXTENSION_ID`.
+The Chrome Web Store link is shown only when `NEXT_PUBLIC_EXTENSION_CWS_URL` is
+set.
+
 ## SDKs
 
 | Language | Create | Proxy helper |

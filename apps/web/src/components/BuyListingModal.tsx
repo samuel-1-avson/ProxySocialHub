@@ -46,6 +46,7 @@ import { Modal } from '@/components/patterns/Modal';
 import { Button } from '@/components/ui/button';
 import { MoneyRailHint } from '@/components/MoneyRailHint';
 import { UnlockWalletPrompt } from '@/components/UnlockWalletPrompt';
+import { ExtensionConnectCard } from '@/components/marketplace/ExtensionConnectCard';
 
 async function waitForFundedEscrow(
   buyer: string,
@@ -280,8 +281,8 @@ export function BuyListingModal({
         onOpenChange={(open) => {
           if (!open) onClose();
         }}
-        title="Connected"
-        description="Pay-as-you-go billing is active"
+        title="Purchase complete"
+        description="Connect in Chrome, or copy credentials for curl and SDKs"
         testId="buy-listing-modal-success"
         footer={
           <div className="flex w-full flex-col gap-2">
@@ -304,13 +305,27 @@ export function BuyListingModal({
             <CheckCircle size={20} aria-hidden />
           </div>
           <p className="text-sm text-muted-foreground">
-            Copy credentials below. Reveal password only when ready.
+            Connect with ProxyHubb to turn on HTTP CONNECT in this browser. Credentials below are
+            for curl and other clients.
           </p>
         </div>
+
+        {completedOrderId ? (
+          <div className="mb-4">
+            <ExtensionConnectCard
+              orderId={completedOrderId}
+              listingTitle={listing.title}
+              compact
+            />
+          </div>
+        ) : null}
 
         <div className="space-y-3 rounded-[var(--radius-md)] border border-border bg-secondary p-4">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Proxy credentials
+          </p>
+          <p className="text-xs text-muted-foreground">
+            HTTP CONNECT at this endpoint. Password is HMAC for the public buyer edge.
           </p>
           {[
             { label: 'Endpoint', value: credentials.endpoint, key: 'endpoint' },

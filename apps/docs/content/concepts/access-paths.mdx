@@ -11,7 +11,7 @@ All three paths terminate on the same buyer edge: **`proxy.proxyhubb.com:8090`**
 |--|----------------|-------------------|-----------|
 | **Create with** | Dashboard JWT | Dashboard JWT (or B2B `orders:create`) | JWT or API key (`proxy:write`) |
 | **Proxy user** | `session-intent` | `proxy_credentials.username` | `pool-{id8}-{nnn}` |
-| **Proxy password** | Intent `token` | `proxy_credentials.password` | Endpoint password from API |
+| **Proxy password** | Intent `token` | `proxy_credentials.password` (HMAC for `:8090`) | Endpoint password from API |
 | **Lifecycle** | Short-lived Connect token | Escrow → active session → credentials | Long-lived pool endpoints |
 | **Escrow** | No | Yes (SOL) | No |
 | **Typical UI** | [Connect](https://proxyhubb.com/dashboard/proxy) | Marketplace checkout | Partner / API automation |

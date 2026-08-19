@@ -50,7 +50,7 @@ test.describe('marketplace map live devnet buy', () => {
 
         await page.getByRole('button', { name: /start connection/i }).click();
 
-        await expect(page.getByRole('heading', { name: /connected!/i })).toBeVisible({
+        await expect(page.getByTestId('buy-listing-modal-success')).toBeVisible({
             timeout: 90_000,
         });
         await expect(page.getByText(/proxy credentials/i)).toBeVisible();
