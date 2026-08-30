@@ -38,7 +38,7 @@ func TestMaybeBindProviderHotkey_BindsWhenEmpty(t *testing.T) {
 	}
 }
 
-func TestMaybeBindProviderHotkey_RejectsWalletMismatch(t *testing.T) {
+func TestMaybeBindProviderHotkey_BindsWhenSignerDiffersFromPayoutWallet(t *testing.T) {
 	testutil.SetupTestDB(t)
 	testutil.CleanupTestData(t, "users", "provider_nodes")
 
@@ -59,13 +59,15 @@ func TestMaybeBindProviderHotkey_RejectsWalletMismatch(t *testing.T) {
 	}
 
 	signer := "GXdz7cj6JK4qvQzgrwkBPJUkgcFMW68jQwonMQqAzrkF"
-	if maybeBindProviderHotkey(node.ID, user.ID, signer, true) {
-		t.Fatal("expected bind to fail when signer != profile wallet")
+	if !maybeBindProviderHotkey(node.ID, user.ID, signer, true) {
+		t.Fatal("expected device hotkey bind even when payout wallet differs")
 	}
 
 	var updated models.ProviderNode
-	db.DB.First(&updated, "id = ?", node.ID)
-	if updated.Hotkey != "" {
-		t.Fatalf("hotkey should stay empty, got %q", updated.Hotkey)
+	if err := db.DB.First(&updated, "id = ?", node.ID).Error; err != nil {
+		t.Fatalf("reload node: %v", err)
+	}
+	if updated.Hotkey != signer {
+		t.Fatalf("hotkey = %q, want device signer %q", updated.Hotkey, signer)
 	}
 }

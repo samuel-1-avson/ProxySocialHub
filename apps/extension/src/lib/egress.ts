@@ -19,6 +19,7 @@ export type VerifySnapshot = {
   at: number;
   phase: VerifyPhase;
   source?: string;
+  hairpin?: boolean;
 };
 
 const IPV4 = /(?:\d{1,3}\.){3}\d{1,3}/;
@@ -95,4 +96,13 @@ export function egressLooksProxied(baselineIp: string | undefined, currentIp: st
     return true;
   }
   return !ipsEqual(baselineIp, currentIp);
+}
+
+/** CONNECT reached a public IP. Same as home is OK when this machine is also the provider. */
+export function egressProbeSucceeded(currentIp: string | undefined): boolean {
+  return Boolean(currentIp && normalizeIp(currentIp));
+}
+
+export function egressIsLocalHairpin(baselineIp: string | undefined, currentIp: string | undefined): boolean {
+  return Boolean(baselineIp && currentIp && ipsEqual(baselineIp, currentIp));
 }

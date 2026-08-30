@@ -10,6 +10,7 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:9090']
 
+  # Internal compose scrape. Public api.proxyhubb.com/metrics is 404 (Caddy + RequireMetricsAccess).
   - job_name: 'control-api'
     static_configs:
       - targets: ['control-api:8080']

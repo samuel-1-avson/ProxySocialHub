@@ -32,6 +32,21 @@ func TestNormalizeRPCEndpointsDedupesAndDropsInvalid(t *testing.T) {
 	}
 }
 
+func TestRPCEndpointsFromEnv_AppendsPublicDevnetFallback(t *testing.T) {
+	t.Setenv("SOLANA_NETWORK", "devnet")
+	t.Setenv("SOLANA_CLUSTER", "")
+	t.Setenv("SOLANA_RPC_ENDPOINT", "")
+	t.Setenv("SOLANA_RPC_ENDPOINTS", "https://example-helius.invalid")
+	got := RPCEndpointsFromEnv()
+	if len(got) < 2 {
+		t.Fatalf("expected paid RPC plus public fallback, got %#v", got)
+	}
+	last := got[len(got)-1]
+	if last != DefaultDevnetRPCEndpoint {
+		t.Fatalf("fallback = %q want %q", last, DefaultDevnetRPCEndpoint)
+	}
+}
+
 func TestDeriveWSEndpoint(t *testing.T) {
 	got, err := DeriveWSEndpoint("https://api.devnet.solana.com")
 	if err != nil {

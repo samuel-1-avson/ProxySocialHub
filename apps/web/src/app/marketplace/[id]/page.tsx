@@ -136,6 +136,8 @@ function ListingDetailContent() {
         );
     }
 
+    const metricsMeasured = listing.sla_source === 'gateway' || listing.sla_source === 'explorer' || listing.sla_source === 'provider';
+
     return (
         <div className="space-y-6">
             {buyOpen && (
@@ -215,7 +217,7 @@ function ListingDetailContent() {
                                     <div className="text-[10px] font-mono text-muted-foreground uppercase mb-1">Latency</div>
                                     <div className="font-mono font-bold text-lg flex items-center gap-1">
                                         <Signal size={16} className="text-green-500" />
-                                        {listing.avg_latency_ms}ms
+                                        {metricsMeasured ? `${listing.avg_latency_ms}ms` : 'Unmeasured'}
                                     </div>
                                 </div>
                                 <div className="p-4 bg-secondary/10 border border-border rounded-sm">
@@ -227,7 +229,7 @@ function ListingDetailContent() {
                                     </div>
                                     <div className="font-mono font-bold text-lg flex items-center gap-1">
                                         <Activity size={16} className="text-blue-500" />
-                                        {listing.uptime_percent}%
+                                        {metricsMeasured ? `${listing.uptime_percent}%` : 'Unmeasured'}
                                     </div>
                                     {listing.sla_source && (
                                         <div className="text-[9px] font-mono text-muted-foreground mt-1 uppercase">
@@ -239,13 +241,17 @@ function ListingDetailContent() {
                                     <div className="text-[10px] font-mono text-muted-foreground uppercase mb-1">Success Rate</div>
                                     <div className="font-mono font-bold text-lg flex items-center gap-1">
                                         <Shield size={16} className="text-purple-500" />
-                                        {listing.success_rate}%
+                                        {metricsMeasured ? `${listing.success_rate}%` : 'Unmeasured'}
                                     </div>
                                 </div>
                                 <div className="p-4 bg-secondary/10 border border-border rounded-sm">
-                                    <div className="text-[10px] font-mono text-muted-foreground uppercase mb-1">Speed</div>
+                                    <div className="text-[10px] font-mono text-muted-foreground uppercase mb-1">In use</div>
                                     <div className="font-mono font-bold text-lg">
-                                        High
+                                        {listing.active_sessions_count || 0}
+                                        {listing.max_concurrency ? `/${listing.max_concurrency}` : ''}
+                                    </div>
+                                    <div className="text-[9px] font-mono text-muted-foreground mt-1 uppercase">
+                                        Shared · other buyers can still connect
                                     </div>
                                 </div>
                             </div>
@@ -278,6 +284,13 @@ function ListingDetailContent() {
                             <div className="flex justify-between text-xs font-mono">
                                 <span className="text-muted-foreground uppercase">Available</span>
                                 <span className="font-bold">{listing.available_bandwidth_gb.toLocaleString()} GB</span>
+                            </div>
+                            <div className="flex justify-between text-xs font-mono">
+                                <span className="text-muted-foreground uppercase">Buyers connected</span>
+                                <span className="font-bold">
+                                    {listing.active_sessions_count || 0}
+                                    {listing.max_concurrency ? ` / ${listing.max_concurrency}` : ''}
+                                </span>
                             </div>
                             <div className="flex justify-between text-xs font-mono">
                                 <span className="text-muted-foreground uppercase">Protocol</span>

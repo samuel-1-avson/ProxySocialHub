@@ -204,8 +204,8 @@ export default function MarketplaceMapPage() {
                 country: pin.country,
                 uptime_percent: pin.uptime_percent ?? 0,
                 avg_latency_ms: pin.latency_ms ?? 0,
-                success_rate: pin.success_rate ?? 100,
-                quality_score: pin.quality_score ?? 100,
+                success_rate: pin.success_rate ?? 0,
+                quality_score: pin.quality_score ?? 0,
                 views_count: 0,
                 saves_count: 0,
                 orders_count: 0,
@@ -522,6 +522,13 @@ export default function MarketplaceMapPage() {
                                     <span className="text-white/30">Available</span>
                                     <span className="text-white">
                                         {selectedPin.available_bandwidth_gb.toFixed(1)} GB
+                                    </span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span className="text-white/30">In use</span>
+                                    <span className="text-emerald-400">
+                                        {selectedPin.active_sessions || 0}
+                                        {selectedPin.max_concurrency ? `/${selectedPin.max_concurrency}` : ''} buyers
                                     </span>
                                 </div>
                                 <div className="flex justify-between">

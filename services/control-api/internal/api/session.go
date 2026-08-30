@@ -21,6 +21,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/marketplace"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/orders/fsm"
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
 	"github.com/proxyhubb/control-api/internal/sessionintent"
 	"github.com/proxyhubb/control-api/internal/solana"
@@ -655,7 +656,7 @@ func listSessions(c *gin.Context) {
 	userID := userUUID.String()
 
 	// N-06: Filter by status. Default = active only; pass ?status=all for full history.
-	query := db.DB.Where("user_id = ?", userID).Order("created_at DESC")
+	query := db.DB.Preload("Listing").Where("user_id = ?", userID).Order("created_at DESC")
 	if c.Query("status") != "all" {
 		query = query.Where("status = ?", models.SessionActive)
 	}
@@ -670,18 +671,23 @@ func listSessions(c *gin.Context) {
 	sessionResponses := make([]gin.H, len(sessions))
 	for i, session := range sessions {
 		usage, _ := redisClient.GetUsage(session.CredentialsUser)
+		liveBytes := session.BytesUsed
+		if usage > liveBytes {
+			liveBytes = usage
+		}
+		session.BytesUsed = liveBytes
 
 		// Fallback limit if not in Redis (re-fetch logic duplicate but safer for list)
 		// Ideally we trust what's in Redis or Session Config, but for list view lightweight is okay
-		limit := int64(0)
+		limit := session.BandwidthLimit
 		sData, _ := redisClient.GetSession(session.CredentialsUser)
-		if sData != nil {
+		if sData != nil && sData.BandwidthLimit > 0 {
 			limit = sData.BandwidthLimit
 		}
 
 		sessionResponses[i] = gin.H{
 			"session":         session,
-			"bandwidth_used":  usage,
+			"bandwidth_used":  liveBytes,
 			"bandwidth_limit": limit,
 		}
 	}
@@ -713,22 +719,7 @@ func terminateSession(c *gin.Context) {
 		return
 	}
 
-	// Marketplace escrow sessions are owned by the order lifecycle. Terminating
-	// them here orphaned ACTIVE orders (credentials 409) after buyers cleaned up
-	// sessions from the dashboard.
-	var linkedOrder models.Order
-	if err := db.DB.Where(
-		"session_id = ? AND status IN ?",
-		session.ID,
-		[]models.OrderStatus{models.OrderStatusPending, models.OrderStatusPendingPayment, models.OrderStatusActive},
-	).First(&linkedOrder).Error; err == nil {
-		c.JSON(http.StatusConflict, gin.H{
-			"error":    "This session is linked to an active marketplace order. Cancel or settle the order instead of terminating the session.",
-			"order_id": linkedOrder.ID.String(),
-			"status":   linkedOrder.Status,
-		})
-		return
-	}
+	syncSessionUsageFromRedis(&session)
 
 	if err := models.ValidateSessionStatusTransition(session.Status, models.SessionTerminated); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -738,14 +729,19 @@ func terminateSession(c *gin.Context) {
 	now := time.Now().UTC()
 	// Update DB
 	if result := db.DB.Model(&session).Updates(map[string]interface{}{
-		"status":   models.SessionTerminated,
-		"end_time": now,
+		"status":     models.SessionTerminated,
+		"end_time":   now,
+		"bytes_used": session.BytesUsed,
 	}); result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to terminate session"})
 		return
 	}
 	session.Status = models.SessionTerminated
 	session.EndTime = now
+
+	if session.ListingID != nil {
+		marketplace.RefreshListingOccupancy(*session.ListingID)
+	}
 
 	redisClient.DeleteSession(session.CredentialsUser)
 
@@ -774,7 +770,40 @@ func terminateSession(c *gin.Context) {
 		go settleSessionOnChain(session)
 	}
 
+	// Close the shop order in the same request so Stop Stream does not leave
+	// an ACTIVE order pointing at a dead session (credentials 409).
+	completeOpenMarketplaceOrderForSession(session)
+
 	c.JSON(http.StatusOK, gin.H{"status": "terminated"})
+}
+
+func syncSessionUsageFromRedis(session *models.Session) {
+	if session == nil || session.CredentialsUser == "" {
+		return
+	}
+	usage, err := redisClient.GetUsage(session.CredentialsUser)
+	if err != nil || usage <= session.BytesUsed {
+		return
+	}
+	session.BytesUsed = usage
+}
+
+func completeOpenMarketplaceOrderForSession(session models.Session) {
+	var order models.Order
+	if err := db.DB.Where(
+		"session_id = ? AND status = ?",
+		session.ID,
+		models.OrderStatusActive,
+	).First(&order).Error; err != nil {
+		return
+	}
+	if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusCompleted, "api.sessions.terminate", nil); err != nil {
+		logging.Warn().
+			Err(err).
+			Str("session_id", session.ID.String()).
+			Str("order_id", order.ID.String()).
+			Msg("terminate: could not complete linked marketplace order")
+	}
 }
 
 type createInstantSessionRequest struct {
@@ -981,13 +1010,22 @@ func settleSessionOnChain(session models.Session) {
 		return
 	}
 
-	bandwidthUsedGB := uint64(fullSession.BytesUsed) / (1024 * 1024 * 1024)
+	usedUnits := solana.UsedUnitsFromBytes(fullSession.BytesUsed)
+	var linked models.Order
+	if err := db.DB.Where("session_id = ?", fullSession.ID).First(&linked).Error; err == nil {
+		usedUnits = chainUsedUnitsFromBytes(ctx, &linked, fullSession.BytesUsed)
+		if linked.EscrowPDA != "" {
+			if pda, perr := solanaGo.PublicKeyFromBase58(linked.EscrowPDA); perr == nil {
+				escrowPDA = pda
+			}
+		}
+	}
 
 	txHash, err := oracle.SettleEscrow(ctx, "api.session.complete", solana.SettleEscrowParams{
 		Buyer:           buyerPubkey,
 		Seller:          sellerPubkey,
 		EscrowPDA:       escrowPDA,
-		BandwidthUsedGB: bandwidthUsedGB,
+		BandwidthUsedGB: usedUnits,
 	})
 	if err != nil {
 		logging.Error(err).Str("session_id", session.ID.String()).Msg("SettleEscrow: on-chain transaction failed")
@@ -1000,7 +1038,8 @@ func settleSessionOnChain(session models.Session) {
 	logging.Info().
 		Str("session_id", session.ID.String()).
 		Str("tx_hash", txHash).
-		Uint64("bandwidth_gb", bandwidthUsedGB).
+		Uint64("bandwidth_units", usedUnits).
+		Int64("used_bytes", fullSession.BytesUsed).
 		Msg("SettleEscrow completed on-chain")
 }
 

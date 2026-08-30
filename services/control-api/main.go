@@ -463,6 +463,9 @@ func main() {
 		})
 	})
 
+	// OpenAPI contract location (public; redirects to the docs-hosted spec)
+	api.RegisterOpenAPISpecRoutes(r)
+
 	// Emergency Circuit Breaker (Industrial Security)
 	r.Use(middleware.EmergencyBreaker(cm))
 
@@ -526,7 +529,7 @@ func main() {
 	api.RegisterInternalAlertWebhook(r)
 
 	// Circuit Breaker Stats Endpoint
-	r.GET("/metrics/circuit-breakers", middleware.CircuitBreakerStatsHandler())
+	r.GET("/metrics/circuit-breakers", middleware.RequireMetricsAccess(), middleware.CircuitBreakerStatsHandler())
 
 	// v1: Optional Auth (Publicly accessible, but identifies user if token present)
 	v1 := r.Group("/v1")
@@ -711,7 +714,7 @@ func main() {
 
 		rpcEndpoint := rpcEndpoints[0]
 
-		pollInterval := 400 * time.Millisecond
+		pollInterval := 15 * time.Second
 		if interval := os.Getenv("EXPLORER_INDEXER_POLL_INTERVAL_MS"); interval != "" {
 			if ms, err := strconv.Atoi(interval); err == nil {
 				pollInterval = time.Duration(ms) * time.Millisecond

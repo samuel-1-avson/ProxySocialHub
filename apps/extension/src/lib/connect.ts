@@ -1,7 +1,9 @@
 import { clearReliabilityAlarms, scheduleReliabilityAlarms } from './alarms';
 import { refreshDeviceSession } from './auth';
 import {
+  egressIsLocalHairpin,
   egressLooksProxied,
+  egressProbeSucceeded,
   VERIFY_PROTOCOL,
   type VerifySnapshot,
 } from './egress';
@@ -94,7 +96,7 @@ export async function connectOrder(orderId: string, listingTitle = ''): Promise<
   }
   await settleProxy();
   const probe = await probeEgressIp();
-  if (!egressLooksProxied(baselineIp, probe.ip ?? undefined)) {
+  if (!egressProbeSucceeded(probe.ip ?? undefined)) {
     const error = verifyFailureMessage(baselineIp, probe);
     await saveVerify({
       healthy: false,
@@ -117,6 +119,7 @@ export async function connectOrder(orderId: string, listingTitle = ''): Promise<
     baselineIp,
     rttMs: probe.rttMs,
     protocol: VERIFY_PROTOCOL,
+    hairpin: egressIsLocalHairpin(baselineIp, probe.ip ?? undefined),
     at: Date.now(),
     phase: 'connected',
     source: probe.source,
@@ -161,13 +164,13 @@ export async function disconnectProxy(options?: { verify?: boolean }): Promise<v
   }
 }
 
-/** Re-check egress from a tab. If connected and IP matches home, drop to direct. */
+/** Re-check egress from a tab. Same public IP as home is a local provider, not a drop. */
 export async function verifyNow(): Promise<ConnectStatus> {
   const status = await readConnectStatus();
   const baselineIp = await readBaselineIp();
   const probe = await probeEgressIp();
   if (status.state === 'on' || status.state === 'lost') {
-    if (!egressLooksProxied(baselineIp, probe.ip ?? undefined)) {
+    if (!egressProbeSucceeded(probe.ip ?? undefined)) {
       const error = verifyFailureMessage(baselineIp, probe);
       await saveVerify({
         healthy: false,
@@ -180,10 +183,11 @@ export async function verifyNow(): Promise<ConnectStatus> {
         phase: 'connected',
         source: probe.source,
       });
-      await rollbackProxy();
-      await chrome.storage.session.set({ connectionState: 'lost' });
-      await setBadge('lost');
       throw new Error(error);
+    }
+    if (status.state === 'lost') {
+      await chrome.storage.session.set({ connectionState: 'on' });
+      await setBadge('on');
     }
     await saveVerify({
       healthy: true,
@@ -191,6 +195,7 @@ export async function verifyNow(): Promise<ConnectStatus> {
       baselineIp,
       rttMs: probe.rttMs,
       protocol: VERIFY_PROTOCOL,
+      hairpin: egressIsLocalHairpin(baselineIp, probe.ip ?? undefined),
       at: Date.now(),
       phase: 'connected',
       source: probe.source,
@@ -385,12 +390,9 @@ function settleProxy(): Promise<void> {
   });
 }
 
-function verifyFailureMessage(baselineIp: string | undefined, probe: { ip: string | null; error?: string }): string {
+function verifyFailureMessage(_baselineIp: string | undefined, probe: { ip: string | null; error?: string }): string {
   if (!probe.ip) {
     return probe.error || 'verify failed: no egress IP from tab';
-  }
-  if (baselineIp && !egressLooksProxied(baselineIp, probe.ip)) {
-    return 'verify failed: egress IP matches home IP';
   }
   return 'verify failed';
 }

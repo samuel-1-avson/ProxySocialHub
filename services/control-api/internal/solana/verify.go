@@ -76,9 +76,14 @@ type rpcError struct {
 // Retries across SOLANA_RPC_ENDPOINTS when RPC returns null/"not found" or rate limits.
 func VerifyTransaction(ctx context.Context, txHash string) (*TransactionResult, error) {
 	client := NewRPCHTTPClient()
-	endpoints := RPCEndpointsFromEnv()
-	if len(endpoints) == 0 {
-		endpoints = []string{rpcEndpoint}
+	endpoints := []string{rpcEndpoint}
+	for _, endpoint := range RPCEndpointsFromEnv() {
+		if endpoint != "" && endpoint != rpcEndpoint {
+			endpoints = append(endpoints, endpoint)
+		}
+	}
+	if len(endpoints) == 0 || strings.TrimSpace(endpoints[0]) == "" {
+		endpoints = RPCEndpointsFromEnv()
 	}
 
 	commitment := "confirmed"

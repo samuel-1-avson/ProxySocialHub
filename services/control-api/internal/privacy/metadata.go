@@ -21,9 +21,12 @@ func (s *ZKMetadataSentry) SanitizeListing(l *models.ProxyListing) {
 
 	log.Printf("[MetadataSentry] Hardening privacy for node %s", l.ID)
 
-	// Obfuscate Physical footprint for discovery
-	l.Country = "Verified Region"
-	l.ISP = "Verified High-Performance Provider"
+	// Obfuscate physical footprint for discovery. Labels must read as
+	// intentional privacy, not as quality claims (audit E.2): the real
+	// country/ISP are part of the signed listing offer and are only
+	// revealed via the session handshake after escrow.
+	l.Country = "Hidden until session"
+	l.ISP = "Hidden until session"
 
 	// Ensure IP is NEVER included in public discovery JSON
 	// The IP is only revealed to the Consumer via a signed session

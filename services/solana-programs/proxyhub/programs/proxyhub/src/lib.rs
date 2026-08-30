@@ -955,6 +955,12 @@ pub struct EscrowRefunded {
 }
 
 #[event]
+pub struct EscrowClosed {
+    pub escrow: Pubkey,
+    pub buyer: Pubkey,
+}
+
+#[event]
 pub struct DisputeRaised {
     pub escrow: Pubkey,
     pub dispute: Pubkey,
@@ -1922,10 +1928,7 @@ pub mod proxyhub {
             **ctx.accounts.seller.try_borrow_mut_lamports()? += seller_payout;
         }
 
-        if buyer_refund > 0 {
-            **escrow.to_account_info().try_borrow_mut_lamports()? -= buyer_refund;
-            **ctx.accounts.buyer.try_borrow_mut_lamports()? += buyer_refund;
-        }
+        // Remaining lamports (buyer_refund + rent) go to buyer via `close = buyer`.
 
         emit!(EscrowSettled {
             escrow: escrow.key(),
@@ -2455,10 +2458,8 @@ pub mod proxyhub {
             **ctx.accounts.seller.try_borrow_mut_lamports()? += seller_payout;
         }
 
-        if buyer_refund > 0 {
-            **escrow.to_account_info().try_borrow_mut_lamports()? -= buyer_refund;
-            **ctx.accounts.buyer.try_borrow_mut_lamports()? += buyer_refund;
-        }
+        // Remaining lamports (buyer_refund + rent) go to buyer via `close = buyer`,
+        // freeing the buyer+seller PDA so the pair can transact again.
 
         emit!(EscrowSettled {
             escrow: escrow.key(),
@@ -2467,6 +2468,32 @@ pub mod proxyhub {
             bandwidth_used: bandwidth_used_gb,
         });
 
+        Ok(())
+    }
+
+    /// Close a terminal (settled/refunded) legacy escrow and return the rent
+    /// reserve to the buyer. Frees the buyer+seller PDA for re-initialization;
+    /// escrows settled after this upgrade close automatically on settle.
+    pub fn close_escrow(ctx: Context<CloseEscrow>) -> Result<()> {
+        let state = &ctx.accounts.program_state;
+        let escrow = &ctx.accounts.escrow;
+        let authority = ctx.accounts.authority.key();
+
+        require!(
+            authority == escrow.buyer || authority == escrow.seller || authority == state.admin,
+            EscrowError::Unauthorized
+        );
+        require!(
+            escrow.status == EscrowStatus::Settled || escrow.status == EscrowStatus::Refunded,
+            EscrowError::InvalidStatus
+        );
+
+        emit!(EscrowClosed {
+            escrow: escrow.key(),
+            buyer: escrow.buyer,
+        });
+
+        msg!("close_escrow: terminal legacy escrow closed, PDA freed (CLOSE01)");
         Ok(())
     }
 
@@ -3985,7 +4012,12 @@ pub struct InitializeEscrowMultiSig<'info> {
 #[derive(Accounts)]
 #[instruction(bandwidth_used_gb: u64, oracle_signers: Vec<Pubkey>)]
 pub struct SettleEscrowMultiSig<'info> {
-    #[account(mut, seeds = [b"escrow_multisig", escrow.buyer.as_ref(), escrow.seller.as_ref(), &escrow.expires_at.to_le_bytes()], bump = escrow.bump)]
+    #[account(
+        mut,
+        seeds = [b"escrow_multisig", escrow.buyer.as_ref(), escrow.seller.as_ref(), &escrow.expires_at.to_le_bytes()],
+        bump = escrow.bump,
+        close = buyer,
+    )]
     pub escrow: Account<'info, Escrow>,
     /// CHECK: Buyer account — bound to the escrow record so payouts cannot be redirected.
     #[account(mut, address = escrow.buyer)]
@@ -4131,7 +4163,12 @@ pub struct InitializeEscrow<'info> {
 #[instruction(bandwidth_used_gb: u64)]
 pub struct SettleEscrow<'info> {
     pub authority: Signer<'info>,
-    #[account(mut, seeds = [b"escrow", escrow.buyer.as_ref(), escrow.seller.as_ref()], bump = escrow.bump)]
+    #[account(
+        mut,
+        seeds = [b"escrow", escrow.buyer.as_ref(), escrow.seller.as_ref()],
+        bump = escrow.bump,
+        close = buyer,
+    )]
     pub escrow: Account<'info, Escrow>,
     /// CHECK: Buyer account — bound to the escrow record so payouts cannot be redirected.
     #[account(mut, address = escrow.buyer)]
@@ -4139,6 +4176,23 @@ pub struct SettleEscrow<'info> {
     /// CHECK: Seller account — bound to the escrow record so payouts cannot be redirected.
     #[account(mut, address = escrow.seller)]
     pub seller: AccountInfo<'info>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+}
+
+#[derive(Accounts)]
+pub struct CloseEscrow<'info> {
+    pub authority: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [b"escrow", escrow.buyer.as_ref(), escrow.seller.as_ref()],
+        bump = escrow.bump,
+        close = buyer,
+    )]
+    pub escrow: Account<'info, Escrow>,
+    /// CHECK: Buyer receives the rent reserve on close.
+    #[account(mut, address = escrow.buyer)]
+    pub buyer: AccountInfo<'info>,
     #[account(seeds = [b"program_state"], bump = program_state.bump)]
     pub program_state: Account<'info, ProgramState>,
 }

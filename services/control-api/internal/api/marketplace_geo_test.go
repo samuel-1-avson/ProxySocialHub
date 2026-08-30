@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -187,9 +188,7 @@ func TestGetMarketplaceMap_UsesProviderGeoWhenListingGeoBlank(t *testing.T) {
 		ISP:     "MTN Ghana",
 		Status:  models.NodeOnline,
 	}
-	if err := db.DB.Create(&node).Error; err != nil {
-		t.Fatalf("failed to create provider node fixture: %v", err)
-	}
+	mustCreateProviderNode(t, node)
 	listing := models.ProxyListing{
 		SellerID:             provider.ID,
 		ProviderNodeID:       &nodeID,
@@ -357,12 +356,8 @@ func TestGetMarketplaceMap_ExcludesSoftDeletedProviderNodeFootprints(t *testing.
 		City:    "Accra",
 		Status:  models.NodeOffline,
 	}
-	if err := db.DB.Create(&live).Error; err != nil {
-		t.Fatalf("create live provider node: %v", err)
-	}
-	if err := db.DB.Create(&deleted).Error; err != nil {
-		t.Fatalf("create deleted provider node: %v", err)
-	}
+	mustCreateProviderNode(t, live)
+	mustCreateProviderNode(t, deleted)
 	if err := db.DB.Delete(&deleted).Error; err != nil {
 		t.Fatalf("soft-delete provider node: %v", err)
 	}
@@ -460,9 +455,7 @@ func TestGetMarketplaceMap_IncludeNodes(t *testing.T) {
 		},
 	}
 	for _, pn := range providerNodes {
-		if err := db.DB.Create(&pn).Error; err != nil {
-			t.Fatalf("failed to create provider node: %v", err)
-		}
+		mustCreateProviderNode(t, pn)
 	}
 	nodes := []models.ExplorerNode{
 		{
@@ -492,9 +485,7 @@ func TestGetMarketplaceMap_IncludeNodes(t *testing.T) {
 		},
 	}
 	for _, node := range nodes {
-		if err := db.DB.Create(&node).Error; err != nil {
-			t.Fatalf("failed to create node fixture: %v", err)
-		}
+		mustCreateExplorerNode(t, node)
 	}
 
 	r := setupTestRouter()
@@ -557,9 +548,7 @@ func TestGetMarketplaceMap_ActiveNodesOnly(t *testing.T) {
 		{ID: activeID, UserID: provider.ID, Name: "Active", Country: "US", Status: models.NodeOnline, LastSeenAt: &now},
 		{ID: offlineID, UserID: provider.ID, Name: "Offline", Country: "US", Status: models.NodeOffline, LastSeenAt: &now},
 	} {
-		if err := db.DB.Create(&pn).Error; err != nil {
-			t.Fatalf("failed to create provider node: %v", err)
-		}
+		mustCreateProviderNode(t, pn)
 	}
 	nodes := []models.ExplorerNode{
 		{
@@ -582,9 +571,7 @@ func TestGetMarketplaceMap_ActiveNodesOnly(t *testing.T) {
 		},
 	}
 	for _, node := range nodes {
-		if err := db.DB.Create(&node).Error; err != nil {
-			t.Fatalf("failed to create node fixture: %v", err)
-		}
+		mustCreateExplorerNode(t, node)
 	}
 
 	r := setupTestRouter()
@@ -621,9 +608,7 @@ func TestGetMarketplaceMap_ValidatorsOnly(t *testing.T) {
 		{ID: validatorID, UserID: provider.ID, Name: "Validator", Country: "US", Status: models.NodeOnline, LastSeenAt: &now},
 		{ID: proxyID, UserID: provider.ID, Name: "Proxy", Country: "US", Status: models.NodeOnline, LastSeenAt: &now},
 	} {
-		if err := db.DB.Create(&pn).Error; err != nil {
-			t.Fatalf("failed to create provider node: %v", err)
-		}
+		mustCreateProviderNode(t, pn)
 	}
 	nodes := []models.ExplorerNode{
 		{
@@ -776,9 +761,7 @@ func TestGetMarketplaceMap_PrivacyHardening(t *testing.T) {
 		ISP:     "SecretCarrier ISP",
 		Status:  models.NodeOnline,
 	}
-	if err := db.DB.Create(&node).Error; err != nil {
-		t.Fatalf("create provider node: %v", err)
-	}
+	mustCreateProviderNode(t, node)
 	listing := models.ProxyListing{
 		SellerID:             provider.ID,
 		ProviderNodeID:       &nodeID,
@@ -875,5 +858,45 @@ func TestGetMarketplaceMap_PrivacyHardening(t *testing.T) {
 	}
 	if nodePt.ID != "node:"+wantOpaque {
 		t.Fatalf("expected opaque point id, got %q", nodePt.ID)
+	}
+}
+
+func mustCreateProviderNode(t *testing.T, node models.ProviderNode) {
+	t.Helper()
+	if node.IPAddress == "" {
+		node.IPAddress = "10.0.0.5"
+	}
+	if err := db.DB.Create(&node).Error; err != nil {
+		t.Fatalf("failed to create provider node: %v", err)
+	}
+}
+
+func mustCreateExplorerNode(t *testing.T, node models.ExplorerNode) {
+	t.Helper()
+	active := node.IsActive
+	if err := db.DB.Create(&node).Error; err != nil {
+		t.Fatalf("failed to create explorer node: %v", err)
+	}
+	if !active {
+		if err := db.DB.Model(&models.ExplorerNode{}).Where("node_id = ?", node.NodeID).Update("is_active", false).Error; err != nil {
+			t.Fatalf("failed to persist explorer is_active=false: %v", err)
+		}
+	}
+}
+
+func TestMarketplaceOccupancySQLCastsListingID(t *testing.T) {
+	src, err := os.ReadFile("marketplace_geo.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(src)
+	if strings.Contains(body, "s.listing_id = pl.id\n") || strings.Contains(body, "s.listing_id = pl.id\r") {
+		t.Fatal("uncast listing_id comparison would 500 on live (uuid = text)")
+	}
+	if strings.Contains(body, "en.provider_user_id = pl.seller_id::text") {
+		t.Fatal("provider_user_id is uuid; comparing it to seller_id::text 500s the map")
+	}
+	if !strings.Contains(body, "en.provider_user_id::text = pl.seller_id::text") {
+		t.Fatal("explorer_nodes join must cast provider_user_id to text")
 	}
 }

@@ -1,4 +1,4 @@
-import { apiGet } from './client';
+import { apiGet, publicApiGet } from './client';
 
 export interface Badge {
     id: string;
@@ -23,7 +23,12 @@ export function getMyBadges() {
     return apiGet<{ badges: UserBadge[] }>('/v1/badges/my');
 }
 
+export function getUserBadges(userId: string) {
+    return publicApiGet<{ badges: UserBadge[] }>(`/v1/users/${encodeURIComponent(userId)}/badges`);
+}
+
 export const badgeKeys = {
     all: ['badges'] as const,
     mine: ['badges', 'my'] as const,
+    user: (id: string) => ['badges', 'user', id] as const,
 };

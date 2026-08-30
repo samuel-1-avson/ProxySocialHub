@@ -40,7 +40,7 @@ export default function UsagePage() {
     async function fetchData() {
         setLoading(true);
         try {
-            const sessionsData = await getSessions();
+            const sessionsData = await getSessions('all');
             const safeSessionsData = Array.isArray(sessionsData) ? sessionsData : [];
 
             // Fetch usage for each session
@@ -59,10 +59,14 @@ export default function UsagePage() {
 
             // Calculate totals
             const totals = (sessionsWithUsage as SessionWithUsage[]).reduce(
-                (acc, s) => ({
-                    gb: acc.gb + (s.usage?.gb_used || 0),
-                    cost: acc.cost + usageCostSOL(s.usage),
-                }),
+                (acc, s) => {
+                    const gbFromUsage = Number(s.usage?.gb_used || 0);
+                    const gbFromSession = Number(s.bytes_used || 0) / (1024 * 1024 * 1024);
+                    return {
+                        gb: acc.gb + Math.max(gbFromUsage, gbFromSession),
+                        cost: acc.cost + usageCostSOL(s.usage),
+                    };
+                },
                 { gb: 0, cost: 0 }
             );
             setTotalUsage(totals);
@@ -179,7 +183,14 @@ export default function UsagePage() {
                         <AnimatePresence>
                             {sessions.map((session, idx) => {
                                 const usage = session.usage;
-                                const percentUsed = usage?.percent_used || 0;
+                                const gbUsed = Math.max(
+                                    Number(usage?.gb_used || 0),
+                                    Number(session.bytes_used || 0) / (1024 * 1024 * 1024)
+                                );
+                                const limitBytes = Number(usage?.bytes_limit || session.bytes_limit || 0);
+                                const percentUsed = limitBytes > 0
+                                    ? (gbUsed * (1024 * 1024 * 1024) / limitBytes) * 100
+                                    : (usage?.percent_used || 0);
                                 return (
                                     <motion.div
                                         key={session.id}
@@ -216,7 +227,7 @@ export default function UsagePage() {
                                                 <div className="flex justify-between text-[9px] font-mono font-black uppercase tracking-widest text-muted-foreground">
                                                     <span>Consumption Gauge</span>
                                                     <span className={percentUsed > 90 ? 'text-rose-500' : 'text-primary'}>
-                                                        {Number(usage?.gb_used || 0).toFixed(3)} GB / {((Number(usage?.bytes_limit || 0)) / (1024 * 1024 * 1024)).toFixed(1)} GB
+                                                        {gbUsed.toFixed(3)} GB / {(limitBytes / (1024 * 1024 * 1024)).toFixed(1)} GB
                                                     </span>
                                                 </div>
                                                 <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden border border-border p-[1px]">

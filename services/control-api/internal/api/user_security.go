@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"time"
@@ -146,10 +147,10 @@ func setupMFA(c *gin.Context) {
 	googleChartURL := fmt.Sprintf("https://chart.googleapis.com/chart?chs=200x200&chld=M|0&cht=qr&chl=%s", url.QueryEscape(qrURL))
 
 	c.JSON(http.StatusOK, MFASetupResponse{
-		Secret:      secret,
-		QRCodeURL:   googleChartURL,
-		QRCode:      googleChartURL,
-		OTPAuthURL:  qrURL,
+		Secret:     secret,
+		QRCodeURL:  googleChartURL,
+		QRCode:     googleChartURL,
+		OTPAuthURL: qrURL,
 	})
 }
 
@@ -206,7 +207,7 @@ func verifyMFASetup(c *gin.Context) {
 	now := time.Now()
 	settings.TwoFactorEnabled = true
 	settings.TwoFactorVerifiedAt = &now
-	
+
 	if err := db.DB.Save(&settings).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable MFA settings"})
 		return
@@ -420,6 +421,20 @@ func revokeAllSessions(c *gin.Context) {
 	revokeAllRefreshTokenFamilies(userID)
 
 	c.JSON(http.StatusOK, gin.H{"message": "All sessions revoked"})
+}
+
+func recordLoginDeviceSession(c *gin.Context, userID uuid.UUID) {
+	if sessionService == nil {
+		return
+	}
+	ip := c.ClientIP()
+	if ip == "" {
+		ip = "0.0.0.0"
+	}
+	ua := c.Request.UserAgent()
+	if _, _, err := sessionService.CreateSession(userID, ip, ua, authRefreshTokenTTL()); err != nil {
+		log.Printf("[AUTH] device session record failed for %s: %v", userID, err)
+	}
 }
 
 // ==================== Settings Endpoints ====================

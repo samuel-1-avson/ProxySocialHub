@@ -17,6 +17,7 @@ export interface AnalyticsOverview {
 
     // Provider Metrics
     total_nodes?: number;
+    online_nodes?: number;
     total_earnings_sol?: number;
     avg_quality_score?: number;
     active_payouts?: number;

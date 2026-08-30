@@ -119,6 +119,10 @@ func createAPIKey(c *gin.Context) {
 			})
 			return
 		}
+		if p == "admin" && !isPlatformModerator(c) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "admin permission requires an administrator account"})
+			return
+		}
 	}
 
 	// Generate the API key

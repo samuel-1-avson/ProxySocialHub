@@ -18,9 +18,13 @@ import {
     type PriceSuggestion,
 } from "@/lib/api/marketplace";
 import { useQueryClient } from "@tanstack/react-query";
+import { loadProviderSigningKey } from "@/lib/provider-config";
 import {
     canonicalListingFields,
+    publicKeyFromProviderSecret,
+    raceTimeout,
     signListingOfferProof,
+    signListingOfferWithSecret,
 } from "@/lib/proofs/listing-offer";
 import {
     defaultListingPricePerGB,
@@ -34,6 +38,7 @@ export default function CreateListingPage() {
     const router = useRouter();
     const queryClient = useQueryClient();
     const [loading, setLoading] = useState(false);
+    const [status, setStatus] = useState("");
     const [error, setError] = useState("");
     const [providerNodes, setProviderNodes] = useState<NodeRegistration[]>([]);
     const [proofPolicy, setProofPolicy] = useState<ListingProofPolicy | null>(null);
@@ -136,6 +141,7 @@ export default function CreateListingPage() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
+        setStatus("Preparing listing…");
         setError("");
 
         if (priceGuidance.overHardCap) {
@@ -173,34 +179,65 @@ export default function CreateListingPage() {
                 }
                 const walletHotkey = connected && publicKey ? publicKey.toBase58() : "";
                 const nodeHotkey = selectedNode?.hotkey?.trim() ?? "";
+                const deviceSecret = loadProviderSigningKey(nodeId);
+                const deviceHotkey = deviceSecret
+                    ? await publicKeyFromProviderSecret(deviceSecret)
+                    : "";
+                const canDeviceSign = Boolean(
+                    deviceSecret && (!nodeHotkey || nodeHotkey === deviceHotkey)
+                );
                 const canWalletSign =
                     Boolean(connected && publicKey && signMessage) &&
                     (!nodeHotkey || nodeHotkey === walletHotkey);
 
-                if (canWalletSign) {
-                    payload.proof = await signListingOfferProof(
+                if (canDeviceSign && deviceSecret) {
+                    setStatus("Signing with this computer's provider key...");
+                    payload.proof = await signListingOfferWithSecret(
                         payload,
                         nodeId,
                         selectedNode?.gateway_node_id,
-                        walletHotkey,
-                        signMessage!
+                        deviceSecret
+                    );
+                } else if (canWalletSign) {
+                    setStatus("Waiting for wallet - approve in Phantom, or on your phone if it is linked.");
+                    payload.proof = await raceTimeout(
+                        signListingOfferProof(
+                            payload,
+                            nodeId,
+                            selectedNode?.gateway_node_id,
+                            walletHotkey,
+                            signMessage!
+                        ),
+                        60_000,
+                        "Wallet did not respond in 60 seconds. Unlock Phantom (or your phone) and try again. Do not leave Create Listing spinning."
                     );
                 } else if (proofPolicy?.dev_server_signing) {
+                    setStatus("Signing on the server…");
                     const signed = await signListingOfferDev(payload);
                     payload.proof = signed.proof;
                 } else if (proofRequired) {
                     if (!connected || !publicKey || !signMessage) {
                         throw new Error(
-                            "Connect a Solana wallet to sign the listing offer, or enable dev server signing on control-api."
+                            "This listing must be signed. Use the same browser that downloaded provider.toml, or connect the Solana wallet that matches this node’s hotkey."
                         );
                     }
                     throw new Error(
-                        "Your wallet does not match this node's provider hotkey. Use the provider wallet, enable dev server signing (PROXYHUB_PROVIDER_SIGNING_KEY), or use scripts/post-signed-listing-docker.ps1."
+                        "Your wallet does not match this node's provider hotkey. Use the same browser that ran Setup / downloaded provider.toml, or connect the provider wallet."
                     );
                 }
             }
 
-            const listing = await createListing(payload);
+            setStatus("Saving listing…");
+            const listing = await createListing(payload).catch((err: unknown) => {
+                const name = err instanceof Error ? err.name : "";
+                const msg = err instanceof Error ? err.message : "";
+                if (name === "AbortError" || /aborted|abort/i.test(msg)) {
+                    throw new Error(
+                        "The marketplace did not respond in time. Check that you are signed in, then try Create Listing again."
+                    );
+                }
+                throw err;
+            });
             queryClient.invalidateQueries({ queryKey: marketplaceKeys.all });
             if (listing.status === "pending_review") {
                 router.push("/marketplace/manage?submitted=pending_review");
@@ -211,6 +248,7 @@ export default function CreateListingPage() {
             setError(err instanceof Error ? err.message : "Something went wrong");
         } finally {
             setLoading(false);
+            setStatus("");
         }
     };
 
@@ -233,7 +271,9 @@ export default function CreateListingPage() {
                     <p className="font-bold uppercase text-primary mb-1">Signed listing required</p>
                     <p className="text-muted-foreground">
                         Provider signature mode is <span className="text-foreground">enforce</span>.
-                        Select a provider node and sign with the matching wallet when you submit.
+                        Select your node. This browser can sign with the key from{" "}
+                        <span className="text-foreground">provider.toml</span> - you should not wait on a
+                        wallet popup unless that key is missing.
                         {proofPolicy?.dev_server_signing && (
                             <>
                                 {" "}
@@ -449,7 +489,7 @@ export default function CreateListingPage() {
                         disabled={loading}
                         className="btn-retro btn-retro-primary w-full md:w-auto px-8 py-3 flex items-center justify-center gap-2"
                     >
-                        {loading ? "Creating..." : (
+                        {loading ? (status || "Creating…") : (
                             <>
                                 <Save size={16} /> {proofRequired ? "SIGN & CREATE LISTING" : "CREATE LISTING"}
                             </>

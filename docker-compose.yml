@@ -461,7 +461,7 @@ services:
     networks:
       - backend
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O", "/dev/null", "http://127.0.0.1:3000/"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O", "/dev/null", "http://127.0.0.1:3000/api/health"]
       interval: 30s
       timeout: 10s
       start_period: 40s

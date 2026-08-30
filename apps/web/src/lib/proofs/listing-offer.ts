@@ -120,6 +120,34 @@ export async function buildListingOfferProofInput(
 
 export type SignMessageFn = (message: Uint8Array) => Promise<Uint8Array>;
 
+export async function raceTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+        return await Promise.race([
+            promise,
+            new Promise<T>((_, reject) => {
+                timer = setTimeout(() => reject(new Error(message)), ms);
+            }),
+        ]);
+    } finally {
+        if (timer) clearTimeout(timer);
+    }
+}
+
+/** 32-byte seed from dashboard `provider_signing_key` (base58 seed or 64-byte keypair). */
+export function parseProviderSigningSeed(secretB58: string): Uint8Array {
+    const raw = bs58.decode(secretB58.trim());
+    if (raw.length === 32) return raw;
+    if (raw.length === 64) return raw.slice(0, 32);
+    throw new Error('provider signing key must be 32 or 64 bytes');
+}
+
+export async function publicKeyFromProviderSecret(secretB58: string): Promise<string> {
+    const { getPublicKeyAsync } = await import('@noble/ed25519');
+    const pub = await getPublicKeyAsync(parseProviderSigningSeed(secretB58));
+    return bs58.encode(pub);
+}
+
 export async function signListingOfferProof(
     form: CreateListingRequest,
     providerNodeId: string,
@@ -136,6 +164,30 @@ export async function signListingOfferProof(
     const message = buildProviderProofMessage(envelope);
     const encoded = new TextEncoder().encode(message);
     const sigBytes = await signMessage(encoded);
+    return {
+        ...envelope,
+        signature: bs58.encode(sigBytes),
+    };
+}
+
+/** Sign with the same Ed25519 seed written into provider.toml (no wallet popup). */
+export async function signListingOfferWithSecret(
+    form: CreateListingRequest,
+    providerNodeId: string,
+    gatewayNodeId: string | undefined,
+    secretB58: string
+): Promise<ProviderProofEnvelope> {
+    const { signAsync } = await import('@noble/ed25519');
+    const seed = parseProviderSigningSeed(secretB58);
+    const hotkey = await publicKeyFromProviderSecret(secretB58);
+    const { envelope } = await buildListingOfferProofInput(
+        form,
+        providerNodeId,
+        gatewayNodeId,
+        hotkey
+    );
+    const encoded = new TextEncoder().encode(buildProviderProofMessage(envelope));
+    const sigBytes = await signAsync(encoded, seed);
     return {
         ...envelope,
         signature: bs58.encode(sigBytes),

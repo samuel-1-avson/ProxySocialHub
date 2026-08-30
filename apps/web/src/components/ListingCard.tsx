@@ -76,6 +76,13 @@ export function ListingCard({ listing, onSelect }: ListingCardProps) {
                                 }`}>
                                 {listing.proxy_type}
                             </div>
+                            {(listing.active_sessions_count || 0) > 0 && (
+                                <div className="px-2 py-0.5 rounded-sm text-[8px] font-black uppercase tracking-widest bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                                    {listing.max_concurrency
+                                        ? `${listing.active_sessions_count}/${listing.max_concurrency} in use`
+                                        : `${listing.active_sessions_count} in use`}
+                                </div>
+                            )}
                             <ListingSlaBadge
                                 uptimePercent={listing.uptime_percent}
                                 slaSource={listing.sla_source}

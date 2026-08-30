@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/expfmt"
+	"github.com/proxyhubb/control-api/internal/middleware"
 	"github.com/proxyhubb/control-api/internal/solana"
 )
 
@@ -345,10 +346,12 @@ func MetricsMiddleware() gin.HandlerFunc {
 
 // RegisterMetricsRoutes registers metrics endpoints
 func RegisterMetricsRoutes(r *gin.Engine) {
-	// Prometheus metrics endpoint (no auth required for scraping).
+	auth := middleware.RequireMetricsAccess()
+	// Prometheus metrics endpoint. Public Hosts (api.proxyhubb.com) get 404;
+	// compose Prometheus scrapes control-api:8080 without forwarded headers.
 	// Emit the hand-rolled proxyhubb_* series plus the default registry
 	// (promauto gauges such as nats_consumer_num_pending).
-	r.GET("/metrics", func(c *gin.Context) {
+	r.GET("/metrics", auth, func(c *gin.Context) {
 		var buf bytes.Buffer
 		buf.WriteString(GetMetrics().PrometheusFormat())
 		buf.WriteByte('\n')
@@ -363,7 +366,7 @@ func RegisterMetricsRoutes(r *gin.Engine) {
 	})
 
 	// JSON metrics endpoint (for internal use)
-	r.GET("/metrics/json", func(c *gin.Context) {
+	r.GET("/metrics/json", auth, func(c *gin.Context) {
 		c.JSON(http.StatusOK, GetMetrics().GetSnapshot())
 	})
 }

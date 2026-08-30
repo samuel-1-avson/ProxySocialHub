@@ -12,7 +12,6 @@ interface StreamingSessionCardProps {
 
 export function StreamingSessionCard({ session, onTerminate }: StreamingSessionCardProps) {
     const [elapsed, setElapsed] = useState(0);
-    const [cost, setCost] = useState(0);
     const [confirmStop, setConfirmStop] = useState(false);
 
     // Turbo Mode States
@@ -22,9 +21,13 @@ export function StreamingSessionCard({ session, onTerminate }: StreamingSessionC
     const nonceRef = useRef(0);
 
     const toast = useToast();
-
-    // Check if user has a connected Solana wallet — required for Turbo (state channel signing)
     const { connected: walletConnected, publicKey, signMessage } = useWallet();
+
+    const bytesUsed = session.bytes_used || 0;
+    const pricePerGb = session.listing?.price_per_gb ?? 0;
+    const gbUsed = bytesUsed / (1024 * 1024 * 1024);
+    const meteredCost = gbUsed * pricePerGb;
+    const escrowRef = session.session_pda || session.tx_hash || session.escrow_address;
 
     const signStateUpdateWithWallet = useCallback(async (
         chanId: string,
@@ -52,10 +55,10 @@ export function StreamingSessionCard({ session, onTerminate }: StreamingSessionC
         try {
             // Dynamically calculate L2 deposit based on listing price
             // Lock in 2 hours of bandwidth by default for smooth streaming
-            const pricePerHour = session.listing?.price_per_hour || 0.1;
+            const pricePerHour = session.listing?.price_per_hour || 0;
             const depositHours = 2;
-            const minDeposit = 0.05; // safety floor (SOL)
-            const calculatedDeposit = Math.max(pricePerHour * depositHours, minDeposit);
+            const minDeposit = 0.05;
+            const calculatedDeposit = Math.max(pricePerHour * depositHours, pricePerGb * 0.1, minDeposit);
             const depositAmountLamports = Math.floor(calculatedDeposit * 1e9);
 
             const channel = await openChannel(session.id, depositAmountLamports);
@@ -78,8 +81,8 @@ export function StreamingSessionCard({ session, onTerminate }: StreamingSessionC
                 const currentNonce = nonceRef.current + 1;
                 nonceRef.current = currentNonce;
 
-                const atomicAmount = Math.floor(cost * 1e9);
-                const atomicBytes = session.bytes_used || 0;
+                const atomicAmount = Math.floor(meteredCost * 1e9);
+                const atomicBytes = bytesUsed;
 
                 const sig = await signStateUpdateWithWallet(channelId, currentNonce, atomicAmount, atomicBytes);
                 await updateChannelState(channelId, currentNonce, atomicAmount, atomicBytes, sig);
@@ -91,25 +94,17 @@ export function StreamingSessionCard({ session, onTerminate }: StreamingSessionC
         }, 2000);
 
         return () => clearInterval(updateInterval);
-    }, [isTurbo, channelId, cost, session.bytes_used, signStateUpdateWithWallet]);
+    }, [isTurbo, channelId, meteredCost, bytesUsed, signStateUpdateWithWallet]);
 
-    // Real-time cost + elapsed counter
     useEffect(() => {
         if (session.status !== 'active') return;
 
         const startTime = new Date(session.created_at).getTime();
-        const pricePerHour = session.listing?.price_per_hour || 0.1;
-        const pricePerMs = pricePerHour / 3600000;
-
-        const interval = setInterval(() => {
-            const now = Date.now();
-            const diff = now - startTime;
-            setElapsed(Math.floor(diff / 1000));
-            setCost(diff * pricePerMs);
-        }, 1000);
-
+        const tick = () => setElapsed(Math.max(0, Math.floor((Date.now() - startTime) / 1000)));
+        tick();
+        const interval = setInterval(tick, 1000);
         return () => clearInterval(interval);
-    }, [session]);
+    }, [session.status, session.created_at]);
 
     const formatTime = (seconds: number) => {
         const h = Math.floor(seconds / 3600);
@@ -117,6 +112,25 @@ export function StreamingSessionCard({ session, onTerminate }: StreamingSessionC
         const s = seconds % 60;
         return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
     };
+
+    const formatBytes = (bytes: number) => {
+        if (!bytes || bytes <= 0) return '0 B';
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        let unitIndex = 0;
+        let scaled = bytes;
+        while (scaled >= 1024 && unitIndex < units.length - 1) {
+            scaled /= 1024;
+            unitIndex += 1;
+        }
+        const precision = scaled >= 100 || unitIndex === 0 ? 0 : 2;
+        return `${scaled.toFixed(precision)} ${units[unitIndex]}`;
+    };
+
+    const escrowLabel = escrowRef
+        ? `On-chain escrow ${escrowRef.slice(0, 8)}…`
+        : session.amount_locked_sol
+            ? `Locked ${Number(session.amount_locked_sol).toFixed(4)} SOL`
+            : 'No escrow on this session';
 
     const turboDisabled = !walletConnected || loadingTurbo;
     const turboTooltip = !walletConnected
@@ -146,15 +160,17 @@ export function StreamingSessionCard({ session, onTerminate }: StreamingSessionC
                 {/* Background Grid Animation */}
                 <div className="absolute inset-0 bg-[linear-gradient(rgba(34,197,94,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(34,197,94,0.03)_1px,transparent_1px)] bg-[size:20px_20px] pointer-events-none"></div>
 
-                {/* Left: Vested Amount */}
+                {/* Left: Metered amount */}
                 <div className="z-10">
-                    <p className="text-[10px] font-mono font-bold uppercase text-muted-foreground mb-1">Vested Amount</p>
+                    <p className="text-[10px] font-mono font-bold uppercase text-muted-foreground mb-1">Metered amount</p>
                     <div className="text-3xl font-black font-mono tracking-tighter text-white flex items-baseline gap-1">
-                        {Number(cost || 0).toFixed(6)} <span className="text-sm text-green-500">SOL</span>
+                        {meteredCost.toFixed(6)} <span className="text-sm text-green-500">SOL</span>
                     </div>
                     <div className="flex items-center gap-1 mt-2 text-[10px] font-mono text-green-400/80">
                         <Zap size={10} />
-                        Rate: {Number(session.listing?.price_per_hour || 0.1).toFixed(3)} SOL/hr
+                        {pricePerGb > 0
+                            ? `Rate: ${Number(pricePerGb).toFixed(3)} SOL/GB (gateway bytes)`
+                            : 'Rate: unknown — listing price missing'}
                     </div>
                 </div>
 
@@ -169,9 +185,9 @@ export function StreamingSessionCard({ session, onTerminate }: StreamingSessionC
                     </div>
 
                     <div className="mt-4">
-                        <p className="text-[10px] font-mono font-bold uppercase text-muted-foreground mb-1">Data Usage</p>
+                        <p className="text-[10px] font-mono font-bold uppercase text-muted-foreground mb-1">Data usage</p>
                         <div className="text-md font-bold font-mono text-white flex items-center justify-end gap-2">
-                            {Number((session.bytes_used || 0) / (1024 * 1024)).toFixed(2)} MB
+                            {formatBytes(bytesUsed)}
                             <HardDrive size={12} className="text-blue-400" />
                         </div>
                     </div>
@@ -182,7 +198,7 @@ export function StreamingSessionCard({ session, onTerminate }: StreamingSessionC
             <div className="p-4 bg-secondary/5 border-t border-border flex justify-between items-center">
                 <div className="flex items-center gap-2 text-[10px] font-mono text-muted-foreground">
                     <ShieldCheck size={12} className="text-blue-500" />
-                    <span>On-Chain Escrow: {session.tx_hash?.slice(0, 6) || 'Pending'}...</span>
+                    <span>{escrowLabel}</span>
                 </div>
 
                 {confirmStop ? (

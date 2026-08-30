@@ -33,26 +33,28 @@ func (f *Follow) BeforeCreate(tx *gorm.DB) error {
 
 // UserPublicProfile is a DTO for public profile display
 type UserPublicProfile struct {
-	ID                 uuid.UUID  `json:"id"`
-	Username           *string    `json:"username"`
-	DisplayName        *string    `json:"display_name"`
-	Bio                *string    `json:"bio"`
-	AvatarURL          *string    `json:"avatar_url"`
-	CoverImageURL      *string    `json:"cover_image_url"`
-	Location           *string    `json:"location"`
-	ISP                *string    `json:"isp"`
-	Website            *string    `json:"website"`
-	Role               string     `json:"role"`
+	ID            uuid.UUID `json:"id"`
+	Username      *string   `json:"username"`
+	DisplayName   *string   `json:"display_name"`
+	Bio           *string   `json:"bio"`
+	AvatarURL     *string   `json:"avatar_url"`
+	CoverImageURL *string   `json:"cover_image_url"`
+	Location      *string   `json:"location,omitempty"`
+	Website       *string   `json:"website,omitempty"`
+	Role          string    `json:"role"`
+	// Verified is the identity flag (staff/attestation). It is not KYC and not trust_tier.
 	Verified           bool       `json:"verified"`
+	IsOnline           bool       `json:"is_online"`
+	LastSeenAt         *time.Time `json:"last_seen_at,omitempty"`
 	FollowersCount     int        `json:"followers_count"`
 	FollowingCount     int        `json:"following_count"`
 	ReviewsCount       int        `json:"reviews_count"`
 	AvgRating          float64    `json:"avg_rating"`
 	ProviderSince      *time.Time `json:"provider_since,omitempty"`
 	TotalBandwidthSold float64    `json:"total_bandwidth_sold"`
-	TrustTier          TrustTier  `json:"trust_tier"`
-	KYCStatus          KYCStatus  `json:"kyc_status"`
-	CreatedAt          time.Time  `json:"created_at"`
+	// TrustTier is the account entitlement (new / verified / premium) used for quotas.
+	TrustTier TrustTier `json:"trust_tier"`
+	CreatedAt time.Time `json:"created_at"`
 
 	// Relationship status (set dynamically)
 	IsFollowing bool `json:"is_following,omitempty"`
@@ -82,11 +84,15 @@ func (Block) TableName() string {
 	return "blocks"
 }
 
+// UserSelfProfile is the authenticated user's profile. KYC stays here, never on public GET /users/:id.
+type UserSelfProfile struct {
+	UserPublicProfile
+	KYCStatus KYCStatus `json:"kyc_status"`
+}
+
 // ToPublicProfile converts a User to a public profile DTO with Privacy Masking
 func (u *User) ToPublicProfile() UserPublicProfile {
-	// STRICT PRIVACY MASK: Ensure sensitive PII like Email, TaxID, and Real Names
-	// are NEVER included in the public DTO. This ensures they stay off-chain
-	// during any blockchain-assisted listing fetches.
+	// STRICT PRIVACY MASK: Email, TaxID, KYC, ISP, and wallet stay off the public DTO.
 
 	return UserPublicProfile{
 		ID:                 u.ID,
@@ -96,10 +102,11 @@ func (u *User) ToPublicProfile() UserPublicProfile {
 		AvatarURL:          u.AvatarURL,
 		CoverImageURL:      u.CoverImageURL,
 		Location:           u.Location,
-		ISP:                u.ISP,
 		Website:            u.Website,
 		Role:               u.Role,
 		Verified:           u.Verified,
+		IsOnline:           u.IsOnline,
+		LastSeenAt:         u.LastSeenAt,
 		FollowersCount:     u.FollowersCount,
 		FollowingCount:     u.FollowingCount,
 		ReviewsCount:       u.ReviewsCount,
@@ -107,10 +114,8 @@ func (u *User) ToPublicProfile() UserPublicProfile {
 		ProviderSince:      u.ProviderSince,
 		TotalBandwidthSold: u.TotalBandwidthSold,
 		TrustTier:          u.TrustTier,
-		KYCStatus:          u.KYCStatus,
 		CreatedAt:          u.CreatedAt,
 
-		// Professional Info
 		ProfessionalTitle:     u.ProfessionalTitle,
 		ExperienceYears:       u.ExperienceYears,
 		Languages:             u.Languages,
@@ -122,14 +127,22 @@ func (u *User) ToPublicProfile() UserPublicProfile {
 	}
 }
 
+// ToSelfProfile is GET /v1/profile for the signed-in user (includes KYC).
+func (u *User) ToSelfProfile() UserSelfProfile {
+	return UserSelfProfile{
+		UserPublicProfile: u.ToPublicProfile(),
+		KYCStatus:         u.KYCStatus,
+	}
+}
+
 // UpdateProfileRequest represents a request to update user profile
 type UpdateProfileRequest struct {
 	DisplayName   *string                `json:"display_name" binding:"omitempty,max=100"`
-	Username      *string                `json:"username" binding:"omitempty,min=3,max=50,alphanum"`
+	Username      *string                `json:"username" binding:"omitempty,min=3,max=50"`
 	Bio           *string                `json:"bio" binding:"omitempty,max=500"`
 	Location      *string                `json:"location" binding:"omitempty,max=100"`
 	Website       *string                `json:"website" binding:"omitempty,max=255"`
-	AvatarURL     *string                `json:"avatar_url" binding:"omitempty,url"`
+	AvatarURL     *string                `json:"avatar_url" binding:"omitempty,max=80000"`
 	CoverImageURL *string                `json:"cover_image_url" binding:"omitempty,url"`
 	Skills        []string               `json:"skills" binding:"omitempty,max=50,dive,max=50"`
 	SocialLinks   map[string]interface{} `json:"social_links" binding:"omitempty,max=10"`
@@ -142,5 +155,5 @@ type UpdateProfileRequest struct {
 	Languages             []string `json:"languages" binding:"omitempty,max=10,dive,max=50"`
 	PrimarySpecialization *string  `json:"primary_specialization" binding:"omitempty,max=100"`
 
-	Role *string `json:"role" binding:"omitempty,oneof=buyer provider admin"`
+	Role *string `json:"role" binding:"omitempty,max=20"`
 }

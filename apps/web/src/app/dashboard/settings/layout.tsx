@@ -23,7 +23,7 @@ const SETTINGS_NAV = [
         name: 'Security',
         href: ROUTES.dashboardSettingsSecurity,
         icon: Shield,
-        description: '2FA, anomalies and login history',
+        description: '2FA, alerts and login history',
     },
     {
         name: 'Notifications',
@@ -41,7 +41,7 @@ const SETTINGS_NAV = [
         name: 'Devices',
         href: ROUTES.dashboardSettingsDevices,
         icon: Monitor,
-        description: 'Active sessions and terminals',
+        description: 'Signed-in browsers',
     },
 ];
 
@@ -54,7 +54,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
                 <div className="px-4 mb-6">
                     <h1 className="text-2xl font-black font-mono uppercase tracking-tighter">Settings</h1>
                     <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest mt-1 opacity-60">
-                        System Configuration
+                        Your account
                     </p>
                 </div>
 
@@ -89,10 +89,10 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
                 <div className="pt-8 px-4 mt-8 border-t border-white/5 hidden lg:block">
                     <div className="p-4 bg-secondary/20 border border-white/5 rounded-sm">
                         <div className="flex items-center gap-2 text-[9px] font-black font-mono text-primary uppercase tracking-widest mb-2">
-                            <Shield size={10} /> Sentry Active
+                            <Shield size={10} /> Account settings
                         </div>
                         <p className="text-[8px] font-mono leading-relaxed text-muted-foreground uppercase">
-                            ALL CHANGES ARE CRYPTOGRAPHICALLY SIGNED AND LOGGED TO THE SECURITY WATCHTOWER.
+                        ALL CHANGES APPLY TO THIS ACCOUNT. SIGNED-IN BROWSERS ARE UNDER DEVICES. LOGIN HISTORY IS UNDER SECURITY.
                         </p>
                     </div>
                 </div>
