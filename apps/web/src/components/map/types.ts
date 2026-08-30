@@ -28,6 +28,8 @@ export interface ExplorerListingPin {
     listing_offer_verified?: boolean;
     listing_offer_signer?: string;
     listing_offer_verification_error?: string;
+    active_sessions?: number;
+    max_concurrency?: number;
 }
 
 export interface MapViewportBounds {

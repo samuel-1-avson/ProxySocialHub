@@ -19,9 +19,69 @@ const PROGRAM_ID = parseSolanaPubkey(
   process.env.NEXT_PUBLIC_SOLANA_PROGRAM_ID,
   DEFAULT_PROGRAM_ID,
 );
+
+/** On-chain bandwidth_limit_gb / bandwidth_used_gb are micro-GiB so settle can be proportional. */
+export const ESCROW_UNITS_PER_GIB = 1_000_000;
+
+export function escrowBandwidthUnitsFromGiB(gb: number): number {
+    if (!Number.isFinite(gb) || gb <= 0) {
+        return ESCROW_UNITS_PER_GIB;
+    }
+    const units = Math.round(gb * ESCROW_UNITS_PER_GIB);
+    return units > 0 ? units : 1;
+}
 const NETWORK = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || process.env.NEXT_PUBLIC_SOLANA_RPC || 'https://api.devnet.solana.com';
 const RAW_SOLANA_NETWORK = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'devnet';
 const SOLANA_NETWORK = RAW_SOLANA_NETWORK === 'mainnet' ? 'mainnet-beta' : RAW_SOLANA_NETWORK;
+
+/** Well-known genesis hashes. Used to reject Phantom/RPC on the wrong cluster. */
+const SOLANA_GENESIS_BY_CLUSTER: Record<string, string> = {
+    'mainnet-beta': '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d',
+    devnet: 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG',
+    testnet: '4uhcVJyS2YKB9ctwGFAdMjFFDUsEdQdCjc4yxCSxS1W',
+};
+
+export class WrongSolanaClusterError extends Error {
+    readonly code = 'wrong_solana_cluster';
+    readonly expectedCluster: string;
+    constructor(expectedCluster: string, genesis: string) {
+        super(
+            `Wrong Solana network. This shop uses ${expectedCluster === 'mainnet-beta' ? 'Mainnet' : expectedCluster}. Switch Phantom to that cluster and retry (genesis ${genesis.slice(0, 8)}…).`
+        );
+        this.name = 'WrongSolanaClusterError';
+        this.expectedCluster = expectedCluster;
+    }
+}
+
+export function shopSolanaCluster(): string {
+    return SOLANA_NETWORK;
+}
+
+export function shopSolanaClusterLabel(): string {
+    return SOLANA_NETWORK === 'mainnet-beta' ? 'Mainnet' : SOLANA_NETWORK;
+}
+
+export async function assertExpectedSolanaCluster(connection = getConnection()): Promise<void> {
+    const expected = SOLANA_GENESIS_BY_CLUSTER[SOLANA_NETWORK];
+    if (!expected) return;
+    const genesis = await connection.getGenesisHash();
+    if (genesis !== expected) {
+        throw new WrongSolanaClusterError(SOLANA_NETWORK, genesis);
+    }
+}
+
+/** Reject a buy before createOrder when the wallet has no SOL on this shop's cluster. */
+export async function assertBuyerHasSolOnCluster(
+    publicKey: PublicKey,
+    connection = getConnection()
+): Promise<void> {
+    const lamports = await connection.getBalance(publicKey);
+    if (lamports <= 0) {
+        throw new Error(
+            `No SOL on ${shopSolanaClusterLabel()}. Switch Phantom to ${shopSolanaClusterLabel()} and fund the wallet, then retry.`
+        );
+    }
+}
 const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
 
@@ -126,6 +186,7 @@ export const initializeEscrow = async (
     }
 
     if (!wallet) throw new Error("Wallet not connected");
+    await assertExpectedSolanaCluster();
 
     // On-chain require!(expires_at > clock.unix_timestamp). Callers historically
     // passed a duration (e.g. 86400); treat small values as relative seconds.
@@ -155,7 +216,7 @@ export const initializeEscrow = async (
         const tx = await program.methods
             .initializeEscrow(
                 new BN(amountLamports),
-                new BN(limitGb),
+                new BN(escrowBandwidthUnitsFromGiB(limitGb)),
                 new BN(expiresAt)
             )
             .accounts({
@@ -200,6 +261,7 @@ export const initializeEscrowMultisig = async (
     }
 
     if (!wallet) throw new Error('Wallet not connected');
+    await assertExpectedSolanaCluster();
     if (!expiresAtUnix || expiresAtUnix <= Math.floor(Date.now() / 1000)) {
         throw new Error('escrow_expires_at must be a future unix timestamp');
     }
@@ -224,7 +286,7 @@ export const initializeEscrowMultisig = async (
         const tx = await program.methods
             .initializeEscrowMultisig(
                 new BN(amountLamports),
-                new BN(limitGb),
+                new BN(escrowBandwidthUnitsFromGiB(limitGb)),
                 new BN(expiresAtUnix)
             )
             .accounts({
@@ -503,7 +565,7 @@ export const initializeTokenEscrow = async (
         const tx = await program.methods
             .initializeTokenEscrow(
                 new BN(amount),
-                new BN(limitGb),
+                new BN(escrowBandwidthUnitsFromGiB(limitGb)),
                 new BN(durationSeconds)
             )
             .accounts({

@@ -350,10 +350,24 @@ func isTransientRPCError(err error) bool {
 	return strings.Contains(msg, "429") ||
 		strings.Contains(msg, "too many requests") ||
 		strings.Contains(msg, "rate limit") ||
+		strings.Contains(msg, "max usage reached") ||
+		strings.Contains(msg, "32429") ||
 		strings.Contains(msg, "timeout") ||
 		strings.Contains(msg, "connection reset") ||
 		strings.Contains(msg, "eof") ||
 		strings.Contains(msg, "temporar")
+}
+
+// IsUsageProofAlreadyOnChain reports program errors from re-submitting the same
+// (escrow, proof_index) PDA — treat as proof present so settle can continue.
+func IsUsageProofAlreadyOnChain(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "already in use") ||
+		strings.Contains(msg, "already exists") ||
+		strings.Contains(msg, "already initialized")
 }
 
 // loadKeypair loads a Solana keypair from a file.

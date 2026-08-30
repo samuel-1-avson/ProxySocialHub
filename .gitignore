@@ -46,6 +46,8 @@ cli/provider.local.toml
 dist/
 build/
 target/
+target-*/
+test-ledger/
 **/.sbf-bak/
 *.exe
 *.dll
@@ -213,6 +215,7 @@ chrome-extension*.pem
 **/chrome-web-store.pem
 apps/extension/*.zip
 apps/extension/web-store/
+apps/extension/scripts/.fonts/
 apps/extension/.env
 apps/extension/.env.*
 !apps/extension/.env.example

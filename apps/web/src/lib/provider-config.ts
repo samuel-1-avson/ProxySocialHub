@@ -253,6 +253,10 @@ export function defaultProviderConfigPath(): string {
         if (p.includes('win')) {
             return '%APPDATA%\\proxyhubb\\provider.toml';
         }
+        if (p.includes('mac')) {
+            // dirs::config_dir() on darwin is ~/Library/Application Support, not ~/.config
+            return '~/Library/Application Support/proxyhubb/provider.toml';
+        }
     }
     return '~/.config/proxyhubb/provider.toml';
 }
@@ -387,16 +391,18 @@ export function buildWindowsSetupCmdWrapper(): string {
     ].join('\r\n');
 }
 
-/** Bash that writes provider.toml to ~/.config/proxyhubb (no hand-editing). */
+/** Bash that writes provider.toml to the daemon default path (no hand-editing). */
 export function buildUnixInstallScript(toml: string): string {
     return [
-        'mkdir -p ~/.config/proxyhubb',
-        "cat > ~/.config/proxyhubb/provider.toml << 'PROXYHUBB_EOF'",
+        unixConfigDirSnippet(),
+        'mkdir -p "$CFG_DIR" "$XDG_DIR"',
+        "cat > \"$CFG\" << 'PROXYHUBB_EOF'",
         toml.trimEnd(),
         'PROXYHUBB_EOF',
-        'echo "Wrote ~/.config/proxyhubb/provider.toml"',
-        'echo "Next: provider-node stop && provider-node start"',
-        'echo "Then: provider-node doctor"',
+        'if [ "$XDG_DIR" != "$CFG_DIR" ]; then cp "$CFG" "$XDG_DIR/provider.toml"; fi',
+        'echo "Wrote $CFG"',
+        'echo "Next: provider-node stop && provider-node start --config \\"$CFG\\""',
+        'echo "Then: provider-node doctor --config \\"$CFG\\""',
     ].join('\n');
 }
 
@@ -409,11 +415,13 @@ export function buildUnixSetupThisPcScript(toml: string, apiBase = 'https://api.
         'set -euo pipefail',
         'echo ""',
         'echo "ProxyHubb - Setup this PC"',
-        'mkdir -p ~/.config/proxyhubb',
-        "cat > ~/.config/proxyhubb/provider.toml << 'PROXYHUBB_EOF'",
+        unixConfigDirSnippet(),
+        'mkdir -p "$CFG_DIR" "$XDG_DIR"',
+        "cat > \"$CFG\" << 'PROXYHUBB_EOF'",
         toml.trimEnd(),
         'PROXYHUBB_EOF',
-        'echo "OK  Config saved to ~/.config/proxyhubb/provider.toml"',
+        'if [ "$XDG_DIR" != "$CFG_DIR" ]; then cp "$CFG" "$XDG_DIR/provider.toml"; fi',
+        'echo "OK  Config saved to $CFG"',
         'BIN_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/proxyhubb/bin"',
         'mkdir -p "$BIN_DIR"',
         'EXE="$BIN_DIR/provider-node"',
@@ -434,15 +442,29 @@ export function buildUnixSetupThisPcScript(toml: string, apiBase = 'https://api.
         '    mv "$EXE.download" "$EXE"',
         '  fi',
         '  chmod +x "$EXE"',
+        '  xattr -dr com.apple.quarantine "$EXE" 2>/dev/null || true',
         '  echo "OK  CLI installed to $EXE"',
         'fi',
         '"$EXE" stop >/dev/null 2>&1 || true',
-        'nohup "$EXE" start >/dev/null 2>&1 &',
+        'nohup "$EXE" start --config "$CFG" >/dev/null 2>&1 &',
         'sleep 3',
-        '"$EXE" doctor || true',
+        '"$EXE" doctor --config "$CFG" || true',
         'echo ""',
-        'echo "Done. Keep this machine online. Check Dashboard -> My nodes."',
+        'echo "Done. Keep this machine awake and online. Check Dashboard -> My nodes."',
         '',
+    ].join('\n');
+}
+
+/** Resolve the same config path provider-node 1.0.6 reads (darwin ≠ XDG). */
+function unixConfigDirSnippet(): string {
+    return [
+        'if [ "$(uname -s)" = "Darwin" ]; then',
+        '  CFG_DIR="$HOME/Library/Application Support/proxyhubb"',
+        'else',
+        '  CFG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/proxyhubb"',
+        'fi',
+        'XDG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/proxyhubb"',
+        'CFG="$CFG_DIR/provider.toml"',
     ].join('\n');
 }
 

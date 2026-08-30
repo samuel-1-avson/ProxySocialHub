@@ -187,11 +187,16 @@ func sellerProfileFromUser(u *models.User) *domain.SellerPublicProfile {
 		return nil
 	}
 	return &domain.SellerPublicProfile{
-		ID:          u.ID,
-		DisplayName: u.DisplayName,
-		Username:    u.Username,
-		AvatarURL:   u.AvatarURL,
-		TrustTier:   string(u.TrustTier),
-		Role:        u.Role,
+		ID:           u.ID,
+		DisplayName:  u.DisplayName,
+		Username:     u.Username,
+		AvatarURL:    u.AvatarURL,
+		TrustTier:    string(u.TrustTier),
+		Role:         u.Role,
+		IsOnline:     u.IsOnline,
+		LastSeenAt:   u.LastSeenAt,
+		AvgRating:    u.AvgRating,
+		ReviewsCount: u.ReviewsCount,
+		CreatedAt:    u.CreatedAt,
 	}
 }

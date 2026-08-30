@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Navbar } from "@/components/Navbar";
+import { RealtimeProvider } from "@/lib/websocket";
 import { ROUTES } from "@/lib/navigation/routes";
 
 interface StaticInfoPageProps {
@@ -14,6 +15,7 @@ interface StaticInfoPageProps {
 
 export function StaticInfoPage({ eyebrow, title, summary, sections }: StaticInfoPageProps) {
     return (
+        <RealtimeProvider>
         <div className="min-h-screen bg-background text-foreground">
             <Navbar showAuth={true} />
             <main className="container mx-auto max-w-4xl px-4 py-16 md:py-24">
@@ -42,5 +44,6 @@ export function StaticInfoPage({ eyebrow, title, summary, sections }: StaticInfo
                 </div>
             </main>
         </div>
+        </RealtimeProvider>
     );
 }

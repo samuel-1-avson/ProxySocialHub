@@ -14,6 +14,7 @@ export type MarketplaceListingMapPin = ExplorerListingPin & {
     isp?: string;
     network_class?: string;
     available_bandwidth_gb: number;
+    max_concurrency?: number;
     node_id?: string;
     node_active?: boolean;
     latency_ms?: number;
@@ -55,6 +56,7 @@ export function marketplacePointToListingPin(point: MarketplaceMapPoint): Market
         city: point.city,
         price_per_gb: point.price_per_gb ?? 0,
         available_bandwidth_gb: point.available_bandwidth_gb ?? 0,
+        max_concurrency: point.max_concurrency,
         lat: point.lat,
         lon: point.lon,
         node_id: point.node_id,
@@ -74,6 +76,7 @@ export function marketplacePointToListingPin(point: MarketplaceMapPoint): Market
         status: point.status,
         listing_offer_verified: point.listing_offer_verified,
         catalog_product: point.catalog_product,
+        active_sessions: point.active_sessions ?? 0,
     };
 }
 

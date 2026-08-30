@@ -4,8 +4,11 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
-import { getProfile, followUser, unfollowUser, blockUser, getUserReviews, type UserPublicProfile, type Review } from "@/lib/services/profile";
-import { getMyBadges, type UserBadge } from "@/lib/api/badges";
+import { getProfile, followUser, unfollowUser, blockUser, getUserReviews, type UserPublicProfile, type Review } from "@/lib/api/profile";
+import { getUserBadges, type UserBadge } from "@/lib/api/badges";
+import { accountTierLabel, identityStatusLabel } from "@/lib/account-tier";
+import { getListings, type Listing } from "@/lib/api/marketplace";
+import { socialProfileUrl } from "@/lib/utils";
 
 import {
     Star,
@@ -56,6 +59,7 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
     const [profile, setProfile] = useState<UserPublicProfile | null>(null);
     const [reviews, setReviews] = useState<Review[]>([]);
     const [badges, setBadges] = useState<UserBadge[]>([]);
+    const [listings, setListings] = useState<Listing[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
     const [isFollowing, setIsFollowing] = useState(false);
@@ -81,17 +85,20 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                     const reviewsData = await getUserReviews(userData.id);
                     setReviews(reviewsData.reviews || []);
                 } catch {
-                    // Reviews optional
+                    setReviews([]);
                 }
 
-                if (isOwnProfile && isAuthenticated) {
-                    try {
-                        const badgeData = await getMyBadges();
-                        setBadges(badgeData.badges || []);
-                    } catch {
-                        setBadges([]);
-                    }
-                } else {
+                try {
+                    const listingData = await getListings({ seller_id: userData.id, limit: 8, sort_by: 'newest' });
+                    setListings(listingData.listings || []);
+                } catch {
+                    setListings([]);
+                }
+
+                try {
+                    const badgeData = await getUserBadges(userData.id);
+                    setBadges(badgeData.badges || []);
+                } catch {
                     setBadges([]);
                 }
             } catch (err) {
@@ -126,12 +133,12 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
 
     const handleBlock = async () => {
         if (!profile || !isAuthenticated) return;
-        if (!confirm("Confirm target isolation? This entity will be purged from your network segment.")) return;
+        if (!confirm("Block this user? They will be removed from your follows.")) return;
         try {
             await blockUser(profile.id);
             router.push('/');
         } catch (err) {
-            alert("Protocol deviation detected. Purge failed.");
+            alert("Could not block this user.");
         }
     }
 
@@ -148,7 +155,7 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                         <Fingerprint className="text-primary/40" size={32} />
                     </div>
                 </div>
-                <p className="font-black text-[10px] uppercase tracking-[0.6em] text-muted-foreground animate-pulse">Scanning Neural ID...</p>
+                <p className="font-black text-[10px] uppercase tracking-[0.6em] text-muted-foreground animate-pulse">Loading profile...</p>
             </div>
         );
     }
@@ -160,13 +167,13 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                     <Zap size={40} className="animate-pulse" />
                 </div>
                 <div className="space-y-4">
-                    <h2 className="text-4xl font-black uppercase tracking-tighter text-foreground">Grid Signal Lost</h2>
+                    <h2 className="text-4xl font-black uppercase tracking-tighter text-foreground">Profile not found</h2>
                     <p className="text-[11px] font-black uppercase text-muted-foreground tracking-widest leading-relaxed">
-                        {error || "The requested protocol signature could not be verified in the current mesh sector."}
+                        {error || "No account with this username."}
                     </p>
                 </div>
                 <Link href="/marketplace" className="inline-flex items-center gap-4 px-10 py-5 bg-white text-black font-black text-[11px] uppercase tracking-widest rounded-2xl hover:bg-white/90 transition-all active:scale-95 shadow-2xl">
-                    <ArrowRight size={20} /> Browse Sectors
+                    Browse marketplace
                 </Link>
             </div>
         );
@@ -219,24 +226,23 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                         {/* Top Protocol Status - Tactically Enhanced */}
                         <div className="absolute top-10 inset-x-12 flex justify-between items-start pointer-events-none">
                             <div className="space-y-2">
-                                <div className="text-[9px] font-black uppercase tracking-[0.4em] text-white/70">Network Origin</div>
-                                <div className="space-y-1">
-                                    <div className="text-[11px] font-bold tracking-widest text-emerald-400 flex items-center gap-2">
-                                        <MapPin size={12} /> {profile.location || 'Global Mesh Node'}
-                                    </div>
-                                    <div className="text-[9px] font-black tracking-[0.2em] text-white/80 uppercase flex items-center gap-2">
-                                        <Globe size={10} className="opacity-50" /> {profile.isp || 'Peer-to-Peer Relay'}
-                                    </div>
+                                <div className="text-[9px] font-black uppercase tracking-[0.4em] text-white/70">Location</div>
+                                <div className="text-[11px] font-bold tracking-widest text-emerald-400 flex items-center gap-2">
+                                    <MapPin size={12} /> {profile.location || "Not listed"}
                                 </div>
                             </div>
                             <div className="text-right space-y-2">
-                                <div className="text-[9px] font-black uppercase tracking-[0.4em] text-white/70">Protocol Authority</div>
+                                <div className="text-[9px] font-black uppercase tracking-[0.4em] text-white/70">Account tier</div>
                                 <div className="space-y-1">
                                     <div className="text-[11px] font-bold tracking-widest text-emerald-400 flex items-center gap-2 justify-end">
-                                        {profile.trust_tier || 'Alpha Sector'} <ShieldCheck size={12} />
+                                        {accountTierLabel(profile.trust_tier)}
                                     </div>
                                     <div className="text-[9px] font-black tracking-[0.2em] text-white/80 uppercase">
-                                        Registry Status: <span className="text-emerald-400">Verified</span>
+                                        Identity:{" "}
+                                        <span className={profile.verified ? "text-emerald-400 inline-flex items-center gap-1" : "text-white/50"}>
+                                            {identityStatusLabel(profile.verified)}
+                                            {profile.verified ? <ShieldCheck size={12} /> : null}
+                                        </span>
                                     </div>
                                 </div>
                             </div>
@@ -259,10 +265,15 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                                         {(profile.display_name?.[0] || profile.username?.[0] || "?").toUpperCase()}
                                     </div>
                                 )}
-                                {/* Status Indicator */}
+                                {profile.is_online ? (
                                 <div className="absolute bottom-6 right-6 w-7 h-7 rounded-xl bg-emerald-500 border-4 border-black shadow-[0_0_20px_rgba(16,185,129,0.8)] flex items-center justify-center">
                                     <Activity size={12} className="text-black" />
                                 </div>
+                                ) : (
+                                <div className="absolute bottom-6 right-6 w-7 h-7 rounded-xl bg-zinc-600 border-4 border-black flex items-center justify-center">
+                                    <Activity size={12} className="text-black/70" />
+                                </div>
+                                )}
                             </div>
                         </div>
 
@@ -298,7 +309,7 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                                     )}
                                     <div className="h-5 w-px bg-border invisible md:visible" />
                                     <div className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em] flex items-center gap-2">
-                                        <History size={14} /> Node Synced {new Date(profile.created_at).toLocaleDateString([], { month: 'short', year: 'numeric' })}
+                                        Node joined {new Date(profile.created_at).toLocaleDateString([], { month: 'short', year: 'numeric' })}
                                     </div>
                                 </div>
                             </div>
@@ -307,14 +318,16 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                             {profile.social_links && (
                                 <div className="flex items-center gap-3">
                                     {Object.entries(profile.social_links).map(([platform, handle]) => {
-                                        if (!handle) return null;
-                                        const Icon = platform === 'twitter' ? Twitter : platform === 'github' ? Github : Linkedin;
+                                        const href = socialProfileUrl(platform, handle);
+                                        if (!href) return null;
+                                        const Icon = platform === 'twitter' || platform === 'x' ? Twitter : platform === 'github' ? Github : Linkedin;
                                         return (
                                             <motion.a
                                                 key={platform}
                                                 whileHover={{ y: -2, scale: 1.1 }}
-                                                href={platform === 'linkedin' ? handle : `https://${platform}.com/${handle}`}
+                                                href={href}
                                                 target="_blank"
+                                                rel="noopener noreferrer"
                                                 className="p-3 rounded-xl bg-muted border border-border text-muted-foreground hover:text-primary hover:border-primary/20 transition-all shadow-xl"
                                             >
                                                 <Icon size={16} />
@@ -322,6 +335,16 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                                         );
                                     })}
                                 </div>
+                            )}
+                            {profile.website && socialProfileUrl("website", profile.website) && (
+                                <a
+                                    href={socialProfileUrl("website", profile.website)!}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-muted-foreground hover:text-primary"
+                                >
+                                    <ExternalLink size={12} /> Website
+                                </a>
                             )}
                         </div>
 
@@ -332,7 +355,7 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                                     href="/dashboard/settings/identity"
                                     className="px-10 py-5 rounded-2xl bg-white text-black font-black text-[11px] uppercase tracking-widest flex items-center gap-3 shadow-2xl hover:scale-105 transition-all active:scale-95"
                                 >
-                                    <Edit3 size={18} /> Edit Local Buffer
+                                    <Edit3 size={18} /> Edit profile
                                 </Link>
                             ) : (
                                 <div className="flex gap-4 items-center">
@@ -344,7 +367,7 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                                             }`}
                                     >
                                         {isFollowing ? <UserCheck size={18} /> : <Users size={18} />}
-                                        {isFollowing ? 'Purge Sync' : 'Initialize Sync'}
+                                        {isFollowing ? 'Following' : 'Follow'}
                                     </button>
                                     <Link
                                         href={`/messages?to=${profile.id}`}
@@ -371,7 +394,7 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                     <motion.div variants={itemVariants} className="space-y-6">
                         <div className="flex items-center gap-3 px-6">
                             <div className="h-px bg-border flex-1" />
-                            <div className="text-[9px] font-black uppercase text-muted-foreground tracking-[0.4em]">Neural Summary</div>
+                            <div className="text-[9px] font-black uppercase text-muted-foreground tracking-[0.4em]">Bio</div>
                             <div className="h-px bg-border flex-1" />
                         </div>
                         <GlassCard className="border-border bg-card rounded-[2rem] relative group p-8">
@@ -380,7 +403,7 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                             </div>
                             <div className="space-y-6 relative z-10">
                                 <p className="text-sm font-black text-foreground leading-relaxed italic">
-                                    "{profile.bio || "No neural description recorded in current protocol sector."}"
+                                    "{profile.bio || "No bio yet."}"
                                 </p>
                                 {profile.primary_specialization && (
                                     <div className="pt-6 border-t border-border flex items-center gap-4">
@@ -400,10 +423,10 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                     {/* Stats Matrix */}
                     <motion.div variants={itemVariants} className="grid grid-cols-2 gap-6">
                         {[
-                            { label: 'Network Reach', value: profile.followers_count || 0, icon: Users, color: 'text-primary' },
-                            { label: 'Relay Nodes', value: profile.following_count || 0, icon: Hexagon, color: 'text-muted-foreground' },
-                            { label: 'Protocol Rating', value: profile.avg_rating > 0 ? profile.avg_rating.toFixed(1) : '5.0', icon: Star, color: 'text-yellow-500' },
-                            { label: 'Consensus Proof', value: profile.reviews_count || 0, icon: ShieldCheck, color: 'text-emerald-500' }
+                            { label: 'Followers', value: profile.followers_count || 0, icon: Users, color: 'text-primary' },
+                            { label: 'Following', value: profile.following_count || 0, icon: Hexagon, color: 'text-muted-foreground' },
+                            { label: 'Rating', value: profile.reviews_count > 0 ? profile.avg_rating.toFixed(1) : '—', icon: Star, color: 'text-yellow-500' },
+                            { label: 'Reviews', value: profile.reviews_count || 0, icon: ShieldCheck, color: 'text-emerald-500' }
                         ].map((stat, i) => (
                             <GlassCard key={i} className="!p-6 border-border bg-card rounded-[2rem] hover:scale-105 transition-transform">
                                 <stat.icon className={`${stat.color} mb-3`} size={18} />
@@ -413,7 +436,7 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                         ))}
                     </motion.div>
 
-                    {isOwnProfile && badges.length > 0 && (
+                    {badges.length > 0 && (
                         <motion.div variants={itemVariants} className="space-y-4">
                             <div className="flex items-center gap-3 px-2">
                                 <Award size={14} className="text-primary" />
@@ -476,9 +499,9 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                 <div className="lg:col-span-8 space-y-12">
                     <motion.div variants={itemVariants} className="flex gap-8 border-b border-border">
                         {[
-                            { id: 'reviews', label: 'Trust Ledger', count: reviews.length, icon: Heart },
-                            ...(profile?.role === 'provider' || profile?.role === 'both'
-                                ? [{ id: 'listings', label: 'Active Grid', count: 'GRID', icon: Activity }]
+                            { id: 'reviews', label: 'Reviews', count: reviews.length, icon: Heart },
+                            ...(profile?.role === 'provider' || profile?.role === 'both' || listings.length > 0
+                                ? [{ id: 'listings', label: 'Listings', count: listings.length, icon: Activity }]
                                 : []),
                         ].map((tab) => (
                             <button
@@ -511,8 +534,8 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                                                 <Star size={32} className="text-muted-foreground" />
                                             </div>
                                         </div>
-                                        <h4 className="text-xl font-black uppercase tracking-tighter text-foreground">Zero Consensus Proofs</h4>
-                                        <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.4em] mt-4">No decentralized identity logs recorded.</p>
+                                        <h4 className="text-xl font-black uppercase tracking-tighter text-foreground">No reviews yet</h4>
+                                        <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.4em] mt-4">Reviews from completed orders will show here.</p>
                                     </div>
                                 ) : (
                                     <div className="space-y-6">
@@ -556,25 +579,33 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                         )}
 
                         {activeTab === "listings" && (
-                            <Link href={`/marketplace?seller_id=${profile?.id}`} className="group block">
-                                <GlassCard className="!p-12 border-border bg-card rounded-[3rem] items-center justify-between flex group-hover:bg-primary/[0.03] group-hover:border-primary/20 transition-all">
-                                    <div className="flex items-center gap-10">
-                                        <div className="w-24 h-24 rounded-[2.5rem] bg-muted border border-border flex items-center justify-center text-primary relative overflow-hidden group-hover:border-primary/30 transition-colors">
-                                            <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity" />
-                                            <Cpu size={40} className="relative z-10 group-hover:scale-110 transition-transform duration-500" />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <h3 className="text-3xl font-black uppercase tracking-tighter text-foreground">Active Grid Assets</h3>
-                                            <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.4em] flex items-center gap-3">
-                                                <span className="w-2 h-2 rounded-full bg-primary animate-pulse" /> Synchronize Current Load Factors
-                                            </p>
-                                        </div>
+                            <div className="space-y-4">
+                                {listings.length === 0 ? (
+                                    <div className="py-24 text-center border-2 border-dashed border-border rounded-[3rem] bg-muted">
+                                        <h4 className="text-xl font-black uppercase tracking-tighter text-foreground">No listings</h4>
+                                        <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.4em] mt-4">This seller has no public listings yet.</p>
                                     </div>
-                                    <div className="w-20 h-20 rounded-[2.5rem] bg-muted border border-border flex items-center justify-center text-muted-foreground group-hover:text-primary group-hover:border-primary/20 transition-all">
-                                        <ArrowRight size={32} className="group-hover:translate-x-2 transition-transform" />
-                                    </div>
-                                </GlassCard>
-                            </Link>
+                                ) : (
+                                    listings.map((listing) => (
+                                        <Link key={listing.id} href={`/marketplace/${listing.id}`} className="block">
+                                            <GlassCard className="!p-6 border-border bg-card rounded-[1.5rem] flex items-center justify-between hover:bg-surface-hover transition-all">
+                                                <div className="space-y-1">
+                                                    <div className="text-lg font-black uppercase tracking-tight text-foreground">
+                                                        {listing.title}
+                                                    </div>
+                                                    <div className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                                                        {[listing.country, listing.city, listing.status].filter(Boolean).join(" · ")}
+                                                    </div>
+                                                </div>
+                                                <ArrowRight size={20} className="text-muted-foreground" />
+                                            </GlassCard>
+                                        </Link>
+                                    ))
+                                )}
+                                <Link href={`/marketplace?seller_id=${profile?.id}`} className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-primary">
+                                    View all on marketplace <ArrowRight size={14} />
+                                </Link>
+                            </div>
                         )}
                     </div>
                 </div>

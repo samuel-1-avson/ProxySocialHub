@@ -31,6 +31,10 @@ import {
   isEscrowAccountAlreadyInUse,
   getEscrowInfo,
   getEscrowInfoByPDA,
+  assertExpectedSolanaCluster,
+  assertBuyerHasSolOnCluster,
+  shopSolanaClusterLabel,
+  WrongSolanaClusterError,
 } from '@/lib/solana';
 import { formatSolanaWalletError } from '@/lib/solana-transfer';
 import { useToast } from '@/stores';
@@ -146,6 +150,12 @@ export function BuyListingModal({
     setLoading(true);
     setError('');
     try {
+      if (!e2eMockBuy) {
+        await assertExpectedSolanaCluster();
+        if (publicKey) {
+          await assertBuyerHasSolOnCluster(publicKey);
+        }
+      }
       const orderResult = await createOrderWithProvisioning({
         listing_id: listing.id,
         bandwidth_gb: bandwidth,
@@ -262,13 +272,17 @@ export function BuyListingModal({
       onSuccess(order.id, nextCredentials);
     } catch (err: unknown) {
       console.error(err);
-      const walletMsg = formatSolanaWalletError(err);
-      const apiMsg = getErrorMessage(err);
-      setError(
-        walletMsg ||
-          apiMsg ||
-          'Failed to connect. Check your on-chain SOL wallet balance (devnet).'
-      );
+      if (err instanceof WrongSolanaClusterError || err instanceof ApiError) {
+        setError(err.message);
+      } else {
+        const walletMsg = formatSolanaWalletError(err);
+        const apiMsg = getErrorMessage(err);
+        setError(
+          walletMsg ||
+            apiMsg ||
+            'Failed to connect. Check your on-chain SOL wallet balance (devnet).'
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -415,7 +429,8 @@ export function BuyListingModal({
           </Button>
           <p className="text-center text-xs text-muted-foreground">
             You pay from your linked Solana wallet into on-chain escrow. Platform balance is not used.
-            Session ends when bandwidth quota is exhausted.
+            Session ends when bandwidth quota is exhausted. This shop settles on Solana{' '}
+            {shopSolanaClusterLabel()} — set Phantom to that cluster before you pay.
           </p>
           <MoneyRailHint rail="escrow" />
         </div>
@@ -438,7 +453,9 @@ export function BuyListingModal({
               </span>
               <span className="inline-flex items-center gap-1 font-mono">
                 <Zap size={12} className="text-[var(--warning)]" aria-hidden />
-                {listing.avg_latency_ms}ms
+                {listing.sla_source && listing.sla_source !== 'listing'
+                  ? `${listing.avg_latency_ms}ms`
+                  : 'Latency unmeasured'}
               </span>
               <span className="inline-flex items-center gap-1">
                 <Wifi size={12} className="text-[var(--success)]" aria-hidden />

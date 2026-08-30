@@ -14,7 +14,10 @@ import (
 
 // maybeBindProviderHotkey sets provider_nodes.hotkey from a verified proof signer when the
 // node has no hotkey yet, or leaves it unchanged when it already matches.
-// If the user profile has wallet_address set, the signer must match it.
+//
+// The heartbeat/listing signer is the node device key (provider.toml). That is
+// independent of the seller payout wallet (Phantom). ProviderRegistry PDAs are
+// keyed by the device hotkey; escrow seller is the linked payout wallet.
 func maybeBindProviderHotkey(nodeID, userID uuid.UUID, signer string, verified bool) bool {
 	signer = strings.TrimSpace(signer)
 	if !verified || signer == "" {
@@ -22,7 +25,7 @@ func maybeBindProviderHotkey(nodeID, userID uuid.UUID, signer string, verified b
 	}
 
 	var node models.ProviderNode
-	if err := db.DB.Select("id", "hotkey", "ip_address", "country").
+	if err := db.DB.Select("id", "hotkey", "ip_address", "country", "is_registered_on_chain").
 		Where("id = ? AND user_id = ?", nodeID, userID).
 		First(&node).Error; err != nil {
 		return false
@@ -30,16 +33,10 @@ func maybeBindProviderHotkey(nodeID, userID uuid.UUID, signer string, verified b
 
 	existing := strings.TrimSpace(node.Hotkey)
 	if existing != "" {
+		if existing == signer && !node.IsRegisteredOnChain {
+			go registerProviderOnChainAsync(nodeID, existing, node.IPAddress, node.Country)
+		}
 		return existing == signer
-	}
-
-	if wallet := profileWalletAddress(userID); wallet != "" && wallet != signer {
-		logging.Warn().
-			Str("node_id", nodeID.String()).
-			Str("signer", signer).
-			Str("wallet", wallet).
-			Msg("maybeBindProviderHotkey: proof signer does not match profile wallet")
-		return false
 	}
 
 	if _, err := sol.PublicKeyFromBase58(signer); err != nil {
@@ -75,6 +72,12 @@ func profileWalletAddress(userID uuid.UUID) string {
 }
 
 func registerProviderOnChainAsync(nodeID uuid.UUID, hotkey, ip, country string) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			logging.Warn().Interface("panic", rec).Str("node_id", nodeID.String()).
+				Msg("registerProviderOnChainAsync: recovered")
+		}
+	}()
 	oracle := solanaClient.GetOracleClient()
 	if oracle == nil {
 		return
@@ -87,17 +90,38 @@ func registerProviderOnChainAsync(nodeID uuid.UUID, hotkey, ip, country string) 
 	if endpoint == "" {
 		endpoint = "unknown"
 	}
-	sig, err := oracle.RegisterProviderOnChain(context.Background(), solanaClient.RegisterProviderParams{
+	ctx := context.Background()
+	sig, err := oracle.RegisterProviderOnChain(ctx, solanaClient.RegisterProviderParams{
 		Provider: providerPubkey,
 		Endpoint: endpoint,
 		Location: country,
 	})
 	if err != nil {
-		logging.Warn().Err(err).Str("node_id", nodeID.String()).Msg("registerProviderOnChainAsync: failed (non-fatal)")
-		return
+		lower := strings.ToLower(err.Error())
+		already := strings.Contains(lower, "already in use") || strings.Contains(lower, "alreadyinitialized")
+		if !already {
+			if existing, readErr := oracle.ReadProviderRegistry(ctx, providerPubkey); readErr == nil && existing != nil && existing.IsActive {
+				already = true
+			}
+		}
+		if !already {
+			logging.Warn().Err(err).Str("node_id", nodeID.String()).Msg("registerProviderOnChainAsync: failed (non-fatal)")
+			return
+		}
+		logging.Info().Err(err).Str("node_id", nodeID.String()).Msg("registerProviderOnChainAsync: registry already present")
+	} else {
+		logging.Info().Str("sig", sig).Str("node_id", nodeID.String()).Msg("registerProviderOnChainAsync: provider registered on-chain")
 	}
+
+	if _, hbErr := oracle.ProviderHeartbeatOnChain(ctx, solanaClient.ProviderHeartbeatParams{
+		Provider:            providerPubkey,
+		QualityScore:        100,
+		BandwidthServedDelta: 0,
+	}); hbErr != nil {
+		logging.Warn().Err(hbErr).Str("node_id", nodeID.String()).Msg("registerProviderOnChainAsync: on-chain heartbeat failed (non-fatal)")
+	}
+
 	db.DB.Model(&models.ProviderNode{}).Where("id = ?", nodeID).Updates(map[string]interface{}{
 		"is_registered_on_chain": true,
 	})
-	logging.Info().Str("sig", sig).Str("node_id", nodeID.String()).Msg("registerProviderOnChainAsync: provider registered on-chain")
 }

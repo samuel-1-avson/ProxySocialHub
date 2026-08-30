@@ -97,5 +97,18 @@ export function formatSolanaWalletError(err: unknown): string {
         return 'Transaction expired — try again';
     }
 
+    if (
+        lower.includes('insufficient lamports') ||
+        lower.includes('insufficient funds') ||
+        lower.includes('no record of a prior credit') ||
+        lower.includes('attempt to debit')
+    ) {
+        const cluster =
+            (process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'devnet') === 'mainnet'
+                ? 'Mainnet'
+                : process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'devnet';
+        return `Not enough SOL on ${cluster}. Switch Phantom to ${cluster}, fund the wallet, then retry.`;
+    }
+
     return raw || 'Transfer failed';
 }

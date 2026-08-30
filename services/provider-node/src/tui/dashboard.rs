@@ -426,7 +426,10 @@ fn drain_refresh_messages(
                 match result {
                     Ok(snap) => {
                         data.remote_error = None;
-                        data.snapshot = Some(snap);
+                        match &mut data.snapshot {
+                            Some(existing) => merge_remote(existing, snap),
+                            None => data.snapshot = Some(snap),
+                        }
                         clamp_node_cursor(app, &data.snapshot);
                     }
                     Err(e) => data.remote_error = Some(e),
@@ -692,6 +695,12 @@ fn merge_local(existing: &mut OperatorSnapshot, local: &OperatorSnapshot) {
     existing.config = local.config.clone();
     existing.runtime = local.runtime.clone();
     existing.log_tail = local.log_tail.clone();
+}
+
+fn merge_remote(existing: &mut OperatorSnapshot, remote: OperatorSnapshot) {
+    existing.status.control_api = remote.status.control_api;
+    existing.earnings = remote.earnings;
+    existing.health = remote.health;
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1060,7 +1069,7 @@ fn render_kpi_row(frame: &mut ratatui::Frame<'_>, area: Rect, snap: Option<&Oper
 
     let (sessions, up, down, lat, hb, today) = if let Some(m) = &s.status.metrics {
         (
-            format!("{}", m.active_connections),
+            format!("{}/{}", m.active_connections, m.total_connections),
             format!("{} kbps", m.rate_up_kbps),
             format!("{} kbps", m.rate_down_kbps),
             format!("{} ms", m.latency_ms),
@@ -1097,7 +1106,7 @@ fn render_kpi_row(frame: &mut ratatui::Frame<'_>, area: Rect, snap: Option<&Oper
         .split(inner);
 
     let items = [
-        ("SESSIONS", sessions),
+        ("ACTIVE", sessions),
         ("UPLINK", up),
         ("DOWNLINK", down),
         ("LATENCY", lat),
@@ -1695,7 +1704,7 @@ fn render_earnings(
                     ),
                 ),
                 Line::from(Span::styled(
-                    "Earnings settle on-chain; pending may take a few minutes to update.",
+                    "SOL is credited when a buyer session ends and usage is settled. Live CONNECT bytes show on Network.",
                     theme::dim(),
                 )),
             ];

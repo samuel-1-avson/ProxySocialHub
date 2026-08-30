@@ -3,6 +3,8 @@ package worker
 import (
 	"context"
 	"log"
+	"os"
+	"strings"
 	"time"
 
 	sol "github.com/gagliardetto/solana-go"
@@ -11,6 +13,8 @@ import (
 	"github.com/proxyhubb/control-api/internal/orders/fsm"
 	"github.com/proxyhubb/control-api/internal/solana"
 )
+
+const defaultUnfundedEscrowTimeout = 2 * time.Hour
 
 // EscrowCleaner scans for expired escrows and triggers refunds
 type EscrowCleaner struct {
@@ -41,6 +45,86 @@ func (ec *EscrowCleaner) Start(ctx context.Context, interval time.Duration) {
 	})
 }
 
+func unfundedEscrowTimeout() time.Duration {
+	if raw := strings.TrimSpace(os.Getenv("PROXYHUB_UNFUNDED_ESCROW_TIMEOUT")); raw != "" {
+		if d, err := time.ParseDuration(raw); err == nil && d > 0 {
+			return d
+		}
+	}
+	return defaultUnfundedEscrowTimeout
+}
+
+// shouldCancelUnfundedPending reports whether a pending_payment order with no
+// on-chain escrow account should be cancelled. RPC transport errors (429, timeouts)
+// must not cancel — they do not prove the account is missing.
+func shouldCancelUnfundedPending(status models.OrderStatus, fetchErr string, age, timeout time.Duration) bool {
+	if status != models.OrderStatusPendingPayment {
+		return false
+	}
+	if timeout <= 0 {
+		timeout = defaultUnfundedEscrowTimeout
+	}
+	if age < timeout {
+		return false
+	}
+	err := strings.ToLower(strings.TrimSpace(fetchErr))
+	if err == "" {
+		return true
+	}
+	if strings.Contains(err, "failed to fetch escrow account") {
+		return false
+	}
+	return strings.Contains(err, "escrow account not found")
+}
+
+func (ec *EscrowCleaner) cancelUnfundedPending(order models.Order, reason string) {
+	log.Printf("[EscrowCleaner] Cancelling unfunded pending_payment order %s (%s)", order.ID, reason)
+	if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusCancelled, "worker.escrow_cleaner.unfunded_timeout", nil); err != nil {
+		log.Printf("[EscrowCleaner] Invalid cancel transition for order %s: %v", order.ID, err)
+		recordEscrowReconciliation(escrowReconciliationRecord{
+			Source:    "escrow_cleaner",
+			EventType: "unfunded_timeout",
+			EscrowPDA: reconciliationPDA(order),
+			OrderID:   &order.ID,
+			Status:    models.EscrowReconciliationStatusInvalidState,
+			Reason:    "invalid_cancel_transition",
+			LastError: err.Error(),
+			Payload: map[string]interface{}{
+				"order_id": order.ID,
+				"status":   order.Status,
+			},
+		})
+		return
+	}
+	if order.SessionID != nil {
+		var session models.Session
+		if err := db.DB.First(&session, "id = ?", order.SessionID).Error; err == nil {
+			if models.ValidateSessionStatusTransition(session.Status, models.SessionTerminated) == nil {
+				_ = db.DB.Model(&session).Update("status", models.SessionTerminated).Error
+			}
+		}
+	}
+	recordEscrowReconciliation(escrowReconciliationRecord{
+		Source:    "escrow_cleaner",
+		EventType: "unfunded_timeout",
+		EscrowPDA: reconciliationPDA(order),
+		OrderID:   &order.ID,
+		Status:    models.EscrowReconciliationStatusResolved,
+		Reason:    reason,
+		Payload: map[string]interface{}{
+			"order_id": order.ID,
+			"status":   order.Status,
+		},
+	})
+}
+
+func reconciliationPDA(order models.Order) string {
+	if strings.TrimSpace(order.EscrowPDA) != "" {
+		return order.EscrowPDA
+	}
+	return "unfunded:" + order.ID.String()
+}
+
 func (ec *EscrowCleaner) ScanAndRefund(ctx context.Context) {
 	// 1. Find Orders that are in an actionable state and use Solana Escrow
 	var orders []models.Order
@@ -53,15 +137,34 @@ func (ec *EscrowCleaner) ScanAndRefund(ctx context.Context) {
 		return
 	}
 
+	timeout := unfundedEscrowTimeout()
+	now := time.Now()
+
 	for _, order := range orders {
-		if order.EscrowPDA == "" {
+		age := now.Sub(order.CreatedAt)
+		if strings.TrimSpace(order.EscrowPDA) == "" {
+			if shouldCancelUnfundedPending(order.Status, "", age, timeout) {
+				ec.cancelUnfundedPending(order, "unfunded_timeout")
+			}
 			continue
 		}
 
-		// 2. Fetch On-Chain State to confirm expiry
-		pda := sol.MustPublicKeyFromBase58(order.EscrowPDA)
+		pda, err := sol.PublicKeyFromBase58(order.EscrowPDA)
+		if err != nil {
+			log.Printf("[EscrowCleaner] Invalid escrow PDA on order %s: %v", order.ID, err)
+			if shouldCancelUnfundedPending(order.Status, "escrow account not found", age, timeout) {
+				ec.cancelUnfundedPending(order, "invalid_escrow_pda")
+			}
+			continue
+		}
+
+		// 2. Fetch On-Chain State to confirm expiry / existence
 		escrow, err := ec.client.FetchEscrow(ctx, pda)
 		if err != nil {
+			if shouldCancelUnfundedPending(order.Status, err.Error(), age, timeout) {
+				ec.cancelUnfundedPending(order, "unfunded_timeout")
+				continue
+			}
 			log.Printf("[EscrowCleaner] Failed to fetch escrow %s: %v", order.EscrowPDA, err)
 			continue
 		}

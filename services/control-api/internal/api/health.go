@@ -16,6 +16,8 @@ const maxAdminNodeHealthList = 2000
 // Node inventory / mutations are intentionally NOT registered here — see
 // RegisterAdminNodeHealthRoutes (SEC-R1 / PRODUCTION_AUDIT P0).
 func RegisterHealthRoutes(r *gin.RouterGroup) {
+	// Liveness for Docker/Caddy/LB is GET /health on the engine root, not /v1/health.
+	// These are detailed public snapshots, not substitutes for that probe.
 	h := r.Group("/health")
 	{
 		h.GET("/stats", getHealthStats)

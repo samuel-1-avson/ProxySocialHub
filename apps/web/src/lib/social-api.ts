@@ -151,28 +151,7 @@ export async function getNotifications(): Promise<{ notifications: any[] }> {
     return res.json();
 }
 
-// ============== Profile API ==============
-export async function getMyProfile(): Promise<User> {
-    const res = await fetchWithAuth(`${API_BASE}/v1/profile`);
-    if (!res.ok) throw new Error('Failed to fetch profile');
-    return res.json();
-}
-
-export async function updateProfile(data: Partial<User>): Promise<User> {
-    const res = await fetchWithAuth(`${API_BASE}/v1/profile`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-    });
-    if (!res.ok) throw new Error('Failed to update profile');
-    return res.json();
-}
-
-export async function getPublicProfile(identifier: string): Promise<User> {
-    const res = await fetchWithAuth(`${API_BASE}/v1/users/${identifier}`);
-    if (!res.ok) throw new Error('User not found');
-    return res.json();
-}
+// Profile reads/writes: import from @/lib/api/profile
 
 export async function followUser(userId: string): Promise<void> {
     const res = await fetchWithAuth(`${API_BASE}/v1/users/${userId}/follow`, { method: 'POST' });

@@ -2,15 +2,19 @@ package api
 
 import (
 	"net/http"
-	"fmt"
+	"net/url"
+	"regexp"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 	"github.com/proxyhubb/control-api/internal/db"
-	"github.com/proxyhubb/control-api/internal/geoip"
 	"github.com/proxyhubb/control-api/internal/models"
+	"gorm.io/gorm"
 )
+
+var profileUsernameRe = regexp.MustCompile(`^[a-zA-Z0-9_]{3,50}$`)
 
 // RegisterProfileRoutes registers profile-related routes
 func RegisterProfileRoutes(rg *gin.RouterGroup) {
@@ -60,7 +64,7 @@ func getMyProfile(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, user.ToPublicProfile())
+	c.JSON(http.StatusOK, user.ToSelfProfile())
 }
 
 // updateProfile updates the authenticated user's profile
@@ -83,15 +87,24 @@ func updateProfile(c *gin.Context) {
 		return
 	}
 
-	// Check if username is being changed and is unique
 	if req.Username != nil && *req.Username != "" {
-		if user.Username == nil || *user.Username != *req.Username {
+		uname := strings.TrimSpace(*req.Username)
+		if !profileUsernameRe.MatchString(uname) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Username must be 3–50 letters, numbers, or underscores"})
+			return
+		}
+		*req.Username = uname
+		if user.Username == nil || *user.Username != uname {
 			var existingUser models.User
-			if err := db.DB.Where("username = ? AND id != ?", *req.Username, userID).First(&existingUser).Error; err == nil {
+			if err := db.DB.Where("username = ? AND id != ?", uname, userID).First(&existingUser).Error; err == nil {
 				c.JSON(http.StatusConflict, gin.H{"error": "Username already taken"})
 				return
 			}
 		}
+	}
+	if req.AvatarURL != nil && *req.AvatarURL != "" && !validAvatarURL(*req.AvatarURL) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Avatar must be an https image URL or a small image upload"})
+		return
 	}
 
 	// Update fields
@@ -126,9 +139,6 @@ func updateProfile(c *gin.Context) {
 	if req.BusinessName != nil {
 		updates["business_name"] = *req.BusinessName
 	}
-	if req.TaxID != nil {
-		updates["tax_id"] = *req.TaxID
-	}
 	if req.ProfessionalTitle != nil {
 		updates["professional_title"] = *req.ProfessionalTitle
 	}
@@ -141,34 +151,20 @@ func updateProfile(c *gin.Context) {
 	if req.PrimarySpecialization != nil {
 		updates["primary_specialization"] = *req.PrimarySpecialization
 	}
-	// Auto-Detect Location & ISP based on current connection (only if manual location is not specified)
-	clientIP := c.ClientIP()
-	if geo, ok := geoip.Resolve(clientIP); ok {
-		if req.Location == nil || *req.Location == "" {
-			if geo.City != "" && geo.Region != "" {
-				locStr := fmt.Sprintf("%s, %s", geo.City, geo.Region)
-				updates["location"] = locStr
-			} else if geo.Country != "" {
-				updates["location"] = geo.Country
-			}
-		}
-
-		if geo.ISP != "" {
-			updates["isp"] = geo.ISP
-		}
-	}
 
 	if req.Role != nil {
 		roleVal, exists := c.Get("userRole")
-		isAdmin := exists && roleVal.(string) == "admin"
-		if *req.Role != user.Role && !isAdmin {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Only administrators can modify roles"})
-			return
+		isAdmin := exists && roleVal == "admin"
+		if isAdmin && *req.Role != user.Role {
+			switch *req.Role {
+			case "buyer", "provider", "admin":
+				updates["role"] = *req.Role
+			}
 		}
-		updates["role"] = *req.Role
 	}
 
 	if len(updates) > 0 {
+		updates["isp"] = ""
 		if err := db.DB.Model(&user).Updates(updates).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update profile"})
 			return
@@ -177,19 +173,18 @@ func updateProfile(c *gin.Context) {
 
 	// Reload user
 	db.DB.First(&user, "id = ?", userID)
-	c.JSON(http.StatusOK, user.ToPublicProfile())
+	c.JSON(http.StatusOK, user.ToSelfProfile())
 }
 
 // getPublicProfile returns a user's public profile by ID or username
 func getPublicProfile(c *gin.Context) {
 	identifier := c.Param("id")
-	currentUserID, _ := c.Get("user_id")
+	currentUserID, hasViewer := GetUserID(c)
 
 	var user models.User
 
-	// Handle "me" identifier
 	if identifier == "me" {
-		if currentUserID == nil {
+		if !hasViewer {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required to view 'me'"})
 			return
 		}
@@ -197,44 +192,52 @@ func getPublicProfile(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 			return
 		}
-	} else if parsedID, err := uuid.Parse(identifier); err == nil {
-		// Try UUID
-		if err := db.DB.First(&user, "id = ?", parsedID).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
-			return
-		}
 	} else {
-		// Try username
-		if err := db.DB.First(&user, "username = ?", identifier).Error; err != nil {
+		found, err := findUserByPublicID(identifier)
+		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 			return
 		}
+		user = *found
 	}
 
 	profile := user.ToPublicProfile()
 
 	// Check if block or follow relationship exists
-	if currentUserID != nil {
-		currentUserUUID := currentUserID.(uuid.UUID)
+	if hasViewer {
 		var block models.Block
 		if err := db.DB.Where("(blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?)",
-			currentUserUUID, user.ID, user.ID, currentUserUUID).First(&block).Error; err == nil {
+			currentUserID, user.ID, user.ID, currentUserID).First(&block).Error; err == nil {
 			if block.BlockerID == user.ID {
 				c.JSON(http.StatusForbidden, gin.H{"error": "You have been blocked by this user"})
 				return
 			}
-			if block.BlockerID == currentUserUUID {
+			if block.BlockerID == currentUserID {
 				profile.IsBlocked = true
 			}
 		}
 
 		var follow models.Follow
-		if err := db.DB.Where("follower_id = ? AND following_id = ?", currentUserUUID, user.ID).First(&follow).Error; err == nil {
+		if err := db.DB.Where("follower_id = ? AND following_id = ?", currentUserID, user.ID).First(&follow).Error; err == nil {
 			profile.IsFollowing = true
 		}
 	}
 
 	c.JSON(http.StatusOK, profile)
+}
+
+func findUserByPublicID(identifier string) (*models.User, error) {
+	var user models.User
+	if parsedID, err := uuid.Parse(identifier); err == nil {
+		if err := db.DB.First(&user, "id = ?", parsedID).Error; err != nil {
+			return nil, err
+		}
+		return &user, nil
+	}
+	if err := db.DB.First(&user, "username = ?", identifier).Error; err != nil {
+		return nil, err
+	}
+	return &user, nil
 }
 
 // getFollowers returns a user's followers
@@ -378,8 +381,8 @@ func followUser(c *gin.Context) {
 	}
 
 	// Update follower counts
-	tx.Model(&models.User{}).Where("id = ?", followerID).Update("following_count", db.DB.Raw("following_count + 1"))
-	tx.Model(&models.User{}).Where("id = ?", followingID).Update("followers_count", db.DB.Raw("followers_count + 1"))
+	tx.Model(&models.User{}).Where("id = ?", followerID).Update("following_count", gorm.Expr("following_count + 1"))
+	tx.Model(&models.User{}).Where("id = ?", followingID).Update("followers_count", gorm.Expr("followers_count + 1"))
 
 	// Create feed event
 	feedEvent := models.FeedEvent{
@@ -426,8 +429,8 @@ func unfollowUser(c *gin.Context) {
 	}
 
 	// Update follower counts
-	tx.Model(&models.User{}).Where("id = ?", followerID).Update("following_count", db.DB.Raw("GREATEST(following_count - 1, 0)"))
-	tx.Model(&models.User{}).Where("id = ?", followingID).Update("followers_count", db.DB.Raw("GREATEST(followers_count - 1, 0)"))
+	tx.Model(&models.User{}).Where("id = ?", followerID).Update("following_count", gorm.Expr("GREATEST(following_count - 1, 0)"))
+	tx.Model(&models.User{}).Where("id = ?", followingID).Update("followers_count", gorm.Expr("GREATEST(followers_count - 1, 0)"))
 
 	tx.Commit()
 
@@ -527,12 +530,12 @@ func blockUser(c *gin.Context) {
 
 		// Decrement counters for affected users
 		for _, f := range follows {
-			if err := tx.Model(&models.User{}).Where("id = ?", f.FollowerID).Update("following_count", db.DB.Raw("GREATEST(following_count - 1, 0)")).Error; err != nil {
+			if err := tx.Model(&models.User{}).Where("id = ?", f.FollowerID).Update("following_count", gorm.Expr("GREATEST(following_count - 1, 0)")).Error; err != nil {
 				tx.Rollback()
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update following count"})
 				return
 			}
-			if err := tx.Model(&models.User{}).Where("id = ?", f.FollowingID).Update("followers_count", db.DB.Raw("GREATEST(followers_count - 1, 0)")).Error; err != nil {
+			if err := tx.Model(&models.User{}).Where("id = ?", f.FollowingID).Update("followers_count", gorm.Expr("GREATEST(followers_count - 1, 0)")).Error; err != nil {
 				tx.Rollback()
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update followers count"})
 				return
@@ -592,4 +595,21 @@ func getUserActivity(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"activity": events})
+}
+
+func validAvatarURL(raw string) bool {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return true
+	}
+	if strings.HasPrefix(s, "data:image/jpeg;base64,") ||
+		strings.HasPrefix(s, "data:image/png;base64,") ||
+		strings.HasPrefix(s, "data:image/webp;base64,") {
+		return len(s) <= 80000
+	}
+	u, err := url.Parse(s)
+	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+		return false
+	}
+	return true
 }

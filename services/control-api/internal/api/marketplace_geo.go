@@ -41,6 +41,8 @@ type MarketplaceGeoPin struct {
 	SLASource            string  `json:"sla_source"` // gateway | explorer | provider | listing
 	GeoResolved          bool    `json:"geo_resolved"`
 	Purchasable          bool    `json:"purchasable"`
+	ActiveSessions       int     `json:"active_sessions,omitempty"`
+	MaxConcurrency       int     `json:"max_concurrency,omitempty"`
 	ListingOfferVerified bool    `json:"listing_offer_verified"`
 	ListingOfferHash     string  `json:"listing_offer_hash,omitempty"`
 	ListingOfferSigner   string  `json:"listing_offer_signer,omitempty"`
@@ -93,6 +95,7 @@ type MarketplaceMapPoint struct {
 	Protocol             string                        `json:"protocol,omitempty"`
 	PricePerGB           float64                       `json:"price_per_gb,omitempty"`
 	AvailableBandwidthGB float64                       `json:"available_bandwidth_gb,omitempty"`
+	MaxConcurrency       int                           `json:"max_concurrency,omitempty"`
 	UptimePercent        float64                       `json:"uptime_percent,omitempty"`
 	LatencyMs            int                           `json:"latency_ms,omitempty"`
 	QualityScore         float64                       `json:"quality_score,omitempty"`
@@ -150,6 +153,8 @@ type marketplaceGeoRow struct {
 	Region               string     `gorm:"column:region"`
 	PricePerGB           float64    `gorm:"column:price_per_gb"`
 	AvailableBandwidthGB float64    `gorm:"column:available_bandwidth_gb"`
+	ActiveSessions       int        `gorm:"column:active_sessions"`
+	MaxConcurrency       int        `gorm:"column:max_concurrency"`
 	Lat                  float64    `gorm:"column:lat"`
 	Lon                  float64    `gorm:"column:lon"`
 	NodeID               string     `gorm:"column:node_id"`
@@ -330,6 +335,15 @@ SELECT
     COALESCE(NULLIF(en.region, ''), NULLIF(pn.region, ''), NULLIF(gw.region, ''), '') AS region,
     pl.price_per_gb,
     pl.available_bandwidth_gb,
+    (
+        SELECT COUNT(*)::int
+        FROM sessions s
+        WHERE s.listing_id::text = pl.id::text
+          AND s.status = 'active'
+          AND s.deleted_at IS NULL
+          AND (s.expires_at IS NULL OR s.expires_at > NOW())
+    ) AS active_sessions,
+    COALESCE(pl.max_concurrency, 0) AS max_concurrency,
     COALESCE(en.latitude, 0) AS lat,
     COALESCE(en.longitude, 0) AS lon,
     COALESCE(NULLIF(pn.id::text, ''), NULLIF(en.node_id, ''), NULLIF(n_geo.id::text, ''), NULLIF(pn.gateway_node_id, ''), NULLIF(gw.gateway_node_id, ''), '') AS node_id,
@@ -341,8 +355,8 @@ SELECT
         ELSE COALESCE(pl.uptime_percent, 0)
     END AS uptime_percent,
     COALESCE(gw.latency_ms, 0) AS latency_ms,
-    COALESCE(pl.quality_score, pn.quality_score, 100) AS quality_score,
-    COALESCE(pl.success_rate, pn.success_rate, 100) AS success_rate,
+    COALESCE(pl.quality_score, pn.quality_score, 0) AS quality_score,
+    COALESCE(pl.success_rate, pn.success_rate, 0) AS success_rate,
     CASE
         WHEN gw.id IS NOT NULL THEN 'gateway'
         WHEN en.node_id IS NOT NULL AND COALESCE(en.uptime_percent, 0) > 0 THEN 'explorer'
@@ -413,7 +427,7 @@ LEFT JOIN explorer_nodes en ON
         pn.id IS NULL
         AND n_geo.id IS NULL
         AND (pn.gateway_node_id IS NULL OR pn.gateway_node_id = '')
-        AND en.provider_user_id = pl.seller_id
+        AND en.provider_user_id::text = pl.seller_id::text
     )
 LEFT JOIN LATERAL (
     SELECT n.id, n.gateway_node_id, n.is_healthy, n.uptime_percent, n.latency_ms, n.city, n.region, n.country_code, n.isp
@@ -490,6 +504,8 @@ WHERE pl.status = 'active'
 			SLASource:            r.SLASource,
 			GeoResolved:          geoResolved || r.GeoResolved,
 			Purchasable:          purchasable,
+			ActiveSessions:       r.ActiveSessions,
+			MaxConcurrency:       r.MaxConcurrency,
 			ListingOfferVerified: r.ListingOfferVerified,
 			ListingOfferHash:     r.ListingOfferHash,
 			ListingOfferSigner:   r.ListingOfferSigner,
@@ -539,6 +555,15 @@ SELECT
     COALESCE(NULLIF(en.region, ''), NULLIF(pn.region, ''), NULLIF(gw.region, ''), '') AS region,
     pl.price_per_gb,
     pl.available_bandwidth_gb,
+    (
+        SELECT COUNT(*)::int
+        FROM sessions s
+        WHERE s.listing_id::text = pl.id::text
+          AND s.status = 'active'
+          AND s.deleted_at IS NULL
+          AND (s.expires_at IS NULL OR s.expires_at > NOW())
+    ) AS active_sessions,
+    COALESCE(pl.max_concurrency, 0) AS max_concurrency,
     COALESCE(en.latitude, 0) AS lat,
     COALESCE(en.longitude, 0) AS lon,
     COALESCE(NULLIF(pn.id::text, ''), NULLIF(en.node_id, ''), NULLIF(n_geo.id::text, ''), NULLIF(pn.gateway_node_id, ''), NULLIF(gw.gateway_node_id, ''), '') AS node_id,
@@ -550,8 +575,8 @@ SELECT
         ELSE COALESCE(pl.uptime_percent, 0)
     END AS uptime_percent,
     COALESCE(gw.latency_ms, 0) AS latency_ms,
-    COALESCE(pl.quality_score, pn.quality_score, 100) AS quality_score,
-    COALESCE(pl.success_rate, pn.success_rate, 100) AS success_rate,
+    COALESCE(pl.quality_score, pn.quality_score, 0) AS quality_score,
+    COALESCE(pl.success_rate, pn.success_rate, 0) AS success_rate,
     CASE
         WHEN gw.id IS NOT NULL THEN 'gateway'
         WHEN en.node_id IS NOT NULL AND COALESCE(en.uptime_percent, 0) > 0 THEN 'explorer'
@@ -622,7 +647,7 @@ LEFT JOIN explorer_nodes en ON
         pn.id IS NULL
         AND n_geo.id IS NULL
         AND (pn.gateway_node_id IS NULL OR pn.gateway_node_id = '')
-        AND en.provider_user_id = pl.seller_id
+        AND en.provider_user_id::text = pl.seller_id::text
     )
 LEFT JOIN LATERAL (
     SELECT n.id, n.gateway_node_id, n.is_healthy, n.uptime_percent, n.latency_ms, n.city, n.region, n.country_code, n.isp
@@ -749,6 +774,7 @@ WHERE pl.status <> 'deleted'`
 			Protocol:             r.Protocol,
 			PricePerGB:           r.PricePerGB,
 			AvailableBandwidthGB: r.AvailableBandwidthGB,
+			MaxConcurrency:       r.MaxConcurrency,
 			UptimePercent:        r.UptimePercent,
 			LatencyMs:            r.LatencyMs,
 			QualityScore:         r.QualityScore,
@@ -756,6 +782,7 @@ WHERE pl.status <> 'deleted'`
 			TrustBadge:           badge,
 			TrustLabel:           mapTrustLabel(badge),
 			IsValidator:          false,
+			ActiveSessions:       r.ActiveSessions,
 			SLASource:            r.SLASource,
 			GeoSource:            listingGeoSource,
 			Geo:                  &listingGeoMeta,
@@ -843,8 +870,8 @@ func marketplaceMapNodePoints(filters marketplaceMapFilters, west, south, east, 
             en.is_validator,
             en.uptime_percent,
             en.active_sessions,
-            COALESCE(pn_live.quality_score, 100) AS quality_score,
-            COALESCE(pn_live.success_rate, 100) AS success_rate,
+            COALESCE(pn_live.quality_score, 0) AS quality_score,
+            COALESCE(pn_live.success_rate, 0) AS success_rate,
             COALESCE(pn_live.connection_type, '') AS connection_type,
             COALESCE(
                 CASE WHEN en.country IS NULL OR TRIM(en.country) = '' OR LOWER(TRIM(en.country)) = 'unknown' THEN NULL ELSE TRIM(en.country) END,

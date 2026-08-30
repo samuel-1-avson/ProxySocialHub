@@ -44,6 +44,8 @@ func mockSolanaDepositRPCAmount(t *testing.T, treasuryAddr, senderAddr, txSig st
 		json.NewEncoder(w).Encode(resp)
 	}))
 	t.Cleanup(mockRPC.Close)
+	t.Setenv("SOLANA_RPC_ENDPOINT", mockRPC.URL)
+	t.Setenv("SOLANA_RPC_ENDPOINTS", mockRPC.URL)
 	solana.SetRPCEndpoint(mockRPC.URL)
 }
 

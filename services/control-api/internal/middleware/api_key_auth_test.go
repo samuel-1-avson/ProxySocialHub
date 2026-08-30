@@ -34,7 +34,7 @@ CREATE TABLE api_keys (
   key_hash TEXT NOT NULL,
   key_prefix TEXT NOT NULL,
   permissions TEXT,
-  rate_limit_per_min INTEGER DEFAULT 100,
+  rate_limit_per_minute INTEGER DEFAULT 100,
   last_used_at DATETIME,
   expires_at DATETIME,
   created_at DATETIME,

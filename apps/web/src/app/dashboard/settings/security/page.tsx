@@ -2,17 +2,19 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useAuth, fetchWithAuth } from '@/lib/auth';
-import { Shield, Lock, AlertTriangle, Key, Smartphone, Check, Loader2, X, RefreshCw, Copy, Monitor, Clock } from 'lucide-react';
+import { Shield, Lock, AlertTriangle, Key, Smartphone, Check, Loader2, X, RefreshCw, Copy, Clock } from 'lucide-react';
 import { getErrorMessage } from '@/lib/utils';
-import { SessionsPanel, AnomaliesPanel, LoginHistoryPanel } from '@/components/security';
+import { AnomaliesPanel, LoginHistoryPanel } from '@/components/security';
 import { Modal } from '@/components/patterns/Modal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ROUTES } from '@/lib/navigation/routes';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
-type TabType = '2fa' | 'sessions' | 'alerts' | 'history';
+type TabType = '2fa' | 'alerts' | 'history';
 
 interface SetupResponse {
     secret: string;
@@ -34,10 +36,8 @@ export default function SecuritySettingsPage() {
     const [backupCodesCount, setBackupCodesCount] = useState(0);
     const [showBackupCodes, setShowBackupCodes] = useState(false);
     const [backupCodes, setBackupCodes] = useState<string[]>([]);
-    const [disablePassword, setDisablePassword] = useState('');
     const [disableCode, setDisableCode] = useState('');
     const [showDisableModal, setShowDisableModal] = useState(false);
-    const [systemPaused, setSystemPaused] = useState(false);
 
     // Tab State
     const [activeTab, setActiveTab] = useState<TabType>('2fa');
@@ -70,17 +70,6 @@ export default function SecuritySettingsPage() {
             setIs2FAEnabled(false);
         } finally {
             setLoading(false);
-        }
-
-        // Fetch Watchtower status
-        try {
-            const res = await fetchWithAuth(`${API_BASE_URL}/v1/system/watchtower/status`);
-            if (res.ok) {
-                const data = await res.json();
-                setSystemPaused(data.emergency_pause);
-            }
-        } catch {
-            setSystemPaused(false);
         }
     };
 
@@ -131,8 +120,8 @@ export default function SecuritySettingsPage() {
     };
 
     const handleDisable2FA = async () => {
-        if (!disablePassword || disableCode.length !== 6) {
-            setError('Please enter your password and 2FA code');
+        if (disableCode.length < 6) {
+            setError('Enter a 6-digit authenticator code or a backup code');
             return;
         }
 
@@ -141,7 +130,7 @@ export default function SecuritySettingsPage() {
             const res = await fetchWithAuth(`${API_BASE_URL}/v1/2fa/disable`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ password: disablePassword, code: disableCode }),
+                body: JSON.stringify({ code: disableCode }),
             });
 
             if (!res.ok) {
@@ -151,7 +140,6 @@ export default function SecuritySettingsPage() {
 
             setIs2FAEnabled(false);
             setShowDisableModal(false);
-            setDisablePassword('');
             setDisableCode('');
             setBackupCodesCount(0);
             setSuccess('Two-factor authentication has been disabled');
@@ -208,26 +196,14 @@ export default function SecuritySettingsPage() {
                         <Shield size={20} className="text-primary" />
                     </h2>
                     <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest mt-1 opacity-60">
-                        Multi-factor Authentication & Access Controls
+                        Two-factor authentication, alerts, and login history.{' '}
+                        <Link href={ROUTES.dashboardSettingsDevices} className="text-primary hover:underline">
+                            Signed-in browsers
+                        </Link>
+                        {' '}are under Devices.
                     </p>
                 </div>
             </div>
-
-            {/* Watchtower Emergency Banner */}
-            {systemPaused && (
-                <div className="p-6 bg-red-500/10 border-red-500/30 border-l-4 animate-pulse rounded-sm">
-                    <div className="flex items-center gap-4 text-red-500">
-                        <AlertTriangle className="w-8 h-8" />
-                        <div>
-                            <div className="text-sm font-black font-mono uppercase tracking-tighter">System Lockdown Active</div>
-                            <p className="text-[10px] font-mono leading-tight opacity-70">
-                                WATCHTOWER SENTRY HAS DETECTED A VELOCITY BREACH OR INFRASTRUCTURE ANOMALY.
-                                ALL SETTLEMENTS ARE PAUSED UNTIL PROTOCOL RESOLUTION.
-                            </p>
-                        </div>
-                    </div>
-                </div>
-            )}
 
             {/* Messages */}
             {error && (
@@ -245,7 +221,7 @@ export default function SecuritySettingsPage() {
 
             {/* Inner Tabs */}
             <div className="flex border-b border-white/5 overflow-x-auto">
-                {(['2fa', 'sessions', 'alerts', 'history'] as TabType[]).map((tab) => (
+                {(['2fa', 'alerts', 'history'] as TabType[]).map((tab) => (
                     <button
                         key={tab}
                         onClick={() => setActiveTab(tab)}
@@ -277,7 +253,7 @@ export default function SecuritySettingsPage() {
                                 : 'bg-secondary text-muted-foreground border-white/5'
                                 }`}>
                                 {is2FAEnabled && <span className="w-1 h-1 rounded-full bg-green-500 animate-pulse"></span>}
-                                {is2FAEnabled ? 'Protocol Active' : 'Protocol Inactive'}
+                                {is2FAEnabled ? 'Enabled' : 'Off'}
                             </span>
                         </div>
 
@@ -392,7 +368,6 @@ export default function SecuritySettingsPage() {
                     </div>
                 )}
 
-                {activeTab === 'sessions' && <div className="bg-white/[0.01] border border-white/5 rounded-sm p-6"><SessionsPanel /></div>}
                 {activeTab === 'alerts' && <div className="bg-white/[0.01] border border-white/5 rounded-sm p-6"><AnomaliesPanel /></div>}
                 {activeTab === 'history' && <div className="bg-white/[0.01] border border-white/5 rounded-sm p-6"><LoginHistoryPanel /></div>}
             </div>
@@ -450,7 +425,7 @@ export default function SecuritySettingsPage() {
                 open={showDisableModal}
                 onOpenChange={setShowDisableModal}
                 title="Disable two-factor authentication"
-                description="Account security will be reduced. Confirm your password and a current 2FA code."
+                description="Account security will be reduced. Confirm with a current authenticator or backup code."
                 footer={
                     <>
                         <Button type="button" variant="outline" onClick={() => setShowDisableModal(false)}>
@@ -464,29 +439,16 @@ export default function SecuritySettingsPage() {
             >
                 <div className="space-y-4">
                     <div className="space-y-2">
-                        <label htmlFor="disable-2fa-password" className="text-xs text-muted-foreground">
-                            Confirm password
-                        </label>
-                        <Input
-                            id="disable-2fa-password"
-                            type="password"
-                            value={disablePassword}
-                            onChange={(e) => setDisablePassword(e.target.value)}
-                            autoComplete="current-password"
-                        />
-                    </div>
-                    <div className="space-y-2">
                         <label htmlFor="disable-2fa-code" className="text-xs text-muted-foreground">
-                            2FA code
+                            Authenticator or backup code
                         </label>
                         <Input
                             id="disable-2fa-code"
                             type="text"
                             inputMode="numeric"
                             value={disableCode}
-                            onChange={(e) => setDisableCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                            onChange={(e) => setDisableCode(e.target.value.replace(/\s/g, '').slice(0, 12))}
                             placeholder="000000"
-                            maxLength={6}
                             className="font-mono tracking-widest"
                             autoComplete="one-time-code"
                         />

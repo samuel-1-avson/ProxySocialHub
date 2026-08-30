@@ -60,7 +60,6 @@ jobs:
       edge: ${{ steps.filter.outputs.edge }}
       provider: ${{ steps.filter.outputs.provider }}
       solana: ${{ steps.filter.outputs.solana }}
-      contracts: ${{ steps.filter.outputs.contracts }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v2
@@ -82,8 +81,6 @@ jobs:
               - 'rebuild-cli.ps1'
             solana:
               - 'services/solana-programs/**'
-            contracts:
-              - 'packages/contracts/**'
 
   # ==================== Backend (Go) ====================
   backend-test:
@@ -160,6 +157,19 @@ jobs:
 
     - name: Build
       run: go build -v ./...
+
+    - name: Auth, marketplace, and map API tests
+      env:
+        TEST_DATABASE_URL: "postgres://proxyhubb:proxyhubb@localhost:5432/proxyhubb_test?sslmode=disable"
+        REDIS_URL: "redis://localhost:6379"
+        EMERGENCY_SOL_PRICE_USD: "200"
+        JWT_SECRET: "test-jwt-secret-for-ci-min-32-chars-long"
+        SESSION_SECRET: "test-session-secret-for-ci-min-32-chars"
+        ENCRYPTION_KEY: "test-encryption-key-for-ci-32-chars-xx"
+        TOKEN_HMAC_SECRET: "test-token-hmac-secret-for-ci-32-chars"
+      run: |
+        go test ./internal/middleware/ ./internal/marketplace/ -count=1
+        go test ./internal/api/ -count=1 -run 'TestGetMapLinks|TestMapTopology|TestParseMapLinksBBox'
 
     - name: Wallet production closure (Go)
       env:
@@ -263,8 +273,13 @@ jobs:
         NEXT_PUBLIC_API_URL: http://localhost:8080
         NEXT_PUBLIC_SOLANA_NETWORK: devnet
 
-    - name: Run unit tests
-      run: npm test -- --coverage --watchAll=false
+    - name: Run contract checks
+      # apps/web has no unit-test runner; these node contract scripts are the
+      # fast pre-deploy checks (provider-config, listing-display, order-status).
+      run: |
+        npm run test:provider-config
+        npm run test:listing-display
+        npm run test:order-status
 
   # ==================== Edge Gateway (Rust) ====================
   edge-gateway-check:
@@ -644,33 +659,6 @@ jobs:
     
     - name: Run tests
       run: anchor test
-
-  # ==================== Smart Contracts (Solidity) ====================
-  contracts-check:
-    needs: changes
-    if: ${{ needs.changes.outputs.contracts == 'true' }}
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./packages/contracts
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Use Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ env.NODE_VERSION }}
-        cache: 'npm'
-        cache-dependency-path: ./packages/contracts/package-lock.json
-    
-    - name: Install dependencies
-      run: npm ci
-    
-    - name: Compile contracts
-      run: npx hardhat compile
-    
-    - name: Run tests
-      run: npx hardhat test
 
   # ==================== Docker Build Check ====================
   docker-build:

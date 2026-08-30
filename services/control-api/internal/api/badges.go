@@ -15,9 +15,10 @@ import (
 	"github.com/proxyhubb/control-api/internal/ws"
 )
 
-// RegisterBadgePublicRoutes registers the public badge catalog.
+// RegisterBadgePublicRoutes registers the public badge catalog and earned badges.
 func RegisterBadgePublicRoutes(rg *gin.RouterGroup) {
 	rg.GET("/badges", getAllBadges)
+	rg.GET("/users/:id/badges", getUserBadges)
 }
 
 // RegisterBadgeRoutes registers badge-related routes that require a user session.
@@ -40,6 +41,39 @@ func getMyBadges(c *gin.Context) {
 	var userBadges []models.UserBadge
 	db.Social().Preload("Badge").Where("user_id = ?", userID).Find(&userBadges)
 
+	c.JSON(http.StatusOK, gin.H{"badges": userBadges})
+}
+
+// getUserBadges returns badges earned by any user (public).
+func getUserBadges(c *gin.Context) {
+	identifier := c.Param("id")
+	var user *models.User
+	if identifier == "me" {
+		currentUserID, ok := GetUserID(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+			return
+		}
+		var self models.User
+		if err := db.DB.First(&self, "id = ?", currentUserID).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+			return
+		}
+		user = &self
+	} else {
+		found, err := findUserByPublicID(identifier)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+			return
+		}
+		user = found
+	}
+
+	var userBadges []models.UserBadge
+	db.Social().Preload("Badge").Where("user_id = ?", user.ID).Find(&userBadges)
+	for i := range userBadges {
+		userBadges[i].User = nil
+	}
 	c.JSON(http.StatusOK, gin.H{"badges": userBadges})
 }
 

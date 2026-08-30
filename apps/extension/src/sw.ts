@@ -4,7 +4,6 @@ import {
   disconnectProxy,
   ensureProxyMatchesSession,
   handleReliabilityAlarm,
-  markConnectionLost,
   readConnectStatus,
   verifyNow,
 } from './lib/connect';
@@ -81,7 +80,15 @@ chrome.webRequest.onAuthRequired.addListener(
 );
 
 chrome.proxy.onProxyError.addListener((details) => {
-  void markConnectionLost(Boolean(details.fatal));
+  // A single failed CONNECT (blocked dest, RST, idle timeout) is not a dead
+  // proxy. Wiping HMAC here is why browsing dropped the tunnel after a few seconds.
+  void chrome.storage.session.set({
+    lastProxyError: {
+      fatal: Boolean(details.fatal),
+      error: typeof details.error === 'string' ? details.error : '',
+      at: Date.now(),
+    },
+  });
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {

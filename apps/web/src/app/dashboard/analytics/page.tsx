@@ -213,8 +213,8 @@ export default function AnalyticsPage() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
                     { label: "Total Bandwidth", value: `${overview?.total_bandwidth_gb?.toFixed(2) || '0.00'} GB`, icon: Activity },
-                    { label: "Success Rate", value: `${((overview?.success_rate || 0) * 100).toFixed(1)}%`, icon: Zap },
-                    { label: "Avg Latency", value: `${overview?.avg_latency_ms || 0} ms`, icon: Server },
+                    { label: "Success Rate", value: (overview?.total_requests ?? 0) > 0 ? `${((overview?.success_rate || 0) * 100).toFixed(1)}%` : "—", icon: Zap },
+                    { label: "Avg Latency", value: (overview?.total_requests ?? 0) > 0 ? `${overview?.avg_latency_ms || 0} ms` : "—", icon: Server },
                     { label: "Active Sessions", value: overview?.active_sessions || 0, icon: Globe },
                 ].map((stat, i) => (
                     <div key={i} className="card-retro p-4 bg-card group hover:border-primary transition-colors">

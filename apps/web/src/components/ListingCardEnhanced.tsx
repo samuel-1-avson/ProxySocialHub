@@ -49,9 +49,9 @@ export function ListingCardEnhanced({ listing, onSelect }: ListingCardEnhancedPr
     const provider = socialContext?.provider || listing.seller;
     const providerId = socialContext?.provider?.id || listing.seller_id;
     const isFollowed = socialContext?.is_followed ?? false;
-    const activeSessions = socialContext?.active_sessions_count || 0;
+    const activeSessions = socialContext?.active_sessions_count || listing.active_sessions_count || 0;
     const totalSessions = socialContext?.total_sessions_count || listing.orders_count || 0;
-    const isOnline = socialContext?.provider?.is_online || false;
+    const isOnline = socialContext?.provider?.is_online || listing.seller?.is_online || false;
     const allowMessage = socialContext?.allow_direct_message !== false;
 
     return (
@@ -112,7 +112,9 @@ export function ListingCardEnhanced({ listing, onSelect }: ListingCardEnhancedPr
                                 {activeSessions > 0 && (
                                     <div className="flex items-center gap-1 px-2 py-0.5 rounded-sm text-[8px] font-black uppercase tracking-widest bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
                                         <Users size={8} />
-                                        {activeSessions} active
+                                        {listing.max_concurrency
+                                            ? `${activeSessions}/${listing.max_concurrency} in use`
+                                            : `${activeSessions} in use`}
                                     </div>
                                 )}
                                 <ListingSlaBadge

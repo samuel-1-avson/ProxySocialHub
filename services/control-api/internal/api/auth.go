@@ -68,7 +68,7 @@ type LoginRequest struct {
 	Address      string `json:"address" binding:"required"`
 	Signature    string `json:"signature" binding:"required"`
 	Nonce        string `json:"nonce" binding:"required"` // The signed message
-	ReferralCode string `json:"referral_code,omitempty"`   // Optional invite code (new users only)
+	ReferralCode string `json:"referral_code,omitempty"`  // Optional invite code (new users only)
 }
 
 func getAuthChallenge(c *gin.Context) {
@@ -334,6 +334,7 @@ func walletLogin(c *gin.Context) {
 
 	authSession.User = user
 	applyAuthSessionCookies(c, authSession)
+	recordLoginDeviceSession(c, user.ID)
 	c.JSON(http.StatusOK, authSession)
 }
 

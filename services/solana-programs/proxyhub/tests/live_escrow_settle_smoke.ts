@@ -109,15 +109,14 @@ async function main() {
       seller: seller.publicKey,
     })
     .rpc();
-  const escrow = await accounts.escrow.fetch(escrowPda);
   const sellerAfter = await connection.getBalance(seller.publicKey);
   const paid = sellerAfter - sellerBefore;
-  console.log('status', escrow.status);
-  console.log('bandwidth_used_gb', escrow.bandwidthUsedGb.toString());
   console.log('seller_paid_lamports', paid);
 
-  if (!escrow.status?.settled) throw new Error('escrow not settled');
-  if (escrow.bandwidthUsedGb.toNumber() !== 4) throw new Error('bandwidth mismatch');
+  // Settle closes the escrow account (refund + rent swept to buyer, PDA freed).
+  const closed = await connection.getAccountInfo(escrowPda);
+  if (closed !== null) throw new Error('escrow account still exists after settle');
+  console.log('escrow account closed after settle (PDA freed)');
   if (paid !== Math.floor(amount * 0.4)) {
     throw new Error(`expected seller payout ${Math.floor(amount * 0.4)}, got ${paid}`);
   }

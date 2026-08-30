@@ -7,7 +7,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // ========== Prometheus Metrics ==========
@@ -138,9 +137,10 @@ func PrometheusMiddleware() gin.HandlerFunc {
 	}
 }
 
-// RegisterMetricsEndpoint registers the /metrics endpoint
+// RegisterMetricsEndpoint is unused. Operational /metrics is registered by
+// monitoring.RegisterMetricsRoutes (with RequireMetricsAccess).
 func RegisterMetricsEndpoint(r *gin.Engine) {
-	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
+	_ = r
 }
 
 // ========== Metric Recording Helpers ==========
@@ -185,8 +185,6 @@ func RecordWithdrawal() {
 func RecordBandwidthUsage(bytes int64) {
 	bandwidthUsedBytes.Add(float64(bytes))
 }
-
-
 
 // RecordRateLimitHit records a rate limit hit
 func RecordRateLimitHit() {

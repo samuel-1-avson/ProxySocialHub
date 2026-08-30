@@ -141,11 +141,24 @@ func SetupTestDB(t *testing.T) {
 			&models.ProviderNodeRegistration{},
 			&models.ExtensionDevice{},
 			&models.ExtensionPairCode{},
+			&models.ExplorerNode{},
+			&models.MessageReaction{},
+			&models.MapNodeLink{},
+			&models.PassPurchase{},
+			&models.ProtocolParameter{},
+			&models.ProviderApplication{},
 		)
 		if err != nil {
 			t.Skipf("Skipping test: Failed to run migrations: %v", err)
 			return
 		}
+		_ = testDB.Callback().Create().Before("gorm:create").Register("proxyhubb:default_provider_node_ip", func(tx *gorm.DB) {
+			node, ok := tx.Statement.Dest.(*models.ProviderNode)
+			if !ok || node == nil || node.IPAddress != "" {
+				return
+			}
+			node.IPAddress = "10.0.0.5"
+		})
 		_ = testDB.Exec(`
 			INSERT INTO ledger_accounts (code, name, account_type, created_at) VALUES
 			('1000', 'treasury_cash', 'asset', NOW()),

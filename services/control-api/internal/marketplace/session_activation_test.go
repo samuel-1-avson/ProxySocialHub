@@ -2,7 +2,7 @@ package marketplace
 
 import (
 	"context"
-	"fmt"
+	"encoding/base64"
 	"testing"
 	"time"
 
@@ -146,6 +146,14 @@ func TestActivateOrderSession_PersistsSyncedActivationEvent(t *testing.T) {
 	if event.ResolvedAt == nil {
 		t.Fatal("expected resolved_at for synced activation")
 	}
+
+	var listing models.ProxyListing
+	if err := db.DB.First(&listing, "id = ?", order.ListingID).Error; err != nil {
+		t.Fatalf("reload listing: %v", err)
+	}
+	if listing.ActiveSessionsCount != 1 {
+		t.Fatalf("active_sessions_count: got %d want 1", listing.ActiveSessionsCount)
+	}
 }
 
 func TestActivateOrderSession_RedisUnavailableMarksFailedAndRecordsEvent(t *testing.T) {
@@ -264,14 +272,14 @@ func TestEnsureSessionCredentialsPlaintext_recoversAfterBeforeUpdateEncrypt(t *t
 	})
 
 	models.CredentialEncryptFn = func(plaintext string) (string, error) {
-		return "cipher:" + plaintext, nil
+		return base64.StdEncoding.EncodeToString([]byte(plaintext)), nil
 	}
 	models.CredentialDecryptFn = func(ciphertext string) (string, error) {
-		const prefix = "cipher:"
-		if len(ciphertext) < len(prefix) || ciphertext[:len(prefix)] != prefix {
-			return "", fmt.Errorf("bad ciphertext")
+		raw, err := base64.StdEncoding.DecodeString(ciphertext)
+		if err != nil {
+			return "", err
 		}
-		return ciphertext[len(prefix):], nil
+		return string(raw), nil
 	}
 
 	session := &models.Session{

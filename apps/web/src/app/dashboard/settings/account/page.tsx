@@ -1,38 +1,57 @@
 "use client";
 
-import { useEffect, useCallback } from 'react';
-import { getWallet, getMyProfile, Wallet as WalletType, UserPublicProfile } from '@/lib/api';
+import { getWallet, getDailyUsage, getSessions } from '@/lib/api';
+import { getMyProfile } from '@/lib/api/profile';
+import { accountTierLabel } from '@/lib/account-tier';
 import { useAuth } from '@/lib/auth';
-import { Shield, Wallet, Zap, Activity, Info, AlertCircle, CheckCircle, Smartphone, Link as LinkIcon, ArrowUpRight, Coins, Loader2 } from 'lucide-react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useWallet as useSolanaWallet } from '@solana/wallet-adapter-react';
-import { SolanaWalletButton } from '@/components/SolanaWalletButton';
-import { DeleteAccountPanel } from '@/components/settings/DeleteAccountPanel';
+import { Shield, Zap, Info, AlertCircle, CheckCircle, ArrowUpRight } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { DeleteAccountPanel, DataExportPanel } from '@/components/settings/DeleteAccountPanel';
 
 const TIER_LIMITS = {
-    new: { rpm: 10, bandwidth: '5 GB', concurrency: 3, automation: false },
-    verified: { rpm: 100, bandwidth: '50 GB', concurrency: 10, automation: true },
-    premium: { rpm: 1000, bandwidth: 'Unlimited', concurrency: 100, automation: true },
+    new: { rpm: 10, bandwidthGb: 5, concurrency: 3, automation: false },
+    verified: { rpm: 100, bandwidthGb: 50, concurrency: 10, automation: true },
+    premium: { rpm: 1000, bandwidthGb: null as number | null, concurrency: 100, automation: true },
 };
+
+function barWidth(used: number, cap: number | null): string {
+    if (cap == null || cap <= 0) {
+        return used > 0 ? '8%' : '0%';
+    }
+    return `${Math.min(100, Math.max(0, (used / cap) * 100))}%`;
+}
 
 export default function AccountSettingsPage() {
     const { user } = useAuth();
-    const queryClient = useQueryClient();
-    const { connected, publicKey, disconnect } = useSolanaWallet();
     const { data: wallet, isLoading: walletLoading } = useQuery({
         queryKey: ['wallet'],
         queryFn: () => getWallet(),
         enabled: !!user,
     });
 
-    const { data: profile, isLoading: profileLoading } = useQuery({
+    const { data: profile } = useQuery({
         queryKey: ['profile', 'me'],
         queryFn: () => getMyProfile(),
         enabled: !!user,
     });
 
+    const { data: dailyUsage } = useQuery({
+        queryKey: ['usage', 'daily', 30],
+        queryFn: () => getDailyUsage(30),
+        enabled: !!user,
+    });
+
+    const { data: activeSessions } = useQuery({
+        queryKey: ['sessions', 'active'],
+        queryFn: () => getSessions('active'),
+        enabled: !!user,
+    });
+
     const tier = profile?.trust_tier || 'new';
     const limits = TIER_LIMITS[tier as keyof typeof TIER_LIMITS] || TIER_LIMITS.new;
+    const usedGb = (dailyUsage?.data || []).reduce((sum, point) => sum + Number(point.gb_used || 0), 0);
+    const usedStreams = Array.isArray(activeSessions) ? activeSessions.length : 0;
+    const bandwidthLabel = limits.bandwidthGb == null ? 'Unlimited' : `${limits.bandwidthGb} GB`;
 
     return (
         <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-700">
@@ -40,11 +59,11 @@ export default function AccountSettingsPage() {
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-white/5">
                 <div>
                     <h2 className="text-2xl font-black font-mono uppercase tracking-tighter flex items-center gap-2">
-                        System Entitlement
+                        Account tier
                         <Zap size={20} className="text-primary" />
                     </h2>
                     <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest mt-1 opacity-60">
-                        Tier Status & Network Resource Allocation
+                        KYC entitlement and usage limits. Identity verification is a separate flag.
                     </p>
                 </div>
             </div>
@@ -56,7 +75,7 @@ export default function AccountSettingsPage() {
                     <div className="space-y-1">
                         <p className="text-[11px] font-black font-mono uppercase text-amber-500 tracking-tighter">Verification Blocked: Insufficient Gas</p>
                         <p className="text-[10px] font-mono text-muted-foreground leading-tight uppercase opacity-80">
-                            YOUR LINKED WALLET MUST MAINTAIN A MINIMUM OF <span className="text-amber-500 font-bold">0.05 SOL</span> TO COMPLETE TRUST TIER UPGRADE. 
+                            YOUR LINKED WALLET MUST MAINTAIN A MINIMUM OF <span className="text-amber-500 font-bold">0.05 SOL</span> TO COMPLETE KYC TIER UPGRADE. 
                             CURRENT LINKED BALANCE IS BELOW THRESHOLD.
                         </p>
                     </div>
@@ -73,9 +92,9 @@ export default function AccountSettingsPage() {
                         
                         <div className="flex justify-between items-start mb-8">
                             <div>
-                                <h3 className="text-[9px] font-black font-mono text-primary uppercase tracking-[0.4em] mb-2 opacity-60 italic">Operational Tier</h3>
+                                <h3 className="text-[9px] font-black font-mono text-primary uppercase tracking-[0.4em] mb-2 opacity-60 italic">Account tier (KYC / quotas)</h3>
                                 <h4 className="text-4xl font-black font-mono uppercase tracking-tighter text-white">
-                                    {tier}
+                                    {accountTierLabel(tier)}
                                 </h4>
                             </div>
                             <div className="px-3 py-1 bg-primary/20 border border-primary/30 rounded-full">
@@ -86,7 +105,7 @@ export default function AccountSettingsPage() {
                         <div className="grid grid-cols-3 gap-4 border-t border-white/5 pt-8">
                             <div className="space-y-1">
                                 <p className="text-[8px] font-black font-mono text-muted-foreground uppercase tracking-widest opacity-40">Throughput Cap</p>
-                                <p className="text-sm font-bold font-mono text-white uppercase">{limits.bandwidth}</p>
+                                <p className="text-sm font-bold font-mono text-white uppercase">{bandwidthLabel}</p>
                             </div>
                             <div className="space-y-1">
                                 <p className="text-[8px] font-black font-mono text-muted-foreground uppercase tracking-widest opacity-40">Velocity Limit</p>
@@ -99,26 +118,25 @@ export default function AccountSettingsPage() {
                         </div>
                     </div>
 
-                    {/* Resources Progress */}
                     <div className="space-y-4">
-                        <h3 className="text-[9px] font-black font-mono text-muted-foreground uppercase tracking-[0.4em] opacity-40">Quota Utilization</h3>
+                        <h3 className="text-[9px] font-black font-mono text-muted-foreground uppercase tracking-[0.4em] opacity-40">Quota (last 30 days)</h3>
                         <div className="space-y-6 p-6 bg-white/[0.01] border border-white/5 rounded-sm">
                             <div className="space-y-2">
                                 <div className="flex justify-between text-[10px] font-mono font-black uppercase">
-                                    <span className="text-muted-foreground/60">Bandwidth (Monthly)</span>
-                                    <span className="text-primary">0.00 / {limits.bandwidth}</span>
+                                    <span className="text-muted-foreground/60">Bandwidth</span>
+                                    <span className="text-primary">{usedGb.toFixed(2)} / {bandwidthLabel}</span>
                                 </div>
                                 <div className="h-1 bg-white/5 rounded-full overflow-hidden">
-                                    <div className="h-full bg-primary w-[2%] shadow-[0_0_8px_rgba(var(--primary),0.5)]" />
+                                    <div className="h-full bg-primary" style={{ width: barWidth(usedGb, limits.bandwidthGb) }} />
                                 </div>
                             </div>
                             <div className="space-y-2">
                                 <div className="flex justify-between text-[10px] font-mono font-black uppercase">
-                                    <span className="text-muted-foreground/60">Concurrent Streams</span>
-                                    <span className="text-primary">0 / {limits.concurrency}</span>
+                                    <span className="text-muted-foreground/60">Active sessions</span>
+                                    <span className="text-primary">{usedStreams} / {limits.concurrency}</span>
                                 </div>
                                 <div className="h-1 bg-white/5 rounded-full overflow-hidden">
-                                    <div className="h-full bg-primary w-0 shadow-[0_0_8px_rgba(var(--primary),0.5)]" />
+                                    <div className="h-full bg-primary" style={{ width: barWidth(usedStreams, limits.concurrency) }} />
                                 </div>
                             </div>
                         </div>
@@ -179,6 +197,7 @@ export default function AccountSettingsPage() {
                 </div>
             </div>
 
+            <DataExportPanel />
             <DeleteAccountPanel />
         </div>
     );

@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Download } from "lucide-react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useAuth } from "@/lib/auth";
-import { deleteAccount } from "@/lib/services/profile";
+import { deleteAccount, exportAccountData } from "@/lib/services/profile";
 import { signDeleteAccountMessage } from "@/lib/solana-message-sign";
 import { getErrorMessage } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
@@ -12,6 +12,47 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/patterns/ConfirmDialog";
 
 const CONFIRM_PHRASE = "DELETE MY ACCOUNT";
+
+export function DataExportPanel() {
+  const [exporting, setExporting] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleExport = async () => {
+    setExporting(true);
+    setError("");
+    try {
+      const blob = await exportAccountData();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `proxyhubb-export-${new Date().toISOString().slice(0, 10)}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(getErrorMessage(err) || "Failed to download your data");
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  return (
+    <Card className="space-y-4">
+      <div>
+        <h3 className="text-sm font-semibold text-foreground">Download your data</h3>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Exports profile, orders, listings, reviews, and ledger entries as a ZIP.
+        </p>
+      </div>
+      {error ? <p className="text-sm text-[var(--destructive)]">{error}</p> : null}
+      <Button type="button" variant="outline" onClick={() => void handleExport()} disabled={exporting}>
+        <Download className="mr-2 h-4 w-4" aria-hidden />
+        {exporting ? "Preparing…" : "Download my data"}
+      </Button>
+    </Card>
+  );
+}
 
 export function DeleteAccountPanel() {
   const { user, logout } = useAuth();

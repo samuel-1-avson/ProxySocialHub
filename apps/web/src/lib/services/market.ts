@@ -90,6 +90,7 @@ export interface SolanaPaymentParams {
     amount_lamports: number;
     amount_sol: number;
     bandwidth_gb: number;
+    escrow_bandwidth_units?: number;
     oracle_pubkey: string;
     escrow_seed_kind?: string;
     escrow_expires_at?: number;

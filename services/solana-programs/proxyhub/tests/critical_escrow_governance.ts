@@ -116,9 +116,10 @@ describe('proxyhub critical escrow and governance coverage', () => {
         })
         .rpc();
 
-      const escrow = await programAccounts.escrow.fetch(escrowPda);
-      expect(escrow.bandwidthUsedGb.toNumber()).to.equal(4);
-      expect(escrow.status).to.deep.include({ settled: {} });
+      // Settle closes the escrow account (rent + refund swept to buyer), so the
+      // PDA is freed for re-initialization — assert closure instead of state.
+      const closed = await provider.connection.getAccountInfo(escrowPda);
+      expect(closed, 'escrow account must be closed after settle').to.be.null;
     });
   });
 

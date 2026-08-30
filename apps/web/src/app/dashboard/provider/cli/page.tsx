@@ -84,6 +84,9 @@ function configFlag(platform: string): string {
     if (platform === 'windows') {
         return '--config "$env:APPDATA\\proxyhubb\\provider.toml"';
     }
+    if (platform === 'macos') {
+        return '--config "$HOME/Library/Application Support/proxyhubb/provider.toml"';
+    }
     return '--config ~/.config/proxyhubb/provider.toml';
 }
 

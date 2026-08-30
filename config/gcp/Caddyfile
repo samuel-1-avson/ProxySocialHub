@@ -5,7 +5,14 @@ proxyhubb.com, www.proxyhubb.com, app.proxyhubb.com {
 
 api.proxyhubb.com {
 	encode gzip
-	reverse_proxy 127.0.0.1:8080
+	# D.1 — do not proxy operational Prometheus to the public internet.
+	# Grafana scrapes http://control-api:8080/metrics on the compose network.
+	handle /metrics* {
+		respond 404
+	}
+	handle {
+		reverse_proxy 127.0.0.1:8080
+	}
 }
 
 proxy.proxyhubb.com {

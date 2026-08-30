@@ -43,11 +43,11 @@ QA_LIVE_JSON=1 node scripts/qa-live-testnet.mjs
 
 ### Public (always required)
 
-- `GET /health`, `GET /ready` (readiness checks DB+Redis; smoke falls back to `/health` if `/ready` is undeployed)
+- `GET /health`, `GET /ready` (readiness checks DB+Redis; smoke falls back to `/health` if `/ready` is undeployed). Not `/v1/health` or `/api/health` on the API host.
 - `GET /v1/system/config/public` — `treasury_configured === true` and non-empty `treasury_solana`
 - `GET /v1/solana/health` — reachable; **fails** if network is mainnet / mainnet-beta
 - `GET /v1/system/map/health`, `/v1/marketplace/map`, `/v1/listings?limit=2`
-- `GET /api/health` on web
+- `GET /api/health` on web (not `/` or `/docs`; docs service probes `/docs`)
 - HTML smoke: `/`, `/login`, `/onboarding`, `/marketplace`, `/explorer`, `/dashboard/wallet`
 - `proxy.tls` — warn-only until `QA_LIVE_REQUIRE_PROXY=1` (DNS for `proxy.proxyhubb.com` may be unpublished)
 

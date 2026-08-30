@@ -18,9 +18,21 @@ func TestConfirmEscrowFailClosedNoPDA(t *testing.T) {
 	t.Setenv("PROXYHUB_REQUIRE_ESCROW_PDA", "true")
 	testutil.SetupTestDB(t)
 
-	buyerID := uuid.New()
-	sellerID := uuid.New()
-	listingID := uuid.New()
+	buyer := testutil.CreateTestUser(t, testutil.UniqueEmail("escrow_failclosed_buyer"), "buyer")
+	seller := testutil.CreateTestUser(t, testutil.UniqueEmail("escrow_failclosed_seller"), "provider")
+	listing := models.ProxyListing{
+		SellerID:             seller.ID,
+		Title:                "escrow failclosed listing",
+		PricePerGB:           1,
+		AvailableBandwidthGB: 1,
+		Status:               models.ListingStatusActive,
+	}
+	if err := db.DB.Create(&listing).Error; err != nil {
+		t.Fatalf("create listing: %v", err)
+	}
+	buyerID := buyer.ID
+	sellerID := seller.ID
+	listingID := listing.ID
 	order := models.Order{
 		ID:          uuid.New(),
 		BuyerID:     buyerID,

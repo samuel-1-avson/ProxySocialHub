@@ -359,9 +359,10 @@ func ensureUsageProofForSessionSettlement(session models.Session, endedAt time.T
 	}
 
 	totalBytes := session.BytesUsed
-	if totalBytes <= 0 && session.CredentialsUser != "" {
-		if redisUsage, err := redisClient.GetUsage(session.CredentialsUser); err == nil && redisUsage > 0 {
+	if session.CredentialsUser != "" {
+		if redisUsage, err := redisClient.GetUsage(session.CredentialsUser); err == nil && redisUsage > totalBytes {
 			totalBytes = redisUsage
+			session.BytesUsed = redisUsage
 			_ = db.DB.Model(&models.Session{}).Where("id = ?", session.ID).Update("bytes_used", totalBytes).Error
 		}
 	}
@@ -388,7 +389,7 @@ func ensureUsageProofForSessionSettlement(session models.Session, endedAt time.T
 		RequestCount:    0,
 		PeriodStart:     periodStart,
 		PeriodEnd:       endedAt,
-		Status:          models.UsageProofPending,
+		Status:          models.UsageProofSettlingConfidential,
 	}
 	proof.SetMessageHash()
 
@@ -465,15 +466,15 @@ func anchorUsageProofAndSettle(sessionID string, terminatedAt time.Time) {
 		logging.Error(err).Str("session_id", sessionID).Msg("anchorUsageProofAndSettle: SubmitUsageProof failed")
 		alerts.Send(alerts.Critical, "Usage Proof Anchor Failed",
 			fmt.Sprintf("session=%s order=%s escrow=%s err=%v", sessionID, order.ID, order.EscrowPDA, err))
-		// BC-05: do not settle without a successful on-chain usage proof when gated.
-		if decentralization.RequireUsageProofBeforeSettle() {
+		EnqueueEscrowSettleBytes(&order, "api.usage.anchor_and_settle.proof_rpc_fail", totalBytes)
+		if decentralization.RequireUsageProofBeforeSettle() && !solanaClient.IsUsageProofAlreadyOnChain(err) {
 			logging.Error(err).
 				Str("session_id", sessionID).
 				Str("order_id", order.ID.String()).
-				Msg("anchorUsageProofAndSettle: refusing settle (PROXYHUB_REQUIRE_USAGE_PROOF_BEFORE_SETTLE)")
+				Msg("anchorUsageProofAndSettle: refusing immediate settle; queued outbox retry")
 			return
 		}
-		logging.Warn().Str("session_id", sessionID).Msg("anchorUsageProofAndSettle: continuing settle without proof (fail-open)")
+		logging.Warn().Str("session_id", sessionID).Msg("anchorUsageProofAndSettle: continuing settle without new proof")
 	} else {
 		// Persist the on-chain reference in the usage_proofs table.
 		db.DB.Model(&models.UsageProof{}).
@@ -491,12 +492,7 @@ func anchorUsageProofAndSettle(sessionID string, terminatedAt time.Time) {
 	}
 
 	// 5. Settle the escrow — release funds proportionally to bytes consumed.
-	bandwidthUsedGB := uint64(totalBytes) / (1024 * 1024 * 1024)
-	if bandwidthUsedGB == 0 && totalBytes > 0 {
-		bandwidthUsedGB = 1 // round up to 1 GB minimum so partial usage still credits provider
-	}
-
-	settleSig, err := SettleOrderEscrowUsage(ctx, "api.usage.anchor_and_settle", &order, bandwidthUsedGB)
+	settleSig, err := SettleOrderEscrowConsumedBytes(ctx, "api.usage.anchor_and_settle", &order, totalBytes)
 	if err != nil {
 		logging.Error(err).
 			Str("order_id", order.ID.String()).
@@ -504,7 +500,7 @@ func anchorUsageProofAndSettle(sessionID string, terminatedAt time.Time) {
 			Str("seed_kind", order.EscrowSeedKind).
 			Msg("anchorUsageProofAndSettle: SettleOrderEscrow failed")
 		// Proof succeeded (or fail-open); durable settle retry via compensation outbox.
-		EnqueueEscrowSettleUsage(&order, "api.usage.anchor_and_settle", bandwidthUsedGB)
+		EnqueueEscrowSettleBytes(&order, "api.usage.anchor_and_settle", totalBytes)
 		return
 	}
 
@@ -536,7 +532,7 @@ func anchorUsageProofAndSettle(sessionID string, terminatedAt time.Time) {
 				// platform_fee_bps collection requires a program upgrade.
 				// Order.PricePerGB is USD — convert to SOL for gross/net columns.
 				const platformFee = 0.0
-				bandwidthGBf := float64(bandwidthUsedGB)
+				bandwidthGBf := float64(totalBytes) / (1024 * 1024 * 1024)
 				grossUSD := bandwidthGBf * order.PricePerGB
 				gross := billing.USDToSOL(grossUSD)
 				fee := gross * platformFee
@@ -564,7 +560,7 @@ func anchorUsageProofAndSettle(sessionID string, terminatedAt time.Time) {
 	logging.Info().
 		Str("settle_sig", settleSig).
 		Str("order_id", order.ID.String()).
-		Uint64("bandwidth_used_gb", bandwidthUsedGB).
+		Int64("used_bytes", totalBytes).
 		Msg("anchorUsageProofAndSettle: escrow settled on-chain, provider earning recorded as paid")
 }
 
@@ -615,16 +611,33 @@ func getSessionUsage(c *gin.Context) {
 		usage = 0
 	}
 
-	// Get session data
+	var session models.Session
+	sessionQuery := db.DB.Where("credentials_user = ?", sessionID)
+	if id, parseErr := uuid.Parse(sessionID); parseErr == nil {
+		sessionQuery = db.DB.Where("credentials_user = ? OR id = ?", sessionID, id)
+	}
+	_ = sessionQuery.First(&session).Error
+	if usage <= 0 && session.BytesUsed > 0 {
+		usage = session.BytesUsed
+	}
+
 	sessionData, _ := redisClient.GetSession(sessionID)
 
-	var limit int64 = 0
+	var limit int64 = session.BandwidthLimit
 	var costPerGBSOL float64 = PricePerGBSOL
 	if sessionData != nil {
-		limit = sessionData.BandwidthLimit
-		// Use per-listing price if available (P2P sessions), converting USD/GB → SOL/GB
+		if sessionData.BandwidthLimit > 0 {
+			limit = sessionData.BandwidthLimit
+		}
 		if sessionData.PricePerGB > 0 {
 			costPerGBSOL = billing.USDToSOL(sessionData.PricePerGB)
+		}
+	} else if session.ListingID != nil {
+		var listing models.ProxyListing
+		if err := db.DB.Select("price_per_gb").First(&listing, "id = ?", *session.ListingID).Error; err == nil && listing.PricePerGB > 0 {
+			if sol := billing.USDToSOL(listing.PricePerGB); sol > 0 {
+				costPerGBSOL = sol
+			}
 		}
 	}
 
@@ -741,6 +754,9 @@ func getUserUsage(c *gin.Context) {
 	// 3. Construct response
 	for _, session := range sessions {
 		usage := usageMap[session.CredentialsUser]
+		if usage < session.BytesUsed {
+			usage = session.BytesUsed
+		}
 		totalUsage += usage
 		gbUsed := float64(usage) / (1024 * 1024 * 1024)
 		costPerGBSOL := PricePerGBSOL

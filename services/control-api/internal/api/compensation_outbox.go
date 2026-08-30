@@ -86,41 +86,48 @@ type escrowSettleMeta struct {
 	BuyerWallet     string `json:"buyer_wallet"`
 	SellerWallet    string `json:"seller_wallet"`
 	BandwidthUsedGB uint64 `json:"bandwidth_used_gb"`
+	UsedBytes       *int64 `json:"used_bytes,omitempty"`
+	FullRelease     bool   `json:"full_release,omitempty"`
 	Source          string `json:"source"`
 }
 
 // EnqueueEscrowSettle records a durable marketplace escrow SettleEscrow retry (M5 / 2.5).
 func EnqueueEscrowSettle(order *models.Order, source string) {
-	EnqueueEscrowSettleUsage(order, source, 0)
+	enqueueEscrowSettleMeta(order, source, escrowSettleMeta{FullRelease: true})
 }
 
-// EnqueueEscrowSettleUsage records settle retry with explicit bandwidth used (usage path).
-func EnqueueEscrowSettleUsage(order *models.Order, source string, bandwidthUsedGB uint64) {
+// EnqueueEscrowSettleUsage records settle retry with explicit on-chain used units.
+func EnqueueEscrowSettleUsage(order *models.Order, source string, usedUnits uint64) {
+	enqueueEscrowSettleMeta(order, source, escrowSettleMeta{BandwidthUsedGB: usedUnits})
+}
+
+// EnqueueEscrowSettleBytes records settle retry from consumed session bytes.
+func EnqueueEscrowSettleBytes(order *models.Order, source string, usedBytes int64) {
+	b := usedBytes
+	enqueueEscrowSettleMeta(order, source, escrowSettleMeta{UsedBytes: &b})
+}
+
+func enqueueEscrowSettleMeta(order *models.Order, source string, extra escrowSettleMeta) {
 	if order == nil || order.EscrowPDA == "" || order.BuyerWallet == "" || order.SellerWallet == "" {
 		return
 	}
 	ref := "escrow_settle:" + order.ID.String()
-	bw := bandwidthUsedGB
-	if bw == 0 {
-		bw = order.BandwidthLimitGB
+	meta := extra
+	meta.OrderID = order.ID.String()
+	meta.EscrowPDA = order.EscrowPDA
+	meta.BuyerWallet = order.BuyerWallet
+	meta.SellerWallet = order.SellerWallet
+	meta.Source = source
+	if meta.FullRelease && meta.BandwidthUsedGB == 0 {
+		meta.BandwidthUsedGB = solanaClient.LimitUnitsFromGiB(orderPurchasedGiB(order))
 	}
-	if bw == 0 && order.BandwidthGB > 0 {
-		bw = uint64(order.BandwidthGB)
-	}
-	meta, _ := json.Marshal(escrowSettleMeta{
-		OrderID:         order.ID.String(),
-		EscrowPDA:       order.EscrowPDA,
-		BuyerWallet:     order.BuyerWallet,
-		SellerWallet:    order.SellerWallet,
-		BandwidthUsedGB: bw,
-		Source:          source,
-	})
+	raw, _ := json.Marshal(meta)
 	entry := models.CompensationOutbox{
 		Kind:        models.CompensationKindEscrowSettle,
 		UserID:      order.BuyerID,
 		AmountSOL:   order.AmountLockedSOL,
 		ReferenceID: ref,
-		Metadata:    string(meta),
+		Metadata:    string(raw),
 		Status:      models.CompensationStatusPending,
 		NextRetryAt: time.Now().UTC(),
 	}
@@ -133,11 +140,17 @@ func EnqueueEscrowSettleUsage(order *models.Order, source string, bandwidthUsedG
 			fmt.Sprintf("order=%s pda=%s err=%v", order.ID, order.EscrowPDA, err))
 		return
 	}
+	usedBytes := int64(-1)
+	if meta.UsedBytes != nil {
+		usedBytes = *meta.UsedBytes
+	}
 	logging.Warn().
 		Str("order_id", order.ID.String()).
 		Str("escrow_pda", order.EscrowPDA).
 		Str("source", source).
-		Uint64("bandwidth_used_gb", bw).
+		Uint64("bandwidth_used_units", meta.BandwidthUsedGB).
+		Int64("used_bytes", usedBytes).
+		Bool("full_release", meta.FullRelease).
 		Msg("escrow settle outbox: enqueued after on-chain settle failure")
 }
 
@@ -278,8 +291,8 @@ func applyEscrowSettle(entry *models.CompensationOutbox) error {
 	if err := db.DB.First(&order, "id = ?", orderID).Error; err != nil {
 		return err
 	}
-	if order.Status == models.OrderStatusCompleted && order.TxSignature != "" {
-		return nil // already settled
+	if orderHasSettleTx(order) {
+		return nil // already settled on-chain
 	}
 
 	if solanaClient.GetOracleClient() == nil {
@@ -295,9 +308,6 @@ func applyEscrowSettle(entry *models.CompensationOutbox) error {
 	if order.BuyerWallet == "" {
 		order.BuyerWallet = meta.BuyerWallet
 	}
-	if order.BandwidthLimitGB == 0 {
-		order.BandwidthLimitGB = meta.BandwidthUsedGB
-	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
@@ -305,26 +315,63 @@ func applyEscrowSettle(entry *models.CompensationOutbox) error {
 	if source == "" {
 		source = "outbox.escrow_settle"
 	}
-	settleTxHash, txErr := SettleOrderEscrowUsage(ctx, source, &order, meta.BandwidthUsedGB)
+	var settleTxHash string
+	var txErr error
+	switch {
+	case meta.FullRelease:
+		settleTxHash, txErr = SettleOrderEscrow(ctx, source, &order)
+	case meta.UsedBytes != nil:
+		settleTxHash, txErr = SettleOrderEscrowConsumedBytes(ctx, source, &order, *meta.UsedBytes)
+	default:
+		settleTxHash, txErr = SettleOrderEscrowUsage(ctx, source, &order, meta.BandwidthUsedGB)
+	}
 	if txErr != nil {
 		return txErr
 	}
 
 	if order.Status == models.OrderStatusCompleted {
-		_ = db.DB.Model(&order).Update("tx_signature", settleTxHash).Error
+		_ = db.DB.Model(&order).Update("tx_hash", settleTxHash).Error
+		finalizeProviderPayoutAfterSettle(&order, settleTxHash)
 		return nil
 	}
-	return db.DB.Transaction(func(tx *gorm.DB) error {
+	if err := db.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.First(&order, "id = ?", orderID).Error; err != nil {
 			return err
 		}
 		if order.Status == models.OrderStatusCompleted {
-			return tx.Model(&order).Update("tx_signature", settleTxHash).Error
+			return tx.Model(&order).Update("tx_hash", settleTxHash).Error
 		}
 		return fsm.TransitionOrder(tx, &order, models.OrderStatusCompleted, "outbox.escrow_settle", map[string]interface{}{
-			"tx_signature": settleTxHash,
+			"tx_hash": settleTxHash,
 		})
-	})
+	}); err != nil {
+		return err
+	}
+	finalizeProviderPayoutAfterSettle(&order, settleTxHash)
+	return nil
+}
+
+func orderHasSettleTx(order models.Order) bool {
+	return order.TxHash != ""
+}
+
+func finalizeProviderPayoutAfterSettle(order *models.Order, settleSig string) {
+	if order == nil || order.SessionID == nil {
+		return
+	}
+	var session models.Session
+	if err := db.DB.First(&session, "id = ?", *order.SessionID).Error; err != nil {
+		return
+	}
+	recordProviderEarning(session, session.BytesUsed, resolveSessionEarningPricePerGBSOL(session), 0)
+	now := time.Now().UTC()
+	_ = db.DB.Model(&models.ProviderEarning{}).
+		Where("session_id = ? AND status = 'pending'", session.ID).
+		Updates(map[string]interface{}{
+			"status":  "paid",
+			"tx_hash": settleSig,
+			"paid_at": now,
+		})
 }
 
 // applyEscrowRefund retries EmergencyRefund for jury buyer-wins (W1.2).

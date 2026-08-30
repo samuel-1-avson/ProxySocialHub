@@ -322,11 +322,8 @@ impl TunnelClient {
 
         while let Some(stream) = rx.recv().await {
             let h = handler.clone();
-            let stats = self.stats.clone();
-            stats.record_connection_opened();
             tokio::spawn(async move {
                 h.handle_stream(stream).await;
-                stats.record_connection_closed();
             });
         }
         Err(anyhow::anyhow!("Connection closed"))

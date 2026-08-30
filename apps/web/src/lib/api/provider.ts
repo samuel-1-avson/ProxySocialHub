@@ -225,8 +225,13 @@ export function detectPlatform(): { platform: string; arch: string } {
         detectedPlatform = 'linux';
     }
     
-    // Detect architecture (limited detection via JS)
-    if (platform.indexOf('arm') !== -1 || platform.indexOf('aarch') !== -1) {
+    // Chrome on Apple Silicon still reports navigator.platform = "MacIntel".
+    // Default macOS downloads to arm64 (Intel Macs can switch to amd64 in CLI Tools).
+    if (
+        platform.toLowerCase().includes('arm') ||
+        platform.toLowerCase().includes('aarch') ||
+        detectedPlatform === 'macos'
+    ) {
         detectedArch = 'arm64';
     } else {
         detectedArch = 'amd64';

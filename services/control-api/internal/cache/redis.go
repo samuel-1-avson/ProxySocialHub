@@ -197,14 +197,17 @@ func DeletePattern(pattern string) error {
 		return nil
 	}
 
+	scanCtx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+
 	var cursor uint64
 	for {
-		keys, nextCursor, err := Client.Scan(ctx, cursor, pattern, 100).Result()
+		keys, nextCursor, err := Client.Scan(scanCtx, cursor, pattern, 100).Result()
 		if err != nil {
 			return err
 		}
 		if len(keys) > 0 {
-			if err := Client.Del(ctx, keys...).Err(); err != nil {
+			if err := Client.Del(scanCtx, keys...).Err(); err != nil {
 				return err
 			}
 		}

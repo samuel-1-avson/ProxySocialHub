@@ -94,6 +94,7 @@ export const ROUTE_POLICIES: Record<RouteKey, RoutePolicy> = {
     contact: "public",
     terms: "public",
     privacy: "public",
+    extensionPrivacy: "public",
 };
 
 const ROUTE_POLICY_PATH_OVERRIDES: Array<{ prefix: string; policy: RoutePolicy }> = [

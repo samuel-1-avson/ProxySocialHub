@@ -21,10 +21,26 @@ const (
 
 // RPCEndpointsFromEnv returns normalized HTTP(S) RPC endpoints from env.
 func RPCEndpointsFromEnv() []string {
-	if endpoints := NormalizeRPCEndpoints(strings.Split(os.Getenv("SOLANA_RPC_ENDPOINTS"), ",")); len(endpoints) > 0 {
+	var endpoints []string
+	if fromList := NormalizeRPCEndpoints(strings.Split(os.Getenv("SOLANA_RPC_ENDPOINTS"), ",")); len(fromList) > 0 {
+		endpoints = fromList
+	} else {
+		endpoints = NormalizeRPCEndpoints([]string{os.Getenv("SOLANA_RPC_ENDPOINT"), DefaultDevnetRPCEndpoint})
+	}
+	return ensurePublicDevnetFallback(endpoints)
+}
+
+func ensurePublicDevnetFallback(endpoints []string) []string {
+	net := strings.ToLower(os.Getenv("SOLANA_NETWORK") + " " + os.Getenv("SOLANA_CLUSTER"))
+	if strings.Contains(net, "mainnet") {
 		return endpoints
 	}
-	return NormalizeRPCEndpoints([]string{os.Getenv("SOLANA_RPC_ENDPOINT"), DefaultDevnetRPCEndpoint})
+	for _, endpoint := range endpoints {
+		if strings.Contains(endpoint, "api.devnet.solana.com") {
+			return endpoints
+		}
+	}
+	return append(append([]string{}, endpoints...), DefaultDevnetRPCEndpoint)
 }
 
 func PrimaryRPCEndpointFromEnv() string {

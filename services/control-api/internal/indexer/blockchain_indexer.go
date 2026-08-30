@@ -187,6 +187,13 @@ func (bi *BlockchainIndexer) loop() {
 		case <-ticker.C:
 			if err := bi.indexNewSlots(); err != nil {
 				logging.Error(err).Msg("[BlockchainIndexer] Indexing error")
+				if isIndexerRPCQuotaError(err) {
+					select {
+					case <-bi.ctx.Done():
+						return
+					case <-time.After(60 * time.Second):
+					}
+				}
 			}
 		}
 	}
@@ -712,4 +719,12 @@ func (bi *BlockchainIndexer) IndexHistoricalTransactions(address string, limit i
 	}
 
 	return nil
+}
+
+func isIndexerRPCQuotaError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "max usage reached") || strings.Contains(msg, "32429") || strings.Contains(msg, "429")
 }

@@ -183,6 +183,7 @@ describe('escrow payout binding regression (BC-01/BC-02)', () => {
       const escrowPda = await initEscrow(buyer, seller);
 
       const sellerBefore = await provider.connection.getBalance(seller.publicKey);
+      const buyerBefore = await provider.connection.getBalance(buyer.publicKey);
       await program.methods
         .settleEscrow(new BN(4))
         .accounts({
@@ -192,13 +193,18 @@ describe('escrow payout binding regression (BC-01/BC-02)', () => {
         })
         .rpc();
 
-      const escrow = await programAccounts.escrow.fetch(escrowPda);
-      expect(escrow.bandwidthUsedGb.toNumber()).to.equal(4);
-      expect(escrow.status).to.deep.include({ settled: {} });
+      // Settle closes the account: the PDA is freed and the buyer recovers the
+      // unused share plus the rent reserve.
+      const closed = await provider.connection.getAccountInfo(escrowPda);
+      expect(closed, 'escrow account must be closed after settle').to.be.null;
 
       // 4/10 of 0.1 SOL = 0.04 SOL to the seller.
       const sellerAfter = await provider.connection.getBalance(seller.publicKey);
       expect(sellerAfter - sellerBefore).to.equal(ESCROW_AMOUNT * 0.4);
+
+      // Buyer gets back the remaining 0.06 SOL plus the rent reserve.
+      const buyerAfter = await provider.connection.getBalance(buyer.publicKey);
+      expect(buyerAfter - buyerBefore).to.be.greaterThan(ESCROW_AMOUNT * 0.6);
     });
   });
 
