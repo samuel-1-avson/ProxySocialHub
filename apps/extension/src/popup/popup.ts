@@ -103,7 +103,8 @@ function renderVerify(status: ConnectStatus) {
   const rtt = typeof snapshot.rttMs === 'number' ? `${snapshot.rttMs}ms` : null;
   if (status.state === 'on' && snapshot.healthy && snapshot.ip) {
     verifyEl.classList.add('ok');
-    verifyEl.textContent = [`Healthy · ${snapshot.ip}`, rtt, snapshot.protocol].filter(Boolean).join(' · ');
+    const hairpin = snapshot.hairpin ? 'same machine as provider' : null;
+    verifyEl.textContent = [`Healthy · ${snapshot.ip}`, rtt, snapshot.protocol, hairpin].filter(Boolean).join(' · ');
     return;
   }
   if (snapshot.error) {

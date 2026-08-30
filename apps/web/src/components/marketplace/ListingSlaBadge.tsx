@@ -17,8 +17,12 @@ const SOURCE_LABEL: Record<string, string> = {
     gateway: 'Live SLA',
     explorer: 'Node SLA',
     provider: 'Provider SLA',
-    listing: 'Listed SLA',
+    listing: 'Unmeasured',
 };
+
+function slaIsMeasured(slaSource?: ListingSlaSource) {
+    return slaSource === 'gateway' || slaSource === 'explorer' || slaSource === 'provider';
+}
 
 export function ListingSlaBadge({
     uptimePercent,
@@ -29,10 +33,12 @@ export function ListingSlaBadge({
     compact,
 }: Props) {
     const live = slaSource === 'gateway';
-    const label = SOURCE_LABEL[slaSource || 'listing'] || 'SLA';
+    const measured = slaIsMeasured(slaSource);
+    const label = SOURCE_LABEL[slaSource || 'listing'] || 'Unmeasured';
     const uptime = Number(uptimePercent || 0);
-    const tone =
-        uptime > 98 ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : uptime > 90
+    const tone = !measured
+        ? 'text-white/40 border-white/10 bg-white/5'
+        : uptime > 98 ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : uptime > 90
             ? 'text-amber-400 border-amber-500/30 bg-amber-500/10'
             : 'text-rose-400 border-rose-500/30 bg-rose-500/10';
     const proofTitle = listingOfferVerified
@@ -46,10 +52,10 @@ export function ListingSlaBadge({
             <span className="inline-flex items-center gap-1">
                 <span
                     className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[7px] font-black uppercase tracking-wider border ${tone}`}
-                    title={`${uptime.toFixed(1)}% uptime · ${label}`}
+                    title={measured ? `${uptime.toFixed(1)}% uptime · ${label}` : 'No live SLA telemetry'}
                 >
                     <Activity size={8} />
-                    {uptime.toFixed(0)}%
+                    {measured ? `${uptime.toFixed(0)}%` : '—'}
                     {live && <span className="text-emerald-300">live</span>}
                 </span>
                 <span
@@ -74,7 +80,7 @@ export function ListingSlaBadge({
                 {label}
                 {live && <span className="text-emerald-300 animate-pulse">●</span>}
             </div>
-            <div className="text-[11px] font-black tabular-nums">{uptime.toFixed(1)}% uptime</div>
+            <div className="text-[11px] font-black tabular-nums">{measured ? `${uptime.toFixed(1)}% uptime` : 'No telemetry'}</div>
             <div
                 className={`inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-widest ${
                     listingOfferVerified ? 'text-cyan-300' : 'text-white/40'

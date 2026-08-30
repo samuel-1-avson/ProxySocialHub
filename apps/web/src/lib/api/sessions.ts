@@ -13,12 +13,15 @@ export interface Session {
     type: 'rotating' | 'sticky' | 'universal';
     status: 'active' | 'disabled' | 'activation_pending' | 'activation_failed' | 'terminated' | 'expired';
     node_id?: string;
+    listing_id?: string;
     credentials_user: string;
     credentials_pass: string;
     proxy_endpoint?: string;
     bytes_used: number;
     bytes_limit: number;
     tx_hash?: string;
+    session_pda?: string;
+    amount_locked_sol?: number;
     created_at: string;
     expires_at?: string;
     terminated_at?: string;
@@ -27,7 +30,7 @@ export interface Session {
         price_per_gb?: number;
         price_per_hour?: number;
     };
-    escrow_address?: string; // Derived or same as tx_hash in some contexts
+    escrow_address?: string;
 }
 
 export interface ProxyCredentials {
@@ -173,10 +176,21 @@ export interface UsageStats {
 /**
  * Get all user sessions
  */
-export async function getSessions() {
-    const data = await apiGet<{ sessions: any[] }>('/v1/sessions');
+export async function getSessions(status: 'active' | 'all' | unknown = 'active') {
+    const query = status === 'all' ? '?status=all' : '';
+    const data = await apiGet<{ sessions: any[] }>(`/v1/sessions${query}`);
     if (data && Array.isArray(data.sessions)) {
-        return data.sessions.map((item: any) => item.session || item) as Session[];
+        return data.sessions.map((item: any) => {
+            const session = { ...(item.session || item) } as Session;
+            const liveBytes = Number(item.bandwidth_used ?? session.bytes_used ?? 0);
+            if (liveBytes > (session.bytes_used || 0)) {
+                session.bytes_used = liveBytes;
+            }
+            if (item.bandwidth_limit != null && Number(item.bandwidth_limit) > 0) {
+                session.bytes_limit = Number(item.bandwidth_limit);
+            }
+            return session;
+        });
     }
     return [] as Session[];
 }

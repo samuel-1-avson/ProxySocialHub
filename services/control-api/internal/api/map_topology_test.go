@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/proxyhubb/control-api/internal/db"
 )
 
 func TestMapTopologyRoutesRegistered(t *testing.T) {
@@ -27,6 +28,10 @@ func TestMapTopologyRoutesRegistered(t *testing.T) {
 }
 
 func TestGetMapLinks_EmptyDB(t *testing.T) {
+	prev := db.DB
+	db.DB = nil
+	t.Cleanup(func() { db.DB = prev })
+
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/map/links", getMapLinks)

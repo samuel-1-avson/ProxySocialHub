@@ -3,11 +3,13 @@
 import { useEffect, useState } from 'react';
 import { startExtensionPair } from '@/lib/api/extension';
 import {
+    clearStoredUnpackedExtensionId,
     getConfiguredExtensionId,
     getExtensionChromeWebStoreUrl,
     pingProxyHubbExtension,
     sendExtensionConnect,
     sendExtensionPairCode,
+    setStoredUnpackedExtensionId,
     type ExtensionPingResponse,
 } from '@/lib/extension';
 
@@ -25,9 +27,15 @@ export function ExtensionConnectCard({ orderId, listingTitle = '', compact = fal
     const [busy, setBusy] = useState(false);
     const [message, setMessage] = useState<string | null>(null);
     const [connected, setConnected] = useState(false);
-    const extensionId = getConfiguredExtensionId();
+    const [unpackedIdDraft, setUnpackedIdDraft] = useState('');
+    const [extensionId, setExtensionId] = useState('');
     const cwsUrl = getExtensionChromeWebStoreUrl();
     const installed = Boolean(ping?.ok && ping.installed);
+
+    useEffect(() => {
+        setExtensionId(getConfiguredExtensionId());
+        setUnpackedIdDraft(getConfiguredExtensionId());
+    }, []);
 
     useEffect(() => {
         let cancelled = false;
@@ -44,7 +52,19 @@ export function ExtensionConnectCard({ orderId, listingTitle = '', compact = fal
         return () => {
             cancelled = true;
         };
-    }, [orderId]);
+    }, [orderId, extensionId]);
+
+    const saveUnpackedId = () => {
+        try {
+            const id = setStoredUnpackedExtensionId(unpackedIdDraft);
+            setExtensionId(id);
+            setChecked(false);
+            setPing(null);
+            setMessage('Saved local extension ID. Checking…');
+        } catch (err) {
+            setMessage(err instanceof Error ? err.message : 'Could not save extension ID');
+        }
+    };
 
     const connect = async () => {
         setBusy(true);
@@ -116,7 +136,7 @@ export function ExtensionConnectCard({ orderId, listingTitle = '', compact = fal
                 {!checked
                     ? extensionId
                         ? 'Checking for the extension…'
-                        : 'Set NEXT_PUBLIC_EXTENSION_ID to detect the extension, or paste a pairing code in the popup.'
+                        : 'Load the unpacked extension, or paste a pairing code in the popup.'
                     : installed
                       ? alreadyOn
                           ? 'Extension is on for this order.'
@@ -125,8 +145,52 @@ export function ExtensionConnectCard({ orderId, listingTitle = '', compact = fal
                             : 'Extension installed. Connect will authorize this browser.'
                       : cwsUrl
                         ? 'Extension not detected.'
-                        : 'Extension not detected. Load unpacked from apps/extension/dist, then reload this page.'}
+                        : 'Extension not detected. Chrome → chrome://extensions → Load unpacked → apps/extension/dist. Paste the ID below, or paste a pairing code in the popup.'}
             </p>
+            {!cwsUrl ? (
+                <div className="space-y-2">
+                    <label className={compact ? 'block text-xs text-muted-foreground' : 'block text-[10px] text-white/50'}>
+                        Local unpacked extension ID
+                        <input
+                            value={unpackedIdDraft}
+                            onChange={(e) => setUnpackedIdDraft(e.target.value)}
+                            placeholder="32 characters from chrome://extensions"
+                            spellCheck={false}
+                            autoComplete="off"
+                            data-testid="extension-unpacked-id"
+                            className={
+                                compact
+                                    ? 'mt-1 w-full rounded-[var(--radius-sm)] border border-border bg-background px-2 py-1 font-mono text-xs'
+                                    : 'mt-1 w-full rounded-md border border-white/10 bg-black/40 px-2 py-1 font-mono text-[11px]'
+                            }
+                        />
+                    </label>
+                    <div className="flex gap-2">
+                        <button
+                            type="button"
+                            onClick={saveUnpackedId}
+                            className={compact ? 'text-xs font-medium text-purple-400' : 'text-[10px] font-bold uppercase tracking-widest text-purple-400'}
+                        >
+                            Use this ID
+                        </button>
+                        {extensionId ? (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    clearStoredUnpackedExtensionId();
+                                    setExtensionId('');
+                                    setUnpackedIdDraft('');
+                                    setPing(null);
+                                    setChecked(false);
+                                }}
+                                className={compact ? 'text-xs text-muted-foreground' : 'text-[10px] text-white/40'}
+                            >
+                                Clear
+                            </button>
+                        ) : null}
+                    </div>
+                </div>
+            ) : null}
             {cwsUrl && checked && !installed ? (
                 <a
                     href={cwsUrl}

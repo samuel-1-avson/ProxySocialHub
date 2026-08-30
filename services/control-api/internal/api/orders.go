@@ -233,6 +233,7 @@ func initiateSolanaPayment(c *gin.Context) {
 		"amount_lamports":        amountLamports,
 		"amount_sol":             amountSOL,
 		"bandwidth_gb":           order.BandwidthGB,
+		"escrow_bandwidth_units": solana.LimitUnitsFromGiB(order.BandwidthGB),
 		"oracle_pubkey":          oracle.GetOraclePublicKey().String(),
 		"escrow_already_funded":  escrowAlreadyFunded,
 		"on_chain_escrow_status": onChainStatus,
@@ -292,6 +293,13 @@ func createOrder(c *gin.Context) {
 	}
 	if listing.AvailableBandwidthGB > 0 && req.BandwidthGB > listing.AvailableBandwidthGB {
 		c.JSON(http.StatusConflict, gin.H{"error": "Requested bandwidth exceeds listing availability"})
+		return
+	}
+	if marketplacepkg.ListingAtConcurrencyCap(&listing) {
+		c.JSON(http.StatusConflict, gin.H{
+			"error": fmt.Sprintf("This listing already has %d active buyer sessions (max %d). Another buyer can join when a session ends.", listing.MaxConcurrency, listing.MaxConcurrency),
+			"code":  "listing_at_capacity",
+		})
 		return
 	}
 

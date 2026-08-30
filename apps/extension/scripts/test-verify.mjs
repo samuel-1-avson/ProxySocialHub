@@ -38,6 +38,9 @@ assert(egress.egressLooksProxied('198.51.100.4', '203.0.113.10'), 'proxied when 
 assert(!egress.egressLooksProxied('198.51.100.4', '198.51.100.4'), 'not proxied when IPs match');
 assert(egress.egressLooksProxied(undefined, '203.0.113.10'), 'allow unknown baseline if current IP exists');
 assert(!egress.egressLooksProxied('198.51.100.4', undefined), 'missing current is fail');
+assert(egress.egressProbeSucceeded('198.51.100.4'), 'probe ok on public IP');
+assert(egress.egressProbeSucceeded('198.51.100.4') && egress.egressIsLocalHairpin('198.51.100.4', '198.51.100.4'), 'hairpin is still a successful probe');
+assert(!egress.egressProbeSucceeded(undefined), 'probe fails without IP');
 assert(egress.VERIFY_PROTOCOL === 'HTTP CONNECT', 'protocol label');
 
 rmSync(dir, { recursive: true, force: true });

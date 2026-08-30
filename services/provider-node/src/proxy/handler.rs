@@ -5,7 +5,10 @@ use crate::stats::Collector;
 
 use futures_util::{AsyncReadExt, AsyncWriteExt};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use std::time::Duration;
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::{lookup_host, TcpStream};
 use tokio::time::timeout;
 use tracing::{debug, error, warn};
@@ -149,8 +152,9 @@ impl ProxyHandler {
         }
         let _ = stream.flush().await;
 
-        // Bridge bidirectionally
+        self.stats.record_connection_opened();
         self.bridge(stream, target_conn, leftover).await;
+        self.stats.record_connection_closed();
     }
 
     /// Bidirectional bridge between a yamux stream (futures I/O) and a tokio TcpStream.
@@ -160,34 +164,41 @@ impl ProxyHandler {
         use tracing::info;
 
         let mut target = target;
+        let leftover_n = leftover.len() as u64;
 
-        // 1. Forward leftover bytes to target if any
-        if !leftover.is_empty() {
+        // 1. Forward leftover bytes to target if any (TLS ClientHello after CONNECT).
+        if leftover_n > 0 {
             info!("Forwarding {} leftover bytes to target", leftover.len());
             if let Err(e) = target.write_all(leftover).await {
                 error!(error = %e, "Failed to write leftover data to target");
+                record_bridge_traffic(&self.stats, leftover_n, 0, 0);
                 return;
             }
             let _ = target.flush().await;
         }
 
-        // 2. Convert yamux stream to tokio-compatible
-        let mut stream_compat = stream.compat();
+        let mut stream_io = MeteredIo {
+            inner: stream.compat(),
+            read: 0,
+            written: 0,
+        };
+        let mut target_io = MeteredIo {
+            inner: target,
+            read: 0,
+            written: 0,
+        };
 
         info!("Starting bidirectional bridge (copy_bidirectional)");
-
-        // We use copy_bidirectional which is highly optimized and robust.
-        // For stats, we'll just record the final counts after it finishes.
-        match tokio::io::copy_bidirectional(&mut stream_compat, &mut target).await {
+        match tokio::io::copy_bidirectional(&mut stream_io, &mut target_io).await {
             Ok((from_stream, to_stream)) => {
                 info!(from_stream, to_stream, "Bridge closed normally");
-                self.stats.record_bytes_up(to_stream);
-                self.stats.record_bytes_down(from_stream);
             }
             Err(e) => {
                 info!("Bridge closed with error: {}", e);
             }
         }
+        // Count leftover + whatever the copy moved, including RST/broken-pipe closes.
+        record_bridge_traffic(&self.stats, leftover_n, stream_io.read, target_io.read);
         info!("Bridge closed");
     }
 
@@ -265,6 +276,58 @@ impl ProxyHandler {
         Err(last_err.unwrap_or_else(|| {
             std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "no target addresses")
         }))
+    }
+}
+
+/// Count leftover (pre-copy ClientHello) plus bytes the node read from the
+/// buyer stream and from the origin. Matches the previous up/down mapping:
+/// origin→buyer is uplink, buyer→origin is downlink.
+fn record_bridge_traffic(stats: &Collector, leftover: u64, yamux_read: u64, origin_read: u64) {
+    stats.record_bytes_down(leftover.saturating_add(yamux_read));
+    stats.record_bytes_up(origin_read);
+}
+
+struct MeteredIo<T> {
+    inner: T,
+    read: u64,
+    #[allow(dead_code)]
+    written: u64,
+}
+
+impl<T: AsyncRead + Unpin> AsyncRead for MeteredIo<T> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        let before = buf.filled().len();
+        let poll = Pin::new(&mut self.inner).poll_read(cx, buf);
+        if let Poll::Ready(Ok(())) = &poll {
+            self.read += (buf.filled().len() - before) as u64;
+        }
+        poll
+    }
+}
+
+impl<T: AsyncWrite + Unpin> AsyncWrite for MeteredIo<T> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        let poll = Pin::new(&mut self.inner).poll_write(cx, buf);
+        if let Poll::Ready(Ok(n)) = &poll {
+            self.written += *n as u64;
+        }
+        poll
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(cx)
     }
 }
 
@@ -501,5 +564,13 @@ mod tests {
             matches!(err, TargetValidationError::UnsafeResolvedAddress(_)),
             "unexpected error: {err}"
         );
+    }
+
+    #[test]
+    fn records_leftover_and_origin_bytes_even_without_clean_close() {
+        let stats = Collector::new();
+        record_bridge_traffic(&stats, 120, 80, 400);
+        assert_eq!(stats.bytes_down(), 200);
+        assert_eq!(stats.bytes_up(), 400);
     }
 }

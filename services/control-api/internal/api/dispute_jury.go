@@ -509,14 +509,14 @@ func settleDisputeOnChain(jury models.DisputeJury) {
 			Buyer:           buyerPubKey,
 			Seller:          sellerPubKey,
 			EscrowPDA:       escrowPDA,
-			BandwidthUsedGB: order.BandwidthLimitGB,
+			BandwidthUsedGB: resolveChainBandwidthLimit(ctx, &order),
 		})
 	case models.VoteSplitFunds:
 		txHash, err = oracle.SettleEscrow(ctx, "api.dispute_jury.split_funds", solana.SettleEscrowParams{
 			Buyer:           buyerPubKey,
 			Seller:          sellerPubKey,
 			EscrowPDA:       escrowPDA,
-			BandwidthUsedGB: order.BandwidthLimitGB / 2,
+			BandwidthUsedGB: resolveChainBandwidthLimit(ctx, &order) / 2,
 		})
 	}
 
@@ -565,9 +565,9 @@ func enqueueJurySettlementRetry(order *models.Order, decision models.JuryVote, r
 	}
 	switch decision {
 	case models.VoteSellerWins:
-		EnqueueEscrowSettleUsage(order, "api.dispute_jury.seller_wins_outbox", order.BandwidthLimitGB)
+		EnqueueEscrowSettle(order, "api.dispute_jury.seller_wins_outbox")
 	case models.VoteSplitFunds:
-		EnqueueEscrowSettleUsage(order, "api.dispute_jury.split_funds_outbox", order.BandwidthLimitGB/2)
+		EnqueueEscrowSettleUsage(order, "api.dispute_jury.split_funds_outbox", solana.LimitUnitsFromGiB(orderPurchasedGiB(order))/2)
 	case models.VoteBuyerWins:
 		EnqueueEscrowRefund(order, "api.dispute_jury.buyer_wins_outbox", reason)
 	default:

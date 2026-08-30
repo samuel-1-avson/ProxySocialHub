@@ -405,8 +405,9 @@ describe("proxyhub", () => {
       const after = await programAccounts.multiSigOracle.fetch(msoPda);
       expect(after.nonce.toNumber()).to.equal(nonceBefore + 1);
 
-      const escrow = await programAccounts.escrow.fetch(escrowPda);
-      expect(escrow.status).to.deep.include({ settled: {} });
+      // Settle closes the escrow account (refund + rent swept to buyer).
+      const closed = await provider.connection.getAccountInfo(escrowPda);
+      expect(closed, 'multisig escrow account must be closed after settle').to.be.null;
     });
   });
 

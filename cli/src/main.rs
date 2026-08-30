@@ -329,10 +329,25 @@ fn default_config_path() -> String {
 }
 
 fn default_config_file() -> PathBuf {
+    let mut candidates = Vec::new();
     if let Some(dir) = dirs::config_dir() {
-        return dir.join("proxyhubb").join("provider.toml");
+        candidates.push(dir.join("proxyhubb").join("provider.toml"));
     }
-    state_dir().join("provider.toml")
+    if let Some(home) = dirs::home_dir() {
+        let xdg = home.join(".config").join("proxyhubb").join("provider.toml");
+        if !candidates.iter().any(|p| p == &xdg) {
+            candidates.push(xdg);
+        }
+    }
+    for path in &candidates {
+        if path.exists() {
+            return path.clone();
+        }
+    }
+    candidates
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| state_dir().join("provider.toml"))
 }
 
 fn read_metrics_port(config_path: &Path) -> u16 {

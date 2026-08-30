@@ -100,6 +100,7 @@ func ActivateOrderSession(ctx context.Context, orderID uuid.UUID) error {
 	if err := RecordSessionActivationEvent(&order, &session, models.EscrowReconciliationStatusActivationSynced, "redis_sync_succeeded", "", false); err != nil {
 		return fmt.Errorf("failed to mark session activation synced: %w", err)
 	}
+	RefreshListingOccupancy(order.ListingID)
 	return nil
 }
 

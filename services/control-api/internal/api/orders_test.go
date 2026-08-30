@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/prices"
@@ -120,6 +123,131 @@ func TestCreateOrder_Success(t *testing.T) {
 	if session.BandwidthLimit != 2*1024*1024*1024 {
 		t.Errorf("Expected linked session bandwidth limit 2GB in bytes, got %d", session.BandwidthLimit)
 	}
+}
+
+func TestCreateOrder_RejectsSelfPurchase(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.SetupTestRedis(t)
+	testutil.CleanupTestData(t, "sessions", "orders", "proxy_listings", "linked_wallets", "wallets", "users")
+
+	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("provider_self_buy"), "provider")
+
+	listing := models.ProxyListing{
+		SellerID:             provider.ID,
+		Title:                "Own Listing",
+		PricePerGB:           1.0,
+		AvailableBandwidthGB: 10,
+		Status:               models.ListingStatusActive,
+	}
+	if err := db.DB.Create(&listing).Error; err != nil {
+		t.Fatalf("listing: %v", err)
+	}
+
+	r := setupTestRouter()
+	r.Use(func(c *gin.Context) {
+		c.Set("user_id", provider.ID)
+	})
+	r.POST("/orders", createOrder)
+
+	reqBody := models.CreateOrderRequest{
+		ListingID:   listing.ID,
+		BandwidthGB: 1.0,
+	}
+	jsonBody, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest("POST", "/orders", bytes.NewBuffer(jsonBody))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for self-purchase, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "self_purchase_forbidden") {
+		t.Fatalf("expected self_purchase_forbidden, got %s", w.Body.String())
+	}
+}
+
+func TestCreateOrder_RejectsWhenListingAtConcurrencyCap(t *testing.T) {
+	prices.SetTestSOLPrice(100)
+	defer prices.SetTestSOLPrice(0)
+
+	testutil.SetupTestDB(t)
+	testutil.SetupTestRedis(t)
+	testutil.CleanupTestData(t, "sessions", "orders", "proxy_listings", "provider_nodes", "linked_wallets", "wallets", "users")
+
+	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("provider_cap"), "provider")
+	buyer := testutil.CreateTestUser(t, testutil.UniqueEmail("buyer_cap"), "buyer")
+	if err := db.DB.Create(&models.LinkedWallet{
+		UserID:    buyer.ID,
+		Chain:     models.ChainSolana,
+		Address:   "BuyerCap11111111111111111111111111111111111",
+		Verified:  true,
+		IsPrimary: true,
+	}).Error; err != nil {
+		t.Fatalf("link wallet: %v", err)
+	}
+
+	nodeID := listingTestNode(t, provider.ID)
+	listing := models.ProxyListing{
+		SellerID:             provider.ID,
+		ProviderNodeID:       &nodeID,
+		Title:                "Capped listing",
+		PricePerGB:           1.0,
+		AvailableBandwidthGB: 100,
+		MaxConcurrency:       1,
+		Status:               models.ListingStatusActive,
+	}
+	if err := db.DB.Create(&listing).Error; err != nil {
+		t.Fatalf("listing: %v", err)
+	}
+	lid := listing.ID
+	future := time.Now().UTC().Add(time.Hour)
+	session := models.Session{
+		UserID:    buyer.ID,
+		ListingID: &lid,
+		Type:      models.SessionRotating,
+		Status:    models.SessionActive,
+		ExpiresAt: &future,
+	}
+	if err := db.DB.Create(&session).Error; err != nil {
+		t.Fatalf("session: %v", err)
+	}
+
+	r := setupTestRouter()
+	r.Use(func(c *gin.Context) {
+		c.Set("user_id", buyer.ID)
+	})
+	r.POST("/orders", createOrder)
+
+	reqBody := models.CreateOrderRequest{ListingID: listing.ID, BandwidthGB: 1.0}
+	jsonBody, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest("POST", "/orders", bytes.NewBuffer(jsonBody))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409 at capacity, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "listing_at_capacity") {
+		t.Fatalf("expected listing_at_capacity, got %s", w.Body.String())
+	}
+}
+
+func listingTestNode(t *testing.T, sellerID uuid.UUID) uuid.UUID {
+	t.Helper()
+	id := uuid.New()
+	node := models.ProviderNode{
+		ID:        id,
+		UserID:    sellerID,
+		Name:      "cap-node",
+		Status:    models.NodeOnline,
+		IsHealthy: true,
+		IPAddress: "10.0.0.8",
+		Port:      1080,
+	}
+	if err := db.DB.Create(&node).Error; err != nil {
+		t.Fatalf("provider node: %v", err)
+	}
+	return id
 }
 
 func TestCreateOrder_RequiresLinkedSolanaWallet(t *testing.T) {
@@ -439,6 +567,52 @@ func TestCancelOrder_AllowsUnfundedPendingOrder(t *testing.T) {
 	}
 	if refreshed.Status != models.OrderStatusCancelled {
 		t.Fatalf("expected order status cancelled, got %s", refreshed.Status)
+	}
+}
+
+func TestCancelOrder_RejectsPendingPaymentEscrow(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.CleanupTestData(t, "sessions", "orders", "proxy_listings", "wallets", "users")
+
+	buyer := testutil.CreateTestUser(t, testutil.UniqueEmail("buyer_cancel_pp"), "buyer")
+	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("provider_cancel_pp"), "provider")
+	listing := models.ProxyListing{
+		SellerID:             provider.ID,
+		Title:                "Pending Payment Listing",
+		PricePerGB:           1,
+		AvailableBandwidthGB: 10,
+		Status:               models.ListingStatusActive,
+	}
+	if err := db.DB.Create(&listing).Error; err != nil {
+		t.Fatalf("failed to create listing: %v", err)
+	}
+
+	order := models.Order{
+		BuyerID:       buyer.ID,
+		SellerID:      provider.ID,
+		ListingID:     listing.ID,
+		Status:        models.OrderStatusPendingPayment,
+		PaymentMethod: "solana_escrow",
+		EscrowPDA:     "11111111111111111111111111111111",
+		PricePerGB:    1,
+		TotalPrice:    1,
+	}
+	if err := db.DB.Create(&order).Error; err != nil {
+		t.Fatalf("failed to create order: %v", err)
+	}
+
+	r := setupTestRouter()
+	r.Use(func(c *gin.Context) {
+		c.Set("user_id", buyer.ID)
+	})
+	r.POST("/orders/:id/cancel", cancelOrder)
+
+	req := httptest.NewRequest("POST", "/orders/"+order.ID.String()+"/cancel", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409 for pending_payment escrow cancel, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

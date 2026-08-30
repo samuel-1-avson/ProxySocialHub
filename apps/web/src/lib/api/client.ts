@@ -3,7 +3,7 @@
  * Centralized HTTP client with auth, error handling, and type safety
  */
 
-import { fetchWithAuth } from '../auth';
+import { fetchWithAuth, getAccessTokenSilently } from '../auth';
 
 // Empty string = relative URL. All /v1/* requests are proxied server-side
 // by Next.js rewrites (next.config.ts) to the internal backend. This prevents
@@ -17,7 +17,8 @@ export class ApiError extends Error {
     constructor(
         public status: number,
         message: string,
-        public code?: string
+        public code?: string,
+        public orderId?: string
     ) {
         super(message);
         this.name = 'ApiError';
@@ -47,7 +48,8 @@ function throwApiError(response: Response, error: Record<string, unknown>): neve
     throw new ApiError(
         response.status,
         formatApiErrorMessage(error),
-        typeof error.code === 'string' ? error.code : undefined
+        typeof error.code === 'string' ? error.code : undefined,
+        typeof error.order_id === 'string' ? error.order_id : undefined
     );
 }
 
@@ -98,6 +100,19 @@ export async function publicApiGet<T>(endpoint: string, params?: Record<string, 
     return readJsonOrThrow<T>(response);
 }
 
+/** GET that sends a token when present and retries without it on 401. */
+export async function optionalAuthGet<T>(endpoint: string, params?: Record<string, string>): Promise<T> {
+    const url = buildUrl(endpoint, params);
+    const token = await getAccessTokenSilently();
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    let response = await publicApiFetch(url, { headers });
+    if (response.status === 401 && token) {
+        response = await publicApiFetch(url);
+    }
+    return readJsonOrThrow<T>(response);
+}
+
 export async function publicApiPost<T, B = unknown>(endpoint: string, body?: B): Promise<T> {
     const response = await publicApiFetch(endpoint, {
         method: 'POST',
@@ -112,10 +127,15 @@ export async function authApiGet<T>(endpoint: string, params?: Record<string, st
     return readJsonOrThrow<T>(response);
 }
 
-export async function authApiPost<T, B = unknown>(endpoint: string, body?: B): Promise<T> {
+export async function authApiPost<T, B = unknown>(
+    endpoint: string,
+    body?: B,
+    init?: RequestInit
+): Promise<T> {
     const response = await authApiFetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        ...init,
+        headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
         body: body ? JSON.stringify(body) : undefined,
     });
     return readJsonOrThrow<T>(response);
@@ -176,8 +196,12 @@ export async function apiGet<T>(endpoint: string, params?: Record<string, string
 /**
  * Type-safe POST request
  */
-export async function apiPost<T, B = unknown>(endpoint: string, body?: B): Promise<T> {
-    return authApiPost<T, B>(endpoint, body);
+export async function apiPost<T, B = unknown>(
+    endpoint: string,
+    body?: B,
+    init?: RequestInit
+): Promise<T> {
+    return authApiPost<T, B>(endpoint, body, init);
 }
 
 /**

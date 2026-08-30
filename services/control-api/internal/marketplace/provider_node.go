@@ -43,6 +43,32 @@ func ResolveListingProviderNode(listing *models.ProxyListing) (*models.ProviderN
 	return &node, nil
 }
 
+// ResolveProviderNodeForSession maps a session's node_id to the dashboard
+// provider_nodes row. sessions.node_id stores the legacy nodes.id mirror, not
+// provider_nodes.id — looking up provider_nodes by session.NodeID misses earnings.
+func ResolveProviderNodeForSession(session models.Session) (*models.ProviderNode, error) {
+	if session.NodeID == nil || *session.NodeID == uuid.Nil {
+		return nil, fmt.Errorf("session has no node_id")
+	}
+
+	var pn models.ProviderNode
+	if err := db.DB.First(&pn, "id = ? AND deleted_at IS NULL", *session.NodeID).Error; err == nil {
+		return &pn, nil
+	}
+
+	var mirror models.Node
+	if err := db.DB.First(&mirror, "id = ? AND deleted_at IS NULL", *session.NodeID).Error; err != nil {
+		return nil, fmt.Errorf("session node not found: %w", err)
+	}
+	if mirror.ProviderNodeID == nil || *mirror.ProviderNodeID == uuid.Nil {
+		return nil, fmt.Errorf("legacy node %s has no provider_node_id", mirror.ID)
+	}
+	if err := db.DB.First(&pn, "id = ? AND deleted_at IS NULL", *mirror.ProviderNodeID).Error; err != nil {
+		return nil, fmt.Errorf("provider node %s not found: %w", mirror.ProviderNodeID, err)
+	}
+	return &pn, nil
+}
+
 // SessionNodeIDForProvider returns the sessions.node_id FK target (nodes.id) for a provider node.
 // sessions.node_id references the legacy nodes mirror row, not provider_nodes.id.
 func SessionNodeIDForProvider(providerNode *models.ProviderNode) *uuid.UUID {

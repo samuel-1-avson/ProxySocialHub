@@ -117,6 +117,7 @@ type AnalyticsOverview struct {
 
 	// Provider Metrics
 	TotalNodes       int     `json:"total_nodes"`
+	OnlineNodes      int     `json:"online_nodes"`
 	TotalEarningsSOL float64 `json:"total_earnings_sol"`
 	AvgQualityScore  int     `json:"avg_quality_score"`
 	ActivePayouts    int     `json:"active_payouts"`
@@ -158,6 +159,15 @@ func getAnalyticsOverview(c *gin.Context) {
 		`).
 		Scan(&stats)
 
+	var sessionBytes int64
+	db.DB.Model(&models.Session{}).
+		Where("user_id = ?", userID).
+		Select("COALESCE(SUM(bytes_used), 0)").
+		Scan(&sessionBytes)
+	if stats.TotalBytes == 0 && sessionBytes > 0 {
+		stats.TotalBytes = sessionBytes
+	}
+
 	totalBandwidthGB := float64(stats.TotalBytes) / (1024 * 1024 * 1024)
 	successRate := 0.0
 	if stats.TotalRequests > 0 {
@@ -197,17 +207,13 @@ func getAnalyticsOverview(c *gin.Context) {
 		Limit(1).
 		Scan(&topISP)
 
-	// 4. Provider Specific Stats
-	var totalNodes int64
+	// 4. Provider Specific Stats — count nodes this user owns, not hotkey=wallet.
+	var totalNodes, onlineNodes int64
 	var avgQuality float64
-	db.DB.Model(&models.ProviderNode{}).Where("hotkey = (SELECT wallet_address FROM profiles WHERE id = ?)", userID).Count(&totalNodes)
-	db.DB.Model(&models.ProviderNode{}).Where("hotkey = (SELECT wallet_address FROM profiles WHERE id = ?)", userID).Select("COALESCE(AVG(quality_score), 0)").Scan(&avgQuality)
+	db.DB.Model(&models.ProviderNode{}).Where("user_id = ?", userID).Count(&totalNodes)
+	db.DB.Model(&models.ProviderNode{}).Where("user_id = ? AND status = ?", userID, models.NodeOnline).Count(&onlineNodes)
+	db.DB.Model(&models.ProviderNode{}).Where("user_id = ?", userID).Select("COALESCE(AVG(quality_score), 0)").Scan(&avgQuality)
 
-	// Fetch wallet balance as a compatibility fallback for older records.
-	var wallet models.Wallet
-	db.DB.Where("user_id = ?", userID).First(&wallet)
-
-	// Provider earnings is the migrated source of truth for provider payout state.
 	type ProviderEarningsStats struct {
 		ActivePayouts int64
 		TotalEarnings float64
@@ -223,9 +229,6 @@ func getAnalyticsOverview(c *gin.Context) {
 
 	activePayouts := earningsStats.ActivePayouts
 	totalEarnings := earningsStats.TotalEarnings
-	if totalEarnings == 0 {
-		totalEarnings = wallet.BalanceSOL
-	}
 
 	c.JSON(http.StatusOK, AnalyticsOverview{
 		TotalRequests:      stats.TotalRequests,
@@ -238,6 +241,7 @@ func getAnalyticsOverview(c *gin.Context) {
 		TopISP:             topISP.Name,
 
 		TotalNodes:       int(totalNodes),
+		OnlineNodes:      int(onlineNodes),
 		TotalEarningsSOL: totalEarnings,
 		AvgQualityScore:  int(avgQuality),
 		ActivePayouts:    int(activePayouts),
@@ -283,10 +287,33 @@ func getDailyUsage(c *gin.Context) {
 		Order("date ASC").
 		Scan(&dbStats)
 
+	var sessionStats []DailyStat
+	db.DB.Model(&models.Session{}).
+		Where("user_id = ? AND created_at >= ?", userID, startDate).
+		Select(`
+			TO_CHAR(created_at, 'YYYY-MM-DD') as date,
+			SUM(bytes_used) as bytes_total,
+			COUNT(*) as req_total
+		`).
+		Group("TO_CHAR(created_at, 'YYYY-MM-DD')").
+		Order("date ASC").
+		Scan(&sessionStats)
+
 	// Map to map for easy lookup
 	statsMap := make(map[string]DailyStat)
 	for _, s := range dbStats {
 		statsMap[s.Date] = s
+	}
+	for _, s := range sessionStats {
+		existing, ok := statsMap[s.Date]
+		if !ok {
+			statsMap[s.Date] = s
+			continue
+		}
+		if s.BytesTotal > existing.BytesTotal {
+			existing.BytesTotal = s.BytesTotal
+			statsMap[s.Date] = existing
+		}
 	}
 
 	data := make([]DailyUsagePoint, days)

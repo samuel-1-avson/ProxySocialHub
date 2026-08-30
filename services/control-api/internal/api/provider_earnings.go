@@ -7,8 +7,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/proxyhubb/control-api/internal/billing"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/incentives"
+	"github.com/proxyhubb/control-api/internal/logging"
+	"github.com/proxyhubb/control-api/internal/marketplace"
 	"github.com/proxyhubb/control-api/internal/models"
 	"gorm.io/gorm"
 )
@@ -125,28 +128,37 @@ func getProviderPayoutHistory(c *gin.Context) {
 // settle tx confirms) but intentionally skip the DB batch-payout queue so the
 // provider is not paid twice.
 func recordProviderEarning(session models.Session, bandwidthUsedBytes int64, pricePerGB float64, platformFeePercent float64) {
-	if session.NodeID == nil {
+	if bandwidthUsedBytes <= 0 {
 		return
 	}
 
-	var node models.ProviderNode
-	if err := db.DB.First(&node, "id = ? AND deleted_at IS NULL", session.NodeID).Error; err != nil {
+	node, err := marketplace.ResolveProviderNodeForSession(session)
+	if err != nil || node == nil {
+		logging.Warn().
+			Err(err).
+			Str("session_id", session.ID.String()).
+			Msg("recordProviderEarning: could not resolve provider node")
 		return
 	}
 
 	bandwidthGB := float64(bandwidthUsedBytes) / (1024 * 1024 * 1024)
 	grossSOL := bandwidthGB * pricePerGB
-	if grossSOL <= 0 {
-		return
+	var linkedOrder models.Order
+	escrowBacked := false
+	if err := db.DB.Select("escrow_pda, price_per_gb").Where("session_id = ?", session.ID).First(&linkedOrder).Error; err == nil {
+		escrowBacked = linkedOrder.EscrowPDA != ""
+		if linkedOrder.PricePerGB > 0 {
+			if _, _, costSOL := billing.CostFromBytesUSD(bandwidthUsedBytes, linkedOrder.PricePerGB); costSOL > 0 {
+				grossSOL = costSOL
+			}
+		}
+	}
+	if grossSOL < 0 {
+		grossSOL = 0
 	}
 
 	// Escrow PDA settle pays the full proportional seller share on-chain with no
 	// treasury skim. Keep PlatformFeeSOL at 0 for those rows so DB matches chain.
-	var linkedOrder models.Order
-	escrowBacked := false
-	if err := db.DB.Select("escrow_pda").Where("session_id = ?", session.ID).First(&linkedOrder).Error; err == nil {
-		escrowBacked = linkedOrder.EscrowPDA != ""
-	}
 	if escrowBacked {
 		platformFeePercent = 0
 	}
@@ -169,6 +181,10 @@ func recordProviderEarning(session models.Session, bandwidthUsedBytes int64, pri
 	}
 
 	if err := db.DB.Create(&earning).Error; err != nil {
+		logging.Warn().
+			Err(err).
+			Str("session_id", session.ID.String()).
+			Msg("recordProviderEarning: create failed")
 		return
 	}
 

@@ -173,6 +173,7 @@ func getListingCollectionBySlug(c *gin.Context) {
 	}
 
 	enrichListingsSLA(listings)
+	enrichListingsOccupancy(listings)
 
 	sentry := privacy.NewZKMetadataSentry()
 	for i := range listings {

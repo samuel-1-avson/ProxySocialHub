@@ -204,17 +204,17 @@ export default function DashboardPage() {
                     <>
                         <StatCard
                             title="Total Nodes"
-                            value={analytics?.total_nodes?.toString() || "0"}
+                            value={`${analytics?.online_nodes ?? 0}/${analytics?.total_nodes ?? 0}`}
                             icon={Server}
                             variant="brand"
-                            trendComponent={<span className="text-purple-400 font-bold text-xs uppercase tracking-wide">Active</span>}
+                            trendComponent={<span className="text-purple-400 font-bold text-xs uppercase tracking-wide">Online</span>}
                         />
                         <StatCard
                             title="Provider Earnings"
                             value={`${analytics?.total_earnings_sol?.toFixed(3) ?? "0.000"} SOL`}
                             icon={DollarSign}
                             variant="default"
-                            subtitle="Total Life-time"
+                            subtitle="Settled session earnings"
                         />
                         <StatCard
                             title="Quality Average"

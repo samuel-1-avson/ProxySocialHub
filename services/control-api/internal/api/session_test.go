@@ -314,6 +314,97 @@ func TestTerminateSession_CreatesUsageProofForEscrowOrder(t *testing.T) {
 	}
 }
 
+func TestTerminateSession_CompletesActiveMarketplaceOrder(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.SetupTestRedis(t)
+	testutil.CleanupTestData(t, "usage_proofs", "orders", "proxy_listings", "sessions", "users", "wallets")
+
+	buyerWallet := "11111111111111111111111111111111"
+	providerWallet := "GXdz7cj6JK4qvQzgrwkBPJUkgcFMW68jQwonMQqAzrkF"
+	buyer := testutil.CreateTestUser(t, testutil.UniqueEmail("session_terminate_active_buyer"), "buyer")
+	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("session_terminate_active_provider"), "provider")
+	if err := db.DB.Model(&models.User{}).Where("id = ?", buyer.ID).Update("wallet_address", buyerWallet).Error; err != nil {
+		t.Fatalf("failed to set buyer wallet: %v", err)
+	}
+	if err := db.DB.Model(&models.User{}).Where("id = ?", provider.ID).Update("wallet_address", providerWallet).Error; err != nil {
+		t.Fatalf("failed to set provider wallet: %v", err)
+	}
+
+	listing := models.ProxyListing{
+		SellerID:             provider.ID,
+		Title:                "Active Escrow Listing",
+		PricePerGB:           1,
+		AvailableBandwidthGB: 10,
+		Status:               models.ListingStatusActive,
+	}
+	if err := db.DB.Create(&listing).Error; err != nil {
+		t.Fatalf("failed to create listing: %v", err)
+	}
+
+	session := models.Session{
+		UserID:          buyer.ID,
+		ListingID:       &listing.ID,
+		Type:            models.SessionRotating,
+		Status:          models.SessionActive,
+		CredentialsUser: "active-order-user",
+		CredentialsPass: "active-order-pass",
+		Config:          "{}",
+		BandwidthLimit:  1 * 1024 * 1024 * 1024,
+		BytesUsed:       715_000,
+		StartTime:       time.Now().Add(-10 * time.Minute),
+	}
+	if err := db.DB.Create(&session).Error; err != nil {
+		t.Fatalf("failed to create session: %v", err)
+	}
+
+	order := models.Order{
+		BuyerID:          buyer.ID,
+		SellerID:         provider.ID,
+		ListingID:        listing.ID,
+		SessionID:        &session.ID,
+		BandwidthGB:      1,
+		PricePerGB:       1,
+		TotalPrice:       1,
+		Status:           models.OrderStatusActive,
+		EscrowPDA:        "11111111111111111111111111111111",
+		BuyerWallet:      buyerWallet,
+		SellerWallet:     providerWallet,
+		BandwidthLimitGB: 1,
+		PaymentMethod:    "solana_escrow",
+	}
+	if err := db.DB.Create(&order).Error; err != nil {
+		t.Fatalf("failed to create order: %v", err)
+	}
+
+	r := setupTestRouter()
+	r.Use(authMiddlewareMock(buyer.ID.String(), "buyer"))
+	r.DELETE("/sessions/:id", terminateSession)
+
+	req := httptest.NewRequest("DELETE", "/sessions/"+session.ID.String(), nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 terminating active marketplace session, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var updatedSession models.Session
+	if err := db.DB.First(&updatedSession, "id = ?", session.ID).Error; err != nil {
+		t.Fatalf("session missing after terminate: %v", err)
+	}
+	if updatedSession.Status != models.SessionTerminated {
+		t.Fatalf("expected session terminated, got %s", updatedSession.Status)
+	}
+
+	var updatedOrder models.Order
+	if err := db.DB.First(&updatedOrder, "id = ?", order.ID).Error; err != nil {
+		t.Fatalf("order missing after terminate: %v", err)
+	}
+	if updatedOrder.Status != models.OrderStatusCompleted {
+		t.Fatalf("expected order completed, got %s", updatedOrder.Status)
+	}
+}
+
 func TestTerminateSession_BlocksAlreadyTerminated(t *testing.T) {
 	testutil.SetupTestDB(t)
 	testutil.SetupTestRedis(t)

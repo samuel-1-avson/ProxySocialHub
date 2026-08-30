@@ -39,12 +39,17 @@ const (
 
 // SellerPublicProfile is the seller subset exposed on listing reads.
 type SellerPublicProfile struct {
-	ID            uuid.UUID
-	DisplayName   *string
-	Username      *string
-	AvatarURL     *string
-	TrustTier     string
-	Role          string
+	ID           uuid.UUID
+	DisplayName  *string
+	Username     *string
+	AvatarURL    *string
+	TrustTier    string
+	Role         string
+	IsOnline     bool
+	LastSeenAt   *time.Time
+	AvgRating    float64
+	ReviewsCount int
+	CreatedAt    time.Time
 }
 
 // ListingDetail is a single listing read model for buyers.

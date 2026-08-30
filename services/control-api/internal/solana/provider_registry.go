@@ -95,13 +95,18 @@ func (c *OracleClient) RegisterProviderOnChain(ctx context.Context, params Regis
 	putU32LE(data[off:off+4], uint32(len(loc)))
 	copy(data[off+4:], loc)
 
+	if c.hsm == nil && len(c.oracleKey) == 0 {
+		return "", fmt.Errorf("oracle signer unavailable")
+	}
+	oraclePK := c.GetOraclePublicKey()
+
 	instruction := &GenericInstruction{
 		programID: c.programID,
 		accounts: []*sol.AccountMeta{
-			{PublicKey: registryPDA, IsSigner: false, IsWritable: true},                // provider_registry
-			{PublicKey: c.oracleKey.PublicKey(), IsSigner: true, IsWritable: true},     // oracle (payer)
-			{PublicKey: statePDA, IsSigner: false, IsWritable: false},                  // program_state
-			{PublicKey: sol.SystemProgramID, IsSigner: false, IsWritable: false},       // system_program
+			{PublicKey: registryPDA, IsSigner: false, IsWritable: true},          // provider_registry
+			{PublicKey: oraclePK, IsSigner: true, IsWritable: true},              // oracle (payer; Cloud KMS on gcp-testnet)
+			{PublicKey: statePDA, IsSigner: false, IsWritable: false},            // program_state
+			{PublicKey: sol.SystemProgramID, IsSigner: false, IsWritable: false}, // system_program
 		},
 		data: data,
 	}
@@ -136,12 +141,16 @@ func (c *OracleClient) ProviderHeartbeatOnChain(ctx context.Context, params Prov
 	putU32LE(data[49:53], params.SuccessfulSessionsDelta)
 	putU32LE(data[53:57], params.FailedSessionsDelta)
 
+	if c.hsm == nil && len(c.oracleKey) == 0 {
+		return "", fmt.Errorf("oracle signer unavailable")
+	}
+
 	instruction := &GenericInstruction{
 		programID: c.programID,
 		accounts: []*sol.AccountMeta{
-			{PublicKey: registryPDA, IsSigner: false, IsWritable: true},            // provider_registry
-			{PublicKey: c.oracleKey.PublicKey(), IsSigner: true, IsWritable: false}, // oracle (admin)
-			{PublicKey: statePDA, IsSigner: false, IsWritable: false},               // program_state
+			{PublicKey: registryPDA, IsSigner: false, IsWritable: true},             // provider_registry
+			{PublicKey: c.GetOraclePublicKey(), IsSigner: true, IsWritable: false}, // oracle (admin)
+			{PublicKey: statePDA, IsSigner: false, IsWritable: false},              // program_state
 		},
 		data: data,
 	}
@@ -168,12 +177,16 @@ func (c *OracleClient) DeregisterProviderOnChain(ctx context.Context, provider s
 	copy(data[0:8], discDeregisterProvider[:])
 	copy(data[8:40], provider.Bytes())
 
+	if c.hsm == nil && len(c.oracleKey) == 0 {
+		return "", fmt.Errorf("oracle signer unavailable")
+	}
+
 	instruction := &GenericInstruction{
 		programID: c.programID,
 		accounts: []*sol.AccountMeta{
-			{PublicKey: registryPDA, IsSigner: false, IsWritable: true},            // provider_registry
-			{PublicKey: c.oracleKey.PublicKey(), IsSigner: true, IsWritable: false}, // oracle (admin)
-			{PublicKey: statePDA, IsSigner: false, IsWritable: false},               // program_state
+			{PublicKey: registryPDA, IsSigner: false, IsWritable: true},             // provider_registry
+			{PublicKey: c.GetOraclePublicKey(), IsSigner: true, IsWritable: false}, // oracle (admin)
+			{PublicKey: statePDA, IsSigner: false, IsWritable: false},              // program_state
 		},
 		data: data,
 	}

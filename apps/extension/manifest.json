@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ProxyHubb",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Turn on HTTP CONNECT for your ProxyHubb purchases. HMAC proxy.proxyhubb.com:8090 — not a VPN.",
   "minimum_chrome_version": "116",
   "homepage_url": "https://proxyhubb.com",

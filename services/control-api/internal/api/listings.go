@@ -99,6 +99,7 @@ func getListings(c *gin.Context) {
 	}
 
 	enrichListingsSLA(apiListings)
+	enrichListingsOccupancy(apiListings)
 	enrichListingsDiscoveryHints(apiListings)
 	beforeFilter := len(apiListings)
 	apiListings = filterListingsByBrowseRegistry(apiListings)
@@ -179,12 +180,17 @@ func sellerProfileToModel(p *domain.SellerPublicProfile) *models.User {
 		return nil
 	}
 	return &models.User{
-		ID:          p.ID,
-		DisplayName: p.DisplayName,
-		Username:    p.Username,
-		AvatarURL:   p.AvatarURL,
-		Role:        p.Role,
-		TrustTier:   models.TrustTier(p.TrustTier),
+		ID:           p.ID,
+		DisplayName:  p.DisplayName,
+		Username:     p.Username,
+		AvatarURL:    p.AvatarURL,
+		Role:         p.Role,
+		TrustTier:    models.TrustTier(p.TrustTier),
+		IsOnline:     p.IsOnline,
+		LastSeenAt:   p.LastSeenAt,
+		AvgRating:    p.AvgRating,
+		ReviewsCount: p.ReviewsCount,
+		CreatedAt:    p.CreatedAt,
 	}
 }
 
@@ -305,10 +311,11 @@ func getListing(c *gin.Context) {
 		return
 	}
 
+	viewer := listingViewerFromContext(c)
 	detail, err := marketplaceServiceOrDefault().GetListingForViewer(
 		c.Request.Context(),
 		listingID,
-		listingViewerFromContext(c),
+		viewer,
 	)
 	if err != nil {
 		writeMarketplaceError(c, err)
@@ -319,14 +326,18 @@ func getListing(c *gin.Context) {
 	listing.Seller = sellerProfileToModel(detail.Seller)
 	hintBatch := []models.ProxyListing{listing}
 	enrichListingsSLA(hintBatch)
+	enrichListingsOccupancy(hintBatch)
 	enrichListingsDiscoveryHints(hintBatch)
 	listing = hintBatch[0]
 	if !listingPassesBrowseRegistryFilter(&listing) {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error":     "listing_not_found",
-			"discovery": discoveryHonestyMeta(),
-		})
-		return
+		ownerOrMod := viewer.IsModerator || (viewer.UserID != nil && *viewer.UserID == listing.SellerID)
+		if !ownerOrMod {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error":     "listing_not_found",
+				"discovery": discoveryHonestyMeta(),
+			})
+			return
+		}
 	}
 	if !listingPassesListingCommitmentFilter(&listing) {
 		c.JSON(http.StatusNotFound, gin.H{
@@ -366,6 +377,16 @@ func createListing(c *gin.Context) {
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	var actor models.User
+	if err := db.DB.Select("role").First(&actor, "id = ?", userID).Error; err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+		return
+	}
+	if actor.Role == "buyer" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Only providers can create listings"})
 		return
 	}
 
@@ -922,6 +943,8 @@ func getFeaturedListings(c *gin.Context) {
 	}
 
 	listings := listingEntitiesToModels(entities)
+	enrichListingsSLA(listings)
+	enrichListingsOccupancy(listings)
 	sentry := privacy.NewZKMetadataSentry()
 	for i := range listings {
 		sentry.SanitizeListing(&listings[i])
@@ -947,6 +970,8 @@ func searchListings(c *gin.Context) {
 	}
 
 	listings := listingEntitiesToModels(entities)
+	enrichListingsSLA(listings)
+	enrichListingsOccupancy(listings)
 	sentry := privacy.NewZKMetadataSentry()
 	for i := range listings {
 		sentry.SanitizeListing(&listings[i])
@@ -975,8 +1000,13 @@ func isPlatformModeratorRole(role string) bool {
 
 func parseUserIDFromContext(c *gin.Context) (uuid.UUID, error) {
 	if uid, ok := c.Get("user_id"); ok {
-		if id, ok := uid.(uuid.UUID); ok {
+		switch id := uid.(type) {
+		case uuid.UUID:
 			return id, nil
+		case string:
+			if parsed, err := uuid.Parse(id); err == nil {
+				return parsed, nil
+			}
 		}
 	}
 	if userIDStr := c.GetString("userID"); userIDStr != "" {

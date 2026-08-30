@@ -53,6 +53,7 @@ export interface Listing {
     views_count: number;
     saves_count: number;
     orders_count: number;
+    active_sessions_count?: number;
     total_sales: number;
     rating: number;
     bulk_discounts?: any[];
@@ -297,6 +298,8 @@ export interface SolanaPaymentParams {
     amount_lamports: number;
     amount_sol: number;
     bandwidth_gb: number;
+    /** On-chain initializeEscrow limit (micro-GiB). */
+    escrow_bandwidth_units?: number;
     oracle_pubkey: string;
     /** True when buyer/seller PDA already exists and is funded on-chain. */
     escrow_already_funded?: boolean;
@@ -387,6 +390,7 @@ export interface MarketplaceMapPoint {
     protocol?: string;
     price_per_gb?: number;
     available_bandwidth_gb?: number;
+    max_concurrency?: number;
     uptime_percent?: number;
     latency_ms?: number;
     quality_score?: number;
@@ -582,8 +586,19 @@ export function signListingOfferDev(data: CreateListingRequest) {
 /**
  * Create a new marketplace listing.
  */
-export function createListing(data: CreateListingRequest) {
-    return apiPost<Listing, CreateListingRequest>('/v1/listings', data);
+export function createListing(data: CreateListingRequest, init?: RequestInit) {
+    const controller = new AbortController();
+    const timeoutMs = 25_000;
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const parentSignal = init?.signal;
+    if (parentSignal) {
+        if (parentSignal.aborted) controller.abort();
+        else parentSignal.addEventListener('abort', () => controller.abort(), { once: true });
+    }
+    return apiPost<Listing, CreateListingRequest>('/v1/listings', data, {
+        ...init,
+        signal: controller.signal,
+    }).finally(() => clearTimeout(timer));
 }
 
 /**

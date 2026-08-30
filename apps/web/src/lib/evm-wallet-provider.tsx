@@ -2,7 +2,7 @@
 
 import { getDefaultConfig, RainbowKitProvider, darkTheme } from '@rainbow-me/rainbowkit';
 import { http, WagmiProvider } from 'wagmi';
-import { mainnet, polygon, polygonAmoy, sepolia } from 'wagmi/chains';
+import { mainnet, polygon, polygonAmoy, sepolia } from 'viem/chains';
 import '@rainbow-me/rainbowkit/styles.css';
 
 const supportedChains = {

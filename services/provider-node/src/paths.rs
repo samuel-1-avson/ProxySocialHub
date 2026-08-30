@@ -14,12 +14,36 @@ pub fn home_dir() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from("."))
 }
 
-/// `~/.config/proxyhubb/provider.toml` (XDG) when available, else `~/.proxyhubb/provider.toml`.
+/// Platform default `provider.toml`.
+///
+/// On macOS `dirs::config_dir()` is `~/Library/Application Support`, not `~/.config`.
+/// Prefer an existing file so dashboard scripts that still write XDG keep working.
 pub fn config_file() -> PathBuf {
-    if let Some(dir) = dirs::config_dir() {
-        return dir.join("proxyhubb").join("provider.toml");
+    let candidates = config_file_candidates();
+    for path in &candidates {
+        if path.exists() {
+            return path.clone();
+        }
     }
-    state_dir().join("provider.toml")
+    candidates
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| state_dir().join("provider.toml"))
+}
+
+pub fn config_file_candidates() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    if let Some(dir) = dirs::config_dir() {
+        out.push(dir.join("proxyhubb").join("provider.toml"));
+    }
+    let xdg = home_dir().join(".config").join("proxyhubb").join("provider.toml");
+    if !out.iter().any(|p| p == &xdg) {
+        out.push(xdg);
+    }
+    if out.is_empty() {
+        out.push(state_dir().join("provider.toml"));
+    }
+    out
 }
 
 pub fn pid_file() -> PathBuf {

@@ -115,6 +115,16 @@ function catalogPopupLine(pin: { catalog_product?: { title?: string; slug?: stri
     return `<div style="font-size:8px;font-weight:800;color:#c4b5fd;text-transform:uppercase;letter-spacing:.12em;margin-bottom:6px;">Catalog · ${esc(label)} · ${esc(title)}</div>`;
 }
 
+function occupancyLine(pin: ExplorerListingPin): string {
+    const active = pin.active_sessions ?? 0;
+    const cap = pin.max_concurrency ?? 0;
+    if (active <= 0 && cap <= 0) return '';
+    if (cap > 0) {
+        return ` · ${active}/${cap} buyers connected`;
+    }
+    return active > 0 ? ` · ${active} buyers connected` : '';
+}
+
 export function listingPopup(
     pin: ExplorerListingPin & { city?: string; catalog_product?: { title?: string; slug?: string } },
     opts?: { buyAction?: boolean },
@@ -128,7 +138,7 @@ export function listingPopup(
         <div style="font-size:8px;font-weight:900;color:#10b981;text-transform:uppercase;letter-spacing:.2em;margin-bottom:4px;">Market listing</div>
         ${catalogLine}
         <div style="font-size:11px;font-weight:700;margin-bottom:6px;">${esc(pin.title)}</div>
-        <div style="font-size:9px;color:rgba(255,255,255,.5);margin-bottom:8px;">${loc} · $${pin.price_per_gb.toFixed(4)}/GB</div>
+        <div style="font-size:9px;color:rgba(255,255,255,.5);margin-bottom:8px;">${loc} · $${pin.price_per_gb.toFixed(4)}/GB${occupancyLine(pin)}</div>
         ${buyCtl}
     </div>`;
 }

@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { createSessionIntent, getSessionIntentStatus, getSessions, listSessionIntents, remintSessionIntent, terminateSession } from '@/lib/api';
-import type { CreateSessionIntentResponse, Session, SessionIntentLifecycle, SessionIntentStatusResponse } from '@/lib/api';
+import { createSessionIntent, getOrders, getSessionIntentStatus, getSessions, listSessionIntents, remintSessionIntent, terminateSession } from '@/lib/api';
+import type { CreateSessionIntentResponse, Order, Session, SessionIntentLifecycle, SessionIntentStatusResponse } from '@/lib/api';
 import {
     ExternalLink,
     Terminal,
@@ -172,6 +173,13 @@ export default function SessionsPage() {
         retry: 2,
     });
 
+    const { data: marketplaceOrders = [] } = useQuery({
+        queryKey: ['orders'],
+        queryFn: () => getOrders(),
+        refetchInterval: 15000,
+        retry: 2,
+    });
+
     const { data: intents = [], isLoading: intentsLoading } = useQuery({
         queryKey: ['session-intents'],
         queryFn: listSessionIntents,
@@ -250,14 +258,24 @@ export default function SessionsPage() {
         setTerminateError(null);
         try {
             await terminateSession(pendingTerminateId);
-            await queryClient.invalidateQueries({ queryKey: ['sessions'] });
-            toast.success('Session terminated', 'The proxy tunnel has been closed.');
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ['sessions'] }),
+                queryClient.invalidateQueries({ queryKey: ['orders'] }),
+            ]);
+            const linked = marketplaceOrders.find((order) => order.session_id === pendingTerminateId);
+            toast.success(
+                linked ? 'Session settled' : 'Session terminated',
+                linked
+                    ? 'The proxy is closed. Used bytes will settle against the shop escrow.'
+                    : 'The proxy tunnel has been closed.'
+            );
             setReviewSessionId(pendingTerminateId);
             setPendingTerminateId(null);
         } catch (error) {
             console.error('Failed to terminate session:', error);
-            setTerminateError(getErrorMessage(error) || 'Could not close the session. Please try again.');
-            toast.error('Termination failed', 'Could not close the session. Please try again.');
+            const message = getErrorMessage(error) || 'Could not close the session. Please try again.';
+            setTerminateError(message);
+            toast.error('Termination failed', message);
         } finally {
             setTerminating(false);
         }
@@ -514,6 +532,10 @@ export default function SessionsPage() {
         );
     }
 
+    const activeMarketplaceOrders = marketplaceOrders.filter((order: Order) => order.status === 'active');
+    const pendingLinkedOrder = pendingTerminateId
+        ? marketplaceOrders.find((order) => order.session_id === pendingTerminateId)
+        : undefined;
     const activeLegacySessions = sessions.filter(s => s.status === 'active');
     const lifecycleCounts = lifecycleOrder.reduce((counts, state) => {
         counts[state] = intents.filter((intent) => intent.lifecycle_state === state).length;
@@ -559,7 +581,61 @@ export default function SessionsPage() {
                 </div>
             </motion.div>
 
-            <motion.div variants={itemVariants}>
+            <motion.div variants={itemVariants} className="space-y-4">
+                <GlassCard className="p-5 border-emerald-500/20 bg-emerald-500/5">
+                    <p className="text-[10px] font-mono font-black uppercase tracking-[0.2em] text-emerald-400">
+                        Marketplace purchases
+                    </p>
+                    <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
+                        Shop escrow orders are the paid CONNECT path. The intent table below is a
+                        short-lived JWT ledger — expired intents are not a dropped proxy.
+                    </p>
+                    {activeMarketplaceOrders.length === 0 ? (
+                        <p className="mt-4 text-[11px] font-mono uppercase tracking-widest text-muted-foreground">
+                            No active marketplace orders
+                        </p>
+                    ) : (
+                        <div className="mt-4 space-y-2">
+                            {activeMarketplaceOrders.map((order) => (
+                                <div
+                                    key={order.id}
+                                    className="flex items-center justify-between gap-3 rounded-xl border border-emerald-500/20 bg-black/20 px-4 py-3"
+                                >
+                                    <Link href={`/marketplace/orders/${order.id}`} className="min-w-0 hover:text-emerald-300">
+                                        <p className="text-sm font-black uppercase text-foreground">
+                                            {order.listing?.title || order.id.slice(0, 8)}
+                                        </p>
+                                        <p className="text-[10px] font-mono uppercase text-muted-foreground">
+                                            {order.bandwidth_gb} GB · {order.status}
+                                            {order.session_id ? ` · session ${order.session_id.slice(0, 8)}` : ''}
+                                        </p>
+                                    </Link>
+                                    <div className="flex shrink-0 items-center gap-2">
+                                        {order.session_id ? (
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                variant="danger"
+                                                onClick={() => {
+                                                    setTerminateError(null);
+                                                    setPendingTerminateId(order.session_id!);
+                                                }}
+                                            >
+                                                Stop
+                                            </Button>
+                                        ) : null}
+                                        <Link
+                                            href={`/marketplace/orders/${order.id}`}
+                                            className="text-[10px] font-mono font-black uppercase text-emerald-400"
+                                        >
+                                            Order →
+                                        </Link>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </GlassCard>
                 <GlassCard className="p-5 border-amber-200 bg-amber-50 dark:border-amber-500/20 dark:bg-amber-500/5">
                     <p className="text-[10px] font-mono font-black uppercase tracking-[0.2em] text-amber-900 dark:text-amber-300">
                         Authorized ≠ active path
@@ -1075,15 +1151,32 @@ export default function SessionsPage() {
                         setTerminateError(null);
                     }
                 }}
-                title="Terminate session"
-                description="Close this proxy tunnel? Active connections will drop immediately."
-                confirmLabel="Terminate"
+                title={pendingLinkedOrder ? 'Stop marketplace session' : 'Terminate session'}
+                description={
+                    pendingLinkedOrder
+                        ? 'Close this proxy and settle used bytes against the shop escrow. Active connections will drop immediately.'
+                        : 'Close this proxy tunnel? Active connections will drop immediately.'
+                }
+                confirmLabel={pendingLinkedOrder ? 'Stop & settle' : 'Terminate'}
                 cancelLabel="Keep session"
                 destructive
                 loading={terminating}
                 error={terminateError ?? undefined}
                 onConfirm={() => void confirmTerminate()}
-            />
+            >
+                {pendingLinkedOrder ? (
+                    <p className="text-sm text-muted-foreground">
+                        Linked order{' '}
+                        <Link
+                            href={`/marketplace/orders/${pendingLinkedOrder.id}`}
+                            className="font-medium text-primary hover:underline"
+                        >
+                            {pendingLinkedOrder.listing?.title || pendingLinkedOrder.id.slice(0, 8)}
+                        </Link>
+                        . Unused escrow stays in settlement, not a separate cancel.
+                    </p>
+                ) : null}
+            </ConfirmDialog>
             
             <ReviewModal 
                 isOpen={!!reviewSessionId} 
