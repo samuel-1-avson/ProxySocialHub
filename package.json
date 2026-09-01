@@ -1,4 +1,12 @@
 {
   "name": "proxyhubb",
-  "private": true
+  "private": true,
+  "scripts": {
+    "test:sdks:node": "node --test sdks/nodejs/test/client.test.js && node sdks/nodejs/test/depin_sdk_test.mjs",
+    "test:sdks:provider-node": "node --test sdks/provider-nodejs/test/cli.test.js",
+    "test:extension": "node apps/extension/scripts/test-hmac.mjs && node apps/extension/scripts/test-verify.mjs && node apps/extension/scripts/test-reliability.mjs",
+    "test:security": "node testing/test_security_hardening.mjs",
+    "test:protocol": "ts-node testing/test_mutual_receipt_settle.ts && ts-node testing/test_staked_gateway.ts && ts-node testing/test_zk_and_p2p.ts && ts-node testing/test_depin_ecosystem.ts",
+    "test:fuzz": "ts-node testing/fuzz_adversarial_suite.ts"
+  }
 }

@@ -165,3 +165,61 @@ func TestSellerListingAndEarnings(t *testing.T) {
 		}
 	}
 }
+
+func TestDePINMethods(t *testing.T) {
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Method+" "+r.URL.RequestURI())
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
+	}))
+	defer srv.Close()
+
+	c := proxyhubb.NewClientWithToken("jwt")
+	c.BaseURL = srv.URL
+
+	_, err := c.CreateP2PSignalOffer(context.Background(), proxyhubb.P2PSignalOfferRequest{
+		SessionID:      "sess-123",
+		BuyerPubkey:    "buyer-pk",
+		ProviderHotkey: "provider-hk",
+		OfferSDP:       "v=0...",
+		ICECandidates:  []string{"candidate:1..."},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = c.CreateP2PSignalAnswer(context.Background(), proxyhubb.P2PSignalAnswerRequest{
+		SessionID:      "sess-123",
+		ProviderHotkey: "provider-hk",
+		AnswerSDP:      "v=0...",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := c.GetP2PSignals(context.Background(), "sess-123"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.GetGatewayOperators(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.GetDePINMiningStats(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{
+		"POST /v1/p2p/signal/offer",
+		"POST /v1/p2p/signal/answer",
+		"GET /v1/p2p/signal/sess-123",
+		"GET /v1/gateways/operators",
+		"GET /v1/network",
+	}
+	if len(seen) != len(want) {
+		t.Fatalf("seen=%v want=%v", seen, want)
+	}
+	for i := range want {
+		if seen[i] != want[i] {
+			t.Fatalf("seen[%d]=%q want %q", i, seen[i], want[i])
+		}
+	}
+}

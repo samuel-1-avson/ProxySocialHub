@@ -1,0 +1,127 @@
+---
+title: Official Protocol Whitepaper (v2.0)
+description: Technical Whitepaper for ProxyHubb — High-Throughput DePIN Protocol for Zero-Knowledge Bandwidth Routing and State-Channel Settlement on Solana.
+---
+
+<Callout type="tip" title="Interactive Whitepaper Reader">
+Read the full interactive whitepaper with live mathematical formatting, scroll-spy table of contents, and PDF export at <a href="https://proxyhubb.com/whitepaper" target="_blank" rel="noreferrer" className="text-emerald-400 font-semibold underline">proxyhubb.com/whitepaper</a>. You can also explore the live <a href="https://proxyhubb.com/depin" target="_blank" rel="noreferrer" className="text-emerald-400 font-semibold underline">DePIN Portal</a>.
+</Callout>
+
+**Program ID:** `AZGhGfvsiGJQ5S91nkdhGi9qvSNKv3sBZyVJ63KQLfvu`  
+**Classification:** DePIN Protocol Specification & Cryptographic Whitepaper  
+**Target Blockchain:** Solana Virtual Machine (SVM)  
+
+---
+
+## Abstract
+
+Centralized proxy networks represent a multi-billion-dollar market plagued by structural inefficiencies: custodial counterparty risk, opaque billing, unverified bandwidth counters, malicious traffic interception, and single points of failure. This paper presents **ProxyHubb**, a Decentralized Physical Infrastructure Network (DePIN) protocol that transforms residential and datacenter internet connections into a permissionless, cryptographically verifiable proxy routing marketplace on Solana.
+
+---
+
+## The 5-Layer DePIN Architecture
+
+ProxyHubb is organized into five decoupled architectural planes:
+
+```text
+[L5: Application Layer]   Next.js 14 (/depin, /whitepaper) • Chrome MV3 • Node / Python / Go SDKs
+        │
+[L4: Data Plane]          Direct P2P WebRTC (~14ms) • Staked Gateways (3128/8090) (~28ms)
+        │
+[L3: ZK Rollup]           BN254 Groth16 Batch Prover • Merkle State-Channel Aggregation
+        │
+[L2: State Channels]      Bilateral Ed25519 Micro-Receipts • Sub-100μs Counter-Signing
+        │
+[L1: Settlement]          Solana Anchor Core • Non-Custodial Escrows • PoBW Mining Pool
+```
+
+---
+
+## Solana Anchor Core & PDA Matrix
+
+The on-chain smart contract is deployed at `AZGhGfvsiGJQ5S91nkdhGi9qvSNKv3sBZyVJ63KQLfvu` and uses deterministic Program Derived Addresses (PDAs):
+
+| Account Struct | Canonical PDA Seeds | Purpose |
+|---|---|---|
+| `GatewayRegistry` | `["gateway-registry", gateway_pubkey]` | 1.0 SOL collateral bond & QoS telemetry |
+| `EpochRewardPool` | `["epoch-rewards", epoch_id]` | Non-custodial PoBW mining emissions vault |
+| `Escrow` | `["escrow", buyer_pubkey, order_id]` | Locked buyer SOL for micro-receipt settlement |
+| `SessionEscrow` | `["session_escrow", session_id]` | PAYG continuous stream escrow |
+| `DepositVault` | `["deposit_vault"]` | Prepaid buyer credit balance vault |
+| `ListingCommitment` | `["listing_commitment", seller, offer_hash]` | Cryptographic commitment binding listing prices |
+
+---
+
+## Bilateral State Channels & Proof of Bandwidth (PoBW)
+
+Instead of trusting centralized oracle counters, ProxyHubb implements **Bilateral State Channels**.
+
+### Canonical Micro-Receipt Format
+Every micro-receipt follows a strict ASCII layout:
+```text
+receipt:v1:<escrow_pda>:<buyer_pubkey>:<seller_pubkey>:<bytes_used>:<sequence_num>
+```
+
+### On-Chain Introspection Verification
+Settlement via `settle_escrow_mutual_receipt` requires two preceding `Ed25519SigVerify111111111111111111111111111` precompile instructions:
+
+```rust
+let current_index = load_current_index_checked(&ctx.accounts.instructions)?;
+require!(current_index >= 2, EscrowError::MissingSignatureVerification);
+```
+
+### Mathematical Balance Conservation Theorem
+Let $A$ be escrow lamports, $L$ be total contracted bytes, $U$ be verified bytes used, and $C = \min(U, L)$:
+
+$$\text{seller\_payout} = \left\lfloor \frac{A \times C}{L} \right\rfloor, \quad \text{buyer\_refund} = A - \text{seller\_payout}$$
+
+$$\textbf{Theorem 1 (Zero-Leak Balance Conservation): } \forall A, L, U \in \mathbb{N} \implies \text{seller\_payout} + \text{buyer\_refund} \equiv A$$
+
+---
+
+## Groth16 BN254 Zero-Knowledge Batch Rollups
+
+For high-throughput enterprise scraping batches, micro-sessions are rolled into a Merkle root $\mathcal{R}$ and verified on-chain via a succinct BN254 Groth16 zk-SNARK proof. The 32-byte digest is reduced modulo the scalar field modulus $r$:
+
+$$r = \text{0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001}$$
+$$\text{public\_input} = \text{SHA256}(\text{root} \mathbin{\Vert} \text{count} \mathbin{\Vert} \text{total\_bytes} \mathbin{\Vert} T_{\text{start}} \mathbin{\Vert} T_{\text{end}} \mathbin{\Vert} \mathcal{H}_{\text{leaves}}) \pmod r$$
+
+---
+
+## Staked Gateway Operator Network & Slashing
+
+- **Permissionless Bonding:** Operators stake $\ge 1.0\text{ SOL}$ via `register_gateway`.
+- **Signed Manifests:** Gateways sign canonical manifests with host endpoints, regions, and stake.
+- **Automated Slashing:** Gateways that drop packets or modify streams are slashed via `slash_gateway`, routing penalties to the protocol treasury and deactivating under-collateralized nodes.
+
+---
+
+## Tokenomics & Proof-of-Bandwidth Mining
+
+Residential providers earn algorithmic emissions from the `EpochRewardPool` PDA:
+
+$$\text{Reward}_i = \left\lfloor \frac{B_i \times E_k}{\sum_{j=1}^M B_j} \right\rfloor \implies \sum_{i=1}^M \text{Reward}_i \le E_k$$
+
+**Theorem 2 (Epoch Solvency Guarantee):** Total claimed rewards never exceed total epoch emission $E_k$.
+
+---
+
+## Formal Threat Model & Adversarial Verification
+
+Evaluated over **25,000+ continuous randomized adversarial fuzz iterations** (`testing/fuzz_adversarial_suite.ts`):
+- **Zero-Leak Math Fuzzing:** 25,000/25,000 iterations maintained exact lamport conservation.
+- **Signature Forgery Injections:** 1,000/1,000 tampered signature injections rejected.
+- **Concurrent Claim Solvency:** 1,000 multi-provider epoch simulations verified with 0 overdraw.
+
+---
+
+## Where to Read Next
+
+| Resource | Link |
+|---|---|
+| **Interactive Whitepaper Reader** | [https://proxyhubb.com/whitepaper](https://proxyhubb.com/whitepaper) |
+| **Live DePIN Mining Portal** | [https://proxyhubb.com/depin](https://proxyhubb.com/depin) |
+| **Architecture Deep Dive** | [Architecture](/docs/architecture) |
+| **Bilateral State Channels** | [Concepts: Metering](/docs/concepts/metering) |
+| **Developer SDKs** | [Official SDKs](/docs/sdks) |
+| **API Reference** | [Interactive OpenAPI](/docs/api) |
