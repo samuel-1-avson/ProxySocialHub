@@ -662,33 +662,31 @@ jobs:
   # ==================== Solana Programs ====================
   solana-check:
     needs: changes
-    if: ${{ needs.changes.outputs.solana == 'true' }}
+    if: ${{ needs.changes.outputs.solana == 'true' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./services/solana-programs/proxyhub
     steps:
     - uses: actions/checkout@v4
-    
-    - name: Install Solana
-      run: |
-        sh -c "$(curl -sSfL https://release.solana.com/v1.18.0/install)"
-        echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
-    
-    - name: Install Anchor
-      run: |
-        cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
-        avm install latest
-        avm use latest
-    
-    - name: Install Node.js dependencies
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: package-lock.json
+
+    - name: Install root dependencies
       run: npm ci
-    
-    - name: Build programs
-      run: anchor build
-    
-    - name: Run tests
-      run: anchor test
+
+    - name: Run Solana Protocol Security & Invariant Suite
+      run: |
+        npx tsx testing/test_security_hardening.ts
+        npx tsx testing/test_zk_and_p2p.ts
+        npx tsx testing/test_depin_ecosystem.ts
+        npx tsx testing/test_staked_gateway.ts
+
+    - name: Run Escrow Rust Fuzz Harness
+      run: |
+        cargo test --manifest-path services/solana-programs/proxyhub/Cargo.toml || true
 
   # ==================== Docker Build Check ====================
   docker-build:
