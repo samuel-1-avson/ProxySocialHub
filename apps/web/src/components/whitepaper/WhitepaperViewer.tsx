@@ -342,11 +342,14 @@ receipt:v1:&lt;escrow_pda&gt;:&lt;buyer_pubkey&gt;:&lt;seller_pubkey&gt;:&lt;byt
             <div id="conservation-theorem" style={{ marginTop: '24px' }}>
               <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#e2e8f0' }}>4.3 Mathematical Conservation Theorem</h3>
               <p>
-                Let $A$ be escrow lamports, $L = \text{limit\_gb} \times 2^{30}$ be total contracted bytes, $U$ be verified bytes, and $C = \min(U, L)$. The smart contract computes:
+                Let <code>A</code> be escrow lamports, <code>L = limit_gb &times; 2^30</code> be total contracted bytes, <code>U</code> be verified bytes, and <code>C = min(U, L)</code>. The smart contract computes:
               </p>
-              <div style={{ background: 'rgba(16, 185, 129, 0.06)', border: '1px solid rgba(16, 185, 129, 0.2)', padding: '16px', borderRadius: '8px', color: '#e2e8f0', margin: '16px 0' }}>
-                $$\text{seller\_payout} = \left\lfloor \frac{A \times C}{L} \right\rfloor, \quad \text{buyer\_refund} = A - \text{seller\_payout}$$
-                $$\textbf{Theorem 1 (Zero-Leak Balance Conservation): } \forall A, L, U \in \mathbb{N} \implies \text{seller\_payout} + \text{buyer\_refund} \equiv A$$
+              <div style={{ background: 'rgba(16, 185, 129, 0.06)', border: '1px solid rgba(16, 185, 129, 0.2)', padding: '16px', borderRadius: '8px', color: '#e2e8f0', margin: '16px 0', fontFamily: 'monospace', fontSize: '0.9rem' }}>
+                <div>seller_payout = floor((A * C) / L)</div>
+                <div>buyer_refund  = A - seller_payout</div>
+                <div style={{ marginTop: '8px', color: '#34d399', fontWeight: 700 }}>
+                  Theorem 1 (Zero-Leak Balance Conservation): forall A, L, U in N ==&gt; seller_payout + buyer_refund === A
+                </div>
               </div>
               <p style={{ color: '#94a3b8', fontSize: '0.9rem' }}>
                 Anchor's <code>close = buyer</code> constraint ensures all residual rent lamports plus <code>buyer_refund</code> are returned directly to the buyer's wallet, eliminating any possibility of locked dust or stranded funds.
@@ -360,7 +363,7 @@ receipt:v1:&lt;escrow_pda&gt;:&lt;buyer_pubkey&gt;:&lt;seller_pubkey&gt;:&lt;byt
               5. Groth16 BN254 Zero-Knowledge Batch Rollups
             </h2>
             <p>
-              For enterprise high-throughput scraping batches, state-channel leaves are rolled into a Merkle root $\mathcal{R}$ and proven off-chain via Groth16 SNARKs. The 32-byte digest is reduced into the BN254 scalar field modulus $r$:
+              For enterprise high-throughput scraping batches, state-channel leaves are rolled into a Merkle root and proven off-chain via Groth16 SNARKs. The 32-byte digest is reduced into the BN254 scalar field modulus <code>r</code>:
             </p>
             <div style={{ background: '#020617', padding: '16px', borderRadius: '8px', color: '#38bdf8', fontSize: '0.85rem', fontFamily: 'monospace' }}>
               r = 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001<br/>
@@ -374,20 +377,20 @@ receipt:v1:&lt;escrow_pda&gt;:&lt;buyer_pubkey&gt;:&lt;seller_pubkey&gt;:&lt;byt
               6. Permissionless Staked Gateway Operator Network
             </h2>
             <p>
-              Third-party edge operators bond collateral ($\ge 1.0\text{ SOL}$) via <code>register_gateway</code>. If an operator drops packets, tampers with TLS traffic, or goes offline, <code>slash_gateway</code> algorithmically confiscates collateral, routing penalties to the community treasury and deactivating the gateway when balance falls below minimum stake.
+              Third-party edge operators bond collateral (&ge; 1.0 SOL) via <code>register_gateway</code>. If an operator drops packets, tampers with TLS traffic, or goes offline, <code>slash_gateway</code> algorithmically confiscates collateral, routing penalties to the community treasury and deactivating the gateway when balance falls below minimum stake.
             </p>
           </section>
 
           {/* Section: Tokenomics */}
           <section id="tokenomics" style={{ marginBottom: '48px' }}>
             <h2 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#f8fafc', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '8px' }}>
-              8. Tokenomics & Proof-of-Bandwidth Mining Pool
+              8. Tokenomics &amp; Proof-of-Bandwidth Mining Pool
             </h2>
             <p>
               Residential providers earn proportional rewards from the on-chain <code>EpochRewardPool</code>:
             </p>
-            <div style={{ background: 'rgba(56, 189, 248, 0.06)', border: '1px solid rgba(56, 189, 248, 0.2)', padding: '16px', borderRadius: '8px', color: '#e2e8f0', margin: '16px 0' }}>
-              $$\text{Reward}_i = \left\lfloor \frac{B_i \times E_k}{\sum_{j=1}^M B_j} \right\rfloor \implies \sum_{i=1}^M \text{Reward}_i \le E_k$$
+            <div style={{ background: 'rgba(56, 189, 248, 0.06)', border: '1px solid rgba(56, 189, 248, 0.2)', padding: '16px', borderRadius: '8px', color: '#e2e8f0', margin: '16px 0', fontFamily: 'monospace', fontSize: '0.9rem' }}>
+              <div>Reward_i = floor((B_i * E_k) / sum(B_j for j=1..M)) ==&gt; sum(Reward_i for i=1..M) &lt;= E_k</div>
             </div>
             <p style={{ color: '#94a3b8', fontSize: '0.9rem' }}>
               This guarantees mathematical solvency: the emission pool can never experience an overdraw or run out of rewards.
