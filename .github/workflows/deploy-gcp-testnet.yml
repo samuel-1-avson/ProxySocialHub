@@ -1,0 +1,133 @@
+name: GCP Testnet CD (Auto-Deploy)
+
+# ==============================================================================
+# ProxyHubb Automated Continuous Deployment to GCP Testnet VM
+#
+# Triggers on:
+# 1. Push to `main` branch (after CI workflow completes or on direct code changes)
+# 2. Manual workflow dispatch from GitHub Actions UI
+# ==============================================================================
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - 'LICENSE'
+  workflow_dispatch:
+    inputs:
+      services:
+        description: 'Microservices to build/deploy (default: "db-migrate control-api web docs")'
+        required: false
+        default: 'db-migrate control-api web docs'
+        type: string
+      dry_run:
+        description: 'Dry run execution (validate steps without restarting containers)'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: deploy-gcp-testnet
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to GCP Testnet VM
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------------
+      # Strategy 1: SSH Key Authentication (Recommended / Fast)
+      # Uses GCP_SSH_PRIVATE_KEY or GCP_VM_SSH_KEY
+      # ------------------------------------------------------------------------
+      - name: Deploy via SSH Key
+        if: ${{ env.HAS_SSH_KEY == 'true' }}
+        env:
+          HAS_SSH_KEY: ${{ secrets.GCP_SSH_PRIVATE_KEY != '' || secrets.GCP_VM_SSH_KEY != '' }}
+          SSH_KEY: ${{ secrets.GCP_SSH_PRIVATE_KEY || secrets.GCP_VM_SSH_KEY }}
+          HOST: ${{ secrets.GCP_VM_HOST || '34.68.134.20' }}
+          USER: ${{ secrets.GCP_VM_USER || 'samuelavson360' }}
+          SERVICES_INPUT: ${{ inputs.services || 'db-migrate control-api web docs' }}
+          DRY_RUN_INPUT: ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: |
+          set -euo pipefail
+          echo "🔐 Configuring SSH Agent for deployment..."
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" | tr -d '\r' > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+          echo "🚀 Triggering remote deployment on $USER@$HOST..."
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 "$USER@$HOST" \
+            "cd /opt/proxyhubb && git fetch origin main && git reset --hard origin/main && bash scripts/gcp-ci-deploy.sh $DRY_RUN_INPUT --services \"$SERVICES_INPUT\""
+
+      # ------------------------------------------------------------------------
+      # Strategy 2: Google Cloud Service Account Authentication (Fallback)
+      # Uses GCP_SA_KEY
+      # ------------------------------------------------------------------------
+      - name: Authenticate to Google Cloud
+        if: ${{ env.HAS_SSH_KEY != 'true' && secrets.GCP_SA_KEY != '' }}
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        if: ${{ env.HAS_SSH_KEY != 'true' && secrets.GCP_SA_KEY != '' }}
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy via gcloud compute ssh
+        if: ${{ env.HAS_SSH_KEY != 'true' && secrets.GCP_SA_KEY != '' }}
+        env:
+          SERVICES_INPUT: ${{ inputs.services || 'db-migrate control-api web docs' }}
+          DRY_RUN_INPUT: ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: |
+          set -euo pipefail
+          echo "🚀 Triggering remote deployment via gcloud compute ssh..."
+          gcloud compute ssh proxyhubb-testnet --zone=us-central1-a --project=gen-lang-client-0022105784 \
+            --command="cd /opt/proxyhubb && git fetch origin main && git reset --hard origin/main && bash scripts/gcp-ci-deploy.sh $DRY_RUN_INPUT --services \"$SERVICES_INPUT\""
+
+      # ------------------------------------------------------------------------
+      # Guidance notice if neither secret is provided yet
+      # ------------------------------------------------------------------------
+      - name: Check Deployment Credentials
+        if: ${{ env.HAS_SSH_KEY != 'true' && secrets.GCP_SA_KEY == '' }}
+        run: |
+          echo "⚠️ No GCP credentials configured in GitHub Secrets."
+          echo "Please configure either 'GCP_SSH_PRIVATE_KEY' or 'GCP_SA_KEY' in GitHub Repository Settings."
+          echo "Refer to docs/CI_CD_AUTOMATION_GUIDE.md for step-by-step instructions."
+          exit 1
+
+  # ----------------------------------------------------------------------------
+  # Post-Deployment Live Smoke Verification
+  # ----------------------------------------------------------------------------
+  verify-live-testnet:
+    name: Verify Live Testnet Endpoints
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Run Live Endpoint Smoke Test
+        run: |
+          set -euo pipefail
+          echo "🌐 Testing public production endpoints..."
+          
+          WEB_CODE=$(curl -s -o /dev/null -w "%{http_code}" -L https://proxyhubb.com/whitepaper || echo "failed")
+          DOCS_CODE=$(curl -s -o /dev/null -w "%{http_code}" -L https://docs.proxyhubb.com/docs/whitepaper || echo "failed")
+          
+          echo "https://proxyhubb.com/whitepaper       → HTTP $WEB_CODE"
+          echo "https://docs.proxyhubb.com/docs/whitepaper → HTTP $DOCS_CODE"
+          
+          if [[ "$WEB_CODE" == "200" && "$DOCS_CODE" == "200" ]]; then
+            echo "✅ Live testnet endpoints verified successfully!"
+          else
+            echo "⚠️ Warning: One or more live endpoints did not return 200 OK."
+            exit 1
+          fi

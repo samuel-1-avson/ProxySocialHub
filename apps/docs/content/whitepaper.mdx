@@ -59,7 +59,7 @@ Instead of trusting centralized oracle counters, ProxyHubb implements **Bilatera
 ### Canonical Micro-Receipt Format
 Every micro-receipt follows a strict ASCII layout:
 ```text
-receipt:v1:<escrow_pda>:<buyer_pubkey>:<seller_pubkey>:<bytes_used>:<sequence_num>
+receipt:v1:[escrow_pda]:[buyer_pubkey]:[seller_pubkey]:[bytes_used]:[sequence_num]
 ```
 
 ### On-Chain Introspection Verification
@@ -71,26 +71,32 @@ require!(current_index >= 2, EscrowError::MissingSignatureVerification);
 ```
 
 ### Mathematical Balance Conservation Theorem
-Let $A$ be escrow lamports, $L$ be total contracted bytes, $U$ be verified bytes used, and $C = \min(U, L)$:
+Let `A` be escrow lamports, `L` be total contracted bytes, `U` be verified bytes used, and `C = min(U, L)`:
 
-$$\text{seller\_payout} = \left\lfloor \frac{A \times C}{L} \right\rfloor, \quad \text{buyer\_refund} = A - \text{seller\_payout}$$
+```text
+seller_payout = floor( (A * C) / L )
+buyer_refund  = A - seller_payout
 
-$$\textbf{Theorem 1 (Zero-Leak Balance Conservation): } \forall A, L, U \in \mathbb{N} \implies \text{seller\_payout} + \text{buyer\_refund} \equiv A$$
+Theorem 1 (Zero-Leak Balance Conservation):
+For all A, L, U in N -> seller_payout + buyer_refund == A
+```
 
 ---
 
 ## Groth16 BN254 Zero-Knowledge Batch Rollups
 
-For high-throughput enterprise scraping batches, micro-sessions are rolled into a Merkle root $\mathcal{R}$ and verified on-chain via a succinct BN254 Groth16 zk-SNARK proof. The 32-byte digest is reduced modulo the scalar field modulus $r$:
+For high-throughput enterprise scraping batches, micro-sessions are rolled into a Merkle root and verified on-chain via a succinct BN254 Groth16 zk-SNARK proof. The 32-byte digest is reduced modulo the scalar field modulus `r`:
 
-$$r = \text{0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001}$$
-$$\text{public\_input} = \text{SHA256}(\text{root} \mathbin{\Vert} \text{count} \mathbin{\Vert} \text{total\_bytes} \mathbin{\Vert} T_{\text{start}} \mathbin{\Vert} T_{\text{end}} \mathbin{\Vert} \mathcal{H}_{\text{leaves}}) \pmod r$$
+```text
+r = 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
+public_input = SHA256(root || count || total_bytes || start || end || leaves_hash) mod r
+```
 
 ---
 
 ## Staked Gateway Operator Network & Slashing
 
-- **Permissionless Bonding:** Operators stake $\ge 1.0\text{ SOL}$ via `register_gateway`.
+- **Permissionless Bonding:** Operators stake at least 1.0 SOL via `register_gateway`.
 - **Signed Manifests:** Gateways sign canonical manifests with host endpoints, regions, and stake.
 - **Automated Slashing:** Gateways that drop packets or modify streams are slashed via `slash_gateway`, routing penalties to the protocol treasury and deactivating under-collateralized nodes.
 
@@ -100,9 +106,12 @@ $$\text{public\_input} = \text{SHA256}(\text{root} \mathbin{\Vert} \text{count} 
 
 Residential providers earn algorithmic emissions from the `EpochRewardPool` PDA:
 
-$$\text{Reward}_i = \left\lfloor \frac{B_i \times E_k}{\sum_{j=1}^M B_j} \right\rfloor \implies \sum_{i=1}^M \text{Reward}_i \le E_k$$
+```text
+Reward_i = floor( (B_i * E_k) / sum(B_j) )
+Theorem 2 (Epoch Solvency Guarantee): sum(Reward_i) <= E_k
+```
 
-**Theorem 2 (Epoch Solvency Guarantee):** Total claimed rewards never exceed total epoch emission $E_k$.
+Total claimed rewards never exceed total epoch emission `E_k`.
 
 ---
 
