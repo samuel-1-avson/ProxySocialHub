@@ -19,6 +19,8 @@ const recheckBtn = document.getElementById('recheck') as HTMLButtonElement;
 const expiryEl = document.getElementById('expiry') as HTMLParagraphElement;
 const switchNoteEl = document.getElementById('switch-note') as HTMLParagraphElement;
 const incognitoEl = document.getElementById('incognito') as HTMLParagraphElement;
+const webrtcShieldStatusEl = document.getElementById('webrtc-shield-status') as HTMLElement | null;
+const webrtcShieldLabelEl = document.getElementById('webrtc-shield-label') as HTMLElement | null;
 
 let lastStatus: ConnectStatus = { state: 'off' };
 let lastLevel = '';
@@ -174,6 +176,12 @@ async function refreshStatus() {
   proxyEl.textContent = describeState(worker.status, worker.levelOfControl);
   renderVerify(worker.status);
   renderExpiry(worker.status);
+  if (webrtcShieldLabelEl) {
+    webrtcShieldLabelEl.textContent =
+      worker.status.state === 'on'
+        ? '🛡️ WebRTC IP Leak Shield: Active'
+        : '🛡️ WebRTC Shield: Idle (Enables on Connect)';
+  }
   updateConnectButton();
 }
 
