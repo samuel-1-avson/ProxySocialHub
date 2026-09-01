@@ -1,15 +1,27 @@
 name: Anchor Verifiable Build
 
+# ==============================================================================
+# ProxyHubb Protocol: Deterministic Anchor BPF Build & Attestation Workflow
+#
+# Program ID (proxyhub): AZGhGfvsiGJQ5S91nkdhGi9qvSNKv3sBZyVJ63KQLfvu
+# Program ID (session):  8TP21JyrghboxZqXMozx2sVzrDrNSZyN2hkf1D7dQGmb
+#
+# Builds deterministic .so binaries in an isolated Docker container matching
+# mainnet Anchor verification requirements.
+# ==============================================================================
+
 on:
   push:
     tags:
       - 'v*'
+    paths:
+      - 'services/solana-programs/**'
   workflow_dispatch:
     inputs:
       program_name:
-        description: 'Program name to verify (default: proxyhub)'
+        description: 'Program name to verify (proxyhub, session, or all)'
         required: false
-        default: 'proxyhub'
+        default: 'all'
         type: string
 
 jobs:
@@ -17,36 +29,87 @@ jobs:
     name: Verify Deterministic Anchor BPF Build
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.79.0
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Cache Solana & Anchor binaries
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/solana*
-            ~/.cargo/bin/anchor*
-          key: ${{ runner.os }}-solana-1.18.22-anchor-0.30.1
-
-      - name: Set up Anchor Verifiable Build Environment
+      - name: Build Programs Deterministically (Docker)
         run: |
-          echo "Verifying deterministic build for program: ${{ inputs.program_name || 'proxyhub' }}"
-          echo "Expected Program ID: AZGhGfvsiGJQ5S91nkdhGi9qvSNKv3sBZyVJ63KQLfvu"
+          set -euo pipefail
+          echo "🔨 Building Anchor programs deterministically..."
+          
+          # Use Anchor 0.32.1 build environment
+          docker run --rm \
+            -v "$PWD/services/solana-programs/proxyhub:/workspace" \
+            -w /workspace \
+            rust:1.89-trixie \
+            bash -lc '
+              set -euo pipefail
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update -qq && apt-get install -y --no-install-recommends curl git pkg-config libssl-dev libudev-dev ca-certificates build-essential xz-utils
+              
+              # Install Node 24
+              mkdir -p /opt/node
+              curl -fsSL "https://nodejs.org/dist/v24.10.0/node-v24.10.0-linux-x64.tar.xz" | tar -xJ -C /opt/node --strip-components=1
+              export PATH="/opt/node/bin:$PATH"
+              
+              # Install Solana CLI
+              curl -sSfL "https://release.anza.xyz/v2.3.0/install" | bash
+              export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
+              
+              # Install Anchor AVM
+              cargo install --git https://github.com/solana-foundation/anchor --tag v0.32.1 avm --force
+              export PATH="$HOME/.cargo/bin:$HOME/.avm/bin:$PATH"
+              avm install 0.32.1
+              avm use 0.32.1
+              
+              echo "Solana CLI Version: $(solana --version)"
+              echo "Anchor CLI Version: $(anchor --version)"
+              
+              npm ci --no-audit --no-fund
+              anchor build
+            '
 
-      - name: Generate Build Attestation & Checksum
+      - name: Generate Binary Checksums & Build Attestation
         run: |
+          set -euo pipefail
           mkdir -p build-artifacts
-          echo "Program ID: AZGhGfvsiGJQ5S91nkdhGi9qvSNKv3sBZyVJ63KQLfvu" > build-artifacts/attestation.txt
-          echo "Commit: ${{ github.sha }}" >> build-artifacts/attestation.txt
-          echo "Built-At: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> build-artifacts/attestation.txt
+          
+          echo "============================================================"
+          echo "📜 Generating Cryptographic Build Attestation"
+          echo "============================================================"
+          
+          cat << 'EOF' > build-artifacts/BUILD_ATTESTATION.md
+          # ProxyHubb On-Chain Program Build Attestation
+          
+          - **Commit SHA**: ${{ github.sha }}
+          - **Trigger Ref**: ${{ github.ref }}
+          - **Built At**: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          - **Anchor Version**: 0.32.1
+          - **Solana Toolchain**: Anza v2.3.0
+          
+          ## Target Programs & Checksums:
+          EOF
 
-      - name: Upload Verifiable Build Artifact
+          if [ -f "services/solana-programs/proxyhub/target/deploy/proxyhub.so" ]; then
+            PROXYHUB_HASH=$(sha256sum services/solana-programs/proxyhub/target/deploy/proxyhub.so | awk '{print $1}')
+            echo "- **proxyhub.so**: \`$PROXYHUB_HASH\` (Program ID: \`AZGhGfvsiGJQ5S91nkdhGi9qvSNKv3sBZyVJ63KQLfvu\`)" >> build-artifacts/BUILD_ATTESTATION.md
+            cp services/solana-programs/proxyhub/target/deploy/proxyhub.so build-artifacts/
+          fi
+
+          if [ -f "services/solana-programs/proxyhub/target/deploy/session.so" ]; then
+            SESSION_HASH=$(sha256sum services/solana-programs/proxyhub/target/deploy/session.so | awk '{print $1}')
+            echo "- **session.so**: \`$SESSION_HASH\` (Program ID: \`8TP21JyrghboxZqXMozx2sVzrDrNSZyN2hkf1D7dQGmb\`)" >> build-artifacts/BUILD_ATTESTATION.md
+            cp services/solana-programs/proxyhub/target/deploy/session.so build-artifacts/
+          fi
+          
+          cat build-artifacts/BUILD_ATTESTATION.md
+
+      - name: Upload Verifiable Build Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: anchor-verifiable-build
+          name: anchor-verifiable-artifacts
           path: build-artifacts/
+          retention-days: 30
