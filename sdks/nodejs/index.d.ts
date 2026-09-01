@@ -144,6 +144,7 @@ export declare class ProxyHubClient {
   constructor(apiKey: string, baseUrl?: string);
   constructor(options: ClientOptions);
 
+  readonly baseUrl: string;
   readonly proxyEndpoint: string;
   setAccessToken(token: string): void;
   setProviderToken(token: string): void;

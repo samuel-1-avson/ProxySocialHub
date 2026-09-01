@@ -91,6 +91,11 @@ class ProxyHubClient {
   }
 
   /** @returns {string} */
+  get baseUrl() {
+    return this._baseUrl;
+  }
+
+  /** @returns {string} */
   get proxyEndpoint() {
     return this._proxyEndpoint;
   }
