@@ -255,6 +255,16 @@ paths:
       responses:
         '200':
           description: Device session
+          content:
+            application/json:
+              example:
+                token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example
+                refresh_token: hex
+                device_id: 55555555-6666-7777-8888-999999999999
+                user:
+                  id: 11111111-2222-3333-4444-555555555555
+                  email: buyer@example.com
+                  label: buyer@example.com
         '401':
           description: Invalid or expired code
 
@@ -271,6 +281,9 @@ paths:
           content:
             application/json:
               example:
+                user:
+                  email: buyer@example.com
+                  label: buyer@example.com
                 connect_ready: true
                 proxy:
                   endpoint: proxy.proxyhubb.com:8090
@@ -282,6 +295,15 @@ paths:
       tags: [Extension]
       summary: Rotate a device refresh token (JSON body, not the web cookie)
       operationId: refreshExtensionDevice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token: { type: string }
 
   /v1/extension/revoke:
     post:
@@ -2427,7 +2449,6 @@ paths:
         on, `session_capability` is a soak-only `phubb1.` token (Host-A :18091),
         not the public CONNECT password. `legacy_password` aliases HMAC.
         `auth_for_endpoint` is `hmac` while :8090 is the HMAC control group.
-        `expires_at` is the marketplace session expiry (RFC3339) when set.
       operationId: getOrderCredentials
       security:
         - bearerAuth: []
@@ -2453,8 +2474,6 @@ paths:
                   port: 8090
                   protocol: http
                   endpoint: proxy.proxyhubb.com:8090
-                  expires_at: "2026-08-20T12:00:00Z"
-                expires_at: "2026-08-20T12:00:00Z"
                 session_capability: phubb1.example-soak-token
                 session_capability_note: Soak CONNECT token for Host-A :18091. Public :8090 uses proxy_credentials.password (HMAC).
         '409':
@@ -4183,10 +4202,6 @@ components:
           type: string
         endpoint:
           type: string
-        expires_at:
-          type: string
-          format: date-time
-          description: Marketplace session expiry when the linked session has ExpiresAt.
 
     SessionLimits:
       type: object

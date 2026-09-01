@@ -57,6 +57,7 @@ jobs:
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
+      docs: ${{ steps.filter.outputs.docs }}
       edge: ${{ steps.filter.outputs.edge }}
       provider: ${{ steps.filter.outputs.provider }}
       solana: ${{ steps.filter.outputs.solana }}
@@ -72,6 +73,8 @@ jobs:
               - 'proto/**'
             frontend:
               - 'apps/web/**'
+            docs:
+              - 'apps/docs/**'
             edge:
               - 'services/edge-gateway/**'
             provider:
@@ -280,6 +283,33 @@ jobs:
         npm run test:provider-config
         npm run test:listing-display
         npm run test:order-status
+
+  # ==================== Docs (Next.js / MDX) ====================
+  docs-check:
+    needs: changes
+    if: ${{ needs.changes.outputs.docs == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./apps/docs
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Use Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: ./apps/docs/package-lock.json
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Prebuild search index & OpenAPI specs
+      run: npm run prebuild
+
+    - name: Build docs static pages
+      run: npm run build
 
   # ==================== Edge Gateway (Rust) ====================
   edge-gateway-check:
