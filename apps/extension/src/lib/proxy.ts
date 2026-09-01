@@ -24,8 +24,44 @@ export function getProxyControlLevel(): Promise<string> {
   });
 }
 
+/**
+ * Enable WebRTC IP leak protection by restricting STUN/UDP routing to proxied interfaces only.
+ */
+export async function enableWebRTCProtection(): Promise<void> {
+  try {
+    if (chrome.privacy?.network?.webRTCIPHandlingPolicy?.set) {
+      await new Promise<void>((resolve) => {
+        chrome.privacy.network.webRTCIPHandlingPolicy.set(
+          { value: 'disable_non_proxied_udp', scope: 'regular' },
+          () => resolve(),
+        );
+      });
+    }
+  } catch {
+    // Non-fatal if browser environment does not support privacy API
+  }
+}
+
+/**
+ * Clear WebRTC IP handling policy back to default browser behavior.
+ */
+export async function clearWebRTCProtection(): Promise<void> {
+  try {
+    if (chrome.privacy?.network?.webRTCIPHandlingPolicy?.clear) {
+      await new Promise<void>((resolve) => {
+        chrome.privacy.network.webRTCIPHandlingPolicy.clear({ scope: 'regular' }, () => resolve());
+      });
+    }
+  } catch {
+    // Non-fatal
+  }
+}
+
 export function setDirectProxy(): Promise<void> {
   return new Promise((resolve, reject) => {
+    // Revert WebRTC policy when proxy is disabled
+    void clearWebRTCProtection();
+
     chrome.proxy.settings.set({ value: { mode: 'direct' }, scope: 'regular' }, () => {
       const err = chrome.runtime.lastError;
       if (err) {
@@ -60,6 +96,9 @@ export async function setHmacHttpProxy(host: string, port: number): Promise<void
       },
     );
   });
+
+  // Enable WebRTC leak shield alongside the proxy
+  await enableWebRTCProtection();
 
   const level = await getProxyControlLevel();
   if (level !== 'controlled_by_this_extension') {
