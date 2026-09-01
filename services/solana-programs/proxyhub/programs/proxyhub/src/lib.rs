@@ -527,6 +527,72 @@ impl ProviderRegistry {
         1;   // bump
 }
 
+/// GatewayRegistry — On-chain registration, staking, and health for edge gateways.
+///
+/// PDA seeds: ["gateway-registry", gateway_pubkey.as_ref()]
+#[account]
+#[derive(Default)]
+pub struct GatewayRegistry {
+    pub gateway: Pubkey,
+    pub owner: Pubkey,
+    pub endpoint: String,
+    pub stake_amount: u64,
+    pub min_stake_lamports: u64,
+    pub quality_score: u8,
+    pub active_tunnels: u32,
+    pub is_active: bool,
+    pub registered_at: i64,
+    pub last_heartbeat: i64,
+    pub bump: u8,
+}
+
+impl GatewayRegistry {
+    pub const MAX_ENDPOINT_LEN: usize = 128;
+
+    pub const LEN: usize = 8 + // discriminator
+        32 + // gateway
+        32 + // owner
+        4 + Self::MAX_ENDPOINT_LEN + // endpoint
+        8 +  // stake_amount
+        8 +  // min_stake_lamports
+        1 +  // quality_score
+        4 +  // active_tunnels
+        1 +  // is_active
+        8 +  // registered_at
+        8 +  // last_heartbeat
+        1;   // bump
+}
+
+/// EpochRewardPool — On-chain bandwidth mining emission pool (Track 4.1).
+///
+/// PDA seeds: ["epoch-rewards", epoch_id.to_le_bytes()]
+#[account]
+#[derive(Default)]
+pub struct EpochRewardPool {
+    pub epoch_id: u64,
+    pub total_emission_lamports: u64,
+    pub remaining_emission_lamports: u64,
+    pub total_bandwidth_verified: u64,
+    pub settled_providers_count: u32,
+    pub is_finalized: bool,
+    pub start_timestamp: i64,
+    pub end_timestamp: i64,
+    pub bump: u8,
+}
+
+impl EpochRewardPool {
+    pub const LEN: usize = 8 + // discriminator
+        8 + // epoch_id
+        8 + // total_emission_lamports
+        8 + // remaining_emission_lamports
+        8 + // total_bandwidth_verified
+        4 + // settled_providers_count
+        1 + // is_finalized
+        8 + // start_timestamp
+        8 + // end_timestamp
+        1;  // bump
+}
+
 /// ListingCommitment — on-chain anchor of an off-chain Ed25519 listing offer hash.
 ///
 /// PDA seeds: ["listing-commitment", provider_pubkey, offer_hash]
@@ -1069,6 +1135,37 @@ pub struct GatewayRegisteredEvent {
 }
 
 #[event]
+pub struct GatewayHeartbeatEvent {
+    pub gateway: Pubkey,
+    pub active_tunnels: u32,
+    pub quality_score: u8,
+    pub last_heartbeat: i64,
+}
+
+#[event]
+pub struct GatewaySlashedEvent {
+    pub gateway: Pubkey,
+    pub slashed_amount: u64,
+    pub remaining_stake: u64,
+    pub reason_hash: [u8; 32],
+}
+
+#[event]
+pub struct GatewayDeregisteredEvent {
+    pub gateway: Pubkey,
+    pub owner: Pubkey,
+    pub stake_returned: u64,
+}
+
+#[event]
+pub struct BandwidthRewardClaimedEvent {
+    pub epoch_id: u64,
+    pub provider: Pubkey,
+    pub bytes_verified: u64,
+    pub reward_lamports: u64,
+}
+
+#[event]
 pub struct UsageProofSubmitted {
     pub escrow: Pubkey,
     pub proof_record: Pubkey,
@@ -1146,6 +1243,17 @@ pub struct SessionEscrowSettled {
     pub seller_payout: u64,
     pub buyer_refund: u64,
     pub bytes_used: u64,
+}
+
+#[event]
+pub struct SessionSettledWithMutualReceipt {
+    pub escrow: Pubkey,
+    pub buyer: Pubkey,
+    pub seller: Pubkey,
+    pub seller_payout: u64,
+    pub buyer_refund: u64,
+    pub bytes_used: u64,
+    pub sequence_num: u64,
 }
 
 #[event]
@@ -1950,6 +2058,156 @@ pub mod proxyhub {
         Ok(())
     }
 
+    /// Settle escrow with a cryptographically mutual session receipt.
+    ///
+    /// The transaction must include 2 preceding Ed25519SigVerify instructions:
+    /// - Preceding Ix 0: Buyer signature on `receipt:v1:{escrow}:{buyer}:{seller}:{bytes_used}:{sequence_num}`
+    /// - Preceding Ix 1: Seller signature on `receipt:v1:{escrow}:{buyer}:{seller}:{bytes_used}:{sequence_num}`
+    ///
+    /// This allows buyer and seller to settle bandwidth usage trustlessly without an oracle.
+    pub fn settle_escrow_mutual_receipt(
+        ctx: Context<SettleEscrowMutualReceipt>,
+        bytes_used: u64,
+        sequence_num: u64,
+    ) -> Result<()> {
+        let state = &ctx.accounts.program_state;
+        require!(!state.paused, EscrowError::ProgramPaused);
+
+        let escrow = &mut ctx.accounts.escrow;
+
+        require!(
+            escrow.status == EscrowStatus::Pending || escrow.status == EscrowStatus::Active,
+            EscrowError::InvalidStatus
+        );
+
+        // Verify 2 preceding Ed25519 instructions exist
+        let current_index = anchor_lang::solana_program::sysvar::instructions::load_current_index_checked(
+            &ctx.accounts.instructions,
+        ).map_err(|_| error!(EscrowError::InvalidSignatureVerification))?;
+
+        require!(
+            current_index >= 2,
+            EscrowError::MissingSignatureVerification
+        );
+
+        let ed25519_program_id = pubkey!("Ed25519SigVerify111111111111111111111111111");
+
+        // Canonical message: "receipt:v1:{escrow}:{buyer}:{seller}:{bytes}:{seq}"
+        let msg = format!(
+            "receipt:v1:{}:{}:{}:{}:{}",
+            escrow.key().to_string(),
+            escrow.buyer.to_string(),
+            escrow.seller.to_string(),
+            bytes_used,
+            sequence_num,
+        );
+        let msg_bytes = msg.as_bytes();
+
+        let expected_signers = [escrow.buyer, escrow.seller];
+
+        for (i, expected_signer) in expected_signers.iter().enumerate() {
+            let verify_ix_idx = (current_index as usize) - 2 + i;
+            let preceding_ix = anchor_lang::solana_program::sysvar::instructions::load_instruction_at_checked(
+                verify_ix_idx,
+                &ctx.accounts.instructions,
+            ).map_err(|_| error!(EscrowError::MissingSignatureVerification))?;
+
+            require!(
+                preceding_ix.program_id == ed25519_program_id,
+                EscrowError::MissingSignatureVerification
+            );
+
+            let data = preceding_ix.data;
+            require!(data.len() >= 16, EscrowError::InvalidSignatureVerification);
+
+            let num_sigs = data[0];
+            require!(num_sigs >= 1, EscrowError::InvalidSignatureVerification);
+
+            let signature_offset = u16::from_le_bytes([data[2], data[3]]) as usize;
+            let signature_inst_idx = u16::from_le_bytes([data[4], data[5]]);
+            let public_key_offset = u16::from_le_bytes([data[6], data[7]]) as usize;
+            let public_key_inst_idx = u16::from_le_bytes([data[8], data[9]]);
+            let message_data_offset = u16::from_le_bytes([data[10], data[11]]) as usize;
+            let message_data_size = u16::from_le_bytes([data[12], data[13]]) as usize;
+            let message_inst_idx = u16::from_le_bytes([data[14], data[15]]);
+
+            require!(
+                signature_inst_idx == 0xffff && public_key_inst_idx == 0xffff && message_inst_idx == 0xffff,
+                EscrowError::InvalidSignatureVerification
+            );
+
+            require!(
+                public_key_offset + 32 <= data.len() &&
+                signature_offset + 64 <= data.len() &&
+                message_data_offset + message_data_size <= data.len(),
+                EscrowError::InvalidSignatureVerification
+            );
+
+            let pubkey_bytes = &data[public_key_offset..public_key_offset + 32];
+            let signer_pubkey = Pubkey::new_from_array(pubkey_bytes.try_into().unwrap());
+            
+            require!(
+                signer_pubkey == *expected_signer,
+                EscrowError::InvalidOracleSignature
+            );
+
+            require!(
+                message_data_size == msg_bytes.len(),
+                EscrowError::InvalidSignatureVerification
+            );
+            let parsed_msg = &data[message_data_offset..message_data_offset + message_data_size];
+            require!(parsed_msg == msg_bytes, EscrowError::InvalidSignatureVerification);
+        }
+
+        // Calculate proportional payout (capped by limit)
+        let bandwidth_limit_bytes = escrow.bandwidth_limit_gb.saturating_mul(1_073_741_824);
+        let capped_usage = if bandwidth_limit_bytes > 0 {
+            std::cmp::min(bytes_used, bandwidth_limit_bytes)
+        } else {
+            bytes_used
+        };
+
+        let seller_payout = if bandwidth_limit_bytes > 0 {
+            escrow
+                .amount
+                .checked_mul(capped_usage)
+                .unwrap_or(0)
+                .checked_div(bandwidth_limit_bytes)
+                .unwrap_or(0)
+        } else {
+            0
+        };
+
+        let buyer_refund = escrow.amount.saturating_sub(seller_payout);
+
+        escrow.bandwidth_used_gb = bytes_used / 1_073_741_824;
+        escrow.status = EscrowStatus::Settled;
+
+        if seller_payout > 0 {
+            **escrow.to_account_info().try_borrow_mut_lamports()? -= seller_payout;
+            **ctx.accounts.seller.try_borrow_mut_lamports()? += seller_payout;
+        }
+
+        emit!(SessionSettledWithMutualReceipt {
+            escrow: escrow.key(),
+            buyer: escrow.buyer,
+            seller: escrow.seller,
+            seller_payout,
+            buyer_refund,
+            bytes_used,
+            sequence_num,
+        });
+
+        msg!(
+            "Escrow settled via mutual receipt: {} to seller, {} refunded (bytes={}, seq={})",
+            seller_payout,
+            buyer_refund,
+            bytes_used,
+            sequence_num
+        );
+        Ok(())
+    }
+
     // =========================================================================
     // JURY ARBITRATION (ENHANCED)
     // =========================================================================
@@ -2680,6 +2938,292 @@ pub mod proxyhub {
         registry.is_active = false;
 
         msg!("Provider deregistered on-chain: {}", provider);
+        Ok(())
+    }
+
+    // =========================================================================
+    // GATEWAY REGISTRY & STAKING (Track 2.1)
+    //
+    // Permissionless Edge Gateway operators bond SOL into a GatewayRegistry PDA.
+    // Seeds: ["gateway-registry", gateway_pubkey]
+    // =========================================================================
+
+    /// Register an edge gateway operator with bonded SOL stake.
+    pub fn register_gateway(
+        ctx: Context<RegisterGateway>,
+        endpoint: String,
+        stake_amount: u64,
+        min_stake_lamports: u64,
+    ) -> Result<()> {
+        require!(
+            endpoint.len() <= GatewayRegistry::MAX_ENDPOINT_LEN,
+            EscrowError::InvalidStatus
+        );
+        require!(stake_amount >= min_stake_lamports, EscrowError::InsufficientFunds);
+
+        let state = &ctx.accounts.program_state;
+        require!(!state.paused, EscrowError::ProgramPaused);
+
+        let gateway_registry = &mut ctx.accounts.gateway_registry;
+        let clock = Clock::get()?;
+
+        gateway_registry.gateway = ctx.accounts.gateway.key();
+        gateway_registry.owner = ctx.accounts.owner.key();
+        gateway_registry.endpoint = endpoint.clone();
+        gateway_registry.stake_amount = stake_amount;
+        gateway_registry.min_stake_lamports = min_stake_lamports;
+        gateway_registry.quality_score = 100;
+        gateway_registry.active_tunnels = 0;
+        gateway_registry.is_active = true;
+        gateway_registry.registered_at = clock.unix_timestamp;
+        gateway_registry.last_heartbeat = clock.unix_timestamp;
+        gateway_registry.bump = ctx.bumps.gateway_registry;
+
+        // Transfer stake SOL from owner to GatewayRegistry PDA
+        if stake_amount > 0 {
+            let cpi_context = CpiContext::new(
+                ctx.accounts.system_program.to_account_info(),
+                system_program::Transfer {
+                    from: ctx.accounts.owner.to_account_info(),
+                    to: gateway_registry.to_account_info(),
+                },
+            );
+            system_program::transfer(cpi_context, stake_amount)?;
+        }
+
+        emit!(GatewayRegisteredEvent {
+            gateway: gateway_registry.gateway,
+            owner: gateway_registry.owner,
+            endpoint,
+            stake: stake_amount,
+        });
+
+        msg!(
+            "Gateway registered on-chain: gateway={}, owner={}, stake={}",
+            gateway_registry.gateway,
+            gateway_registry.owner,
+            stake_amount
+        );
+        Ok(())
+    }
+
+    /// Submit periodic heartbeat and telemetry from a gateway operator.
+    pub fn gateway_heartbeat(
+        ctx: Context<GatewayHeartbeatCtx>,
+        active_tunnels: u32,
+        quality_score: u8,
+    ) -> Result<()> {
+        let state = &ctx.accounts.program_state;
+        require!(!state.paused, EscrowError::ProgramPaused);
+
+        let gateway_registry = &mut ctx.accounts.gateway_registry;
+        let clock = Clock::get()?;
+
+        gateway_registry.active_tunnels = active_tunnels;
+        gateway_registry.quality_score = quality_score;
+        gateway_registry.is_active = true;
+        gateway_registry.last_heartbeat = clock.unix_timestamp;
+
+        emit!(GatewayHeartbeatEvent {
+            gateway: gateway_registry.gateway,
+            active_tunnels,
+            quality_score,
+            last_heartbeat: clock.unix_timestamp,
+        });
+
+        msg!(
+            "Gateway heartbeat: gateway={}, tunnels={}, quality={}",
+            gateway_registry.gateway,
+            active_tunnels,
+            quality_score
+        );
+        Ok(())
+    }
+
+    /// Slash a malicious or non-compliant gateway's bonded stake.
+    pub fn slash_gateway(
+        ctx: Context<SlashGateway>,
+        slash_amount: u64,
+        reason_hash: [u8; 32],
+    ) -> Result<()> {
+        let state = &ctx.accounts.program_state;
+        require!(!state.paused, EscrowError::ProgramPaused);
+
+        let gateway_registry = &mut ctx.accounts.gateway_registry;
+        require!(gateway_registry.stake_amount >= slash_amount, EscrowError::InsufficientFunds);
+
+        let rent = Rent::get()?;
+        let min_rent = rent.minimum_balance(GatewayRegistry::LEN);
+        let registry_ai = gateway_registry.to_account_info();
+        let treasury_ai = ctx.accounts.treasury.to_account_info();
+
+        let available = registry_ai.lamports().saturating_sub(min_rent);
+        require!(available >= slash_amount, EscrowError::InsufficientFunds);
+
+        **registry_ai.try_borrow_mut_lamports()? = registry_ai
+            .lamports()
+            .checked_sub(slash_amount)
+            .ok_or(EscrowError::InsufficientFunds)?;
+        **treasury_ai.try_borrow_mut_lamports()? = treasury_ai
+            .lamports()
+            .checked_add(slash_amount)
+            .ok_or(EscrowError::InsufficientFunds)?;
+
+        gateway_registry.stake_amount = gateway_registry.stake_amount.saturating_sub(slash_amount);
+        if gateway_registry.stake_amount < gateway_registry.min_stake_lamports {
+            gateway_registry.is_active = false;
+        }
+
+        emit!(GatewaySlashedEvent {
+            gateway: gateway_registry.gateway,
+            slashed_amount: slash_amount,
+            remaining_stake: gateway_registry.stake_amount,
+            reason_hash,
+        });
+
+        msg!(
+            "Gateway slashed: gateway={}, slashed={}, remaining={}",
+            gateway_registry.gateway,
+            slash_amount,
+            gateway_registry.stake_amount
+        );
+        Ok(())
+    }
+
+    /// Deregister an edge gateway operator and return bonded stake to owner.
+    pub fn deregister_gateway(ctx: Context<DeregisterGateway>) -> Result<()> {
+        let gateway_registry = &mut ctx.accounts.gateway_registry;
+        let clock = Clock::get()?;
+
+        let unbonding_seconds = 86_400; // 24-hour unbonding cooldown
+        require!(
+            clock.unix_timestamp >= gateway_registry.last_heartbeat.saturating_add(unbonding_seconds),
+            EscrowError::LockupPeriodActive
+        );
+
+        gateway_registry.is_active = false;
+        let returned_stake = gateway_registry.stake_amount;
+
+        emit!(GatewayDeregisteredEvent {
+            gateway: gateway_registry.gateway,
+            owner: gateway_registry.owner,
+            stake_returned: returned_stake,
+        });
+
+        msg!(
+            "Gateway deregistered: gateway={}, returned_stake={}",
+            gateway_registry.gateway,
+            returned_stake
+        );
+        Ok(())
+    }
+
+    // =========================================================================
+    // PROOF-OF-BANDWIDTH MINING & TOKENOMICS (Track 4.1)
+    //
+    // Providers claim proportional epoch rewards for verified bandwidth receipts.
+    // PDA seeds: ["epoch-rewards", epoch_id.to_le_bytes()]
+    // =========================================================================
+
+    /// Initialize an epoch reward emission pool.
+    pub fn initialize_epoch_reward_pool(
+        ctx: Context<InitializeEpochRewardPool>,
+        epoch_id: u64,
+        total_emission_lamports: u64,
+        total_bandwidth_verified: u64,
+        duration_seconds: i64,
+    ) -> Result<()> {
+        let state = &ctx.accounts.program_state;
+        require!(!state.paused, EscrowError::ProgramPaused);
+        require!(ctx.accounts.authority.key() == state.admin, EscrowError::Unauthorized);
+        require!(total_emission_lamports > 0, EscrowError::InsufficientFunds);
+        require!(total_bandwidth_verified > 0, EscrowError::InvalidStatus);
+
+        let pool = &mut ctx.accounts.epoch_reward_pool;
+        let clock = Clock::get()?;
+
+        pool.epoch_id = epoch_id;
+        pool.total_emission_lamports = total_emission_lamports;
+        pool.remaining_emission_lamports = total_emission_lamports;
+        pool.total_bandwidth_verified = total_bandwidth_verified;
+        pool.settled_providers_count = 0;
+        pool.is_finalized = false;
+        pool.start_timestamp = clock.unix_timestamp;
+        pool.end_timestamp = clock.unix_timestamp.saturating_add(duration_seconds);
+        pool.bump = ctx.bumps.epoch_reward_pool;
+
+        // Transfer emission SOL from funder to EpochRewardPool PDA
+        let cpi_context = CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            system_program::Transfer {
+                from: ctx.accounts.authority.to_account_info(),
+                to: pool.to_account_info(),
+            },
+        );
+        system_program::transfer(cpi_context, total_emission_lamports)?;
+
+        msg!(
+            "Epoch reward pool initialized: epoch={}, emission={}, bandwidth_target={}",
+            epoch_id,
+            total_emission_lamports,
+            total_bandwidth_verified
+        );
+        Ok(())
+    }
+
+    /// Claim proportional Proof-of-Bandwidth mining rewards for an epoch.
+    pub fn claim_bandwidth_rewards(
+        ctx: Context<ClaimBandwidthRewards>,
+        epoch_id: u64,
+        provider_bytes_verified: u64,
+    ) -> Result<()> {
+        let state = &ctx.accounts.program_state;
+        require!(!state.paused, EscrowError::ProgramPaused);
+        require!(provider_bytes_verified > 0, EscrowError::InvalidStatus);
+
+        let pool = &mut ctx.accounts.epoch_reward_pool;
+        require!(pool.epoch_id == epoch_id, EscrowError::InvalidStatus);
+        require!(pool.total_bandwidth_verified > 0, EscrowError::InvalidStatus);
+
+        // Proportional reward calculation: (provider_bytes * total_emission) / total_bandwidth
+        let reward_calc = (provider_bytes_verified as u128)
+            .checked_mul(pool.total_emission_lamports as u128)
+            .ok_or(EscrowError::InvalidCalculation)?
+            .checked_div(pool.total_bandwidth_verified as u128)
+            .ok_or(EscrowError::InvalidCalculation)? as u64;
+
+        let reward_payout = reward_calc.min(pool.remaining_emission_lamports);
+        require!(reward_payout > 0, EscrowError::InsufficientFunds);
+
+        let pool_ai = pool.to_account_info();
+        let provider_ai = ctx.accounts.provider_wallet.to_account_info();
+
+        **pool_ai.try_borrow_mut_lamports()? = pool_ai
+            .lamports()
+            .checked_sub(reward_payout)
+            .ok_or(EscrowError::InsufficientFunds)?;
+        **provider_ai.try_borrow_mut_lamports()? = provider_ai
+            .lamports()
+            .checked_add(reward_payout)
+            .ok_or(EscrowError::InsufficientFunds)?;
+
+        pool.remaining_emission_lamports = pool.remaining_emission_lamports.saturating_sub(reward_payout);
+        pool.settled_providers_count = pool.settled_providers_count.saturating_add(1);
+
+        emit!(BandwidthRewardClaimedEvent {
+            epoch_id,
+            provider: ctx.accounts.provider_wallet.key(),
+            bytes_verified: provider_bytes_verified,
+            reward_lamports: reward_payout,
+        });
+
+        msg!(
+            "Bandwidth reward claimed: epoch={}, provider={}, bytes={}, reward={}",
+            epoch_id,
+            ctx.accounts.provider_wallet.key(),
+            provider_bytes_verified,
+            reward_payout
+        );
         Ok(())
     }
 
@@ -3823,6 +4367,113 @@ pub struct DeregisterProvider<'info> {
     pub program_state: Account<'info, ProgramState>,
 }
 
+// ── Gateway Registry Contexts (Track 2.1) ─────────────────────────────────────
+// PDA seeds: ["gateway-registry", gateway_pubkey]
+
+#[derive(Accounts)]
+#[instruction(endpoint: String, stake_amount: u64, min_stake_lamports: u64)]
+pub struct RegisterGateway<'info> {
+    #[account(
+        init,
+        payer = owner,
+        space = GatewayRegistry::LEN,
+        seeds = [b"gateway-registry", gateway.key().as_ref()],
+        bump
+    )]
+    pub gateway_registry: Account<'info, GatewayRegistry>,
+    /// CHECK: The Gateway pubkey being registered
+    pub gateway: AccountInfo<'info>,
+    #[account(mut)]
+    pub owner: Signer<'info>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct GatewayHeartbeatCtx<'info> {
+    #[account(
+        mut,
+        seeds = [b"gateway-registry", gateway.key().as_ref()],
+        bump = gateway_registry.bump,
+        has_one = gateway,
+    )]
+    pub gateway_registry: Account<'info, GatewayRegistry>,
+    pub gateway: Signer<'info>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+}
+
+#[derive(Accounts)]
+#[instruction(slash_amount: u64, reason_hash: [u8; 32])]
+pub struct SlashGateway<'info> {
+    #[account(
+        mut,
+        seeds = [b"gateway-registry", gateway_registry.gateway.as_ref()],
+        bump = gateway_registry.bump,
+    )]
+    pub gateway_registry: Account<'info, GatewayRegistry>,
+    /// CHECK: Protocol treasury destination for slashed funds
+    #[account(mut)]
+    pub treasury: AccountInfo<'info>,
+    #[account(address = program_state.admin)]
+    pub authority: Signer<'info>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+}
+
+#[derive(Accounts)]
+pub struct DeregisterGateway<'info> {
+    #[account(
+        mut,
+        seeds = [b"gateway-registry", gateway_registry.gateway.as_ref()],
+        bump = gateway_registry.bump,
+        has_one = owner,
+        close = owner,
+    )]
+    pub gateway_registry: Account<'info, GatewayRegistry>,
+    #[account(mut)]
+    pub owner: Signer<'info>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+}
+
+// ── Proof-of-Bandwidth Mining Contexts (Track 4.1) ────────────────────────────
+// PDA seeds: ["epoch-rewards", epoch_id.to_le_bytes()]
+
+#[derive(Accounts)]
+#[instruction(epoch_id: u64, total_emission_lamports: u64, total_bandwidth_verified: u64, duration_seconds: i64)]
+pub struct InitializeEpochRewardPool<'info> {
+    #[account(
+        init,
+        payer = authority,
+        space = EpochRewardPool::LEN,
+        seeds = [b"epoch-rewards", epoch_id.to_le_bytes().as_ref()],
+        bump
+    )]
+    pub epoch_reward_pool: Account<'info, EpochRewardPool>,
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(epoch_id: u64, provider_bytes_verified: u64)]
+pub struct ClaimBandwidthRewards<'info> {
+    #[account(
+        mut,
+        seeds = [b"epoch-rewards", epoch_id.to_le_bytes().as_ref()],
+        bump = epoch_reward_pool.bump,
+    )]
+    pub epoch_reward_pool: Account<'info, EpochRewardPool>,
+    #[account(mut)]
+    pub provider_wallet: Signer<'info>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+}
+
 // Listing commitment contexts — oracle signs mutations.
 // PDA seeds: ["listing-commitment", provider_pubkey, offer_hash]
 
@@ -4035,6 +4686,30 @@ pub struct SettleEscrowMultiSig<'info> {
         bump
     )]
     pub oracle_signature: Account<'info, OracleSignature>,
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
+    pub system_program: Program<'info, System>,
+    /// CHECK: Instructions sysvar account for precompile verification
+    #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
+    pub instructions: AccountInfo<'info>,
+}
+
+#[derive(Accounts)]
+#[instruction(bytes_used: u64, sequence_num: u64)]
+pub struct SettleEscrowMutualReceipt<'info> {
+    #[account(
+        mut,
+        close = buyer,
+    )]
+    pub escrow: Account<'info, Escrow>,
+    /// CHECK: Buyer account — receives unused balance + rent refund
+    #[account(mut, address = escrow.buyer)]
+    pub buyer: AccountInfo<'info>,
+    /// CHECK: Seller account — receives earned payout for verified bandwidth
+    #[account(mut, address = escrow.seller)]
+    pub seller: AccountInfo<'info>,
     #[account(mut)]
     pub payer: Signer<'info>,
     #[account(seeds = [b"program_state"], bump = program_state.bump)]

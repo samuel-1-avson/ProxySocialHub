@@ -196,4 +196,31 @@ export declare class ProxyHubClient {
   getEarningsSummary(): Promise<Record<string, unknown>>;
   listEarnings(options?: PageOptions): Promise<Record<string, unknown>>;
   listEarningsHistory(): Promise<Record<string, unknown>>;
+
+  // DePIN & P2P Direct Mesh
+  createP2PSignalOffer(
+    sessionId: string,
+    buyerPubkey: string,
+    providerHotkey: string,
+    offerSdp: string,
+    iceCandidates?: string[]
+  ): Promise<Record<string, unknown>>;
+  createP2PSignalAnswer(
+    sessionId: string,
+    providerHotkey: string,
+    answerSdp: string,
+    iceCandidates?: string[]
+  ): Promise<Record<string, unknown>>;
+  getP2PSignals(sessionId: string): Promise<{
+    session_id: string;
+    buyer_pubkey: string;
+    provider_hotkey: string;
+    offer_sdp?: string;
+    answer_sdp?: string;
+    buyer_ice?: string[];
+    provider_ice?: string[];
+    direct_available: boolean;
+  }>;
+  getGatewayOperators(): Promise<{ operators: unknown[]; bond_enforce: boolean }>;
+  getDePINMiningStats(): Promise<Record<string, unknown>>;
 }

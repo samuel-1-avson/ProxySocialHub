@@ -55,6 +55,14 @@ func NewEmailHashFn(pepper string) func(email string) string {
 	}
 }
 
+// ValidateEmailHashPepper ensures the pepper meets minimum cryptographic strength (32 bytes).
+func ValidateEmailHashPepper(pepper string) error {
+	if len(pepper) < 32 {
+		return fmt.Errorf("EMAIL_HASH_PEPPER is too short (%d chars); minimum 32 chars required", len(pepper))
+	}
+	return nil
+}
+
 // ResolveEmailHashPepper prefers EMAIL_HASH_PEPPER; falls back to TOKEN_HMAC_SECRET
 // only when EMAIL_HASH_PEPPER is unset (document dual-use risk in ops notes).
 func ResolveEmailHashPepper() (string, string) {
@@ -66,3 +74,4 @@ func ResolveEmailHashPepper() (string, string) {
 	}
 	return "", ""
 }
+

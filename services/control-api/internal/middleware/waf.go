@@ -101,6 +101,8 @@ var (
 		regexp.MustCompile(`(?i)(\$\{.*\}|%\{.*\})`), // Log4j style
 		regexp.MustCompile(`(?i)(base64_decode|gzinflate|str_rot13)`),
 		regexp.MustCompile(`(?i)(wget\s+|curl\s+|fetch\s+)http`),
+		regexp.MustCompile(`(?i)(__proto__|constructor\s*\[\s*['"]prototype['"]\s*\])`), // Prototype Pollution
+		regexp.MustCompile(`(?i)(169\.254\.169\.254|metadata\.google\.internal|100\.100\.100\.200)`), // Cloud Metadata SSRF
 	}
 )
 

@@ -570,6 +570,7 @@ func main() {
 		api.RegisterNetworkRoutes(v1)                  // Public network aggregate (dashboard + landing)
 		api.RegisterPassPublicRoutes(v1)               // Access Pass catalog (NFT entitlements)
 		api.RegisterGatewayOperatorPublicRoutes(v1)    // Wave 5.B: gateway operator discovery
+		api.RegisterP2PSignalingRoutes(v1)           // Track 3.2: P2P WebRTC/QUIC signaling
 	}
 
 	// Public Routes (No Authentication Required)

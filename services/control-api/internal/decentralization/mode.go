@@ -123,8 +123,11 @@ func MultisigSettleAmountLamports() uint64 {
 }
 
 // JournalAsSoTEnabled inverts Credit/Debit write order: post journal first, then
-// mutate wallets.balance_* as a cache (M4). Default false — dual-write wallet-first.
+// mutate wallets.balance_* as a cache (M4). Default true when FULL_DECENTRALIZATION is on.
 func JournalAsSoTEnabled() bool {
+	if FullModeEnabled() {
+		return envTruthy("PROXYHUB_JOURNAL_AS_SOT", true)
+	}
 	return envTruthy("PROXYHUB_JOURNAL_AS_SOT", false)
 }
 
@@ -146,7 +149,7 @@ func AllowAdminDisputeForceResolve() bool {
 
 // ProviderRegistryGateMode controls DISC-01 Wave 3.1 selection against on-chain
 // ProviderRegistry (is_active + heartbeat TTL).
-// Values: off | observe | enforce (default off).
+// Values: off | observe | enforce (default off, or enforce when FULL_DECENTRALIZATION is on).
 func ProviderRegistryGateMode() string {
 	raw := strings.ToLower(strings.TrimSpace(os.Getenv("PROXYHUB_PROVIDER_REGISTRY_GATE")))
 	switch raw {
@@ -154,7 +157,12 @@ func ProviderRegistryGateMode() string {
 		return raw
 	case "1", "true", "yes", "on":
 		return "enforce"
+	case "0", "false", "no", "off":
+		return "off"
 	default:
+		if FullModeEnabled() {
+			return "enforce"
+		}
 		return "off"
 	}
 }
@@ -180,7 +188,12 @@ func BrowseRegistryFilterMode() string {
 		return raw
 	case "1", "true", "yes", "on":
 		return "enforce"
+	case "0", "false", "no", "off":
+		return "off"
 	default:
+		if FullModeEnabled() {
+			return "enforce"
+		}
 		return "off"
 	}
 }
@@ -191,7 +204,7 @@ func BrowseRegistryFilterEnforce() bool {
 }
 
 // ListingCommitmentMode controls Wave 5.C.5 offer-hash PDA anchoring.
-// Values: off | observe | enforce (default off).
+// Values: off | observe | enforce (default off, or enforce when FULL_DECENTRALIZATION is on).
 // observe: best-effort oracle register + PG mirror + browse annotation.
 // enforce: browse/map also hard-filter by listing_commitment_on_chain.
 // Not a full on-chain catalog — merchandising remains Postgres.
@@ -201,8 +214,13 @@ func ListingCommitmentMode() string {
 	case "observe", "enforce":
 		return raw
 	case "1", "true", "yes", "on":
-		return "observe"
+		return "enforce"
+	case "0", "false", "no", "off":
+		return "off"
 	default:
+		if FullModeEnabled() {
+			return "enforce"
+		}
 		return "off"
 	}
 }

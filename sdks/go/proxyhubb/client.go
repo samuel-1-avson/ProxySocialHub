@@ -526,3 +526,71 @@ func (c *Client) ListEarningsHistory(ctx context.Context) (map[string]interface{
 	}
 	return out, nil
 }
+
+// ── DePIN & P2P Direct Mesh (Wave 5+) ───────────────────────────────────
+
+// P2PSignalOfferRequest holds parameters for registering a buyer WebRTC / QUIC connection offer.
+type P2PSignalOfferRequest struct {
+	SessionID      string   `json:"session_id"`
+	BuyerPubkey    string   `json:"buyer_pubkey"`
+	ProviderHotkey string   `json:"provider_hotkey"`
+	OfferSDP       string   `json:"offer_sdp"`
+	ICECandidates  []string `json:"ice_candidates,omitempty"`
+}
+
+// P2PSignalAnswerRequest holds parameters for registering a provider WebRTC / QUIC connection answer.
+type P2PSignalAnswerRequest struct {
+	SessionID      string   `json:"session_id"`
+	ProviderHotkey string   `json:"provider_hotkey"`
+	AnswerSDP      string   `json:"answer_sdp"`
+	ICECandidates  []string `json:"ice_candidates,omitempty"`
+}
+
+// CreateP2PSignalOffer registers a buyer WebRTC / QUIC connection offer.
+func (c *Client) CreateP2PSignalOffer(ctx context.Context, req P2PSignalOfferRequest) (map[string]interface{}, error) {
+	var out map[string]interface{}
+	if err := c.do(ctx, http.MethodPost, "/v1/p2p/signal/offer", req, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// CreateP2PSignalAnswer registers a provider WebRTC / QUIC connection answer.
+func (c *Client) CreateP2PSignalAnswer(ctx context.Context, req P2PSignalAnswerRequest) (map[string]interface{}, error) {
+	var out map[string]interface{}
+	if err := c.do(ctx, http.MethodPost, "/v1/p2p/signal/answer", req, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// GetP2PSignals gets active P2P connection coordinates for a session.
+func (c *Client) GetP2PSignals(ctx context.Context, sessionID string) (map[string]interface{}, error) {
+	if sessionID == "" {
+		return nil, fmt.Errorf("sessionID is required")
+	}
+	var out map[string]interface{}
+	path := fmt.Sprintf("/v1/p2p/signal/%s", sessionID)
+	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// GetGatewayOperators lists bonded & manifest-verified Gateway Operators.
+func (c *Client) GetGatewayOperators(ctx context.Context) (map[string]interface{}, error) {
+	var out map[string]interface{}
+	if err := c.do(ctx, http.MethodGet, "/v1/gateways/operators", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// GetDePINMiningStats gets DePIN network metrics and Proof-of-Bandwidth mining epoch telemetry.
+func (c *Client) GetDePINMiningStats(ctx context.Context) (map[string]interface{}, error) {
+	var out map[string]interface{}
+	if err := c.do(ctx, http.MethodGet, "/v1/network", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
