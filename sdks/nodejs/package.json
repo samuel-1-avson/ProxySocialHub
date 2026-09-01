@@ -35,7 +35,7 @@
     "access": "public"
   },
   "scripts": {
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/client.test.js && node test/depin_sdk_test.mjs"
   },
   "peerDependencies": {
     "https-proxy-agent": ">=7.0.0"

@@ -136,6 +136,241 @@ fn sha256_hex(message: &str) -> String {
     digest.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+pub const RECEIPT_VERSION: &str = "v1";
+
+/// Mutual session receipt offer issued by the provider.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MutualReceiptOffer {
+    pub version: String,
+    pub escrow_pda: String,
+    pub buyer_pubkey: String,
+    pub seller_pubkey: String,
+    pub bytes_used: u64,
+    pub sequence_num: u64,
+    pub session_timestamp: i64,
+    pub seller_signature: String,
+}
+
+/// Mutual session receipt acknowledged and counter-signed by the buyer.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MutualReceiptAck {
+    pub offer: MutualReceiptOffer,
+    pub buyer_signature: String,
+}
+
+/// Construct canonical message for mutual session receipt settlement:
+/// `receipt:v1:{escrow}:{buyer}:{seller}:{bytes}:{seq}`
+pub fn build_receipt_canonical_message(
+    escrow: &str,
+    buyer: &str,
+    seller: &str,
+    bytes_used: u64,
+    sequence_num: u64,
+) -> String {
+    format!(
+        "receipt:v1:{}:{}:{}:{}:{}",
+        escrow, buyer, seller, bytes_used, sequence_num
+    )
+}
+
+impl ProviderSigner {
+    /// Sign a mutual receipt offer to send to the buyer client.
+    pub fn sign_receipt_offer(
+        &self,
+        escrow_pda: &str,
+        buyer_pubkey: &str,
+        bytes_used: u64,
+        sequence_num: u64,
+        session_timestamp: i64,
+    ) -> MutualReceiptOffer {
+        let msg = build_receipt_canonical_message(
+            escrow_pda,
+            buyer_pubkey,
+            &self.public_key,
+            bytes_used,
+            sequence_num,
+        );
+        let sig = self.signing_key.sign(msg.as_bytes());
+        MutualReceiptOffer {
+            version: RECEIPT_VERSION.to_string(),
+            escrow_pda: escrow_pda.to_string(),
+            buyer_pubkey: buyer_pubkey.to_string(),
+            seller_pubkey: self.public_key.clone(),
+            bytes_used,
+            sequence_num,
+            session_timestamp,
+            seller_signature: bs58::encode(sig.to_bytes()).into_string(),
+        }
+    }
+
+    /// Verify the buyer's counter-signature on an acknowledged mutual receipt.
+    pub fn verify_buyer_receipt_ack(&self, ack: &MutualReceiptAck) -> Result<(), String> {
+        let msg = build_receipt_canonical_message(
+            &ack.offer.escrow_pda,
+            &ack.offer.buyer_pubkey,
+            &ack.offer.seller_pubkey,
+            ack.offer.bytes_used,
+            ack.offer.sequence_num,
+        );
+
+        let buyer_pubkey_bytes = bs58::decode(&ack.offer.buyer_pubkey)
+            .into_vec()
+            .map_err(|_| "invalid buyer pubkey base58".to_string())?;
+        let buyer_pubkey_array: [u8; 32] = buyer_pubkey_bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| "invalid buyer pubkey length".to_string())?;
+        let verifying_key = ed25519_dalek::VerifyingKey::from_bytes(&buyer_pubkey_array)
+            .map_err(|_| "invalid buyer verifying key".to_string())?;
+
+        let sig_bytes = bs58::decode(&ack.buyer_signature)
+            .into_vec()
+            .map_err(|_| "invalid buyer signature base58".to_string())?;
+        let sig_array: [u8; 64] = sig_bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| "invalid buyer signature length".to_string())?;
+        let signature = ed25519_dalek::Signature::from_bytes(&sig_array);
+
+        verifying_key
+            .verify_strict(msg.as_bytes(), &signature)
+            .map_err(|_| "buyer signature verification failed".to_string())
+    }
+
+    /// Sign a P2P node announcement for decentralized discovery.
+    pub fn sign_p2p_announcement(
+        &self,
+        node_id: &str,
+        country_code: &str,
+        region: &str,
+        ip_type: &str,
+        bandwidth_capacity_mbps: u32,
+        price_per_gb_lamports: u64,
+        tunnel_endpoint: &str,
+        issued_at: i64,
+        expires_at: i64,
+    ) -> P2PNodeAnnouncement {
+        let msg = build_p2p_announcement_canonical_message(
+            node_id,
+            &self.public_key,
+            country_code,
+            region,
+            ip_type,
+            bandwidth_capacity_mbps,
+            price_per_gb_lamports,
+            tunnel_endpoint,
+            issued_at,
+            expires_at,
+        );
+        let sig = self.signing_key.sign(msg.as_bytes());
+        P2PNodeAnnouncement {
+            version: "v1".to_string(),
+            node_id: node_id.to_string(),
+            provider_hotkey: self.public_key.clone(),
+            country_code: country_code.to_string(),
+            region: region.to_string(),
+            ip_type: ip_type.to_string(),
+            bandwidth_capacity_mbps,
+            price_per_gb_lamports,
+            tunnel_endpoint: tunnel_endpoint.to_string(),
+            issued_at,
+            expires_at,
+            signature: bs58::encode(sig.to_bytes()).into_string(),
+        }
+    }
+}
+
+pub const P2P_ANNOUNCEMENT_PREFIX: &str = "PROXYHUB_P2P_ANNOUNCEMENT:v1:";
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct P2PNodeAnnouncement {
+    pub version: String,
+    pub node_id: String,
+    pub provider_hotkey: String,
+    pub country_code: String,
+    pub region: String,
+    pub ip_type: String,
+    pub bandwidth_capacity_mbps: u32,
+    pub price_per_gb_lamports: u64,
+    pub tunnel_endpoint: String,
+    pub issued_at: i64,
+    pub expires_at: i64,
+    pub signature: String,
+}
+
+pub fn build_p2p_announcement_canonical_message(
+    node_id: &str,
+    provider_hotkey: &str,
+    country_code: &str,
+    region: &str,
+    ip_type: &str,
+    bandwidth_capacity_mbps: u32,
+    price_per_gb_lamports: u64,
+    tunnel_endpoint: &str,
+    issued_at: i64,
+    expires_at: i64,
+) -> String {
+    format!(
+        "{}{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
+        P2P_ANNOUNCEMENT_PREFIX,
+        node_id.trim(),
+        provider_hotkey.trim(),
+        country_code.trim(),
+        region.trim(),
+        ip_type.trim(),
+        bandwidth_capacity_mbps,
+        price_per_gb_lamports,
+        tunnel_endpoint.trim(),
+        issued_at,
+        expires_at
+    )
+}
+
+pub fn verify_p2p_announcement(announcement: &P2PNodeAnnouncement) -> Result<(), String> {
+    if announcement.provider_hotkey.trim().is_empty() {
+        return Err("missing provider hotkey".to_string());
+    }
+    if announcement.signature.trim().is_empty() {
+        return Err("unsigned announcement".to_string());
+    }
+
+    let msg = build_p2p_announcement_canonical_message(
+        &announcement.node_id,
+        &announcement.provider_hotkey,
+        &announcement.country_code,
+        &announcement.region,
+        &announcement.ip_type,
+        announcement.bandwidth_capacity_mbps,
+        announcement.price_per_gb_lamports,
+        &announcement.tunnel_endpoint,
+        announcement.issued_at,
+        announcement.expires_at,
+    );
+
+    let pubkey_bytes = bs58::decode(&announcement.provider_hotkey)
+        .into_vec()
+        .map_err(|_| "invalid provider hotkey base58".to_string())?;
+    let pubkey_array: [u8; 32] = pubkey_bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| "invalid provider hotkey length".to_string())?;
+    let verifying_key = ed25519_dalek::VerifyingKey::from_bytes(&pubkey_array)
+        .map_err(|_| "invalid provider verifying key".to_string())?;
+
+    let sig_bytes = bs58::decode(&announcement.signature)
+        .into_vec()
+        .map_err(|_| "invalid signature base58".to_string())?;
+    let sig_array: [u8; 64] = sig_bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| "invalid signature length".to_string())?;
+    let signature = ed25519_dalek::Signature::from_bytes(&sig_array);
+
+    verifying_key
+        .verify_strict(msg.as_bytes(), &signature)
+        .map_err(|_| "announcement signature verification failed".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,5 +402,92 @@ mod tests {
         assert_eq!(generated.public_key, signer.public_key());
         assert!(!generated.secret_base58.is_empty());
         assert!(!generated.public_key.is_empty());
+    }
+
+    #[test]
+    fn signs_and_verifies_mutual_receipt_round_trip() {
+        let provider_seed = [3_u8; 32];
+        let provider_signer =
+            ProviderSigner::from_base58(&bs58::encode(provider_seed).into_string()).unwrap();
+
+        let buyer_seed = [4_u8; 32];
+        let buyer_signing_key = SigningKey::from_bytes(&buyer_seed);
+        let buyer_pubkey = bs58::encode(buyer_signing_key.verifying_key().as_bytes()).into_string();
+
+        let escrow_pda = "8LZji5mK3B7YfG9M2W7o7v2gV3yqK7v4jK2L5mN8P9Q";
+        let bytes_used = 10_485_760_u64; // 10 MB
+        let sequence_num = 1_u64;
+        let session_timestamp = 1_777_676_000_i64;
+
+        // 1. Provider signs receipt offer
+        let offer = provider_signer.sign_receipt_offer(
+            escrow_pda,
+            &buyer_pubkey,
+            bytes_used,
+            sequence_num,
+            session_timestamp,
+        );
+        assert_eq!(offer.seller_pubkey, provider_signer.public_key());
+        assert_eq!(offer.bytes_used, bytes_used);
+        assert_eq!(offer.sequence_num, sequence_num);
+
+        // 2. Buyer counter-signs
+        let canonical_msg = build_receipt_canonical_message(
+            escrow_pda,
+            &buyer_pubkey,
+            &offer.seller_pubkey,
+            bytes_used,
+            sequence_num,
+        );
+        let buyer_sig = buyer_signing_key.sign(canonical_msg.as_bytes());
+        let ack = MutualReceiptAck {
+            offer,
+            buyer_signature: bs58::encode(buyer_sig.to_bytes()).into_string(),
+        };
+
+        // 3. Provider verifies buyer ack
+        let verify_res = provider_signer.verify_buyer_receipt_ack(&ack);
+        assert!(verify_res.is_ok(), "Verification failed: {:?}", verify_res);
+    }
+
+    #[test]
+    fn rejects_tampered_bytes_in_mutual_receipt() {
+        let provider_seed = [3_u8; 32];
+        let provider_signer =
+            ProviderSigner::from_base58(&bs58::encode(provider_seed).into_string()).unwrap();
+
+        let buyer_seed = [4_u8; 32];
+        let buyer_signing_key = SigningKey::from_bytes(&buyer_seed);
+        let buyer_pubkey = bs58::encode(buyer_signing_key.verifying_key().as_bytes()).into_string();
+
+        let escrow_pda = "8LZji5mK3B7YfG9M2W7o7v2gV3yqK7v4jK2L5mN8P9Q";
+
+        let mut offer = provider_signer.sign_receipt_offer(
+            escrow_pda,
+            &buyer_pubkey,
+            10_000_000,
+            1,
+            1_777_676_000,
+        );
+
+        let canonical_msg = build_receipt_canonical_message(
+            escrow_pda,
+            &buyer_pubkey,
+            &offer.seller_pubkey,
+            10_000_000,
+            1,
+        );
+        let buyer_sig = buyer_signing_key.sign(canonical_msg.as_bytes());
+
+        // Tamper with bytes
+        offer.bytes_used = 20_000_000;
+
+        let ack = MutualReceiptAck {
+            offer,
+            buyer_signature: bs58::encode(buyer_sig.to_bytes()).into_string(),
+        };
+
+        let verify_res = provider_signer.verify_buyer_receipt_ack(&ack);
+        assert!(verify_res.is_err());
     }
 }

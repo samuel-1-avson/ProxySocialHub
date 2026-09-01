@@ -529,6 +529,65 @@ class ProxyHubClient {
   async listEarningsHistory() {
     return this._request("GET", "/v1/provider/earnings/history");
   }
+
+  // ── DePIN & P2P Direct Mesh (Wave 5+) ───────────────────────────────────
+
+  /**
+   * Register a buyer WebRTC / QUIC direct P2P connection offer.
+   * @param {string} sessionId
+   * @param {string} buyerPubkey
+   * @param {string} providerHotkey
+   * @param {string} offerSdp
+   * @param {string[]} [iceCandidates]
+   */
+  async createP2PSignalOffer(sessionId, buyerPubkey, providerHotkey, offerSdp, iceCandidates = []) {
+    return this._request("POST", "/v1/p2p/signal/offer", {
+      session_id: sessionId,
+      buyer_pubkey: buyerPubkey,
+      provider_hotkey: providerHotkey,
+      offer_sdp: offerSdp,
+      ice_candidates: iceCandidates,
+    });
+  }
+
+  /**
+   * Register a provider WebRTC / QUIC direct P2P connection answer.
+   * @param {string} sessionId
+   * @param {string} providerHotkey
+   * @param {string} answerSdp
+   * @param {string[]} [iceCandidates]
+   */
+  async createP2PSignalAnswer(sessionId, providerHotkey, answerSdp, iceCandidates = []) {
+    return this._request("POST", "/v1/p2p/signal/answer", {
+      session_id: sessionId,
+      provider_hotkey: providerHotkey,
+      answer_sdp: answerSdp,
+      ice_candidates: iceCandidates,
+    });
+  }
+
+  /**
+   * Get active P2P signaling state for a session.
+   * @param {string} sessionId
+   */
+  async getP2PSignals(sessionId) {
+    if (!sessionId) throw new TypeError("sessionId is required");
+    return this._request("GET", `/v1/p2p/signal/${encodeURIComponent(sessionId)}`);
+  }
+
+  /**
+   * List bonded & manifest-verified Gateway Operators.
+   */
+  async getGatewayOperators() {
+    return this._request("GET", "/v1/gateways/operators");
+  }
+
+  /**
+   * Get DePIN network metrics and Proof-of-Bandwidth mining epoch telemetry.
+   */
+  async getDePINMiningStats() {
+    return this._request("GET", "/v1/network");
+  }
 }
 
 module.exports = {

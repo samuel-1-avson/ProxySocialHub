@@ -454,3 +454,57 @@ class ProxyHubClient:
 
     def list_earnings_history(self) -> dict[str, Any]:
         return self._get("/v1/provider/earnings/history")
+
+    # ── DePIN & P2P Direct Mesh (Wave 5+) ──────────────────────────────────
+
+    def create_p2p_signal_offer(
+        self,
+        session_id: str,
+        buyer_pubkey: str,
+        provider_hotkey: str,
+        offer_sdp: str,
+        ice_candidates: Optional[list[str]] = None,
+    ) -> dict[str, Any]:
+        """Register a buyer WebRTC / QUIC direct P2P connection offer."""
+        return self._post(
+            "/v1/p2p/signal/offer",
+            body={
+                "session_id": session_id,
+                "buyer_pubkey": buyer_pubkey,
+                "provider_hotkey": provider_hotkey,
+                "offer_sdp": offer_sdp,
+                "ice_candidates": ice_candidates or [],
+            },
+        )
+
+    def create_p2p_signal_answer(
+        self,
+        session_id: str,
+        provider_hotkey: str,
+        answer_sdp: str,
+        ice_candidates: Optional[list[str]] = None,
+    ) -> dict[str, Any]:
+        """Register a provider WebRTC / QUIC direct P2P connection answer."""
+        return self._post(
+            "/v1/p2p/signal/answer",
+            body={
+                "session_id": session_id,
+                "provider_hotkey": provider_hotkey,
+                "answer_sdp": answer_sdp,
+                "ice_candidates": ice_candidates or [],
+            },
+        )
+
+    def get_p2p_signals(self, session_id: str) -> dict[str, Any]:
+        """Get active P2P signaling state for a session."""
+        if not session_id:
+            raise ValueError("session_id is required")
+        return self._get(f"/v1/p2p/signal/{session_id}")
+
+    def get_gateway_operators(self) -> dict[str, Any]:
+        """List bonded & manifest-verified Gateway Operators."""
+        return self._get("/v1/gateways/operators")
+
+    def get_depin_mining_stats(self) -> dict[str, Any]:
+        """Get DePIN network metrics and Proof-of-Bandwidth mining epoch telemetry."""
+        return self._get("/v1/network")

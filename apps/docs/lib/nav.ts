@@ -88,6 +88,7 @@ export const NAV: NavItem[] = [
   },
   { href: '/docs/troubleshooting', label: 'Troubleshooting', code: '11' },
   { href: '/docs/changelog', label: 'Changelog', code: '12' },
+  { href: '/docs/whitepaper', label: 'Whitepaper v2.0', code: '13' },
 ];
 
 export type FlatNavItem = { href: string; label: string; section: string };
