@@ -76,11 +76,15 @@ enum Commands {
     Join {
         /// Provider API key / token from Dashboard Connect
         #[arg(long, env = "PROXYHUB_API_KEY")]
-        api_key: String,
+        api_key: Option<String>,
 
-        /// Provider node UUID from the dashboard
+        /// Provider node UUID from the dashboard (auto-generated if omitted)
         #[arg(long)]
-        node_id: String,
+        node_id: Option<String>,
+
+        /// Run interactive setup wizard
+        #[arg(long, short = 'i', default_value_t = false)]
+        interactive: bool,
 
         /// Control API URL
         #[arg(
@@ -399,12 +403,44 @@ async fn main() -> anyhow::Result<()> {
         Commands::Join {
             api_key,
             node_id,
+            interactive: _,
             api_url,
             gateway_addr,
             force,
             config,
         } => {
             init_logging(false);
+            let api_key = match api_key {
+                Some(k) if !k.trim().is_empty() => k.trim().to_string(),
+                _ => {
+                    print!("  ? Enter your Provider API Key: ");
+                    let _ = std::io::Write::flush(&mut std::io::stdout());
+                    let mut line = String::new();
+                    std::io::stdin().read_line(&mut line)?;
+                    let key = line.trim().to_string();
+                    if key.is_empty() {
+                        anyhow::bail!("Provider API key cannot be empty");
+                    }
+                    key
+                }
+            };
+
+            let node_id = match node_id {
+                Some(id) if !id.trim().is_empty() => id.trim().to_string(),
+                _ => {
+                    print!("  ? Enter Node ID (press Enter for auto-generated UUID): ");
+                    let _ = std::io::Write::flush(&mut std::io::stdout());
+                    let mut line = String::new();
+                    std::io::stdin().read_line(&mut line)?;
+                    let id = line.trim().to_string();
+                    if id.is_empty() {
+                        format!("node-{}", uuid::Uuid::new_v4())
+                    } else {
+                        id
+                    }
+                }
+            };
+
             println!("Joining existing dashboard node…");
             println!("Authenticating with Control API…");
             let (_user_id, _jwt) = ip::validate_api_key(&api_url, &api_key).await?;
