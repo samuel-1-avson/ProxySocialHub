@@ -1007,10 +1007,17 @@ fn render_overview(
     render_health_banner(frame, rows[0], snap, err);
     render_kpi_row(frame, rows[1], snap);
 
-    let mid = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
-        .split(rows[2]);
+    let mid = if area.width < 90 {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
+            .split(rows[2])
+    } else {
+        Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
+            .split(rows[2])
+    };
     render_spark_card(frame, mid[0], app, "TRAFFIC", &combined_spark(app));
     render_doctor_summary(frame, mid[1], doctor, doctor_err);
 
