@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -387,6 +388,9 @@ func IncrementNonce(providerID, buyerAddress string) (uint64, error) {
 	return uint64(val), nil
 }
 
+// rateLimitSeq makes each request's sorted-set member unique even within one nanosecond.
+var rateLimitSeq atomic.Uint64
+
 func CheckAPIKeyRateLimit(keyPrefix string, maxRequests int) (bool, int, error) {
 	if Client == nil {
 		return true, maxRequests, nil
@@ -405,9 +409,12 @@ func CheckAPIKeyRateLimit(keyPrefix string, maxRequests int) (bool, int, error) 
 	if currentCount >= int64(maxRequests) {
 		return false, 0, nil
 	}
+	// The member must be unique per request. It used to be the Unix second, so all requests
+	// in one second shared a member, ZCard grew by at most one per second, and limits above
+	// 60 per minute were never enforced (BE-HIGH-05).
 	Client.ZAdd(ctx, key, redis.Z{
 		Score:  float64(now),
-		Member: now,
+		Member: fmt.Sprintf("%d-%d", time.Now().UnixNano(), rateLimitSeq.Add(1)),
 	})
 	Client.Expire(ctx, key, 2*time.Minute)
 	remaining := int(int64(maxRequests) - currentCount - 1)
