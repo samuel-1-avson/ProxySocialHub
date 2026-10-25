@@ -47,6 +47,9 @@ type Hub struct {
 	Register   chan *Client
 	Unregister chan *Client
 	mu         sync.RWMutex
+
+	natsOnce  sync.Once
+	startNATS func() // set by NewHub; replaced in tests
 }
 
 // WSMessage represents a WebSocket message wrapper
@@ -66,18 +69,26 @@ func init() {
 
 // NewHub creates a new Hub
 func NewHub() *Hub {
-	return &Hub{
+	h := &Hub{
 		clients:    make(map[string]*Client),
 		Broadcast:  make(chan *WSMessage, 256),
 		Register:   make(chan *Client),
 		Unregister: make(chan *Client),
 	}
+	h.startNATS = h.listenToNATS
+	return h
+}
+
+// StartNATSSubscription starts consuming broadcasts from NATS. Call it once, after
+// nats.Init() has succeeded. The hub is created in init(), before main() connects to NATS,
+// so subscribing from Run() always found nats.JS == nil and returned, and every
+// BroadcastToUser / BroadcastToAll was dropped (BE-MED-01).
+func (h *Hub) StartNATSSubscription() {
+	h.natsOnce.Do(func() { go h.startNATS() })
 }
 
 // Run starts the hub
 func (h *Hub) Run() {
-	go h.listenToNATS()
-
 	for {
 		select {
 		case client := <-h.Register:
