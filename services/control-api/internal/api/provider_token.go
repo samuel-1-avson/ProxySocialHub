@@ -388,11 +388,10 @@ func validateProviderToken(c *gin.Context) {
 		return
 	}
 
-	jwtToken, err := crypto.GenerateToken(
+	// BE-HIGH-02: mint a provider-node JWT, not a full user session. The kind claim
+	// lets RestrictProviderToken confine it to the routes a headless node uses.
+	jwtToken, err := crypto.GenerateProviderNodeToken(
 		token.UserID,
-		"provider",
-		"", // No email for CLI tokens
-		"", // No wallet for CLI tokens
 		cfg.Auth.JWTSecret,
 		30*24*time.Hour, // 30 days
 	)
