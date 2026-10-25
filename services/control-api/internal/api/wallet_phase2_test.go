@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	solanaGo "github.com/gagliardetto/solana-go"
@@ -30,19 +30,23 @@ func withWithdrawSOLMocks(t *testing.T, hook func(context.Context, *solana.Oracl
 	})
 }
 
-func withP2POnChainMocks(t *testing.T, sendFn func(context.Context, *solana.OracleClient, solanaGo.PublicKey, uint64) (string, error)) {
+// withSendSOLRecorder replaces the treasury SendSOL path and counts calls, so tests
+// can assert that a flow does (or does not) move real SOL.
+func withSendSOLRecorder(t *testing.T) *atomic.Int32 {
 	t.Helper()
-	prevSync := testP2PSettleSynchronously
+	var calls atomic.Int32
 	prevHook := solana.SendSOLTestHook
 	prevOracle := solana.GetOracleClient()
-	testP2PSettleSynchronously = true
-	solana.SendSOLTestHook = sendFn
+	solana.SendSOLTestHook = func(ctx context.Context, c *solana.OracleClient, recipient solanaGo.PublicKey, lamports uint64) (string, error) {
+		calls.Add(1)
+		return "mock_tx", nil
+	}
 	solana.SetOracleClientForTest(&solana.OracleClient{})
 	t.Cleanup(func() {
-		testP2PSettleSynchronously = prevSync
 		solana.SendSOLTestHook = prevHook
 		solana.SetOracleClientForTest(prevOracle)
 	})
+	return &calls
 }
 
 func linkSolanaWallet(t *testing.T, user *models.User, addr string) {
@@ -147,9 +151,15 @@ func TestTransferP2P_ConcurrentTransfers(t *testing.T) {
 	}
 }
 
-func TestTransferP2P_OnChainFallback(t *testing.T) {
+// BE-CRIT-01: an internal P2P transfer between two users with linked Solana wallets
+// is a ledger-only move. It must not send SOL from the treasury, otherwise the
+// recipient is paid twice (ledger credit plus an on-chain transfer).
+func TestTransferP2P_LinkedWalletsDoNotSendOnChain(t *testing.T) {
 	testutil.SetupTestDB(t)
-	testutil.CleanupTestData(t, "users", "wallets", "wallet_ledger_entries", "spending_records")
+	if err := db.DB.AutoMigrate(&models.CompensationOutbox{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	testutil.CleanupTestData(t, "compensation_outbox", "users", "wallets", "wallet_ledger_entries", "spending_records")
 
 	sharedSender := "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuGui4Q5G"
 	recipientAddr := "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9wYt5WGy"
@@ -163,9 +173,12 @@ func TestTransferP2P_OnChainFallback(t *testing.T) {
 	senderWallet.LimitsEnabled = false
 	db.DB.Save(&senderWallet)
 
-	withP2POnChainMocks(t, func(ctx context.Context, c *solana.OracleClient, recipient solanaGo.PublicKey, lamports uint64) (string, error) {
-		return "", errors.New("simulated chain failure")
-	})
+	sends := withSendSOLRecorder(t)
+
+	var recipientBefore models.Wallet
+	if err := db.DB.Where("user_id = ?", recipient.ID).First(&recipientBefore).Error; err != nil {
+		t.Fatalf("load recipient wallet: %v", err)
+	}
 
 	r := setupTestRouter()
 	r.Use(authMiddlewareMock(sender.ID.String(), "buyer"))
@@ -181,17 +194,29 @@ func TestTransferP2P_OnChainFallback(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
-		t.Fatalf("expected transfer HTTP success before async refund, got %d body %s", w.Code, w.Body.String())
+		t.Fatalf("expected 200, got %d body %s", w.Code, w.Body.String())
 	}
 
+	var recipientWallet models.Wallet
 	db.DB.Where("user_id = ?", sender.ID).First(&senderWallet)
-	if senderWallet.BalanceSOL != 10.0 {
-		t.Fatalf("expected sender balance restored to 10.0 after on-chain failure, got %.6f", senderWallet.BalanceSOL)
+	db.DB.Where("user_id = ?", recipient.ID).First(&recipientWallet)
+	if senderWallet.BalanceSOL != 8.0 {
+		t.Fatalf("expected sender balance 8.0, got %.6f", senderWallet.BalanceSOL)
+	}
+	if got := recipientWallet.BalanceSOL - recipientBefore.BalanceSOL; got < 1.999999 || got > 2.000001 {
+		t.Fatalf("expected recipient credited exactly once (+2.0), got %+.6f (before %.6f, after %.6f)",
+			got, recipientBefore.BalanceSOL, recipientWallet.BalanceSOL)
 	}
 
-	var refundLedger models.WalletLedgerEntry
-	if err := db.DB.Where("wallet_id = ? AND type = ?", senderWallet.ID, "p2p_failed_refund").First(&refundLedger).Error; err != nil {
-		t.Fatalf("expected p2p_failed_refund ledger entry: %v", err)
+	var queued int64
+	db.DB.Model(&models.CompensationOutbox{}).Where("kind = ?", models.CompensationKindP2PSettle).Count(&queued)
+	if queued != 0 {
+		t.Fatalf("expected no p2p_settle outbox rows, got %d", queued)
+	}
+	// Draining the outbox must not send anything either.
+	ProcessCompensationOutboxOnce(50)
+	if n := sends.Load(); n != 0 {
+		t.Fatalf("expected zero on-chain SOL sends for an internal transfer, got %d", n)
 	}
 }
 
