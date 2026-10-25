@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"crypto/hmac"
 	"crypto/sha1"
 	"crypto/subtle"
@@ -30,12 +29,14 @@ func InitAdminConfig(cfg *config.AdminConfig) {
 // RegisterAdminAuthRoutes registers the public admin auth endpoints (no auth required).
 func RegisterAdminAuthRoutes(r *gin.RouterGroup) {
 	r.POST("/login", adminLogin)
-	r.POST("/logout", adminLogout)
 }
 
-// RegisterAdminMeRoute registers the authenticated /me endpoint.
+// RegisterAdminMeRoute registers the authenticated /me, /logout and /invalidate endpoints.
+// Logout is behind the admin middleware: it needs the caller's session id, and an
+// unauthenticated logout could not revoke anything.
 func RegisterAdminMeRoute(r *gin.RouterGroup) {
 	r.GET("/me", adminMe)
+	r.POST("/logout", adminLogout)
 	r.POST("/invalidate", adminInvalidateSession)
 }
 
@@ -94,15 +95,12 @@ const adminSessionBlocklistPrefix = "admin:session:blocked:"
 // blockAdminSession adds the token's JTI (or the full token) to a Redis
 // blocklist with TTL equal to the remaining session lifetime.
 func blockAdminSession(jti string, ttl time.Duration) error {
-	key := adminSessionBlocklistPrefix + jti
-	return redisClient.Client.Set(context.Background(), key, "1", ttl).Err()
+	return redisClient.BlockAdminSession(jti, ttl)
 }
 
 // IsAdminSessionBlocked returns true if the given JTI has been invalidated.
 func IsAdminSessionBlocked(jti string) bool {
-	key := adminSessionBlocklistPrefix + jti
-	val, err := redisClient.Client.Get(context.Background(), key).Result()
-	return err == nil && val == "1"
+	return redisClient.IsAdminSessionBlocked(jti)
 }
 
 // ========== Handlers ==========
@@ -173,7 +171,8 @@ func adminLogin(c *gin.Context) {
 	adminID := uuid.NewSHA1(uuid.NameSpaceURL, []byte("admin:"+matched.Username))
 
 	ttl := time.Duration(adminCfg.SessionTTLHr) * time.Hour
-	token, err := crypto.GenerateToken(adminID, matched.Role, matched.Username, "", adminCfg.JWTSecret, ttl)
+	// The jti lets a logout or an invalidation revoke this one session.
+	token, err := crypto.GenerateTokenWithID(adminID, matched.Role, matched.Username, "", adminCfg.JWTSecret, ttl, uuid.NewString())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
@@ -192,9 +191,14 @@ func adminLogin(c *gin.Context) {
 func adminLogout(c *gin.Context) {
 	jti := c.GetString("adminJTI")
 	if jti != "" {
-		// Default TTL matches max session length (4 h); the token will expire
-		// naturally after that regardless.
-		_ = blockAdminSession(jti, 4*time.Hour)
+		// Block until the token would have expired anyway.
+		ttl := 4 * time.Hour
+		if exp, ok := c.Get("adminTokenExp"); ok {
+			if t, ok := exp.(time.Time); ok && time.Until(t) > 0 {
+				ttl = time.Until(t)
+			}
+		}
+		_ = blockAdminSession(jti, ttl)
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "Logged out successfully"})
 }
