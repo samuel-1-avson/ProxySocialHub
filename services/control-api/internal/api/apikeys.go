@@ -39,6 +39,39 @@ type updateAPIKeyRequest struct {
 	RateLimitPerMin *int     `json:"rate_limit_per_minute"`
 }
 
+// maxAPIKeyRateLimitPerMin bounds the rate limit a non-administrator can give an API
+// key. The default is 100 per minute.
+const maxAPIKeyRateLimitPerMin = 10_000
+
+var validAPIKeyPermissions = map[string]bool{"read": true, "write": true, "proxy": true, "admin": true}
+
+// validateAPIKeyGrant checks the permissions and rate limit a caller is putting on an
+// API key, for both create and update. It writes the error response and returns false
+// when the grant is not allowed. A zero rate limit means "leave as is / use the default".
+func validateAPIKeyGrant(c *gin.Context, permissions []string, rateLimitPerMin int) bool {
+	for _, p := range permissions {
+		if !validAPIKeyPermissions[p] {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "Invalid permission: " + p,
+				"valid": []string{"read", "write", "proxy", "admin"},
+			})
+			return false
+		}
+		if p == "admin" && !isPlatformModerator(c) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "admin permission requires an administrator account"})
+			return false
+		}
+	}
+	if rateLimitPerMin < 0 || (rateLimitPerMin > maxAPIKeyRateLimitPerMin && !isPlatformModerator(c)) {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "rate_limit_per_minute out of range",
+			"max":   maxAPIKeyRateLimitPerMin,
+		})
+		return false
+	}
+	return true
+}
+
 // listAPIKeys returns all API keys for the authenticated user
 func listAPIKeys(c *gin.Context) {
 	userID, ok := GetUserID(c)
@@ -107,22 +140,8 @@ func createAPIKey(c *gin.Context) {
 		expiresAt = &exp
 	}
 
-	// Validate permissions
-	validPerms := map[string]bool{
-		"read": true, "write": true, "proxy": true, "admin": true,
-	}
-	for _, p := range req.Permissions {
-		if !validPerms[p] {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "Invalid permission: " + p,
-				"valid": []string{"read", "write", "proxy", "admin"},
-			})
-			return
-		}
-		if p == "admin" && !isPlatformModerator(c) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "admin permission requires an administrator account"})
-			return
-		}
+	if !validateAPIKeyGrant(c, req.Permissions, req.RateLimitPerMin) {
+		return
 	}
 
 	// Generate the API key
@@ -257,6 +276,16 @@ func updateAPIKey(c *gin.Context) {
 
 	if apiKey.RevokedAt != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot update a revoked API key"})
+		return
+	}
+
+	// BE-HIGH-01: updates need the same checks as creation. Without them any user could
+	// PATCH their own key to "admin" or an unbounded rate limit.
+	rateLimit := 0
+	if req.RateLimitPerMin != nil {
+		rateLimit = *req.RateLimitPerMin
+	}
+	if !validateAPIKeyGrant(c, req.Permissions, rateLimit) {
 		return
 	}
 

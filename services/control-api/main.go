@@ -545,6 +545,8 @@ func main() {
 	// v1: Optional Auth (Publicly accessible, but identifies user if token present)
 	v1 := r.Group("/v1")
 	v1.Use(middleware.SupabaseAuthMiddlewareOptional(cfg))
+	// BE-HIGH-02: provider CLI tokens may only call the routes a headless node needs.
+	v1.Use(middleware.RestrictProviderToken())
 	{
 		api.RegisterHealthRoutes(v1)
 		api.RegisterMonitoringRoutes(v1)

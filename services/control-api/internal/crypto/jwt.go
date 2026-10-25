@@ -10,6 +10,11 @@ import (
 
 const TokenKindExtension = "ext"
 
+// TokenKindProviderNode marks a JWT minted from a provider CLI token (pt_...). It
+// carries the same user id as a normal session, so middleware must scope it to the
+// routes a headless node needs (see middleware.RestrictProviderToken).
+const TokenKindProviderNode = "pnode"
+
 type CustomClaims struct {
 	UserID   string `json:"sub"`
 	Role     string `json:"role"`
@@ -23,6 +28,28 @@ type CustomClaims struct {
 
 func (c *CustomClaims) IsExtensionDevice() bool {
 	return c != nil && c.Kind == TokenKindExtension
+}
+
+// IsProviderNode is true for JWTs minted from a provider CLI token.
+func (c *CustomClaims) IsProviderNode() bool {
+	return c != nil && c.Kind == TokenKindProviderNode
+}
+
+// GenerateProviderNodeToken issues the JWT a headless provider node uses after it
+// exchanges its CLI token. It is a normal user JWT plus the provider-node kind claim.
+func GenerateProviderNodeToken(userID uuid.UUID, secret string, duration time.Duration) (string, error) {
+	claims := CustomClaims{
+		UserID: userID.String(),
+		Role:   "provider",
+		Kind:   TokenKindProviderNode,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(duration)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Issuer:    "proxyhubb-control-api",
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(secret))
 }
 
 // GenerateToken creates a new JWT token for a user
