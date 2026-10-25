@@ -237,6 +237,21 @@ func confirmSessionIntentEscrow(c *gin.Context) {
 		return
 	}
 
+	// BE-CRIT-03: this path never checked the escrow amount at all. Require funds, and at
+	// least the quoted amount and bandwidth stored by fund/solana.
+	if escrow.Amount == 0 {
+		c.JSON(http.StatusConflict, gin.H{"error": "On-chain session escrow has no locked funds", "code": "session_escrow_empty"})
+		return
+	}
+	quotedBandwidth := intent.BandwidthLimit
+	if quotedBandwidth <= 0 {
+		quotedBandwidth = 1 * 1024 * 1024 * 1024 // the default fund/solana sizes the escrow for
+	}
+	if problem := checkSessionEscrowFunding(intent.AmountLockedSOL, quotedBandwidth, escrow); problem != nil {
+		c.JSON(problem.Status, gin.H{"error": problem.Message, "code": problem.Code, "session_pda": intent.SessionPDA})
+		return
+	}
+
 	now := time.Now().UTC()
 	if err := db.DB.Model(&intent).Updates(map[string]interface{}{
 		"payment_method":      paymentMethodSessionEscrow,

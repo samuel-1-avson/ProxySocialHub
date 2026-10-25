@@ -258,6 +258,12 @@ func confirmSessionEscrow(c *gin.Context) {
 		c.JSON(http.StatusConflict, gin.H{"error": "On-chain session escrow has no locked funds", "code": "session_escrow_empty"})
 		return
 	}
+	// BE-CRIT-03: compare with the quote fund/solana stored (session.AmountLockedSOL is
+	// replaced by the on-chain amount in the update below).
+	if problem := checkSessionEscrowFunding(session.AmountLockedSOL, session.BandwidthLimit, escrow); problem != nil {
+		c.JSON(problem.Status, gin.H{"error": problem.Message, "code": problem.Code, "session_pda": pda.String()})
+		return
+	}
 
 	if err := db.DB.Model(&session).Updates(map[string]interface{}{
 		"status":              models.SessionActive,
