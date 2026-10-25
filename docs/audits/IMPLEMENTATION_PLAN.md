@@ -358,7 +358,7 @@ Suggested order for one person working serially:
 | P2-ABI-1 | Go↔Anchor sync | BC-HIGH-06 | S-M | ☐ |
 | P2-ABI-2 | gateway-bond slash | BC-HIGH-04 | S | ☐ |
 | P2-DP-1..5 | Multi-pod, registry, shaper, IP trust | DP-HIGH-01/02/03/05/06/07 | S each | ☐ |
-| P2-CP-1 | Auth, queue, WS hub, hydrate | BE-HIGH-03/04/05/09, BE-MED-01 | S | ☐ |
+| P2-CP-1 | Auth, queue, WS hub, hydrate | BE-HIGH-03/04/05/09, BE-MED-01 | S | ☑ BE-HIGH-03/04/05 and BE-MED-01 fixed with tests that fail on main (rate limit lets 150 of 150 through at a limit of 100; an empty-secret admin token is accepted). Outbox claims use `FOR UPDATE SKIP LOCKED` plus a lease; billing settlement takes a per-session Redis lock instead (the pending bytes live in Redis, so a row lock does not apply). BE-HIGH-09 dropped (C15). The multi-pod compose smoke test was not run. |
 | **G1** | Private testnet | | | ☐ |
 | P3-FE-1 / FE-2 | Extension, web | FE-HIGH-01/02 | S, M | ☐ |
 | P3-SDK-1 | SDK fixes | SDK-HIGH-01 | S | ☐ |

@@ -141,6 +141,20 @@ func StartSettlementWorker() {
 	}
 }
 
+const settleLockTTL = 2 * time.Minute
+
+// acquireSettleLock takes a short per-session lock. SettleUsage runs on every control-api
+// pod; without it two pods could both read the same pending bytes and both debit the buyer
+// and credit the provider before either deleted the Redis key.
+func acquireSettleLock(sessionID string) bool {
+	ok, err := redis.Client.SetNX(context.Background(), "billing:settle-lock:"+sessionID, "1", settleLockTTL).Result()
+	return err == nil && ok
+}
+
+func releaseSettleLock(sessionID string) {
+	redis.Client.Del(context.Background(), "billing:settle-lock:"+sessionID)
+}
+
 // SettleUsage moves pending usage from Redis to SQL Ledger
 func SettleUsage() {
 	// P3-13: Respect circuit breaker — skip the entire run if the breaker is open.
@@ -177,8 +191,13 @@ func SettleUsage() {
 			continue
 		}
 
-		// 2. Process Settlement for this Session
-		if err := settleSession(sessionID, totalBytes, key); err != nil {
+		// 2. Process Settlement for this Session. Another pod may be settling it right now.
+		if !acquireSettleLock(sessionID) {
+			continue
+		}
+		err = settleSession(sessionID, totalBytes, key)
+		releaseSettleLock(sessionID)
+		if err != nil {
 			logging.Error(err).Str("session_id", sessionID).Msg("Failed to settle session")
 		} else {
 			count++
