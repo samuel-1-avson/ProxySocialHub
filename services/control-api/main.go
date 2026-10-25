@@ -35,6 +35,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/monitoring"
 	internalNats "github.com/proxyhubb/control-api/internal/nats"
+	wsHub "github.com/proxyhubb/control-api/internal/ws"
 	"github.com/proxyhubb/control-api/internal/ops"
 	"github.com/proxyhubb/control-api/internal/pricing"
 	"github.com/proxyhubb/control-api/internal/providergate"
@@ -291,6 +292,8 @@ func main() {
 	} else {
 		defer internalNats.Close()
 		internalNats.StartConsumerLagScraper(30 * time.Second)
+		// The WebSocket hub can only subscribe once NATS is connected (BE-MED-01).
+		wsHub.GetHub().StartNATSSubscription()
 	}
 
 	// Initialize OpenTelemetry Tracing
