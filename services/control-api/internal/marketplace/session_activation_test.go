@@ -286,13 +286,19 @@ func TestEnsureSessionCredentialsPlaintext_recoversAfterBeforeUpdateEncrypt(t *t
 		CredentialsUser: "plain-user",
 		CredentialsPass: "plain-pass",
 	}
-	// Simulate GORM Update hooks encrypting in-memory fields (BeforeSave).
+	// Simulate GORM Update hooks encrypting in-memory fields (BeforeSave). Only the
+	// password is encrypted now; the proxy username is stored as-is (BE-CRIT-04).
 	if err := session.BeforeSave(nil); err != nil {
 		t.Fatalf("BeforeSave: %v", err)
 	}
-	if len(session.CredentialsUser) < 4 || session.CredentialsUser[:4] != "ENC:" {
-		t.Fatalf("expected encrypted user, got %q", session.CredentialsUser)
+	if len(session.CredentialsPass) < 4 || session.CredentialsPass[:4] != "ENC:" {
+		t.Fatalf("expected encrypted pass, got %q", session.CredentialsPass)
 	}
+	if session.CredentialsUser != "plain-user" {
+		t.Fatalf("username should stay plaintext, got %q", session.CredentialsUser)
+	}
+	// A row written before that change still holds an encrypted username.
+	session.CredentialsUser = "ENC:" + base64.StdEncoding.EncodeToString([]byte("plain-user"))
 
 	if err := ensureSessionCredentialsPlaintext(session); err != nil {
 		t.Fatalf("ensureSessionCredentialsPlaintext: %v", err)

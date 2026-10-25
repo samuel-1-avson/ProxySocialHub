@@ -95,6 +95,7 @@ func SupabaseAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "extension device revoked"})
 				return
 			}
+			markProviderNodeClaims(c, claims)
 			c.Next()
 			return
 		}
@@ -148,6 +149,7 @@ func SupabaseAuthMiddlewareOptional(cfg *config.Config) gin.HandlerFunc {
 				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "extension device revoked"})
 				return
 			}
+			markProviderNodeClaims(c, claims)
 		}
 
 		// Provider CLI token fallback
