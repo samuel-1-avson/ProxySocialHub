@@ -313,9 +313,9 @@ export function ProviderNodeConnectPanel({
                     </div>
 
                     <p className="text-[9px] font-mono text-muted-foreground/80">
-                        Tip: if you already downloaded <code className="text-primary">provider.toml</code> into
-                        Downloads, open the provider app / run doctor — recent builds auto-import it into{' '}
-                        {configPath}.
+                        Tip: if you already downloaded <code className="text-primary">provider.toml</code>, import it
+                        with <code className="text-primary">provider-node config install --from &lt;path&gt;</code> —
+                        it shows where the file sends traffic and asks before writing {configPath}.
                     </p>
                 </div>
             )}

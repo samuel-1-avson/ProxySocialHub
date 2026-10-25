@@ -1,5 +1,7 @@
 # ProxyHubb Protocol: Comprehensive Whitebox Security Audit & Vulnerability Assessment
 
+> **Superseded on 2026-10-25.** The findings and conclusions in this document are contradicted by direct code review. See [COMPLETE_SYSTEM_ARCHITECTURE_AND_TECHNICAL_AUDIT.md](../audits/COMPLETE_SYSTEM_ARCHITECTURE_AND_TECHNICAL_AUDIT.md) and [IMPLEMENTATION_PLAN.md](../audits/IMPLEMENTATION_PLAN.md). The scripts it cites under `testing/` are self-contained mocks that never run production code. Do not use this report as evidence that the system is secure.
+
 **Audit Classification:** Source Code Security Review & Whitebox Vulnerability Assessment  
 **Target Version:** v2.0.0 (Production Release)  
 **Smart Contract Program ID:** [`AZGhGfvsiGJQ5S91nkdhGi9qvSNKv3sBZyVJ63KQLfvu`](file:///f:/project/proxyhubb/services/solana-programs/proxyhub/programs/proxyhub/src/lib.rs#L14)  

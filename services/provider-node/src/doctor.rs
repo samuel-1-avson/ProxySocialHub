@@ -30,14 +30,6 @@ pub struct Check {
 }
 
 pub async fn run(config_path: PathBuf) -> Result<DoctorReport> {
-    if let Some(adopted) = crate::config_adopt::maybe_adopt_downloaded_config(&config_path) {
-        println!(
-            "Imported newer config from {} → {} ({})",
-            adopted.from.display(),
-            adopted.to.display(),
-            adopted.reason
-        );
-    }
     let path_str = config_path.to_string_lossy().into_owned();
     let mut checks = Vec::new();
 
@@ -173,7 +165,7 @@ pub async fn run(config_path: PathBuf) -> Result<DoctorReport> {
                         false,
                         "error",
                         format!("Provider auth failed: {e}"),
-                        "Create a fresh provider API token and update api_key in provider.toml. On Windows: put the dashboard download in Downloads as provider.toml, then re-run doctor (auto-imports), or use Connect → Setup this PC.",
+                        "Create a fresh provider API token and update api_key in provider.toml. Install a downloaded dashboard config with: provider-node config install --from <path>, or use Connect → Setup this PC.",
                         "provider_auth_failed",
                     );
                 }

@@ -187,6 +187,30 @@ impl Config {
         std::fs::write(path, body)?;
         Ok(())
     }
+
+    /// Lines describing where this config sends traffic and whether it verifies the
+    /// gateway. Shown before a config file is installed so an operator can spot a
+    /// redirected gateway or disabled TLS verification. Never includes credentials.
+    pub fn install_summary(&self) -> String {
+        let mut gateways = vec![self.gateway_addr.clone()];
+        for g in &self.gateway_addrs {
+            if !gateways.contains(g) {
+                gateways.push(g.clone());
+            }
+        }
+        let mut out = String::new();
+        out.push_str(&format!("  control_api_url = {}\n", self.control_api_url));
+        out.push_str(&format!("  gateway         = {}\n", gateways.join(", ")));
+        out.push_str(&format!("  use_tls         = {}\n", self.use_tls));
+        out.push_str(&format!("  tls_skip_verify = {}\n", self.tls_skip_verify));
+        out.push_str(&format!("  allowed_ports   = {:?}\n", self.allowed_ports));
+        if self.tls_skip_verify {
+            out.push_str(
+                "  WARNING: tls_skip_verify = true turns off gateway certificate checks.\n",
+            );
+        }
+        out
+    }
 }
 
 // ── Defaults ────────────────────────────────────────────────────────
@@ -284,6 +308,42 @@ mod transport_tests {
         assert_eq!(ProviderTransport::from_env(), ProviderTransport::Quic);
 
         std::env::remove_var("PROVIDER_TRANSPORT");
+    }
+}
+
+#[cfg(test)]
+mod install_summary_tests {
+    use super::Config;
+
+    #[test]
+    fn summary_shows_routing_settings_and_never_credentials() {
+        let mut cfg = Config::default();
+        cfg.control_api_url = "https://api.evil.test".to_string();
+        cfg.gateway_addr = "gw-a.evil.test:3128".to_string();
+        cfg.gateway_addrs = vec![
+            "gw-a.evil.test:3128".to_string(),
+            "gw-b.evil.test:3128".to_string(),
+        ];
+        cfg.tls_skip_verify = true;
+        cfg.api_key = "SECRET-API-KEY".to_string();
+        cfg.jwt_token = "SECRET-JWT".to_string();
+        cfg.provider_signing_key = "SECRET-SIGNING-KEY".to_string();
+
+        let s = cfg.install_summary();
+        assert!(s.contains("https://api.evil.test"));
+        assert!(
+            s.contains("gw-a.evil.test:3128, gw-b.evil.test:3128"),
+            "{s}"
+        );
+        assert!(s.contains("tls_skip_verify = true"));
+        assert!(s.contains("WARNING"));
+        assert!(!s.contains("SECRET"), "summary leaked a credential: {s}");
+    }
+
+    #[test]
+    fn summary_has_no_warning_when_tls_is_verified() {
+        let cfg = Config::default();
+        assert!(!cfg.install_summary().contains("WARNING"));
     }
 }
 

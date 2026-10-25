@@ -160,7 +160,9 @@ func TestApplyP2PCompensation(t *testing.T) {
 	}
 }
 
-func TestEnqueueP2PSettleCreatesPendingRow(t *testing.T) {
+// BE-CRIT-01: p2p_settle rows queued before the fix used to send SOL from the
+// treasury. They must now be drained without moving any funds.
+func TestLegacyP2PSettleRowSendsNothing(t *testing.T) {
 	testutil.SetupTestDB(t)
 	if err := db.DB.AutoMigrate(&models.CompensationOutbox{}); err != nil {
 		t.Fatalf("migrate: %v", err)
@@ -177,27 +179,30 @@ func TestEnqueueP2PSettleCreatesPendingRow(t *testing.T) {
 		t.Fatalf("recipient wallet: %v", err)
 	}
 
-	ref := "p2p-settle-" + uuid.New().String()
-	EnqueueP2PSettle(0.05, ref, sender.ID, recipient.ID, sw.ID, rw.ID,
-		"11111111111111111111111111111111", "22222222222222222222222222222222")
+	meta := `{"sender_wallet":"7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuGui4Q5G","recipient_wallet":"9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9wYt5WGy",` +
+		`"sender_user_id":"` + sender.ID.String() + `","recipient_user_id":"` + recipient.ID.String() + `",` +
+		`"sender_wallet_id":"` + sw.ID.String() + `","recipient_wallet_id":"` + rw.ID.String() + `"}`
+	cp := recipient.ID
+	legacy := models.CompensationOutbox{
+		Kind:               models.CompensationKindP2PSettle,
+		UserID:             sender.ID,
+		CounterpartyUserID: &cp,
+		AmountSOL:          0.05,
+		ReferenceID:        "p2p-settle-" + uuid.New().String(),
+		Metadata:           meta,
+		Status:             models.CompensationStatusPending,
+		NextRetryAt:        time.Now().UTC().Add(-time.Minute),
+	}
+	if err := db.DB.Create(&legacy).Error; err != nil {
+		t.Fatalf("seed legacy row: %v", err)
+	}
 
-	var entry models.CompensationOutbox
-	if err := db.DB.Where("kind = ? AND reference_id = ?", models.CompensationKindP2PSettle, ref).First(&entry).Error; err != nil {
-		t.Fatalf("outbox entry: %v", err)
+	sends := withSendSOLRecorder(t)
+	ok, failed, permanent := ProcessCompensationOutboxOnce(10)
+	if ok != 1 || failed != 0 || permanent != 0 {
+		t.Fatalf("process: ok=%d failed=%d permanent=%d", ok, failed, permanent)
 	}
-	if entry.Status != models.CompensationStatusPending {
-		t.Fatalf("status: want pending got %q", entry.Status)
-	}
-	if entry.Metadata == "" || entry.Metadata == "{}" {
-		t.Fatalf("expected settle metadata, got %q", entry.Metadata)
-	}
-
-	// Idempotent enqueue
-	EnqueueP2PSettle(0.05, ref, sender.ID, recipient.ID, sw.ID, rw.ID,
-		"11111111111111111111111111111111", "22222222222222222222222222222222")
-	var count int64
-	db.DB.Model(&models.CompensationOutbox{}).Where("kind = ? AND reference_id = ?", models.CompensationKindP2PSettle, ref).Count(&count)
-	if count != 1 {
-		t.Fatalf("expected 1 row after idempotent enqueue, got %d", count)
+	if n := sends.Load(); n != 0 {
+		t.Fatalf("legacy p2p_settle row sent SOL %d time(s); expected none", n)
 	}
 }
