@@ -142,6 +142,21 @@ func confirmEscrow(c *gin.Context) {
 		}
 	}
 
+	// BE-CRIT-03: one funded escrow must back one order at a time. The legacy PDA is per
+	// buyer/seller pair, so without this a second order could be activated against funds
+	// locked for the first.
+	if bound, err := orderEscrowBoundElsewhere(db.DB, pda.String(), order.ID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check escrow binding"})
+		return
+	} else if bound {
+		c.JSON(http.StatusConflict, gin.H{
+			"error":      "This escrow already backs another active order. Wait for it to settle or refund before starting a new purchase.",
+			"escrow_pda": pda.String(),
+			"code":       "escrow_already_bound",
+		})
+		return
+	}
+
 	var escrow *solana.Escrow
 	var fetchErr error
 	backoffs := []time.Duration{0, 400 * time.Millisecond, 1200 * time.Millisecond, 2500 * time.Millisecond}
@@ -194,6 +209,20 @@ func confirmEscrow(c *gin.Context) {
 			"error":      "On-chain escrow has no locked funds",
 			"escrow_pda": pda.String(),
 			"code":       "escrow_empty",
+		})
+		return
+	}
+
+	// BE-CRIT-03: the escrow must hold what the order cost and allow the bandwidth bought.
+	// Checked against the quote pay/solana recorded, before amount_locked_sol is replaced
+	// with the on-chain amount below.
+	if problem := checkOrderEscrowFunding(&order, escrow); problem != nil {
+		c.JSON(problem.Status, gin.H{
+			"error":             problem.Message,
+			"escrow_pda":        pda.String(),
+			"code":              problem.Code,
+			"amount_lamports":   escrow.Amount,
+			"required_lamports": minLamportsForQuote(order.AmountLockedSOL),
 		})
 		return
 	}
