@@ -477,6 +477,82 @@ func (c *OracleClient) SendSOL(ctx context.Context, recipient sol.PublicKey, lam
 	return c.sendInstructionAsPayer(ctx, instruction, payer)
 }
 
+// SendSOLFromTestHook, when set, replaces SendSOLFrom (used by tests).
+var SendSOLFromTestHook func(ctx context.Context, c *OracleClient, from sol.PublicKey, recipient sol.PublicKey, lamports uint64) (string, error)
+
+// BuildSignedSOLTransfer builds a System Program transfer from `from` to `recipient`,
+// signed only by `from`, which is also the fee payer.
+func BuildSignedSOLTransfer(from sol.PrivateKey, recipient sol.PublicKey, lamports uint64, blockhash sol.Hash) (*sol.Transaction, error) {
+	if len(from) != 64 {
+		return nil, fmt.Errorf("invalid sender key length: expected 64, got %d", len(from))
+	}
+	if lamports == 0 {
+		return nil, fmt.Errorf("transfer amount must be positive")
+	}
+	fromPub := from.PublicKey()
+	if fromPub.Equals(recipient) {
+		return nil, fmt.Errorf("sender and recipient are the same address %s", fromPub)
+	}
+
+	// System Program Transfer: discriminator=2 (u32 LE) + amount (u64 LE)
+	data := make([]byte, 12)
+	data[0] = 2 // SystemInstruction::Transfer
+	for i := 0; i < 8; i++ {
+		data[4+i] = byte(lamports >> (8 * i))
+	}
+	instruction := &GenericInstruction{
+		programID: sol.SystemProgramID,
+		accounts: []*sol.AccountMeta{
+			{PublicKey: fromPub, IsSigner: true, IsWritable: true},
+			{PublicKey: recipient, IsSigner: false, IsWritable: true},
+		},
+		data: data,
+	}
+
+	tx, err := sol.NewTransaction([]sol.Instruction{instruction}, blockhash, sol.TransactionPayer(fromPub))
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.Sign(func(key sol.PublicKey) *sol.PrivateKey {
+		if key.Equals(fromPub) {
+			return &from
+		}
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("sign transfer: %w", err)
+	}
+	return tx, nil
+}
+
+// SendSOLFrom transfers lamports from an arbitrary platform-owned keypair (for
+// example the cold reserve) to recipient. Unlike SendSOL it never signs with the
+// payout wallet, so funds move out of `from` and nowhere else. The VelocityGuard
+// is not applied: it limits outflow from the platform, and this moves funds
+// between platform wallets.
+func (c *OracleClient) SendSOLFrom(ctx context.Context, from sol.PrivateKey, recipient sol.PublicKey, lamports uint64) (string, error) {
+	if SendSOLFromTestHook != nil {
+		return SendSOLFromTestHook(ctx, c, from.PublicKey(), recipient, lamports)
+	}
+	recentBlockhash, err := c.getLatestBlockhashWithRetry(ctx, rpc.CommitmentFinalized)
+	if err != nil {
+		return "", fmt.Errorf("failed to get recent blockhash: %w", err)
+	}
+	tx, err := BuildSignedSOLTransfer(from, recipient, lamports, recentBlockhash.Value.Blockhash)
+	if err != nil {
+		return "", err
+	}
+	var sig sol.Signature
+	err = c.withFailover(ctx, func(client *rpc.Client) error {
+		var sendErr error
+		sig, sendErr = client.SendTransaction(ctx, tx)
+		return sendErr
+	})
+	if err != nil {
+		return "", err
+	}
+	return sig.String(), nil
+}
+
 // GenericInstruction is a generic Solana instruction builder
 type GenericInstruction struct {
 	programID sol.PublicKey

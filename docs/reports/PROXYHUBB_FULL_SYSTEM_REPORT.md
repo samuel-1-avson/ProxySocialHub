@@ -1,5 +1,7 @@
 # ProxyHubb DePIN Protocol: Comprehensive Full-System Architectural & Operational Report
 
+> **Superseded on 2026-10-25.** The maturity rating and the security and readiness claims in this document are not supported by the code. See [COMPLETE_SYSTEM_ARCHITECTURE_AND_TECHNICAL_AUDIT.md](../audits/COMPLETE_SYSTEM_ARCHITECTURE_AND_TECHNICAL_AUDIT.md) and the resulting [IMPLEMENTATION_PLAN.md](../audits/IMPLEMENTATION_PLAN.md). The scripts it cites under `testing/` are self-contained mocks that never run production code. Do not use this report as evidence of security or production readiness.
+
 **Document Version:** 2.0.0 (Production Release)  
 **System Classification:** Decentralized Physical Infrastructure Protocol (DePIN) & Non-Custodial Proxy Marketplace  
 **Blockchain Layer:** Solana (Mainnet-Beta / Devnet)  

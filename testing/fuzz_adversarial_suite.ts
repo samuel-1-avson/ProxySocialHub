@@ -1,4 +1,11 @@
 /**
+ * NOTE (2026-10-25): this script is a self-contained mock. It exercises helper
+ * functions defined in this file and never imports or runs the production Rust, Go
+ * or Anchor code, so passing it is not evidence about the real contracts or services.
+ * See docs/audits/COMPLETE_SYSTEM_ARCHITECTURE_AND_TECHNICAL_AUDIT.md, section 23.2.
+ */
+
+/**
  * ProxyHubb Adversarial Fuzzing & Concurrency Stress Test Suite
  * 
  * Executes 25,000+ randomized adversarial fuzz iterations testing:
