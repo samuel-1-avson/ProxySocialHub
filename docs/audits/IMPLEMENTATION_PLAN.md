@@ -46,6 +46,19 @@ Found while implementing Day 1:
 | C9 | Add an explicit import command | `provider-node config install --from <file>` already existed (it only refused to overwrite without `--force`). | P1-DP-3 extended that command instead of adding a new one. |
 | C10 | n/a | The repo's Go tests need more than `AutoMigrate`: on unmodified HEAD, 6 packages fail in a plain container for environment reasons. | A green Go baseline needs the SQL migrations applied to the test database (see BASELINE section 2). Until then, compare before/after. |
 
+Found while implementing Days 2-3:
+
+| # | Audit says | Code shows | Effect |
+|---|---|---|---|
+| C11 | `SessionReaper` terminates every non-order session every 5 minutes | Not reproducible: `reap()` reads sessions with `Find`, `AfterFind` decrypts, and it skips empty usernames. `TestReap_KeepsSessionsWithLiveRedisKeyAndReapsGhosts` passes on the unmodified code. | No reaper change. The test stays as a regression guard. |
+| C12 | `createOrder` returns `"ENC:..."` to buyers | Not reproducible: the response re-reads the session (`orders.go:519-521`), and `getOrderCredentials` decrypts before building the response. | No change. |
+| C13 | `terminateSession` leaves the Redis key because `AfterFind` is missing | The real cause is different: `db.Model(&s).Updates(...)` runs `BeforeSave`, which re-encrypts the **in-memory** struct, and `DeleteSession(session.CredentialsUser)` then targets the ciphertext. Reproduced by `TestSessionCredentials_PartialUpdateDoesNotLeaveCiphertextInStruct`. | Fixed with an `AfterSave` hook (BE-CRIT-04). |
+| C14 | Usage and metering lookups by `credentials_user` fail | Confirmed: AES-GCM uses a random nonce, so an encrypted username can never match an equality query (`usage.go`, `metering_spill_drain.go`). | Username is now stored as-is (decision D4); legacy rows are rewritten at startup. |
+| C15 | `gatewaySessionHydrate` does 501 queries (`BE-HIGH-09`) | Stale: `hydrateGatewaySession` reads the indexed `session_gateway_cache` table by username hash. | Drop BE-HIGH-09 from P2-CP-1. |
+| C16 | n/a | **Regression I introduced in PR #38**: removing `settleP2POnChain` left `wallet.go` without `JournalKind:"skip"`, so `TestJournalSkipSitesAllowlisted` (`internal/models`) failed. I had run `internal/api`, `solana` and `treasury` only. | Fixed in commit `4a77a58`. From now on the whole `go test ./...` is compared with the clean baseline before every push. |
+| C17 | `confirmEscrow` and the session-intent confirm miss amount and bandwidth checks | Confirmed. The session-escrow PDA is derived from the session id, so PDA **reuse** only applies to the legacy per-pair order escrow. | Binding check and unique index apply to orders only. |
+| C18 | `bridge_ws` should share the CONNECT pipeline | CONNECT is one ~1,000-line inline function with no integration tests. | `destination_guard.rs` carries the same decisions; CONNECT was left untouched. Moving it onto the guard is Phase 4. |
+
 Every other P0 in the audit was reproduced by reading the code: `claim_bandwidth_rewards` has no authority check and no per-provider receipt (lib.rs:3175-3228); `transferFromReserve` sends to `treasuryAddr` via the oracle client (treasury_manager.go:573); `updateAPIKey` applies permissions and rate limit unvalidated (apikeys.go:267-271); `bridge_ws` never calls destination validation or `usage_tracker` (websocket.rs); `is_public_ipv6` has no IPv4-mapped check (handler.rs:442); `SETUP_SEED = 0x5052_4F58_5948_5542` (groth16-prover/src/lib.rs:18); `|| true` at proxyhubb-ci.yml:689.
 
 Not yet re-verified (take on trust until the item's own test runs): the P1+ findings in the audit's summary table, `BE-CRIT-02` (triple payout), `BE-CRIT-03`, and the claims about `SessionReaper` and `terminateSession` behaviour. Each of those items starts by writing the failing test.
@@ -226,7 +239,7 @@ Dep: Phase 1. Tracks are independent.
 - `BE-HIGH-03` delete `memStore` entry on SIWS login (auth.go:155). `BE-HIGH-04` reject empty `ADMIN_JWT_SECRET`, check the JTI blocklist, protect `/v1/admin/logout`. `BE-HIGH-05` unique `ZADD` member in `CheckAPIKeyRateLimit` (redis.go:405).
 - `FOR UPDATE SKIP LOCKED` in compensation_outbox.go and billing/worker.go.
 - `BE-MED-01` start the `ws.Hub` NATS subscription from `main.go` after `nats.Init()` (ws/hub.go:62-65).
-- `BE-HIGH-09` replace the 501-query `gatewaySessionHydrate` with an indexed lookup (follows P1-CP-5 / D4).
+- ~~`BE-HIGH-09` replace the 501-query `gatewaySessionHydrate`~~ Not needed, see C15.
 
 **Acceptance**: `docker-compose.j2-multipod.yml` smoke test shows one billing per byte across pods; Go tests for each auth/rate-limit fix.
 
@@ -335,10 +348,10 @@ Suggested order for one person working serially:
 | P1-CP-1 | P2P treasury drain | BE-CRIT-01 | XS | ☑ migration 000154 |
 | P1-CP-2 | Single provider payout | BE-CRIT-02 | M | ◐ step 1 (kill switch) done; steps 2-4 open |
 | P1-CP-3 | Reserve refill | BE-CRIT-05 | XS | ☑ builder unit-tested; no RPC-level test |
-| P1-CP-4 | Escrow confirm checks | BE-CRIT-03 | S | ☐ |
-| P1-CP-5 | Session credentials | BE-CRIT-04 | S | ☐ |
-| P1-CP-6 | API key / pt_ token | BE-HIGH-01/02 | S | ☐ |
-| P1-DP-1 | WebSocket bridge | DP-CRIT-01 | S | ☐ |
+| P1-CP-4 | Escrow confirm checks | BE-CRIT-03 | S | ☑ migration 000155 (fails loudly if live duplicates exist); handlers need a live oracle and are not exercised |
+| P1-CP-5 | Session credentials | BE-CRIT-04 | S | ☑ real causes were C13 and C14; reaper and createOrder claims not reproducible (C11, C12) |
+| P1-CP-6 | API key / pt_ token | BE-HIGH-01/02 | S | ☑ JWTs minted before the change stay unrestricted until they expire (up to 30 days) |
+| P1-DP-1 | WebSocket bridge | DP-CRIT-01 | S | ☑ guard unit-tested; `admit_ws_connection` and metering have no automated test (needs an `AppState`) |
 | P1-DP-2 | IPv6 SSRF | DP-CRIT-02 | XS | ☑ |
 | P1-DP-3 | Config adoption | DP-CRIT-03 | XS-S | ☑ |
 | **G0** | P0s closed | | | ☐ |

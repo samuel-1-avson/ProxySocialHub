@@ -88,6 +88,14 @@ func (s *Session) AfterFind(tx *gorm.DB) error {
 	return s.decryptCredentials()
 }
 
+// AfterSave restores plaintext after a write. BeforeSave encrypts the credentials in
+// place so the row is stored encrypted, and that also runs for partial updates such as
+// db.Model(&s).Updates(...). Without this the caller keeps a struct whose password is
+// ciphertext, which then leaks into API responses and Redis keys.
+func (s *Session) AfterSave(tx *gorm.DB) error {
+	return s.decryptCredentials()
+}
+
 // DecryptCredentialsForGateway re-runs credential decryption after in-memory
 // fields may have been re-encrypted by BeforeSave during a partial UPDATE.
 func (s *Session) DecryptCredentialsForGateway() error {
@@ -107,19 +115,19 @@ var CredentialDecryptFn func(ciphertext string) (string, error)
 // with this prefix naturally because it begins with a base64 character.
 const encryptedPrefix = "ENC:"
 
-// encryptCredentials encrypts CredentialsUser and CredentialsPass in-place
-// before they are written to the database.
+// encryptCredentials encrypts CredentialsPass in-place before it is written to the
+// database.
+//
+// CredentialsUser is deliberately stored in plaintext. It is the public proxy username:
+// it is sent in every CONNECT, it is the Redis session key, and several lookups query
+// `WHERE credentials_user = ?`. AES-GCM uses a random nonce, so an encrypted username can
+// never be matched by equality, which broke those lookups. Legacy rows that still hold an
+// "ENC:" username are decrypted on read and rewritten by MigrateEncryptedSessionUsernames.
 func (s *Session) encryptCredentials() error {
 	if CredentialEncryptFn == nil {
 		return nil // encryption not configured — skip (dev/test mode)
 	}
 	var err error
-	if s.CredentialsUser != "" && !isEncryptedField(s.CredentialsUser) {
-		s.CredentialsUser, err = encryptField(s.CredentialsUser)
-		if err != nil {
-			return fmt.Errorf("session: failed to encrypt credentials_user: %w", err)
-		}
-	}
 	if s.CredentialsPass != "" && !isEncryptedField(s.CredentialsPass) {
 		s.CredentialsPass, err = encryptField(s.CredentialsPass)
 		if err != nil {
@@ -174,4 +182,51 @@ func decryptField(value string) (string, error) {
 		return "", fmt.Errorf("session: credentials field is not valid base64: %w", err)
 	}
 	return CredentialDecryptFn(raw)
+}
+
+// MigrateEncryptedSessionUsernames rewrites legacy "ENC:" credentials_user values as
+// plaintext (see encryptCredentials). It is idempotent and safe to run on every start.
+// Soft-deleted rows are included. Rows it cannot decrypt are reported and left as they
+// are; reads of those rows return an empty username.
+func MigrateEncryptedSessionUsernames(tx *gorm.DB) (migrated int, errs []error) {
+	if CredentialDecryptFn == nil {
+		return 0, []error{fmt.Errorf("session: credential decrypt function not configured")}
+	}
+	type row struct {
+		ID              uuid.UUID
+		CredentialsUser string
+	}
+	const batch = 500
+	lastID := uuid.Nil
+	for {
+		var rows []row
+		if err := tx.Table("sessions").
+			Select("id, credentials_user").
+			Where("credentials_user LIKE ? AND id > ?", encryptedPrefix+"%", lastID).
+			Order("id ASC").
+			Limit(batch).
+			Scan(&rows).Error; err != nil {
+			return migrated, append(errs, err)
+		}
+		if len(rows) == 0 {
+			return migrated, errs
+		}
+		for _, r := range rows {
+			lastID = r.ID
+			plain, err := decryptField(r.CredentialsUser)
+			if err != nil || plain == "" {
+				if err == nil {
+					err = fmt.Errorf("decrypted to an empty value")
+				}
+				errs = append(errs, fmt.Errorf("session %s: credentials_user: %w", r.ID, err))
+				continue
+			}
+			// Table + UpdateColumn bypasses the model hooks, so this writes exactly plain.
+			if err := tx.Table("sessions").Where("id = ?", r.ID).UpdateColumn("credentials_user", plain).Error; err != nil {
+				errs = append(errs, fmt.Errorf("session %s: %w", r.ID, err))
+				continue
+			}
+			migrated++
+		}
+	}
 }

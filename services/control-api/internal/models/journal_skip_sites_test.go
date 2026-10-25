@@ -14,7 +14,6 @@ import (
 var journalSkipAllowlist = map[string]string{
 	"internal/billing/worker.go":           "PostUsageJournal after buyer debit + provider credit",
 	"internal/settlement/intent.go":        "PostUsageJournal after intent settle legs",
-	"internal/api/wallet.go":               "PostBalancedJournal reverse on P2P fail refund",
 	"internal/api/compensation_outbox.go":  "PostBalancedJournal reverse on outbox P2P compensate",
 }
 

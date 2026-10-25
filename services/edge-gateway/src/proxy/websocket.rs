@@ -31,7 +31,9 @@ use tracing::{error, info, warn};
 
 use crate::auth::{SessionAuthenticator, SessionData};
 use crate::metrics;
-use crate::state::AppState;
+use crate::policy;
+use crate::proxy::destination_guard::{self, Refusal};
+use crate::state::{AppState, SessionConnGuard};
 
 // ---------------------------------------------------------------------------
 // Detection
@@ -151,6 +153,31 @@ pub async fn handle_ws_upgrade(
         }
     };
 
+    // 2b. Everything that can refuse the tunnel runs BEFORE the 101, so a refusal is a real
+    // HTTP error and nothing reaches a provider unchecked (DP-CRIT-01). Until now this path
+    // skipped destination policy, node rules, concurrency limits and metering, so a buyer
+    // could tunnel to forbidden ports or private addresses for free.
+    let admission = match admit_ws_connection(
+        &target,
+        &username,
+        &session_data,
+        &state,
+        &authenticator,
+    )
+    .await
+    {
+        Ok(admission) => admission,
+        Err(refusal) => {
+            warn!(
+                "WS refused for {} -> {}: {} ({})",
+                username, target, refusal.body, refusal.status
+            );
+            refusal.record();
+            metrics::ACTIVE_SESSIONS.dec();
+            return Ok(refusal.into_response());
+        }
+    };
+
     // 3. Compute accept key and build 101 response
     let ws_key = req
         .headers()
@@ -171,12 +198,48 @@ pub async fn handle_ws_upgrade(
     // 4. Spawn bridge task — runs after hyper upgrades the connection
     let auth_clone = authenticator.clone();
     tokio::spawn(async move {
+        // Held until the tunnel closes, then releases the session's concurrency slot.
+        let WsAdmission {
+            control,
+            node_id,
+            conn_guard: _conn_guard,
+        } = admission;
         match hyper::upgrade::on(req).await {
             Ok(upgraded) => {
                 let io = TokioIo::new(upgraded);
                 let ws = WebSocketStream::from_raw_socket(io, Role::Server, None).await;
-                match bridge_ws(ws, &target, &username, session_data, state, auth_clone).await {
+                match bridge_ws(
+                    ws,
+                    &target,
+                    &username,
+                    session_data,
+                    state.clone(),
+                    auth_clone.clone(),
+                    control,
+                    &node_id,
+                )
+                .await
+                {
                     Ok(stats) => {
+                        // Meter the bytes exactly as the CONNECT path does, so WebSocket
+                        // tunnels are billed and counted against the session.
+                        state
+                            .usage_tracker
+                            .record(
+                                &username,
+                                stats.bytes_from_client,
+                                stats.bytes_from_provider,
+                            )
+                            .await;
+                        let total = stats.bytes_from_client + stats.bytes_from_provider;
+                        if let Err(e) = auth_clone.report_usage(&username, total as i64).await {
+                            error!("WS: failed to report usage for {}: {}", username, e);
+                        }
+                        metrics::record_provider_bandwidth(
+                            &node_id,
+                            stats.bytes_from_client,
+                            stats.bytes_from_provider,
+                        );
                         metrics::connection_ended(
                             stats.bytes_from_client,
                             stats.bytes_from_provider,
@@ -215,7 +278,99 @@ pub struct WsBridgeStats {
     pub bytes_from_provider: u64,
 }
 
+/// What `admit_ws_connection` hands to the bridge: the chosen provider and the session's
+/// concurrency slot, which is released when the tunnel ends.
+struct WsAdmission {
+    control: yamux::Control,
+    node_id: String,
+    conn_guard: SessionConnGuard,
+}
+
+/// Run every check that can refuse a WebSocket tunnel and pick the provider, before the
+/// `101` is sent. Mirrors the CONNECT path: destination policy and DNS check, session
+/// domain and time rules, per-session concurrency and per-user rate limits, provider node
+/// rules, and the session-escrow preflight before any provider stream is opened.
+async fn admit_ws_connection(
+    target: &str,
+    username: &str,
+    session: &SessionData,
+    state: &Arc<AppState>,
+    authenticator: &Arc<SessionAuthenticator>,
+) -> Result<WsAdmission, Refusal> {
+    destination_guard::check_destination(target)?;
+    destination_guard::check_destination_dns(target).await?;
+    destination_guard::check_session_rules(target, session)?;
+
+    let conn_guard = state
+        .session_conns
+        .acquire(username, session.max_concurrency)
+        .ok_or_else(|| {
+            warn!("WS: session concurrency limit reached for {}", username);
+            metrics::record_rate_limit_hit("session_concurrency");
+            Refusal::plain(
+                StatusCode::TOO_MANY_REQUESTS,
+                "Session concurrency limit reached",
+            )
+        })?;
+    if !state.check_rate_limit(username) {
+        warn!("WS: rate limit exceeded for {}", username);
+        metrics::record_rate_limit_hit("connection_rate");
+        return Err(Refusal::plain(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Rate limit exceeded",
+        ));
+    }
+
+    // Provider selection keeps the previous behaviour (best local node for the session's
+    // geo); sticky, pinned and ISP routing for WebSocket is part of the Phase 4 unification.
+    let geo = if session.target_geo.is_empty() {
+        None
+    } else {
+        Some(session.target_geo.as_str())
+    };
+    let (control, node_id) = state.registry.get_best_for(geo, None).ok_or_else(|| {
+        warn!("No providers available for WS bridge to {}", target);
+        metrics::record_connection_error("no_providers");
+        Refusal::plain(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "No healthy providers available",
+        )
+    })?;
+
+    // N-01: the chosen provider's own port and domain rules.
+    if let Some(node_cfg) = authenticator.get_node_config(&node_id).await {
+        destination_guard::check_node_rules(target, &node_cfg)?;
+    }
+
+    // Escrow-backed sessions must be funded before a provider stream is opened.
+    if let Err(err) = crate::ensure_session_intent_may_activate(
+        state.clone(),
+        session,
+        Some(node_id.as_str()),
+        Some(policy::target_host_from_endpoint(target)),
+    )
+    .await
+    {
+        if matches!(err, crate::error::Error::SessionEscrowRequired(_)) {
+            return Err(Refusal::plain(
+                StatusCode::PAYMENT_REQUIRED,
+                "Session escrow required",
+            ));
+        }
+    }
+
+    Ok(WsAdmission {
+        control,
+        node_id,
+        conn_guard,
+    })
+}
+
 /// Bridge a WebSocket connection to a TCP target via the provider yamux tunnel.
+///
+/// Errors before the tunnel is established are returned. Once data is flowing, a failure
+/// ends the loop but the bytes moved so far are still returned, so they are metered.
+#[allow(clippy::too_many_arguments)]
 async fn bridge_ws<S>(
     ws: WebSocketStream<S>,
     target: &str,
@@ -223,29 +378,12 @@ async fn bridge_ws<S>(
     session_data: SessionData,
     state: Arc<AppState>,
     authenticator: Arc<SessionAuthenticator>,
+    mut control: yamux::Control,
+    node_id: &str,
 ) -> std::io::Result<WsBridgeStats>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
-    // Select best provider
-    let (mut control, node_id) = match state.registry.get_best_for(
-        if session_data.target_geo.is_empty() {
-            None
-        } else {
-            Some(session_data.target_geo.as_str())
-        },
-        None,
-    ) {
-        Some(result) => result,
-        None => {
-            warn!("No providers available for WS bridge to {}", target);
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::ConnectionRefused,
-                "No healthy providers",
-            ));
-        }
-    };
-
     // Open yamux stream and convert to tokio-compatible I/O
     let raw_stream = control
         .open_stream()
@@ -271,22 +409,9 @@ where
         ));
     }
 
+    // Policy, node rules and the session-escrow preflight already ran in
+    // admit_ws_connection, before this stream was opened.
     info!("🔗 WS bridge: {} → {} via {}", username, target, node_id);
-    if let Err(err) = crate::ensure_session_intent_may_activate(
-        state.clone(),
-        &session_data,
-        Some(&node_id),
-        Some(target),
-    )
-    .await
-    {
-        if matches!(err, crate::error::Error::SessionEscrowRequired(_)) {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::PermissionDenied,
-                format!("session_escrow_required: {}", err),
-            ));
-        }
-    }
     metrics::connection_started();
 
     // Split WS into independent sink + stream halves
@@ -307,11 +432,19 @@ where
             msg = ws_stream.next() => {
                 match msg {
                     Some(Ok(Message::Binary(data))) => {
-                        tcp.write_all(&data).await?;
+                        // A write error ends the loop instead of returning, so the bytes
+                        // moved so far are still metered by the caller.
+                        if let Err(e) = tcp.write_all(&data).await {
+                            error!("WS: provider write error for {}: {}", username, e);
+                            break;
+                        }
                         bytes_from_client += data.len() as u64;
                     }
                     Some(Ok(Message::Text(text))) => {
-                        tcp.write_all(text.as_bytes()).await?;
+                        if let Err(e) = tcp.write_all(text.as_bytes()).await {
+                            error!("WS: provider write error for {}: {}", username, e);
+                            break;
+                        }
                         bytes_from_client += text.len() as u64;
                     }
                     Some(Ok(Message::Ping(data))) => {
@@ -352,7 +485,7 @@ where
             crate::sync_session_intent_usage(
                 state.clone(),
                 &session_data,
-                Some(&node_id),
+                Some(node_id),
                 Some(target),
                 bytes_from_client.saturating_sub(last_usage_synced_up),
                 bytes_from_provider.saturating_sub(last_usage_synced_down),
@@ -367,7 +500,7 @@ where
                         state.clone(),
                         &session_data,
                         "closing",
-                        Some(&node_id),
+                        Some(node_id),
                         Some(target),
                     )
                     .await;
@@ -381,7 +514,7 @@ where
     crate::finalize_session_intent_ledger(
         state,
         &session_data,
-        Some(&node_id),
+        Some(node_id),
         Some(target),
         bytes_from_client.saturating_sub(last_usage_synced_up),
         bytes_from_provider.saturating_sub(last_usage_synced_down),
