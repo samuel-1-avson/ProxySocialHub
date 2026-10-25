@@ -684,9 +684,18 @@ jobs:
         npx tsx testing/test_depin_ecosystem.ts
         npx tsx testing/test_staked_gateway.ts
 
-    - name: Run Escrow Rust Fuzz Harness
+    # BC-CRIT-01: the program once failed to compile and the old step hid it behind
+    # `|| true`. Compiling it is the gate that matters, so it has no bypass.
+    - name: Compile proxyhub program
       run: |
-        cargo test --manifest-path services/solana-programs/proxyhub/Cargo.toml || true
+        cargo check --manifest-path services/solana-programs/proxyhub/programs/proxyhub/Cargo.toml
+
+    # Library tests only. tests/w9a_soak.rs loads a prebuilt SBF proxyhub.so, which this
+    # job does not build, so it fails here with "proxyhub.so missing". Run it in the
+    # Anchor build job once that produces the artifact.
+    - name: Run proxyhub unit tests
+      run: |
+        cargo test --manifest-path services/solana-programs/proxyhub/Cargo.toml --lib
 
   # ==================== Docker Build Check ====================
   docker-build:

@@ -555,19 +555,11 @@ func transferP2P(c *gin.Context) {
 		return
 	}
 
-	// FIN-001 / BE-10: After DB commit, enqueue durable on-chain settle when both
-	// parties have linked Solana wallets. Worker retries across process restarts.
-	if senderUser.WalletAddress != nil && *senderUser.WalletAddress != "" &&
-		recipient.WalletAddress != nil && *recipient.WalletAddress != "" {
-		EnqueueP2PSettle(req.Amount, refID, senderUUID, recipient.ID, senderWallet.ID, recipientWallet.ID,
-			*senderUser.WalletAddress, *recipient.WalletAddress)
-		if testP2PSettleSynchronously {
-			ProcessCompensationOutboxOnce(50)
-		} else {
-			// Best-effort immediate attempt; outbox row survives if this process dies.
-			go ProcessCompensationOutboxOnce(20)
-		}
-	}
+	// BE-CRIT-01: this is an internal book transfer. It must only move balances in
+	// the ledger. It used to also send real SOL from the treasury hot wallet to the
+	// recipient's linked wallet without debiting the recipient, so two accounts could
+	// bounce a balance back and forth and drain the treasury. Users who want SOL on
+	// chain withdraw it through POST /v1/wallet/withdraw/sol, which debits them.
 
 	c.JSON(http.StatusOK, gin.H{"status": "success", "message": "Transfer complete", "reference": refID})
 }
@@ -1072,98 +1064,8 @@ func getMySecurityFlags(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"flags": flags, "count": len(flags)})
 }
 
-// testP2PSettleSynchronously runs post-commit P2P on-chain settlement inline (api tests only).
-var testP2PSettleSynchronously bool
-
 // sendSOLOnChainHook is overridden in tests to mock treasury payouts without a live oracle.
 var sendSOLOnChainHook = sendSOLOnChain
-
-func settleP2POnChain(senderWalletAddr, recipientWalletAddr *string, amount float64, senderUserID, senderWalletID, recipientUserID, recipientWalletID uuid.UUID, ref string) {
-	if senderWalletAddr == nil || *senderWalletAddr == "" ||
-		recipientWalletAddr == nil || *recipientWalletAddr == "" {
-		return // custodial-only path; no on-chain transfer
-	}
-	oracle := solana.GetOracleClient()
-	if oracle == nil {
-		return
-	}
-	lamports := models.SOLToLamports(amount)
-	ctx2, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-	defer cancel()
-
-	recipPubkey, err := solanaGo.PublicKeyFromBase58(*recipientWalletAddr)
-	if err != nil {
-		logging.Error(err).Msg("transferP2P: invalid recipient wallet")
-		return
-	}
-	txHash, err := oracle.SendSOL(ctx2, recipPubkey, lamports)
-	if err != nil {
-		// Compensating refund — restore the sender's DB balance and debit the recipient's DB balance.
-		refundErr := db.DB.Transaction(func(tx *gorm.DB) error {
-			var firstUserID, secondUserID string
-			if senderUserID.String() < recipientUserID.String() {
-				firstUserID, secondUserID = senderUserID.String(), recipientUserID.String()
-			} else {
-				firstUserID, secondUserID = recipientUserID.String(), senderUserID.String()
-			}
-
-			var senderWallet, recipientWallet models.Wallet
-
-			var w1 models.Wallet
-			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", firstUserID).First(&w1).Error; err != nil {
-				return err
-			}
-			if firstUserID == senderUserID.String() {
-				senderWallet = w1
-				if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", secondUserID).First(&recipientWallet).Error; err != nil {
-					return err
-				}
-			} else {
-				recipientWallet = w1
-				if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", secondUserID).First(&senderWallet).Error; err != nil {
-					return err
-				}
-			}
-
-			// Reverse P2P: credit sender + debit recipient with skip journals, then one balanced reverse journal.
-			skip := models.LedgerOpts{JournalKind: "skip"}
-			senderDesc := "On-chain transfer failed — balance restored"
-			recipientDesc := "On-chain transfer failed — balance corrected"
-			if err := models.CreditWalletLockedOpts(tx, &senderWallet, amount, "p2p_failed_refund", ref, senderDesc, skip); err != nil {
-				return err
-			}
-			if err := models.DebitWalletLockedOpts(tx, &recipientWallet, amount, "p2p_failed_debit", ref, recipientDesc, skip); err != nil {
-				return err
-			}
-			delta := int64(models.SOLToLamports(amount))
-			sID, rID := senderWallet.ID, recipientWallet.ID
-			return models.PostBalancedJournal(tx, "p2p_failed_refund", ref, senderDesc, []models.JournalLineSpec{
-				{AccountCode: models.AccountUserWalletLiability, WalletID: &rID, AmountLamports: delta},
-				{AccountCode: models.AccountUserWalletLiability, WalletID: &sID, AmountLamports: -delta},
-			})
-		})
-		if refundErr != nil {
-			logging.Error(refundErr).
-				Str("user_id", senderUserID.String()).
-				Str("ref", ref).
-				Float64("amount", amount).
-				Msg("CRITICAL: Compensating refund failed — enqueued for retry")
-			alerts.Send(alerts.Critical, "P2P Compensating Refund Failed",
-				fmt.Sprintf("User: %s | Amount: %.6f SOL | Ref: %s | Err: %v", senderUserID, amount, ref, refundErr))
-			cp := recipientUserID
-			EnqueueCompensation(models.CompensationKindP2PRefund, senderUserID, &cp, amount, ref, refundErr.Error())
-			logging.Error(err).Str("ref", ref).Msg("transferP2P: on-chain transfer failed, refund queued")
-			return
-		}
-		logging.Error(err).Str("ref", ref).Msg("transferP2P: on-chain transfer failed, sender refunded and recipient debited")
-		return
-	}
-	// Persist the chain tx_hash in the sender ledger entry.
-	db.DB.Model(&models.WalletLedgerEntry{}).
-		Where("reference_id = ? AND type = 'p2p_sent'", ref).
-		Update("tx_hash", txHash)
-	logging.Info().Str("tx_hash", txHash).Str("ref", ref).Msg("transferP2P: on-chain SOL transfer confirmed")
-}
 
 // sendSOLOnChain builds and submits a SOL transfer instruction from the treasury to recipient.
 func sendSOLOnChain(ctx context.Context, oracle *solana.OracleClient, recipientAddress string, amountSOL float64) (string, error) {

@@ -570,7 +570,9 @@ func (tm *TreasuryManager) transferFromReserve(ctx context.Context, reserveKeyPa
 		return fmt.Errorf("insufficient reserve balance: %d lamports", reserveBalance)
 	}
 
-	txHash, err := tm.oracleClient().SendSOL(ctx, treasuryAddr, amount)
+	// Sign with the reserve key. SendSOL signs with the hot treasury wallet, which
+	// here would send treasuryAddr's own funds back to treasuryAddr (BE-CRIT-05).
+	txHash, err := tm.oracleClient().SendSOLFrom(ctx, reserveKey, treasuryAddr, amount)
 	if err != nil {
 		return fmt.Errorf("transfer failed: %w", err)
 	}

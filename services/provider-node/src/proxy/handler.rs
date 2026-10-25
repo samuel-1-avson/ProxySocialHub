@@ -434,18 +434,55 @@ fn is_public_ipv4(ip: Ipv4Addr) -> bool {
         || ip.is_multicast()
         || ip.is_unspecified()
         || ip.is_broadcast()
+        // 0.0.0.0/8 ("this network", RFC 1122); also what `::2` style IPv4-compatible
+        // addresses decode to.
+        || ip.octets()[0] == 0
         || is_ipv4_shared(ip)
         || is_ipv4_documentation(ip)
         || is_ipv4_reserved_benchmark(ip))
 }
 
 fn is_public_ipv6(ip: Ipv6Addr) -> bool {
-    !(ip.is_loopback()
+    if ip.is_loopback()
         || ip.is_multicast()
         || ip.is_unspecified()
         || is_ipv6_unique_local(ip)
         || is_ipv6_unicast_link_local(ip)
-        || is_ipv6_documentation(ip))
+        || is_ipv6_documentation(ip)
+        || is_ipv6_discard_only(ip)
+    {
+        return false;
+    }
+    // Addresses that carry an IPv4 address are judged by that IPv4 address. Without
+    // this, ::ffff:127.0.0.1 or ::ffff:169.254.169.254 would pass as "public IPv6"
+    // and reach the provider's loopback, LAN or cloud metadata endpoint.
+    match embedded_ipv4(ip) {
+        Some(v4) => is_public_ipv4(v4),
+        None => true,
+    }
+}
+
+/// The IPv4 address carried by an IPv4-mapped (`::ffff:a.b.c.d`), IPv4-compatible
+/// (`::a.b.c.d`), NAT64 (`64:ff9b::/96`) or 6to4 (`2002::/16`) address.
+fn embedded_ipv4(ip: Ipv6Addr) -> Option<Ipv4Addr> {
+    if let Some(v4) = ip.to_ipv4() {
+        // Covers both mapped and compatible forms. `::` and `::1` never reach here
+        // because the caller rejects them first.
+        return Some(v4);
+    }
+    let seg = ip.segments();
+    let v4_from = |hi: u16, lo: u16| {
+        let [a, b] = hi.to_be_bytes();
+        let [c, d] = lo.to_be_bytes();
+        Ipv4Addr::new(a, b, c, d)
+    };
+    if seg[0] == 0x0064 && seg[1] == 0xff9b && seg[2..6].iter().all(|s| *s == 0) {
+        return Some(v4_from(seg[6], seg[7]));
+    }
+    if seg[0] == 0x2002 {
+        return Some(v4_from(seg[1], seg[2]));
+    }
+    None
 }
 
 fn is_ipv4_shared(ip: Ipv4Addr) -> bool {
@@ -478,6 +515,12 @@ fn is_ipv6_documentation(ip: Ipv6Addr) -> bool {
     ip.segments()[0] == 0x2001 && ip.segments()[1] == 0x0db8
 }
 
+/// 100::/64 is the discard-only prefix (RFC 6666); nothing there is a real host.
+fn is_ipv6_discard_only(ip: Ipv6Addr) -> bool {
+    let seg = ip.segments();
+    seg[0] == 0x0100 && seg[1..4].iter().all(|s| *s == 0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -488,6 +531,62 @@ mod tests {
         cfg.allowed_ports = vec![80, 443];
         cfg.connect_timeout = Duration::from_secs(1);
         ProxyHandler::new(&cfg, Collector::new())
+    }
+
+    fn ip(s: &str) -> IpAddr {
+        s.parse().unwrap_or_else(|_| panic!("bad test ip {s}"))
+    }
+
+    // DP-CRIT-02: a hostname with an AAAA record of ::ffff:127.0.0.1 must not
+    // reach the provider's loopback, LAN or cloud metadata endpoint.
+    #[test]
+    fn ipv4_mapped_ipv6_is_judged_by_embedded_ipv4() {
+        for blocked in [
+            "::ffff:127.0.0.1",
+            "::ffff:10.0.0.5",
+            "::ffff:192.168.1.1",
+            "::ffff:172.16.0.9",
+            "::ffff:169.254.169.254",
+            "::ffff:100.64.0.1",
+            "::ffff:0.0.0.0",
+        ] {
+            assert!(!is_public_ip(ip(blocked)), "{blocked} must not be public");
+        }
+        assert!(is_public_ip(ip("::ffff:8.8.8.8")));
+    }
+
+    #[test]
+    fn other_ipv4_embedding_ipv6_forms_are_judged_by_embedded_ipv4() {
+        // NAT64 well-known prefix 64:ff9b::/96
+        assert!(!is_public_ip(ip("64:ff9b::7f00:1")));
+        assert!(!is_public_ip(ip("64:ff9b::a9fe:a9fe")));
+        assert!(is_public_ip(ip("64:ff9b::808:808")));
+        // 6to4 2002::/16 carries the IPv4 in the next 32 bits
+        assert!(!is_public_ip(ip("2002:7f00:1::1")));
+        assert!(!is_public_ip(ip("2002:c0a8:101::1")));
+        assert!(is_public_ip(ip("2002:808:808::1")));
+        // Deprecated IPv4-compatible ::a.b.c.d
+        assert!(!is_public_ip(ip("::127.0.0.2")));
+        assert!(!is_public_ip(ip("::2")));
+        assert!(!is_public_ip(ip("0.0.0.5")));
+    }
+
+    #[test]
+    fn reserved_ipv6_ranges_stay_blocked_and_global_unicast_stays_public() {
+        for blocked in [
+            "::1",
+            "::",
+            "fe80::1",
+            "fc00::1",
+            "fd12:3456::1",
+            "ff02::1",
+            "2001:db8::1",
+            "100::1",
+        ] {
+            assert!(!is_public_ip(ip(blocked)), "{blocked} must not be public");
+        }
+        assert!(is_public_ip(ip("2606:4700:4700::1111")));
+        assert!(is_public_ip(ip("2001:4860:4860::8888")));
     }
 
     #[test]

@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -22,11 +23,35 @@ import (
 
 const providerClaimMinSOL = 0.01
 
+// isProviderClaimEnabled reports whether the manual on-chain claim flow is switched on.
+//
+// BE-CRIT-02: confirmProviderClaim pays pending ProviderEarning rows straight from
+// the treasury hot wallet without debiting the provider's wallet, on top of the
+// billing worker and session-termination payouts for the same sessions. Until the
+// payout path is unified it is off unless ENABLE_PROVIDER_CLAIM is true or 1.
+func isProviderClaimEnabled() bool {
+	flag := strings.TrimSpace(os.Getenv("ENABLE_PROVIDER_CLAIM"))
+	return strings.EqualFold(flag, "true") || flag == "1"
+}
+
+func requireProviderClaimEnabled() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !isProviderClaimEnabled() {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+				"error": "provider claims are temporarily disabled",
+				"code":  "provider_claim_disabled",
+			})
+			return
+		}
+		c.Next()
+	}
+}
+
 // RegisterProviderClaimRoutes lets providers authorize and receive pending earnings on-chain.
 func RegisterProviderClaimRoutes(rg *gin.RouterGroup) {
 	rg.GET("/provider/claim/summary", getProviderClaimSummary)
-	rg.POST("/provider/claim/prepare", prepareProviderClaim)
-	rg.POST("/provider/claim/confirm", confirmProviderClaim)
+	rg.POST("/provider/claim/prepare", requireProviderClaimEnabled(), prepareProviderClaim)
+	rg.POST("/provider/claim/confirm", requireProviderClaimEnabled(), confirmProviderClaim)
 }
 
 func getProviderClaimSummary(c *gin.Context) {

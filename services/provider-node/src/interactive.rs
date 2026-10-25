@@ -12,14 +12,6 @@ use std::path::PathBuf;
 
 pub async fn run() -> anyhow::Result<()> {
     let config = paths::config_file();
-    if let Some(adopted) = crate::config_adopt::maybe_adopt_downloaded_config(&config) {
-        println!(
-            "  Imported config from Downloads:\n    {}\n  → {}\n  ({})",
-            adopted.from.display(),
-            adopted.to.display(),
-            adopted.reason
-        );
-    }
     print_banner(&config);
 
     if config.is_file() {

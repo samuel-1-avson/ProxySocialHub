@@ -1,5 +1,4 @@
 mod config;
-mod config_adopt;
 mod config_validate;
 mod daemon_ctrl;
 mod doctor;
@@ -275,6 +274,10 @@ enum ConfigCommands {
         /// Overwrite an existing provider.toml
         #[arg(long, default_value_t = false)]
         force: bool,
+
+        /// Skip the confirmation prompt shown when run from a terminal
+        #[arg(long, short = 'y', default_value_t = false)]
+        yes: bool,
 
         /// Destination path (default: platform config dir)
         #[arg(short, long)]
@@ -557,6 +560,7 @@ async fn main() -> anyhow::Result<()> {
                 ConfigCommands::Install {
                     from,
                     force,
+                    yes,
                     config,
                 },
         } => {
@@ -572,7 +576,7 @@ async fn main() -> anyhow::Result<()> {
                 std::fs::read_to_string(&from).with_context(|| format!("Failed to read {from}"))?
             };
             // Parse to validate before writing.
-            let _: config::Config =
+            let parsed: config::Config =
                 toml::from_str(&contents).context("Invalid provider.toml contents")?;
             let config_path = config
                 .map(std::path::PathBuf::from)
@@ -583,6 +587,24 @@ async fn main() -> anyhow::Result<()> {
                     config_path.display()
                 );
                 std::process::exit(1);
+            }
+            // DP-CRIT-03: importing a config is an explicit, visible step. Show where it
+            // sends traffic and ask first when a person is at the terminal. Piped input
+            // (`--from -`) has no one to ask, so that path proceeds as before.
+            println!("Config to install → {}", config_path.display());
+            print!("{}", parsed.install_summary());
+            {
+                use std::io::{IsTerminal, Write};
+                if !yes && std::io::stdin().is_terminal() {
+                    print!("Install this config? [y/N] ");
+                    std::io::stdout().flush()?;
+                    let mut answer = String::new();
+                    std::io::stdin().read_line(&mut answer)?;
+                    if !matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
+                        eprintln!("Aborted. Nothing was written.");
+                        std::process::exit(1);
+                    }
+                }
             }
             if let Some(parent) = config_path.parent() {
                 std::fs::create_dir_all(parent)?;
@@ -613,15 +635,9 @@ async fn main() -> anyhow::Result<()> {
 
             let config_path =
                 config.unwrap_or_else(|| paths::config_file().to_string_lossy().into_owned());
-            let config_path_buf = std::path::PathBuf::from(&config_path);
-            if let Some(adopted) = config_adopt::maybe_adopt_downloaded_config(&config_path_buf) {
-                println!(
-                    "Imported newer config from {} → {} ({})",
-                    adopted.from.display(),
-                    adopted.to.display(),
-                    adopted.reason
-                );
-            }
+            // DP-CRIT-03: never pick up a config file from ~/Downloads on start. A file a
+            // browser dropped there could redirect the gateway and disable TLS checks;
+            // use `provider-node config install --from <file>` to import one on purpose.
 
             let _ = paths::ensure_state_dirs();
             let provider_run_id = runtime_state::new_provider_run_id();
