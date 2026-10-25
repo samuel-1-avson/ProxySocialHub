@@ -68,6 +68,12 @@ func (c *OracleClient) SubmitReviewAttestation(ctx context.Context, params Revie
 		return sol.PublicKey{}, "", err
 	}
 
+	// The program binds the oracle to program_state.admin, so it needs that account.
+	programStatePDA, _, err := sol.FindProgramAddress([][]byte{[]byte("program_state")}, c.programID)
+	if err != nil {
+		return sol.PublicKey{}, "", fmt.Errorf("SubmitReviewAttestation: program_state PDA: %w", err)
+	}
+
 	// Data: disc(8) + order_escrow_pda(32) + reviewer(32) + rating_hash(32) = 104
 	data := make([]byte, 104)
 	copy(data[0:8], discSubmitReviewAttestation[:])
@@ -81,6 +87,7 @@ func (c *OracleClient) SubmitReviewAttestation(ctx context.Context, params Revie
 			{PublicKey: c.oracleKey.PublicKey(), IsSigner: true, IsWritable: true}, // oracle
 			{PublicKey: reviewPDA, IsSigner: false, IsWritable: true},              // review_attestation
 			{PublicKey: sol.SystemProgramID, IsSigner: false, IsWritable: false},   // system_program
+			{PublicKey: programStatePDA, IsSigner: false, IsWritable: false},       // program_state (appended last)
 		},
 		data: data,
 	}
