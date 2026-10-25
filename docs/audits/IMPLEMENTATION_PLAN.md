@@ -59,6 +59,18 @@ Found while implementing Days 2-3:
 | C17 | `confirmEscrow` and the session-intent confirm miss amount and bandwidth checks | Confirmed. The session-escrow PDA is derived from the session id, so PDA **reuse** only applies to the legacy per-pair order escrow. | Binding check and unique index apply to orders only. |
 | C18 | `bridge_ws` should share the CONNECT pipeline | CONNECT is one ~1,000-line inline function with no integration tests. | `destination_guard.rs` carries the same decisions; CONNECT was left untouched. Moving it onto the guard is Phase 4. |
 
+Found while implementing the on-chain and payout fixes:
+
+| # | Audit says | Code shows | Effect |
+|---|---|---|---|
+| C19 | `compute_session_escrow_payout` and `slash_provider_insurance` share the `unwrap_or(0)` overflow (C5) | `compute_session_escrow_payout` already uses `u128` and caps usage at the limit, so it is safe. `calculate_session_price` and `slash_provider_insurance` did overflow silently and now fail closed. | Only the three settle functions, price and slash changed. |
+| C20 | Fix `stake_provider`/`unstake_provider` by making the provider sign and receive the funds | Both are custody operations: the oracle (admin) funds the stake and receives the withdrawal, and control-api debits or credits the DB balance. The Go client already signs with the oracle and passes `program_state`. | Bound the oracle to `program_state.admin`. No client change. The provider-signs design in the audit would need a different custody model (decision D7). |
+| C21 | Five unauthenticated instructions (claim, pause vote, config, stake, unstake) | The same defect is in `initiate_jury_dispute` (the initiator picks the jurors, so a party could seat its own jury and win the escrow), `lock_session_commitment`, `create_proposal`, `open_dispute_onchain`, `submit_review_attestation` and `log_spending_event`. A scan of every `Signer` in every Accounts struct found them. | All bound to `program_state.admin`. |
+| C22 | n/a | `cast_jury_vote_onchain` accepts any signer and any unchecked dispute account; `initialize_multisig_oracle`, `initialize_insurance_pool` and `initialize_price_oracle` are first-caller-wins singletons. | **Open.** The votes are not read by any on-chain payout, but an off-chain indexer that counts them can be spoofed; the singletons only matter on a fresh deploy. |
+| C23 | n/a | `settle_escrow_mutual_receipt` multiplies `bandwidth_limit_gb` by 2^30 to get bytes, but control-api writes limits in micro-GiB (`EscrowUnitsPerGiB`), so for those escrows the byte limit is about a million times too large and the payout rounds to nearly zero. | **Open.** Needs a decision on which unit that receipt format uses before changing it. |
+| C24 | `require_multisig_threshold` at `lib.rs:1938-1968` | No such function; the Ed25519 introspection is inline in `settle_escrow_multisig`. | `multi_sig_pause_vote` counts transaction signers (`remaining_accounts`) through a new `distinct_oracle_signers` helper. |
+| C25 | Direct payout in `recordProviderEarning` is one of three payouts | Confirmed, and the third (claim confirm) paid rows that were never marked paid. See ADR 0016. | `recordProviderEarning` is bookkeeping; earning rows are marked paid when billing credits or pays the provider. |
+
 Every other P0 in the audit was reproduced by reading the code: `claim_bandwidth_rewards` has no authority check and no per-provider receipt (lib.rs:3175-3228); `transferFromReserve` sends to `treasuryAddr` via the oracle client (treasury_manager.go:573); `updateAPIKey` applies permissions and rate limit unvalidated (apikeys.go:267-271); `bridge_ws` never calls destination validation or `usage_tracker` (websocket.rs); `is_public_ipv6` has no IPv4-mapped check (handler.rs:442); `SETUP_SEED = 0x5052_4F58_5948_5542` (groth16-prover/src/lib.rs:18); `|| true` at proxyhubb-ci.yml:689.
 
 Not yet re-verified (take on trust until the item's own test runs): the P1+ findings in the audit's summary table, `BE-CRIT-02` (triple payout), `BE-CRIT-03`, and the claims about `SessionReaper` and `terminateSession` behaviour. Each of those items starts by writing the failing test.
@@ -340,13 +352,13 @@ Suggested order for one person working serially:
 | PREP-4 | Branch layout | n/a | XS | ☑ `hardening/day-1` |
 | PREP-5 | Supersede misleading docs | n/a | XS | ☑ |
 | P1-SC-1 | Compile fix + CI line | BC-CRIT-01 | XS | ☑ `cargo check` is now a required CI step; checked on Linux with Rust 1.89 |
-| P1-SC-2 | Auth constraints | BC-CRIT-02..05 | S-M | ☐ |
-| P1-SC-3 | u128 settlement math | BC-HIGH-01 | XS | ☐ |
-| P1-SC-4 | Legacy settle_escrow | BC-CRIT-08 | XS | ☐ |
-| P1-SC-5 | Negative tests | all SC | S | ☐ |
+| P1-SC-2 | Auth constraints | BC-CRIT-02..05 | S-M | ☑ plus the six more found in C21. Anchor tests ran in a container (`phub-anchor-env`: build, local validator, `tests/**/*.ts`): 72 passing. Not deployed. `claim_bandwidth_rewards` has a new account list (no client uses it); control-api must be deployed before the upgrade because `submit_review_attestation` gained an account |
+| P1-SC-3 | u128 settlement math | BC-HIGH-01 | XS | ☑ all six sites fail closed (`CalculationOverflow`); unit tests in `lib.rs` |
+| P1-SC-4 | Legacy settle_escrow | BC-CRIT-08 | XS | ☑ admin only (D5); a buyer-initiated settle is rejected in the Anchor tests |
+| P1-SC-5 | Negative tests | all SC | S | ◐ `tests/zz_access_control.ts` and the `lib.rs` unit tests exist and pass locally; CI does not run the Anchor suite yet |
 | P1-SC-6 | Devnet redeploy + IDL | n/a | S | ☐ |
 | P1-CP-1 | P2P treasury drain | BE-CRIT-01 | XS | ☑ migration 000154 |
-| P1-CP-2 | Single provider payout | BE-CRIT-02 | M | ◐ step 1 (kill switch) done; steps 2-4 open |
+| P1-CP-2 | Single provider payout | BE-CRIT-02 | M | ◐ steps 1-3 done (kill switch, one payout path per session, earning rows marked paid; ADR 0016); step 4 (reconcile sessions already paid more than once) needs production ledger access |
 | P1-CP-3 | Reserve refill | BE-CRIT-05 | XS | ☑ builder unit-tested; no RPC-level test |
 | P1-CP-4 | Escrow confirm checks | BE-CRIT-03 | S | ☑ migration 000155 (fails loudly if live duplicates exist); handlers need a live oracle and are not exercised |
 | P1-CP-5 | Session credentials | BE-CRIT-04 | S | ☑ real causes were C13 and C14; reaper and createOrder claims not reproducible (C11, C12) |
