@@ -80,6 +80,10 @@ pub enum EscrowError {
     Groth16VkHashMismatch,
     #[msg("Groth16 proof account must be 256 bytes (A||B||C)")]
     Groth16InvalidProofAccount,
+    // Keep new variants at the end: Anchor error codes are positional, so inserting
+    // earlier would renumber every later code and break clients matching on them.
+    #[msg("Arithmetic overflow or division by zero in payout calculation")]
+    CalculationOverflow,
 }
 
 // =============================================================================
@@ -3188,9 +3192,9 @@ pub mod proxyhub {
         // Proportional reward calculation: (provider_bytes * total_emission) / total_bandwidth
         let reward_calc = (provider_bytes_verified as u128)
             .checked_mul(pool.total_emission_lamports as u128)
-            .ok_or(EscrowError::InvalidCalculation)?
+            .ok_or(EscrowError::CalculationOverflow)?
             .checked_div(pool.total_bandwidth_verified as u128)
-            .ok_or(EscrowError::InvalidCalculation)? as u64;
+            .ok_or(EscrowError::CalculationOverflow)? as u64;
 
         let reward_payout = reward_calc.min(pool.remaining_emission_lamports);
         require!(reward_payout > 0, EscrowError::InsufficientFunds);
