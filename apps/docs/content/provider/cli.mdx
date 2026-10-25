@@ -47,7 +47,7 @@ cargo install --locked --git https://github.com/samuel-1-avson/ProxySocialHub.gi
 
 Env overrides: `PROXYHUBB_API_URL`, `PROXYHUBB_CLI_VERSION`. Use `proxyhubb-provider install` to force re-download of the current latest binary, `proxyhubb-provider path` to print the cached binary, and `--daemon` to target `provider-node` instead of `provider-cli`.
 
-On Windows, if you only download `provider.toml` into Downloads, recent `provider-node` builds auto-import it into `%APPDATA%\proxyhubb\provider.toml` on start/doctor.
+If you downloaded `provider.toml` yourself, install it with `provider-node config install --from <path-to-file>`. The command prints where the file sends traffic (control API, gateway, TLS settings) and asks for confirmation before writing it to the config path (`%APPDATA%\proxyhubb\provider.toml` on Windows). `provider-node` no longer imports files from your Downloads folder automatically.
 
 There is **no separate “seller CLI”** — marketplace sellers are providers; automate listings via the [SDKs](/docs/sdks) and run bandwidth with this CLI / node.
 
