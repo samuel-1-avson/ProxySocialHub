@@ -70,6 +70,25 @@ func GenerateToken(userID uuid.UUID, role string, email string, wallet string, s
 	return token.SignedString([]byte(secret))
 }
 
+// GenerateTokenWithID is GenerateToken with a JWT id ("jti"), so the session can be revoked
+// individually. Admin tokens use it.
+func GenerateTokenWithID(userID uuid.UUID, role string, email string, wallet string, secret string, duration time.Duration, jti string) (string, error) {
+	claims := CustomClaims{
+		UserID: userID.String(),
+		Role:   role,
+		Email:  email,
+		Wallet: wallet,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(duration)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Issuer:    "proxyhubb-control-api",
+			ID:        jti,
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(secret))
+}
+
 // GenerateDeviceToken issues a narrow browser-extension access JWT (kind=ext).
 func GenerateDeviceToken(userID uuid.UUID, role, email, deviceID, extensionID, secret string, duration time.Duration) (string, error) {
 	claims := CustomClaims{
