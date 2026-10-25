@@ -4,6 +4,7 @@
 //! - `websocket`— WebSocket upgrade + WS-to-TCP bridging (P2-W6)
 //! - `zerocopy` — Efficient bidirectional stream bridge with byte tracking (P2-W7)
 
+pub mod destination_guard;
 pub mod http2;
 pub mod websocket;
 pub mod zerocopy;
