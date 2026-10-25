@@ -31,12 +31,7 @@
     "test:e2e:governance:smoke": "playwright test e2e/governance.smoke.spec.ts --project=chromium"
   },
   "dependencies": {
-    "@moonpay/moonpay-js": "^0.7.6",
     "@noble/ed25519": "^3.1.0",
-    "@polkadot/extension-dapp": "^0.62.6",
-    "@polkadot/keyring": "^14.0.1",
-    "@polkadot/util": "^14.0.1",
-    "@polkadot/util-crypto": "^14.0.1",
     "@project-serum/anchor": "^0.26.0",
     "@radix-ui/react-dialog": "^1.0.5",
     "@radix-ui/react-slot": "^1.0.2",
@@ -61,7 +56,6 @@
     "lucide-react": "^0.562.0",
     "next": "16.2.2",
     "next-themes": "^0.4.6",
-    "pg": "^8.17.2",
     "qrcode.react": "^4.2.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
