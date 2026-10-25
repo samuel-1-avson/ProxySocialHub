@@ -691,11 +691,72 @@ jobs:
         cargo check --manifest-path services/solana-programs/proxyhub/programs/proxyhub/Cargo.toml
 
     # Library tests only. tests/w9a_soak.rs loads a prebuilt SBF proxyhub.so, which this
-    # job does not build, so it fails here with "proxyhub.so missing". Run it in the
-    # Anchor build job once that produces the artifact.
+    # job does not build, so it fails here with "proxyhub.so missing". It runs in the
+    # anchor-test job below, which builds the SBF artifact first.
     - name: Run proxyhub unit tests
       run: |
         cargo test --manifest-path services/solana-programs/proxyhub/Cargo.toml --lib
+
+  # ==================== Anchor Program Tests ====================
+  # P1-SC-5: build the SBF programs, run the full Anchor TS suite against a
+  # local validator, then run the Rust w9a_soak test against the built
+  # proxyhub.so. No bypass: a red suite fails the job. Toolchain install
+  # mirrors .github/workflows/anchor-verify.yml (avm, not a from-source
+  # anchor-cli build). Versions match Anchor.toml and rust-toolchain.toml.
+  anchor-test:
+    name: Anchor tests (proxyhub)
+    needs: changes
+    if: ${{ needs.changes.outputs.solana == 'true' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Build programs and run Anchor + soak tests (Docker)
+      run: |
+        set -euo pipefail
+        docker run --rm \
+          -v "$PWD/services/solana-programs/proxyhub:/workspace" \
+          -w /workspace \
+          rust:1.89-trixie \
+          bash -c '
+            set -euo pipefail
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update -qq && apt-get install -y --no-install-recommends curl git pkg-config libssl-dev libudev-dev ca-certificates build-essential xz-utils bzip2
+
+            mkdir -p /opt/node
+            curl -fsSL "https://nodejs.org/dist/v24.10.0/node-v24.10.0-linux-x64.tar.xz" | tar -xJ -C /opt/node --strip-components=1
+            export PATH="/opt/node/bin:$PATH"
+
+            curl -sSfL "https://release.anza.xyz/v2.3.0/install" | bash
+            export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
+
+            cargo install --git https://github.com/solana-foundation/anchor --tag v0.32.1 avm --force
+            export PATH="$HOME/.cargo/bin:$HOME/.avm/bin:$PATH"
+            avm install 0.32.1
+            avm use 0.32.1
+
+            echo "node: $(node --version)"
+            echo "solana: $(solana --version)"
+            echo "anchor: $(anchor --version)"
+            echo "cargo: $(cargo --version)"
+
+            npm ci --no-audit --no-fund
+            anchor build
+            test -f target/deploy/proxyhub.so
+            test -f target/deploy/session.so
+            sha256sum target/deploy/proxyhub.so target/deploy/session.so
+
+            set +e
+            bash scripts/run-local-tests.sh
+            MOCHA_RC=$?
+            cargo test --manifest-path programs/proxyhub/Cargo.toml --test w9a_soak -- --nocapture
+            SOAK_RC=$?
+            set -e
+            echo "MOCHA_EXIT=$MOCHA_RC SOAK_EXIT=$SOAK_RC"
+            test "$MOCHA_RC" -eq 0
+            test "$SOAK_RC" -eq 0
+          '
 
   # ==================== Docker Build Check ====================
   docker-build:
