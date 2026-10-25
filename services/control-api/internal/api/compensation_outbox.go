@@ -457,18 +457,47 @@ func applyP2PCompensation(entry *models.CompensationOutbox) error {
 	})
 }
 
+// outboxClaimLease is how long a claimed row stays invisible to other workers. If the
+// process dies mid-apply the row becomes due again after this long; the appliers are
+// idempotent, so a retry is safe.
+const outboxClaimLease = 5 * time.Minute
+
+// claimDueOutboxEntries selects due pending rows with FOR UPDATE SKIP LOCKED and pushes
+// their next_retry_at out by the lease before returning them, all in one transaction. Two
+// pods running the outbox worker at once therefore never apply the same row (before this
+// both read the same rows and could settle or refund one escrow twice).
+func claimDueOutboxEntries(limit int, now time.Time) ([]models.CompensationOutbox, error) {
+	var entries []models.CompensationOutbox
+	err := db.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
+			Where("status = ? AND next_retry_at <= ?", models.CompensationStatusPending, now).
+			Order("next_retry_at ASC").
+			Limit(limit).
+			Find(&entries).Error; err != nil {
+			return err
+		}
+		if len(entries) == 0 {
+			return nil
+		}
+		ids := make([]uuid.UUID, len(entries))
+		for i := range entries {
+			ids[i] = entries[i].ID
+		}
+		return tx.Model(&models.CompensationOutbox{}).
+			Where("id IN ?", ids).
+			Update("next_retry_at", now.Add(outboxClaimLease)).Error
+	})
+	return entries, err
+}
+
 // ProcessCompensationOutboxOnce claims due pending rows and applies them.
 func ProcessCompensationOutboxOnce(limit int) (succeeded, failed, permanent int) {
 	if limit <= 0 {
 		limit = 50
 	}
 	now := time.Now().UTC()
-	var entries []models.CompensationOutbox
-	if err := db.DB.
-		Where("status = ? AND next_retry_at <= ?", models.CompensationStatusPending, now).
-		Order("next_retry_at ASC").
-		Limit(limit).
-		Find(&entries).Error; err != nil {
+	entries, err := claimDueOutboxEntries(limit, now)
+	if err != nil {
 		logging.Error(err).Msg("compensation outbox: query failed")
 		return 0, 0, 0
 	}
