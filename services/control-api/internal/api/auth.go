@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
@@ -24,6 +25,9 @@ import (
 	solanaClient "github.com/proxyhubb/control-api/internal/solana"
 	"gorm.io/gorm"
 )
+
+// memStoreMaxEntries is when getAuthChallenge starts purging expired in-memory challenges.
+const memStoreMaxEntries = 10000
 
 // memStoreEntry holds nonce with expiration time
 type memStoreEntry struct {
@@ -121,6 +125,15 @@ func getAuthChallenge(c *gin.Context) {
 
 	// Always store in memory as fallback with TTL
 	memStoreMutex.Lock()
+	if len(memStore) >= memStoreMaxEntries {
+		// Entries are only removed when their address logs in, so drop expired ones here.
+		now := time.Now()
+		for addr, e := range memStore {
+			if now.After(e.expiresAt) {
+				delete(memStore, addr)
+			}
+		}
+	}
 	memStore[req.Address] = memStoreEntry{
 		value:     message,
 		expiresAt: time.Now().Add(nonceTTL),
@@ -134,6 +147,38 @@ func getAuthChallenge(c *gin.Context) {
 	})
 }
 
+// getAndDeleteScript is GETDEL, which the RedisClient interface does not expose.
+const getAndDeleteScript = `local v = redis.call('GET', KEYS[1])
+if v then redis.call('DEL', KEYS[1]) end
+return v`
+
+// consumeLoginChallenge returns the pending sign-in challenge for address and removes it
+// from both the Redis copy and the in-memory fallback, so a signed challenge works once.
+// getAuthChallenge writes both copies. Walletlogin used to delete only the Redis copy when
+// it found one, so the in-memory copy let the same signature log in a second time within
+// the TTL. Redis is read and deleted in one script so two concurrent logins cannot both
+// succeed.
+func consumeLoginChallenge(ctx context.Context, address string) (string, bool) {
+	var msg string
+	found := false
+
+	if redisClient.Client != nil {
+		if val, err := redisClient.Client.Eval(ctx, getAndDeleteScript, []string{"auth:nonce:" + address}).Text(); err == nil {
+			msg, found = val, true
+		}
+	}
+
+	memStoreMutex.Lock()
+	entry, inMem := memStore[address]
+	delete(memStore, address)
+	memStoreMutex.Unlock()
+
+	if !found && inMem && time.Now().Before(entry.expiresAt) {
+		msg, found = entry.value, true
+	}
+	return msg, found
+}
+
 func walletLogin(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -141,43 +186,11 @@ func walletLogin(c *gin.Context) {
 		return
 	}
 
-	// 1. Verify Nonce from Redis (or Fallback)
-	var storedMsg string
-	var gotFromRedis bool
-
-	if redisClient.Client != nil {
-		key := "auth:nonce:" + req.Address
-		val, err := redisClient.Client.Get(c.Request.Context(), key).Result()
-		if err == nil {
-			storedMsg = val
-			gotFromRedis = true
-			// Invalidate nonce to prevent replay
-			redisClient.Client.Del(c.Request.Context(), key)
-		}
-	}
-
-	if !gotFromRedis {
-		// Fallback to MemStore with TTL check
-		memStoreMutex.RLock()
-		entry, ok := memStore[req.Address]
-		memStoreMutex.RUnlock()
-
-		if ok && time.Now().Before(entry.expiresAt) {
-			storedMsg = entry.value
-			// Invalidate
-			memStoreMutex.Lock()
-			delete(memStore, req.Address)
-			memStoreMutex.Unlock()
-		} else {
-			// Clean up expired entry if exists
-			if ok {
-				memStoreMutex.Lock()
-				delete(memStore, req.Address)
-				memStoreMutex.Unlock()
-			}
-			c.JSON(http.StatusBadRequest, ErrorResponse{Error: "Challenge expired or invalid. Please request a new one."})
-			return
-		}
+	// 1. Consume the challenge. It is single use (BE-HIGH-03).
+	storedMsg, ok := consumeLoginChallenge(c.Request.Context(), req.Address)
+	if !ok {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "Challenge expired or invalid. Please request a new one."})
+		return
 	}
 
 	// Verify Message Content
