@@ -118,15 +118,19 @@ func getProviderPayoutHistory(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"payouts": payouts})
 }
 
-// recordProviderEarning is called after a session ends to create an earning record
-// and queue a payout for the provider. platformFeePercent is a value 0.0–1.0.
+// recordProviderEarning is called after a session ends to create the earning record
+// (bookkeeping for the provider dashboard). platformFeePercent is a value 0.0–1.0.
 //
-// For sessions backed by an on-chain escrow (order.EscrowPDA != ""), the SOL
-// transfer is executed by anchorUsageProofAndSettle via SettleEscrow — the
-// chain settlement IS the payout.  In that case we create the earning row as
-// "pending" (it will be updated to "paid" by anchorUsageProofAndSettle once the
-// settle tx confirms) but intentionally skip the DB batch-payout queue so the
-// provider is not paid twice.
+// It does not move money. BE-CRIT-02: it used to also queue a direct on-chain payout for
+// non-escrow sessions, but those sessions are already paid elsewhere, so the provider
+// was paid twice:
+//   - custodial sessions: billing.settleSession credits the provider's wallet balance, and
+//     the balance is paid out (and debited) once it passes the payout threshold;
+//   - session-escrow sessions: settle_session_escrow pays the seller on-chain;
+//   - order escrow sessions: anchorUsageProofAndSettle settles the escrow on-chain.
+//
+// The row starts "pending" and is marked "paid" when one of those paths pays or credits
+// the provider (see billing.markProviderEarningPaid and finalizeProviderPayoutAfterSettle).
 func recordProviderEarning(session models.Session, bandwidthUsedBytes int64, pricePerGB float64, platformFeePercent float64) {
 	if bandwidthUsedBytes <= 0 {
 		return
@@ -179,6 +183,12 @@ func recordProviderEarning(session models.Session, bandwidthUsedBytes int64, pri
 		PricePerGB:         pricePerGB,
 		Status:             "pending",
 	}
+	// The billing worker may have credited the provider before this row existed.
+	if !escrowBacked && sessionCreditedToProviderWallet(session.ID) {
+		paidAt := time.Now().UTC()
+		earning.Status = "paid"
+		earning.PaidAt = &paidAt
+	}
 
 	if err := db.DB.Create(&earning).Error; err != nil {
 		logging.Warn().
@@ -196,13 +206,16 @@ func recordProviderEarning(session models.Session, bandwidthUsedBytes int64, pri
 		GrossSOL:       grossSOL,
 	})
 
-	// If escrow-backed, anchorUsageProofAndSettle handles the SOL transfer — skip
-	// the batch-payout queue to avoid paying the provider twice.
-	if !escrowBacked && node.WalletAddress != "" {
-		if bp := GetBatchPayoutProcessor(); bp != nil {
-			_ = bp.QueuePayout(node.UserID, node.WalletAddress, netSOL, []string{session.ID.String()})
-		}
-	}
+}
+
+// sessionCreditedToProviderWallet reports whether billing.settleSession has already
+// credited the provider's wallet for this session (ledger reference "<session>:provider").
+func sessionCreditedToProviderWallet(sessionID uuid.UUID) bool {
+	var n int64
+	db.DB.Model(&models.WalletLedgerEntry{}).
+		Where("reference_id = ? AND type = ?", sessionID.String()+":provider", "provider_earning").
+		Count(&n)
+	return n > 0
 }
 
 // GetBatchPayoutProcessor returns the global batch payout processor if registered.
