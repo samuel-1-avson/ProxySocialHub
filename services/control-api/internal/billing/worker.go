@@ -228,6 +228,7 @@ func settleSession(sessionID string, totalBytes int64, redisKey string) error {
 		if err := markSettlementArtifactsSettled(session.ID); err != nil {
 			logging.Warn().Err(err).Str("session_id", session.ID.String()).Msg("Billing: failed to mark session-pda artifacts settled")
 		}
+		markProviderEarningPaid(session.ID)
 		return nil
 	}
 
@@ -286,11 +287,25 @@ func settleSession(sessionID string, totalBytes int64, redisKey string) error {
 	if err := markSettlementArtifactsSettled(session.ID); err != nil {
 		logging.Warn().Err(err).Str("session_id", session.ID.String()).Msg("Billing: failed to mark settlement artifacts settled")
 	}
+	markProviderEarningPaid(session.ID)
 
 	if queuePayoutAfterCommit != uuid.Nil {
 		go queueProviderPayout(queuePayoutAfterCommit)
 	}
 	return nil
+}
+
+// markProviderEarningPaid moves the session's provider_earnings row from pending to paid
+// once the provider has been credited (custodial settle) or paid on chain (session
+// escrow). recordProviderEarning only does bookkeeping now, so without this the row
+// would stay pending and a claim would pay it a second time (BE-CRIT-02).
+func markProviderEarningPaid(sessionID uuid.UUID) {
+	now := time.Now().UTC()
+	if err := db.DB.Model(&models.ProviderEarning{}).
+		Where("session_id = ? AND status = ?", sessionID, "pending").
+		Updates(map[string]interface{}{"status": "paid", "paid_at": now}).Error; err != nil {
+		logging.Warn().Err(err).Str("session_id", sessionID.String()).Msg("Billing: failed to mark provider earning paid")
+	}
 }
 
 // evaluateEscrowCustodialGate decides marketplace escrow settle behavior when
