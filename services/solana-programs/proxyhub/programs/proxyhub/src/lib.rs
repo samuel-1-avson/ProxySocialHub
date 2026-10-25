@@ -584,6 +584,30 @@ pub struct EpochRewardPool {
     pub bump: u8,
 }
 
+/// One claim per provider per epoch. Created by `claim_bandwidth_rewards`; because it is an
+/// `init` account, a second claim for the same epoch and provider fails.
+/// PDA seeds: ["epoch_claim", epoch_id.to_le_bytes(), provider_wallet]
+#[account]
+#[derive(Default)]
+pub struct EpochClaimReceipt {
+    pub epoch_id: u64,
+    pub provider: Pubkey,
+    pub bytes_verified: u64,
+    pub reward_lamports: u64,
+    pub claimed_at: i64,
+    pub bump: u8,
+}
+
+impl EpochClaimReceipt {
+    pub const LEN: usize = 8 + // discriminator
+        8 +  // epoch_id
+        32 + // provider
+        8 +  // bytes_verified
+        8 +  // reward_lamports
+        8 +  // claimed_at
+        1;   // bump
+}
+
 impl EpochRewardPool {
     pub const LEN: usize = 8 + // discriminator
         8 + // epoch_id
@@ -776,6 +800,43 @@ pub fn compute_session_escrow_payout(escrow_amount: u64, bytes_used: u64, bytes_
     };
     let buyer_refund = escrow_amount.saturating_sub(seller_payout);
     (seller_payout, buyer_refund)
+}
+
+/// The caller plus every key in `signers` that belongs to `oracle_set`, each counted once.
+/// Callers must pass only keys that actually signed the transaction.
+pub fn distinct_oracle_signers(
+    caller: Pubkey,
+    signers: impl IntoIterator<Item = Pubkey>,
+    oracle_set: &[Pubkey],
+) -> Vec<Pubkey> {
+    let mut out = vec![caller];
+    for key in signers {
+        if oracle_set.contains(&key) && !out.contains(&key) {
+            out.push(key);
+        }
+    }
+    out
+}
+
+/// Pro-rata seller payout: `floor(amount * min(used, limit) / limit)`.
+///
+/// The product is taken in `u128`, so it cannot overflow for any `u64` inputs, and the
+/// result is never larger than `amount`. The settle instructions used to multiply in `u64`
+/// and fall back to `unwrap_or(0)` on overflow, which silently paid the seller nothing and
+/// refunded the whole escrow to the buyer once `amount * usage` passed `u64::MAX`
+/// (for example 1 SOL against 20 GiB counted in bytes). A zero limit pays nothing.
+/// Arithmetic that cannot be represented is an error, never a quiet zero.
+pub fn prorated_payout(amount: u64, used: u64, limit: u64) -> Result<u64> {
+    if limit == 0 {
+        return Ok(0);
+    }
+    let used = std::cmp::min(used, limit);
+    let payout = (amount as u128)
+        .checked_mul(used as u128)
+        .ok_or(error!(EscrowError::CalculationOverflow))?
+        .checked_div(limit as u128)
+        .ok_or(error!(EscrowError::CalculationOverflow))?;
+    u64::try_from(payout).map_err(|_| error!(EscrowError::CalculationOverflow))
 }
 
 // =============================================================================
@@ -1792,13 +1853,18 @@ pub mod proxyhub {
     // that recovery is fast when the oracle quorum is operational.
     // =========================================================================
 
-    /// Record one oracle signer's approval to pause the program.
-    /// Once the number of approvals reaches `multisig_oracle.threshold` the
-    /// program state is flipped to `paused = true` in the same transaction.
+    /// Pause the program once `multisig_oracle.threshold` distinct oracle signers have
+    /// signed this transaction. `oracle_signer` is one of them; every other approver passes
+    /// their wallet in `remaining_accounts`, where it must be a transaction signer.
+    ///
+    /// `approvals` is kept so existing callers still serialize, but it is ignored: it is
+    /// instruction data, so listing another signer's public key proved nothing. Counting it
+    /// let a single oracle key pause the protocol by naming the rest of the set.
     pub fn multi_sig_pause_vote(
         ctx: Context<MultiSigPauseVote>,
-        approvals: Vec<Pubkey>, // slice of oracle signer keys that have agreed off-chain
+        approvals: Vec<Pubkey>,
     ) -> Result<()> {
+        let _ = &approvals;
         let state = &mut ctx.accounts.program_state;
         let oracle = &ctx.accounts.multisig_oracle;
         let clock = Clock::get()?;
@@ -1809,17 +1875,14 @@ pub mod proxyhub {
         let caller = ctx.accounts.oracle_signer.key();
         require!(oracle.signers.contains(&caller), EscrowError::Unauthorized);
 
-        // Count how many unique, valid oracle signers are in the approval list
-        // (caller's own key counts as one; the rest are validated against the set)
-        let mut valid_approvals: Vec<Pubkey> = Vec::new();
-        if !valid_approvals.contains(&caller) {
-            valid_approvals.push(caller);
-        }
-        for pk in &approvals {
-            if oracle.signers.contains(pk) && !valid_approvals.contains(pk) {
-                valid_approvals.push(*pk);
-            }
-        }
+        let valid_approvals = distinct_oracle_signers(
+            caller,
+            ctx.remaining_accounts
+                .iter()
+                .filter(|acc| acc.is_signer)
+                .map(|acc| *acc.key),
+            &oracle.signers,
+        );
 
         require!(
             valid_approvals.len() >= oracle.threshold as usize,
@@ -2009,18 +2072,12 @@ pub mod proxyhub {
             require!(parsed_msg == msg_bytes, EscrowError::InvalidSignatureVerification);
         }
 
-        // Calculate proportional payout
-        let capped_usage = std::cmp::min(bandwidth_used_gb, escrow.bandwidth_limit_gb);
-        let seller_payout = if escrow.bandwidth_limit_gb > 0 {
-            escrow
-                .amount
-                .checked_mul(capped_usage)
-                .unwrap_or(0)
-                .checked_div(escrow.bandwidth_limit_gb)
-                .unwrap_or(0)
-        } else {
-            0
-        };
+        // Calculate proportional payout (u128, fails closed on overflow)
+        let seller_payout = prorated_payout(
+            escrow.amount,
+            bandwidth_used_gb,
+            escrow.bandwidth_limit_gb,
+        )?;
         let buyer_refund = escrow.amount.saturating_sub(seller_payout);
 
         escrow.bandwidth_used_gb = bandwidth_used_gb;
@@ -2163,24 +2220,10 @@ pub mod proxyhub {
             require!(parsed_msg == msg_bytes, EscrowError::InvalidSignatureVerification);
         }
 
-        // Calculate proportional payout (capped by limit)
+        // Calculate proportional payout (capped by limit; u128, fails closed on overflow)
         let bandwidth_limit_bytes = escrow.bandwidth_limit_gb.saturating_mul(1_073_741_824);
-        let capped_usage = if bandwidth_limit_bytes > 0 {
-            std::cmp::min(bytes_used, bandwidth_limit_bytes)
-        } else {
-            bytes_used
-        };
-
-        let seller_payout = if bandwidth_limit_bytes > 0 {
-            escrow
-                .amount
-                .checked_mul(capped_usage)
-                .unwrap_or(0)
-                .checked_div(bandwidth_limit_bytes)
-                .unwrap_or(0)
-        } else {
-            0
-        };
+        let seller_payout =
+            prorated_payout(escrow.amount, bytes_used, bandwidth_limit_bytes)?;
 
         let buyer_refund = escrow.amount.saturating_sub(seller_payout);
 
@@ -2236,6 +2279,16 @@ pub mod proxyhub {
         );
         // Ensure odd number for tie-breaking
         require!(jurors.len() % 2 == 1, EscrowError::InvalidStatus);
+
+        // Only a live escrow can be disputed, and neither party may sit on its own jury.
+        require!(
+            escrow.status == EscrowStatus::Pending || escrow.status == EscrowStatus::Active,
+            EscrowError::InvalidStatus
+        );
+        require!(
+            !jurors.contains(&escrow.buyer) && !jurors.contains(&escrow.seller),
+            EscrowError::InvalidJuror
+        );
 
         escrow.status = EscrowStatus::Disputed;
 
@@ -2424,13 +2477,13 @@ pub mod proxyhub {
             _ => oracle.residential_price_per_gb,
         };
 
-        let total = bandwidth_gb
-            .checked_mul(base_price)
-            .unwrap_or(0)
-            .checked_mul(quality_multiplier as u64)
-            .unwrap_or(0)
-            .checked_div(100)
-            .unwrap_or(0);
+        // u128 intermediate, and an error instead of a quiet 0 when the price does not fit.
+        let total = (bandwidth_gb as u128)
+            .checked_mul(base_price as u128)
+            .and_then(|v| v.checked_mul(quality_multiplier as u128))
+            .and_then(|v| v.checked_div(100))
+            .ok_or(error!(EscrowError::CalculationOverflow))?;
+        let total = u64::try_from(total).map_err(|_| error!(EscrowError::CalculationOverflow))?;
 
         Ok(total)
     }
@@ -2600,12 +2653,13 @@ pub mod proxyhub {
             EscrowError::Unauthorized
         );
 
-        let max_slash = stake
-            .amount
-            .checked_mul(pool.slash_percentage as u64)
-            .unwrap_or(0)
-            .checked_div(100)
-            .unwrap_or(0);
+        let max_slash = (stake.amount as u128)
+            .checked_mul(pool.slash_percentage as u128)
+            .and_then(|v| v.checked_div(100))
+            .ok_or(error!(EscrowError::CalculationOverflow))?;
+        // max_slash <= stake.amount when slash_percentage <= 100; clamp so a bad
+        // percentage can never slash more than the stake.
+        let max_slash = std::cmp::min(max_slash, stake.amount as u128) as u64;
         let actual_slash = std::cmp::min(amount, max_slash);
 
         // Distribute slash: portion to pool, portion burned
@@ -2678,7 +2732,9 @@ pub mod proxyhub {
         Ok(())
     }
 
-    /// Settle escrow (legacy)
+    /// Settle escrow (legacy). Program admin (oracle) only: the caller chooses
+    /// `bandwidth_used_gb`, so letting the buyer or the seller call it let the buyer
+    /// report zero usage for a full refund, or the seller report the full limit.
     pub fn settle_escrow(
         ctx: Context<SettleEscrow>,
         bandwidth_used_gb: u64,
@@ -2689,27 +2745,18 @@ pub mod proxyhub {
         let authority = ctx.accounts.authority.key();
         let escrow = &mut ctx.accounts.escrow;
 
-        require!(
-            authority == escrow.buyer || authority == escrow.seller || authority == state.admin,
-            EscrowError::Unauthorized
-        );
-        
+        require!(authority == state.admin, EscrowError::Unauthorized);
+
         require!(
             escrow.status == EscrowStatus::Pending || escrow.status == EscrowStatus::Active,
             EscrowError::InvalidStatus
         );
 
-        let capped_usage = std::cmp::min(bandwidth_used_gb, escrow.bandwidth_limit_gb);
-        let seller_payout = if escrow.bandwidth_limit_gb > 0 {
-            escrow
-                .amount
-                .checked_mul(capped_usage)
-                .unwrap_or(0)
-                .checked_div(escrow.bandwidth_limit_gb)
-                .unwrap_or(0)
-        } else {
-            0
-        };
+        let seller_payout = prorated_payout(
+            escrow.amount,
+            bandwidth_used_gb,
+            escrow.bandwidth_limit_gb,
+        )?;
         let buyer_refund = escrow.amount.saturating_sub(seller_payout);
 
         escrow.bandwidth_used_gb = bandwidth_used_gb;
@@ -3175,7 +3222,12 @@ pub mod proxyhub {
         Ok(())
     }
 
-    /// Claim proportional Proof-of-Bandwidth mining rewards for an epoch.
+    /// Pay a provider's proportional Proof-of-Bandwidth mining reward for an epoch.
+    ///
+    /// `provider_bytes_verified` is a claim about off-chain metering, so the program admin
+    /// (oracle) must sign to attest it, and one `EpochClaimReceipt` per provider per epoch
+    /// is created so the same provider cannot be paid twice. Before this, the provider
+    /// signed for itself and chose the byte count, so anyone could claim the whole pool.
     pub fn claim_bandwidth_rewards(
         ctx: Context<ClaimBandwidthRewards>,
         epoch_id: u64,
@@ -3188,6 +3240,11 @@ pub mod proxyhub {
         let pool = &mut ctx.accounts.epoch_reward_pool;
         require!(pool.epoch_id == epoch_id, EscrowError::InvalidStatus);
         require!(pool.total_bandwidth_verified > 0, EscrowError::InvalidStatus);
+        // One provider cannot have carried more than all verified bandwidth.
+        require!(
+            provider_bytes_verified <= pool.total_bandwidth_verified,
+            EscrowError::InvalidStatus
+        );
 
         // Proportional reward calculation: (provider_bytes * total_emission) / total_bandwidth
         let reward_calc = (provider_bytes_verified as u128)
@@ -3202,14 +3259,30 @@ pub mod proxyhub {
         let pool_ai = pool.to_account_info();
         let provider_ai = ctx.accounts.provider_wallet.to_account_info();
 
-        **pool_ai.try_borrow_mut_lamports()? = pool_ai
+        // The pool account must stay rent-exempt: paying out into the rent reserve would
+        // let the runtime reap the account and strand the remaining emission.
+        let pool_after = pool_ai
             .lamports()
             .checked_sub(reward_payout)
             .ok_or(EscrowError::InsufficientFunds)?;
+        require!(
+            pool_after >= Rent::get()?.minimum_balance(pool_ai.data_len()),
+            EscrowError::InsufficientFunds
+        );
+
+        **pool_ai.try_borrow_mut_lamports()? = pool_after;
         **provider_ai.try_borrow_mut_lamports()? = provider_ai
             .lamports()
             .checked_add(reward_payout)
             .ok_or(EscrowError::InsufficientFunds)?;
+
+        let receipt = &mut ctx.accounts.epoch_claim;
+        receipt.epoch_id = epoch_id;
+        receipt.provider = ctx.accounts.provider_wallet.key();
+        receipt.bytes_verified = provider_bytes_verified;
+        receipt.reward_lamports = reward_payout;
+        receipt.claimed_at = Clock::get()?.unix_timestamp;
+        receipt.bump = ctx.bumps.epoch_claim;
 
         pool.remaining_emission_lamports = pool.remaining_emission_lamports.saturating_sub(reward_payout);
         pool.settled_providers_count = pool.settled_providers_count.saturating_add(1);
@@ -4472,10 +4545,24 @@ pub struct ClaimBandwidthRewards<'info> {
         bump = epoch_reward_pool.bump,
     )]
     pub epoch_reward_pool: Account<'info, EpochRewardPool>,
+    /// One receipt per provider per epoch; `init` makes a second claim fail.
+    #[account(
+        init,
+        payer = oracle,
+        space = EpochClaimReceipt::LEN,
+        seeds = [b"epoch_claim", epoch_id.to_le_bytes().as_ref(), provider_wallet.key().as_ref()],
+        bump
+    )]
+    pub epoch_claim: Account<'info, EpochClaimReceipt>,
+    /// CHECK: reward recipient. It receives lamports only; the oracle attests the byte count.
     #[account(mut)]
-    pub provider_wallet: Signer<'info>,
+    pub provider_wallet: AccountInfo<'info>,
+    /// Program admin attesting `provider_bytes_verified`; also pays the receipt's rent.
+    #[account(mut, address = program_state.admin)]
+    pub oracle: Signer<'info>,
     #[account(seeds = [b"program_state"], bump = program_state.bump)]
     pub program_state: Account<'info, ProgramState>,
+    pub system_program: Program<'info, System>,
 }
 
 // Listing commitment contexts — oracle signs mutations.
@@ -4745,7 +4832,9 @@ pub struct InitiateJuryDispute<'info> {
         bump
     )]
     pub dispute: Account<'info, Dispute>,
-    #[account(mut)]
+    /// Program admin only. The initiator chooses the jurors, so letting a buyer or seller (or
+    /// anyone) call this let them seat their own jury and have it award them the escrow.
+    #[account(mut, address = program_state.admin)]
     pub initiator: Signer<'info>,
     #[account(seeds = [b"program_state"], bump = program_state.bump)]
     pub program_state: Account<'info, ProgramState>,
@@ -4881,7 +4970,8 @@ pub struct CloseEscrow<'info> {
 #[derive(Accounts)]
 #[instruction(provider_wallet: Pubkey)]
 pub struct StakeProvider<'info> {
-    #[account(mut)]
+    /// Program admin (treasury custody) only: it funds the stake on the provider's behalf.
+    #[account(mut, address = program_state.admin)]
     pub oracle: Signer<'info>,
     #[account(
         init_if_needed,
@@ -4899,7 +4989,10 @@ pub struct StakeProvider<'info> {
 #[derive(Accounts)]
 #[instruction(provider_wallet: Pubkey)]
 pub struct UnstakeProvider<'info> {
-    #[account(mut)]
+    /// Program admin (treasury custody) only: the withdrawn lamports are credited to this
+    /// account, which is the custody wallet. With any signer allowed, an attacker could
+    /// withdraw every provider's stake into their own wallet.
+    #[account(mut, address = program_state.admin)]
     pub oracle: Signer<'info>,
     #[account(
         mut,
@@ -4993,7 +5086,7 @@ pub struct WriteKYCAttestation<'info> {
 #[derive(Accounts)]
 #[instruction(session_id: [u8; 16])]
 pub struct LockSessionCommitment<'info> {
-    #[account(mut)]
+    #[account(mut, address = program_state.admin)]
     pub oracle: Signer<'info>,
     #[account(
         init, payer = oracle,
@@ -5054,7 +5147,7 @@ pub struct SettleSessionEscrow<'info> {
 #[derive(Accounts)]
 #[instruction(proposal_id: [u8; 16])]
 pub struct CreateProposal<'info> {
-    #[account(mut)]
+    #[account(mut, address = program_state.admin)]
     pub oracle: Signer<'info>,
     #[account(
         init, payer = oracle,
@@ -5124,7 +5217,7 @@ impl DisputeRecord {
 
 #[derive(Accounts)]
 pub struct OpenDisputeOnchain<'info> {
-    #[account(mut)]
+    #[account(mut, address = program_state.admin)]
     pub oracle: Signer<'info>,
     /// CHECK: Escrow PDA verified off-chain by oracle.
     pub escrow: AccountInfo<'info>,
@@ -5179,7 +5272,9 @@ pub struct WriteAdminAttestation<'info> {
 
 #[derive(Accounts)]
 pub struct UpdateProgramConfig<'info> {
-    #[account(mut)]
+    /// Program admin only. This used to be any signer, so anyone could set
+    /// `unstake_cooldown_seconds` to 1 and the fee and limit fields to anything.
+    #[account(mut, address = program_state.admin)]
     pub oracle: Signer<'info>,
     #[account(
         init_if_needed, payer = oracle,
@@ -5200,7 +5295,7 @@ pub struct UpdateProgramConfig<'info> {
 #[derive(Accounts)]
 #[instruction(order_escrow_pda: Pubkey, reviewer: Pubkey)]
 pub struct SubmitReviewAttestation<'info> {
-    #[account(mut)]
+    #[account(mut, address = program_state.admin)]
     pub oracle: Signer<'info>,
     #[account(
         init, payer = oracle,
@@ -5210,14 +5305,19 @@ pub struct SubmitReviewAttestation<'info> {
     )]
     pub review_attestation: Account<'info, ReviewAttestation>,
     pub system_program: Program<'info, System>,
+    /// Appended last so the account order of existing callers is unchanged; they must add it.
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
 }
 
 // ── Spending Event Log ────────────────────────────────────────────────────────
 
 #[derive(Accounts)]
 pub struct LogSpendingEvent<'info> {
-    #[account(mut)]
+    #[account(mut, address = program_state.admin)]
     pub oracle: Signer<'info>,
+    #[account(seeds = [b"program_state"], bump = program_state.bump)]
+    pub program_state: Account<'info, ProgramState>,
 }
 
 // ── ZK Batch ──────────────────────────────────────────────────────────────────
@@ -5381,3 +5481,101 @@ pub struct CloseChannel<'info> {
     pub instructions: AccountInfo<'info>,
 }
 
+
+#[cfg(test)]
+mod payout_math_tests {
+    use super::*;
+
+    fn pay(amount: u64, used: u64, limit: u64) -> u64 {
+        prorated_payout(amount, used, limit).expect("payout fits in u64")
+    }
+
+    #[test]
+    fn pays_proportionally_and_rounds_down() {
+        assert_eq!(pay(1_000, 50, 100), 500);
+        assert_eq!(pay(1_000, 0, 100), 0);
+        assert_eq!(pay(1_000, 100, 100), 1_000);
+        assert_eq!(pay(10, 1, 3), 3);
+    }
+
+    #[test]
+    fn usage_above_the_limit_is_capped() {
+        assert_eq!(pay(1_000, 500, 100), 1_000);
+        assert_eq!(pay(1_000, u64::MAX, 100), 1_000);
+    }
+
+    #[test]
+    fn a_zero_limit_pays_nothing() {
+        assert_eq!(pay(1_000, 10, 0), 0);
+    }
+
+    // BC-HIGH-01: with the settle functions' old u64 arithmetic, amount * usage overflowed
+    // and unwrap_or(0) turned it into a zero payout, refunding the whole escrow to the buyer.
+    #[test]
+    fn does_not_overflow_where_the_old_u64_math_paid_the_seller_nothing() {
+        let amount = 1_000_000_000u64; // 1 SOL in lamports
+        let limit = 20 * 1_073_741_824u64; // 20 GiB counted in bytes
+
+        let old = amount.checked_mul(limit).unwrap_or(0).checked_div(limit).unwrap_or(0);
+        assert_eq!(old, 0, "this is the bug: the u64 product overflows and collapses to 0");
+
+        assert_eq!(pay(amount, limit, limit), amount);
+        assert_eq!(pay(amount, limit / 2, limit), amount / 2);
+    }
+
+    #[test]
+    fn payout_is_the_exact_floor_and_never_exceeds_the_escrow() {
+        let amounts = [0u64, 1, 7, 1_000_000_000, 123_456_789_012, u64::MAX - 1, u64::MAX];
+        let limits = [1u64, 3, 100, 1_000_000, 21_474_836_480, u64::MAX - 1, u64::MAX];
+        let used = [0u64, 1, 2, 99, 1_000_000, 21_474_836_479, u64::MAX / 2, u64::MAX - 1, u64::MAX];
+
+        for &amount in &amounts {
+            for &limit in &limits {
+                for &u in &used {
+                    let payout = pay(amount, u, limit);
+                    let billed = std::cmp::min(u, limit) as u128;
+
+                    assert!(payout <= amount, "payout {payout} > escrow {amount}");
+                    // floor(amount * billed / limit): payout*limit <= amount*billed < (payout+1)*limit
+                    assert!((payout as u128) * (limit as u128) <= (amount as u128) * billed);
+                    assert!((amount as u128) * billed < ((payout as u128) + 1) * (limit as u128));
+                    // Nothing is created or lost between seller and buyer.
+                    assert_eq!(payout + amount.saturating_sub(payout), amount);
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod pause_vote_tests {
+    use super::*;
+
+    fn key(n: u8) -> Pubkey {
+        Pubkey::new_from_array([n; 32])
+    }
+
+    // The oracle set is keys 1..=3; the caller is key 1.
+    fn set() -> Vec<Pubkey> {
+        vec![key(1), key(2), key(3)]
+    }
+
+    #[test]
+    fn the_caller_alone_is_one_approval() {
+        assert_eq!(distinct_oracle_signers(key(1), [], &set()), vec![key(1)]);
+    }
+
+    // multi_sig_pause_vote now passes only keys that signed the transaction. Keys named in
+    // instruction data are never fed to this function, so a lone signer stays at one.
+    #[test]
+    fn other_set_members_who_signed_are_counted_once_each() {
+        let got = distinct_oracle_signers(key(1), [key(2), key(2), key(3), key(1)], &set());
+        assert_eq!(got, vec![key(1), key(2), key(3)]);
+    }
+
+    #[test]
+    fn keys_outside_the_oracle_set_are_ignored() {
+        let got = distinct_oracle_signers(key(1), [key(9), key(2), key(8)], &set());
+        assert_eq!(got, vec![key(1), key(2)]);
+    }
+}
