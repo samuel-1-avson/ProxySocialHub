@@ -151,6 +151,14 @@ func (a *Aggregator) aggregatePendingUsage(sessionID, providerID string, totalBy
 		return fmt.Errorf("failed to update pending bytes: %w", err)
 	}
 
+	// P0-7: snapshot the SOL/USD price at consumption time (first write
+	// wins for this settling period) so settlement never depends solely on
+	// a live feed being available hours later.
+	if price := GetSOLPriceUSD(); price > 0 {
+		priceKey := SessionPriceSnapshotKey(sessionID)
+		_ = redis.Client.SetNX(context.Background(), priceKey, price, 0).Err()
+	}
+
 	if providerID != "" {
 		providerKey := fmt.Sprintf("billing:provider:%s:pending", providerID)
 		if err := redis.Client.IncrBy(context.Background(), providerKey, totalBytes).Err(); err != nil {
@@ -232,4 +240,19 @@ func verifyUsageSignature(providerPubKey, username string, up, down int64, nonce
 
 	logging.Debug().Str("username", username).Msg("Usage signature verified successfully")
 	return nil
+}
+
+// SessionPriceSnapshotKey is the Redis key holding the consumption-time
+// SOL/USD snapshot for a session's pending bytes (P0-7).
+func SessionPriceSnapshotKey(sessionID string) string {
+	return fmt.Sprintf("billing:session:%s:sol_price_usd", sessionID)
+}
+
+// PriceSnapshotKeyForPendingKey derives the snapshot key from a pending key.
+func PriceSnapshotKeyForPendingKey(pendingKey string) string {
+	const suffix = ":pending"
+	if strings.HasSuffix(pendingKey, suffix) {
+		return strings.TrimSuffix(pendingKey, suffix) + ":sol_price_usd"
+	}
+	return pendingKey + ":sol_price_usd"
 }

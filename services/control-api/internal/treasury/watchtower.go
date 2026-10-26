@@ -36,6 +36,9 @@ type AlertEvent struct {
 
 // RecordOutflow records a transaction amount and checks for velocity spikes
 func (w *Watchtower) RecordOutflow(ctx context.Context, amountSOL float64) error {
+	if w == nil || redis.Client == nil {
+		return nil
+	}
 	// 1. Increment hourly bucket
 	now := time.Now().Hour()
 	key := fmt.Sprintf("%s:%d", HourlyOutflowKey, now)

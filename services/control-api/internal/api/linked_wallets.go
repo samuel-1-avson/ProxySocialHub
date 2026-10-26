@@ -18,27 +18,31 @@ import (
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
+	"gorm.io/gorm"
 )
 
-// @Summary List linked wallets
-// @Description Get all wallets linked to the current user
-// @Tags wallets
-// @Produce json
-// @Success 200 {array} models.LinkedWallet
-// @Router /v1/linked-wallets [get]
+// stripVerificationSecrets removes stored signature material from API
+// responses (W-15: never hand clients a replay kit).
+func stripVerificationSecrets(w *models.LinkedWallet) {
+	w.VerificationSignature = nil
+	w.VerificationMessage = nil
+}
+
 func ListLinkedWallets(c *gin.Context) {
-	userID, exists := c.Get("user_id")
-	if !exists {
+	userUUID, ok := GetUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
 	var wallets []models.LinkedWallet
-	if err := db.DB.Where("user_id = ?", userID).Order("is_primary DESC, created_at ASC").Find(&wallets).Error; err != nil {
+	if err := db.DB.Where("user_id = ?", userUUID).Order("is_primary DESC, created_at ASC").Find(&wallets).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch wallets"})
 		return
 	}
-
+	for i := range wallets {
+		stripVerificationSecrets(&wallets[i])
+	}
 	c.JSON(http.StatusOK, wallets)
 }
 
@@ -47,21 +51,18 @@ type LinkWalletRequest struct {
 	Chain     models.BlockchainType `json:"chain" binding:"required"`
 	Address   string                `json:"address" binding:"required"`
 	Signature string                `json:"signature" binding:"required"` // Signature proving ownership
-	Message   string                `json:"message" binding:"required"`   // Message that was signed
+	Message   string                `json:"message" binding:"required"`   // Server-issued challenge message that was signed
 	Label     string                `json:"label"`
 }
 
-// @Summary Link a new wallet
-// @Description Link a blockchain wallet to the current user account
-// @Tags wallets
-// @Accept json
-// @Produce json
-// @Param request body LinkWalletRequest true "Wallet details"
-// @Success 201 {object} models.LinkedWallet
-// @Router /v1/linked-wallets [post]
+// LinkWallet links a wallet after challenge + signature verification (P0-4).
+// Solana links go through the unified identity path (profile + primary +
+// withdrawal routing/cooldown) when they become primary; additional Solana
+// wallets are stored verified but non-primary. Ethereum links never touch
+// the Solana profile identity.
 func LinkWallet(c *gin.Context) {
-	userID, exists := c.Get("user_id")
-	if !exists {
+	userUUID, ok := GetUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
@@ -71,160 +72,239 @@ func LinkWallet(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
-	// Validate chain type
 	if req.Chain != models.ChainSolana && req.Chain != models.ChainEthereum {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid chain type"})
 		return
 	}
+	req.Address = strings.TrimSpace(req.Address)
 
-	// Verify signature based on chain
+	// Single-use server challenge binds user+chain+address (W-15).
+	if !consumeLinkChallenge(c.Request.Context(), userUUID, string(req.Chain), req.Address, req.Message) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Link challenge expired or invalid. Request a new challenge."})
+		return
+	}
+
 	verified := false
 	var verifyErr error
-	
 	switch req.Chain {
 	case models.ChainSolana:
 		verified, verifyErr = verifySolanaSignature(req.Address, req.Message, req.Signature)
 	case models.ChainEthereum:
 		verified, verifyErr = verifyEthereumSignature(req.Address, req.Message, req.Signature)
 	}
-
 	if verifyErr != nil {
-		logging.Error(verifyErr).
-			Str("chain", string(req.Chain)).
-			Str("address", req.Address).
-			Msg("Signature verification error")
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Verification error: %v", verifyErr)})
+		logging.Error(verifyErr).Str("chain", string(req.Chain)).Str("address", req.Address).Msg("Signature verification error")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Signature verification failed"})
 		return
 	}
-
 	if !verified {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid signature - wallet ownership not verified"})
 		return
 	}
 
-	// Check if wallet already linked to another user
-	var existing models.LinkedWallet
-	if err := db.DB.Where("chain = ? AND address = ?", req.Chain, req.Address).First(&existing).Error; err == nil {
-		if existing.UserID != userID.(uuid.UUID) {
-			c.JSON(http.StatusConflict, gin.H{"error": "Wallet already linked to another account"})
-			return
-		}
-		// Already linked to this user
-		c.JSON(http.StatusOK, existing)
+	// Already linked (to anyone) is resolved inside the transaction.
+	var user models.User
+	if err := db.DB.Where("id = ?", userUUID).First(&user).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
 
-	// Check if this is the first wallet (make it primary)
-	var count int64
-	db.DB.Model(&models.LinkedWallet{}).Where("user_id = ?", userID).Count(&count)
-	isPrimary := count == 0
+	var linked models.LinkedWallet
+	status := http.StatusCreated
+	txErr := db.DB.Transaction(func(tx *gorm.DB) error {
+		var existing models.LinkedWallet
+		if err := tx.Where("chain = ? AND address = ?", req.Chain, req.Address).First(&existing).Error; err == nil {
+			if existing.UserID != userUUID {
+				return fmt.Errorf("wallet already linked to another account")
+			}
+			linked = existing
+			status = http.StatusOK
+			return nil
+		}
 
-	wallet := models.LinkedWallet{
-		UserID:                userID.(uuid.UUID),
-		Chain:                 req.Chain,
-		Address:               req.Address,
-		Verified:              true,
-		VerificationSignature: &req.Signature,
-		VerificationMessage:   &req.Message,
-		IsPrimary:             isPrimary,
-		Label:                 &req.Label,
-	}
-
-	if err := db.DB.Create(&wallet).Error; err != nil {
+		if req.Chain == models.ChainSolana {
+			var primaryCount int64
+			if err := tx.Model(&models.LinkedWallet{}).
+				Where("user_id = ? AND chain = ? AND is_primary = ?", userUUID, models.ChainSolana, true).
+				Count(&primaryCount).Error; err != nil {
+				return err
+			}
+			if primaryCount == 0 {
+				// First Solana wallet becomes primary through the ONE
+				// identity path (cooldown included — W-04).
+				if err := applySolanaLinkIdentity(tx, user, req.Address, &req.Signature, &req.Message); err != nil {
+					return err
+				}
+			} else {
+				// Additional verified Solana wallet; primary unchanged.
+				row := models.LinkedWallet{
+					UserID:                userUUID,
+					Chain:                 req.Chain,
+					Address:               req.Address,
+					Verified:              true,
+					VerificationSignature: &req.Signature,
+					VerificationMessage:   &req.Message,
+					IsPrimary:             false,
+					Label:                 &req.Label,
+				}
+				if err := tx.Create(&row).Error; err != nil {
+					return err
+				}
+			}
+		} else {
+			if err := applyEthereumLinkIdentity(tx, userUUID, req.Address, &req.Signature, &req.Message); err != nil {
+				return err
+			}
+		}
+		return tx.Where("chain = ? AND address = ? AND user_id = ?", req.Chain, req.Address, userUUID).First(&linked).Error
+	})
+	if txErr != nil {
+		if strings.Contains(txErr.Error(), "another account") {
+			c.JSON(http.StatusConflict, gin.H{"error": "Wallet already linked to another account"})
+			return
+		}
+		logging.Error(txErr).Str("user_id", userUUID.String()).Str("address", req.Address).Msg("Failed to link wallet")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to link wallet"})
 		return
 	}
 
-	// Also update legacy wallet fields in user profile for backwards compatibility
-	if isPrimary {
-		db.DB.Model(&models.User{}).Where("id = ?", userID).Update("wallet_address", req.Address)
+	if req.Label != "" && (linked.Label == nil || *linked.Label == "" || *linked.Label == "Primary") {
+		_ = db.DB.Model(&models.LinkedWallet{}).Where("id = ?", linked.ID).Update("label", req.Label).Error
+		linked.Label = &req.Label
 	}
 
 	logging.Info().
-		Str("user_id", userID.(uuid.UUID).String()).
+		Str("user_id", userUUID.String()).
 		Str("chain", string(req.Chain)).
 		Str("address", req.Address).
 		Msg("Wallet linked successfully")
 
-	c.JSON(http.StatusCreated, wallet)
+	stripVerificationSecrets(&linked)
+	c.JSON(status, linked)
 }
 
-// @Summary Set primary wallet
-// @Description Set a linked wallet as the primary wallet for a chain
-// @Tags wallets
-// @Param id path string true "Wallet ID"
-// @Success 200 {object} models.LinkedWallet
-// @Router /v1/linked-wallets/{id}/primary [put]
+type setPrimaryRequest struct {
+	Signature string `json:"signature"`
+	Message   string `json:"message"`
+}
+
+// SetPrimaryWallet promotes a linked wallet to primary. For Solana this
+// changes the withdrawal destination, so it requires a fresh challenge
+// signature from that wallet and goes through the unified identity path
+// (24h cooldown applies) — a bare session can no longer do it (W-04).
 func SetPrimaryWallet(c *gin.Context) {
-	userID, exists := c.Get("user_id")
-	if !exists {
+	userUUID, ok := GetUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
-
 	walletID := c.Param("id")
 
-	// Find the wallet
 	var wallet models.LinkedWallet
-	if err := db.DB.Where("id = ? AND user_id = ?", walletID, userID).First(&wallet).Error; err != nil {
+	if err := db.DB.Where("id = ? AND user_id = ?", walletID, userUUID).First(&wallet).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Wallet not found"})
 		return
 	}
 
-	// Unset other primaries for this chain
-	db.DB.Model(&models.LinkedWallet{}).
-		Where("user_id = ? AND chain = ? AND id != ?", userID, wallet.Chain, wallet.ID).
-		Update("is_primary", false)
+	var req setPrimaryRequest
+	_ = c.ShouldBindJSON(&req) // empty body is treated as missing proof below
+	if req.Signature == "" || req.Message == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Signature and challenge message required to change primary wallet"})
+		return
+	}
+	if !consumeLinkChallenge(c.Request.Context(), userUUID, string(wallet.Chain), wallet.Address, req.Message) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Link challenge expired or invalid. Request a new challenge."})
+		return
+	}
 
-	// Set this as primary
-	wallet.IsPrimary = true
-	db.DB.Save(&wallet)
+	var verified bool
+	var verifyErr error
+	switch wallet.Chain {
+	case models.ChainSolana:
+		verified, verifyErr = verifySolanaSignature(wallet.Address, req.Message, req.Signature)
+	case models.ChainEthereum:
+		verified, verifyErr = verifyEthereumSignature(wallet.Address, req.Message, req.Signature)
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported chain"})
+		return
+	}
+	if verifyErr != nil || !verified {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Signature verification failed"})
+		return
+	}
 
-	// Update legacy field
-	db.DB.Model(&models.User{}).Where("id = ?", userID).Update("wallet_address", wallet.Address)
+	var user models.User
+	if err := db.DB.Where("id = ?", userUUID).First(&user).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
 
+	txErr := db.DB.Transaction(func(tx *gorm.DB) error {
+		if wallet.Chain == models.ChainSolana {
+			return applySolanaLinkIdentity(tx, user, wallet.Address, &req.Signature, &req.Message)
+		}
+		return applyEthereumLinkIdentity(tx, userUUID, wallet.Address, &req.Signature, &req.Message)
+	})
+	if txErr != nil {
+		logging.Error(txErr).Str("user_id", userUUID.String()).Str("wallet_id", walletID).Msg("Failed to set primary wallet")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to set primary wallet"})
+		return
+	}
+
+	if err := db.DB.Where("id = ?", wallet.ID).First(&wallet).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load wallet"})
+		return
+	}
+	stripVerificationSecrets(&wallet)
 	c.JSON(http.StatusOK, wallet)
 }
 
-// @Summary Unlink wallet
-// @Description Remove a linked wallet from the current user
-// @Tags wallets
-// @Param id path string true "Wallet ID"
-// @Success 204 "No Content"
-// @Router /v1/linked-wallets/{id} [delete]
 func UnlinkWallet(c *gin.Context) {
-	userID, exists := c.Get("user_id")
-	if !exists {
+	userUUID, ok := GetUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
-
 	walletID := c.Param("id")
 
-	var wallet models.LinkedWallet
-	if err := db.DB.Where("id = ? AND user_id = ?", walletID, userID).First(&wallet).Error; err != nil {
+	txErr := db.DB.Transaction(func(tx *gorm.DB) error {
+		var wallet models.LinkedWallet
+		if err := tx.Where("id = ? AND user_id = ?", walletID, userUUID).First(&wallet).Error; err != nil {
+			return errWalletNotFound
+		}
+		if err := tx.Delete(&wallet).Error; err != nil {
+			return err
+		}
+		// Unlinking the primary Solana wallet clears the Solana profile
+		// identity + withdrawal routing (fail closed). Ethereum unlinks
+		// never touch Solana state (W-05).
+		if wallet.IsPrimary && wallet.Chain == models.ChainSolana {
+			if err := setProfileWalletAddress(tx, userUUID, nil); err != nil {
+				return err
+			}
+			return clearWalletWithdrawalRouting(tx, userUUID)
+		}
+		return nil
+	})
+	if txErr == errWalletNotFound {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Wallet not found"})
 		return
 	}
-
-	if err := db.DB.Delete(&wallet).Error; err != nil {
+	if txErr != nil {
+		logging.Error(txErr).Str("user_id", userUUID.String()).Str("wallet_id", walletID).Msg("Failed to unlink wallet")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to unlink wallet"})
 		return
 	}
 
-	// If this was primary, clear legacy field
-	if wallet.IsPrimary {
-		db.DB.Model(&models.User{}).Where("id = ?", userID).Update("wallet_address", nil)
-	}
-
 	logging.Info().
-		Str("user_id", userID.(uuid.UUID).String()).
+		Str("user_id", userUUID.String()).
 		Str("wallet_id", walletID).
 		Msg("Wallet unlinked")
 
 	c.Status(http.StatusNoContent)
 }
+
+var errWalletNotFound = fmt.Errorf("wallet not found")
 
 // ============================================================================
 // SIGNATURE VERIFICATION IMPLEMENTATIONS

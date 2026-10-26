@@ -21,6 +21,12 @@ const (
 	withdrawalPayoutPollInterval = 15 * time.Second
 	withdrawalPayoutMaxAttempts  = 40
 	withdrawalFeeHeadroom        = uint64(10_000)
+	// withdrawalSubmittedMaxAge bounds a broadcast-but-unconfirmed payout
+	// before manual review. Never auto-refunded (P0-3).
+	withdrawalSubmittedMaxAge = 30 * time.Minute
+	// withdrawalPayingStaleAfter bounds a claimed row whose send outcome is
+	// unknown; stale paying rows are parked, never re-sent (P0-3).
+	withdrawalPayingStaleAfter = 5 * time.Minute
 )
 
 // StartWithdrawalPayoutWorker drains the user withdrawal queue after vault→hot liquidity arrives.
@@ -60,13 +66,16 @@ func drainWithdrawalPayoutQueue(ctx context.Context) {
 	}
 	tm := treasury.GetManager()
 
+	confirmSubmittedWithdrawals(ctx, oracle, tm)
+	parkStalePayingWithdrawals()
+
 	seen := make(map[uuid.UUID]struct{})
 	for i := 0; i < 25; i++ {
 		var row models.WithdrawalPayout
 		backoffBefore := time.Now().UTC().Add(-20 * time.Second)
 		err := db.DB.Transaction(func(tx *gorm.DB) error {
 			q := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
-				Where("status IN ?", models.ActiveWithdrawalPayoutStatuses()).
+				Where("status IN ?", []string{models.WithdrawalPayoutRequested, models.WithdrawalPayoutFunding, models.WithdrawalPayoutOpsRequired}).
 				Where("updated_at < ? OR attempts = 0", backoffBefore).
 				Order("created_at ASC")
 			if err := q.First(&row).Error; err != nil {
@@ -152,21 +161,36 @@ func drainWithdrawalPayoutQueue(ctx context.Context) {
 			continue
 		}
 
+		// P0-3: persist submitted + tx hash before any completion claim.
 		now := time.Now().UTC()
-		_ = db.DB.Model(&models.WithdrawalPayout{}).Where("id = ?", row.ID).Updates(map[string]interface{}{
-			"status":     models.WithdrawalPayoutCompleted,
+		if updErr := db.DB.Model(&models.WithdrawalPayout{}).Where("id = ?", row.ID).Updates(map[string]interface{}{
+			"status":     models.WithdrawalPayoutSubmitted,
 			"tx_hash":    txHash,
 			"paid_at":    now,
 			"funded_at":  now,
 			"last_error": "",
 			"updated_at": now,
-		}).Error
-		_ = tm.RecordOutgoingTransfer(ctx, row.AmountSOL)
-		logging.Info().
-			Str("reference", row.Reference).
-			Str("tx_hash", txHash).
-			Float64("amount_sol", row.AmountSOL).
-			Msg("Queued withdrawal paid")
+		}).Error; updErr != nil {
+			logging.Error(updErr).Str("reference", row.Reference).Str("tx_hash", txHash).
+				Msg("CRITICAL: queued withdrawal sent but submitted state not persisted")
+			alerts.Send(alerts.Critical, "Queued Withdrawal Sent But State Not Persisted",
+				fmt.Sprintf("ref=%s tx=%s amount=%.6f", row.Reference, txHash, row.AmountSOL))
+			continue
+		}
+		row.TxHash = txHash
+		row.Status = models.WithdrawalPayoutSubmitted
+		confirmCtx, confirmCancel := context.WithTimeout(ctx, 20*time.Second)
+		state := solana.WaitForTxConfirmation(confirmCtx, oracle, txHash)
+		confirmCancel()
+		switch state {
+		case solana.TxConfirmed:
+			markWithdrawalPayoutCompleted(ctx, tm, row)
+		case solana.TxFailed:
+			failAndRefundWithdrawal(row, "on-chain transaction failed")
+		default:
+			logging.Info().Str("reference", row.Reference).Str("tx_hash", txHash).
+				Msg("Queued withdrawal submitted; awaiting confirmation sweep")
+		}
 	}
 }
 
@@ -179,20 +203,40 @@ func markWithdrawalPayoutError(id uuid.UUID, status, errMsg string) error {
 }
 
 func failAndRefundWithdrawal(row models.WithdrawalPayout, reason string) {
+	// P0-3 safety net: a broadcast withdrawal may only be refunded when
+	// the chain proves the tx failed; otherwise park for manual review.
+	if row.TxHash != "" && row.Status == models.WithdrawalPayoutSubmitted {
+		if solana.CheckTxConfirmed(context.Background(), solana.GetOracleClient(), row.TxHash) != solana.TxFailed {
+			_ = markWithdrawalPayoutError(row.ID, models.WithdrawalPayoutOpsRequired,
+				"refund blocked: submitted tx not proven failed on-chain")
+			alerts.Send(alerts.Critical, "Withdrawal Refund Blocked Pending Chain Proof",
+				fmt.Sprintf("ref=%s tx=%s reason=%s", row.Reference, row.TxHash, reason))
+			return
+		}
+	}
 	refundErr := db.DB.Transaction(func(tx *gorm.DB) error {
 		var wallet models.Wallet
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", row.UserID).First(&wallet).Error; err != nil {
 			return err
 		}
-		desc := "Queued withdrawal failed: " + truncateErr(reason, 120) + " — balance restored"
-		if err := models.CreditWalletLocked(tx, &wallet, row.AmountSOL, "withdrawal_failed_refund", row.Reference, desc); err != nil {
+		// Idempotence: never credit twice for the same reference.
+		var existingRefunds int64
+		if err := tx.Model(&models.WalletLedgerEntry{}).
+			Where("reference_id = ? AND type = ?", row.Reference, "withdrawal_failed_refund").
+			Count(&existingRefunds).Error; err != nil {
 			return err
 		}
-		_ = tx.Where("wallet_id = ? AND user_id = ? AND type = ? AND reference = ?",
-			wallet.ID, row.UserID, models.SpendingWithdraw, row.Reference).
-			Delete(&models.SpendingRecord{}).Error
+		if existingRefunds == 0 {
+			desc := "Queued withdrawal failed: " + truncateErr(reason, 120) + " — balance restored"
+			if err := models.CreditWalletLocked(tx, &wallet, row.AmountSOL, "withdrawal_failed_refund", row.Reference, desc); err != nil {
+				return err
+			}
+			_ = tx.Where("wallet_id = ? AND user_id = ? AND type = ? AND reference = ?",
+				wallet.ID, row.UserID, models.SpendingWithdraw, row.Reference).
+				Delete(&models.SpendingRecord{}).Error
+		}
 		now := time.Now().UTC()
-		return tx.Model(&models.WithdrawalPayout{}).Where("id = ?", row.ID).Updates(map[string]interface{}{
+		return tx.Model(&models.WithdrawalPayout{}).Where("id = ? AND status != ?", row.ID, models.WithdrawalPayoutCompleted).Updates(map[string]interface{}{
 			"status":     models.WithdrawalPayoutFailed,
 			"last_error": truncateErr(reason, 500),
 			"updated_at": now,
@@ -230,4 +274,63 @@ func QueueDepthStats() (depth int64, oldestAgeSecs int64) {
 		oldestAgeSecs = int64(time.Since(oldest.CreatedAt).Seconds())
 	}
 	return depth, oldestAgeSecs
+}
+
+func markWithdrawalPayoutCompleted(ctx context.Context, tm *treasury.TreasuryManager, row models.WithdrawalPayout) {
+	if err := db.DB.Model(&models.WithdrawalPayout{}).
+		Where("id = ? AND status != ?", row.ID, models.WithdrawalPayoutCompleted).
+		Update("status", models.WithdrawalPayoutCompleted).Error; err != nil {
+		logging.Error(err).Str("reference", row.Reference).Msg("withdrawal payout: failed to mark completed")
+		return
+	}
+	if tm != nil {
+		_ = tm.RecordOutgoingTransfer(ctx, row.AmountSOL)
+	}
+	logging.Info().
+		Str("reference", row.Reference).
+		Str("tx_hash", row.TxHash).
+		Float64("amount_sol", row.AmountSOL).
+		Msg("Queued withdrawal paid")
+}
+
+// confirmSubmittedWithdrawals polls broadcast-but-unconfirmed payouts (P0-3).
+func confirmSubmittedWithdrawals(ctx context.Context, oracle *solana.OracleClient, tm *treasury.TreasuryManager) {
+	var rows []models.WithdrawalPayout
+	if err := db.DB.Where("status = ?", models.WithdrawalPayoutSubmitted).
+		Order("created_at ASC").Limit(25).Find(&rows).Error; err != nil {
+		logging.Error(err).Msg("withdrawal payout: submitted sweep query failed")
+		return
+	}
+	for _, row := range rows {
+		switch solana.CheckTxConfirmed(ctx, oracle, row.TxHash) {
+		case solana.TxConfirmed:
+			markWithdrawalPayoutCompleted(ctx, tm, row)
+		case solana.TxFailed:
+			failAndRefundWithdrawal(row, "on-chain transaction failed")
+		default:
+			if time.Since(row.CreatedAt) > withdrawalSubmittedMaxAge {
+				_ = markWithdrawalPayoutError(row.ID, models.WithdrawalPayoutOpsRequired,
+					"submitted transaction unconfirmed beyond max age; manual review (never auto-refunded)")
+				alerts.Send(alerts.Critical, "Withdrawal Unconfirmed Beyond Max Age",
+					fmt.Sprintf("ref=%s tx=%s amount=%.6f", row.Reference, row.TxHash, row.AmountSOL))
+			}
+		}
+	}
+}
+
+// parkStalePayingWithdrawals parks claimed rows whose send outcome is
+// unknown (crash/timeout mid-send). Never auto-re-sent (P0-3).
+func parkStalePayingWithdrawals() {
+	cutoff := time.Now().UTC().Add(-withdrawalPayingStaleAfter)
+	res := db.DB.Model(&models.WithdrawalPayout{}).
+		Where("status = ? AND tx_hash = '' AND updated_at < ?", models.WithdrawalPayoutPaying, cutoff).
+		Updates(map[string]interface{}{
+			"status":     models.WithdrawalPayoutOpsRequired,
+			"last_error": "send outcome ambiguous (stale paying); manual review before any re-send or refund",
+			"updated_at": time.Now().UTC(),
+		})
+	if res.Error == nil && res.RowsAffected > 0 {
+		alerts.Send(alerts.Critical, "Ambiguous Withdrawal Sends Parked",
+			fmt.Sprintf("%d withdrawal payout row(s) stuck in paying without tx hash", res.RowsAffected))
+	}
 }

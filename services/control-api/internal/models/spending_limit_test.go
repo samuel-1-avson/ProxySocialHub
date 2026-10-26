@@ -43,6 +43,9 @@ func TestCheckSpendingLimit_ExceedsMonthly(t *testing.T) {
 		t.Fatalf("wallet: %v", err)
 	}
 	wallet.LimitsEnabled = true
+	// P0-5: every window must be configured; a 0 window now blocks (P2-17 design).
+	wallet.DailyLimit = 10.0
+	wallet.WeeklyLimit = 50.0
 	wallet.MonthlyLimit = 5.0
 	if err := db.DB.Save(&wallet).Error; err != nil {
 		t.Fatalf("save wallet: %v", err)
@@ -78,7 +81,10 @@ func TestCheckSpendingLimit_WindowReset(t *testing.T) {
 		t.Fatalf("wallet: %v", err)
 	}
 	wallet.LimitsEnabled = true
+	// P0-5: every window must be configured; a 0 window now blocks (P2-17 design).
 	wallet.DailyLimit = 2.0
+	wallet.WeeklyLimit = 50.0
+	wallet.MonthlyLimit = 100.0
 	if err := db.DB.Save(&wallet).Error; err != nil {
 		t.Fatalf("save wallet: %v", err)
 	}

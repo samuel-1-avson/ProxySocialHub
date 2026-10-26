@@ -96,6 +96,14 @@ func (w *Wallet) WithdrawalDestination(linkedAddress *string) (string, error) {
 	return dest, nil
 }
 
+// BeforeSave keeps the deprecated float shadow consistent with the
+// authoritative lamports balance (W-19). Struct-level Saves in tests and
+// legacy writers that only set BalanceSOL are repaired here, once.
+func (w *Wallet) BeforeSave(tx *gorm.DB) (err error) {
+	w.SyncLamportsFromSOLForLegacyRow()
+	return nil
+}
+
 // BeforeCreate generates UUID if not set
 func (w *Wallet) BeforeCreate(tx *gorm.DB) (err error) {
 	if w.ID == uuid.Nil {

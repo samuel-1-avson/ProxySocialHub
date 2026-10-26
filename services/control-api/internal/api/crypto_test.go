@@ -35,7 +35,20 @@ func mockSolanaDepositRPCAmount(t *testing.T, treasuryAddr, senderAddr, txSig st
 				},
 				"transaction": map[string]interface{}{
 					"message": map[string]interface{}{
-						"accountKeys": []string{senderAddr, treasuryAddr},
+						"accountKeys": []map[string]interface{}{
+							{"pubkey": senderAddr, "signer": true, "writable": true},
+							{"pubkey": treasuryAddr, "signer": false, "writable": true},
+						},
+						"instructions": []map[string]interface{}{
+							{
+								"program":   "system",
+								"programId": "11111111111111111111111111111111",
+								"parsed": map[string]interface{}{
+									"type": "transfer",
+									"info": map[string]interface{}{"source": senderAddr, "destination": treasuryAddr, "lamports": receivedLamports},
+								},
+							},
+						},
 					},
 					"signatures": []string{txSig},
 				},
@@ -175,7 +188,20 @@ func TestVerifyCryptoDeposit_SenderMismatch(t *testing.T) {
 				},
 				"transaction": map[string]interface{}{
 					"message": map[string]interface{}{
-						"accountKeys": []string{senderAddr, treasuryAddr},
+						"accountKeys": []map[string]interface{}{
+							{"pubkey": senderAddr, "signer": true, "writable": true},
+							{"pubkey": treasuryAddr, "signer": false, "writable": true},
+						},
+						"instructions": []map[string]interface{}{
+							{
+								"program":   "system",
+								"programId": "11111111111111111111111111111111",
+								"parsed": map[string]interface{}{
+									"type": "transfer",
+									"info": map[string]interface{}{"source": senderAddr, "destination": treasuryAddr, "lamports": 1000000000},
+								},
+							},
+						},
 					},
 					"signatures": []string{"mock_sig_mismatch"},
 				},
@@ -300,7 +326,20 @@ func TestVerifyCryptoDeposit_CreditsOnChainAmount(t *testing.T) {
 				},
 				"transaction": map[string]interface{}{
 					"message": map[string]interface{}{
-						"accountKeys": []string{senderAddr, treasuryAddr},
+						"accountKeys": []map[string]interface{}{
+							{"pubkey": senderAddr, "signer": true, "writable": true},
+							{"pubkey": treasuryAddr, "signer": false, "writable": true},
+						},
+						"instructions": []map[string]interface{}{
+							{
+								"program":   "system",
+								"programId": "11111111111111111111111111111111",
+								"parsed": map[string]interface{}{
+									"type": "transfer",
+									"info": map[string]interface{}{"source": senderAddr, "destination": treasuryAddr, "lamports": 1000000000},
+								},
+							},
+						},
 					},
 					"signatures": []string{"mock_sig_amount"},
 				},
