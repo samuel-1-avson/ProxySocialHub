@@ -48,6 +48,8 @@ services:
       - REDIS_PASSWORD=${REDIS_PASSWORD}
       - NATS_URL=nats://nats:4222
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set}
+      # Admin token signing key (openssl rand -hex 32); empty = admin routes answer 503.
+      - ADMIN_JWT_SECRET=${ADMIN_JWT_SECRET:-}
       - GATEWAY_SHARED_SECRET=${GATEWAY_SHARED_SECRET:?GATEWAY_SHARED_SECRET must be set}
       - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET must be set}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set}
