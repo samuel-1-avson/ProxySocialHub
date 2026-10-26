@@ -126,6 +126,11 @@ jobs:
   secret-scan:
     name: Secret Detection
     runs-on: ubuntu-latest
+    # On pull requests gitleaks-action lists the PR's commits through the API; without
+    # pull-requests: read it dies with "Resource not accessible by integration".
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
     - uses: actions/checkout@v4
       with:
