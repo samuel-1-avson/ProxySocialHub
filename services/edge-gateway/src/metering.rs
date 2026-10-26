@@ -337,6 +337,49 @@ impl UsageTracker {
         }
     }
 
+    // DP-2: cross-pod drain ownership. Sections 1 and 3 of flush() scan
+    // every user's pending/WAL keys. Without a lock, two pods can race the
+    // WAL sweep: both see no pending snapshot, both alloc_seq, and the same
+    // bytes get saved+delivered under two different nonces, defeating the
+    // server-side (session, nonce) dedup and double-counting. One pod per
+    // cycle owns the drain via SET NX EX; TTL covers 3 missed 30s cycles.
+    async fn try_acquire_drain_lock(
+        conn: &mut redis::aio::MultiplexedConnection,
+    ) -> Option<String> {
+        const DRAIN_LOCK_TTL_SECS: usize = 90;
+        let token = format!(
+            "{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        );
+        let res: redis::RedisResult<Option<String>> = redis::cmd("SET")
+            .arg("metering:drain-lock")
+            .arg(&token)
+            .arg("NX")
+            .arg("EX")
+            .arg(DRAIN_LOCK_TTL_SECS)
+            .query_async(conn)
+            .await;
+        match res {
+            Ok(Some(_)) => Some(token),
+            _ => None,
+        }
+    }
+
+    async fn release_drain_lock(conn: &mut redis::aio::MultiplexedConnection, token: &str) {
+        const RELEASE: &str = "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end";
+        let _: redis::RedisResult<i64> = redis::cmd("EVAL")
+            .arg(RELEASE)
+            .arg(1)
+            .arg("metering:drain-lock")
+            .arg(token)
+            .query_async(conn)
+            .await;
+    }
+
     /// Flush accumulated usage to Control API.
     pub async fn flush(&self) {
         let mut conn = match self.redis_client.get_multiplexed_async_connection().await {
@@ -369,39 +412,47 @@ impl UsageTracker {
             }
         };
 
+        // Sections 1 and 3 touch every user's keys: only the drain owner
+        // runs them. Section 2 (this pod's own snapshots) always runs; its
+        // sessions cannot be in flight on another pod at the same time.
+        let drain_token = Self::try_acquire_drain_lock(&mut conn).await;
+        let drain_owner = drain_token.is_some();
+
         // 1. Re-deliver any unacked snapshots from previous cycles (byte-identical
         //    replays — server dedups by (session, nonce) on a lost ack).
-        let mut cursor: u64 = 0;
-        loop {
-            let (next_cursor, keys): (u64, Vec<String>) = match redis::cmd("SCAN")
-                .arg(cursor)
-                .arg("MATCH")
-                .arg("metering:pending:*")
-                .arg("COUNT")
-                .arg(100)
-                .query_async(&mut conn)
-                .await
-            {
-                Ok(r) => r,
-                Err(e) => {
-                    eprintln!("[Metering] pending scan error: {}", e);
+        if drain_owner {
+            let mut cursor: u64 = 0;
+            loop {
+                let (next_cursor, keys): (u64, Vec<String>) = match redis::cmd("SCAN")
+                    .arg(cursor)
+                    .arg("MATCH")
+                    .arg("metering:pending:*")
+                    .arg("COUNT")
+                    .arg(100)
+                    .query_async(&mut conn)
+                    .await
+                {
+                    Ok(r) => r,
+                    Err(e) => {
+                        eprintln!("[Metering] pending scan error: {}", e);
+                        break;
+                    }
+                };
+                for key in keys {
+                    let username = key.trim_start_matches("metering:pending:").to_string();
+                    if let Some((seq, up, down)) = self.load_pending(&mut conn, &username).await {
+                        if up + down == 0 {
+                            let _: Result<(), _> = conn.del(&key).await;
+                            continue;
+                        }
+                        self.deliver_pending(&mut conn, &username, seq, up, down)
+                            .await;
+                    }
+                }
+                cursor = next_cursor;
+                if cursor == 0 {
                     break;
                 }
-            };
-            for key in keys {
-                let username = key.trim_start_matches("metering:pending:").to_string();
-                if let Some((seq, up, down)) = self.load_pending(&mut conn, &username).await {
-                    if up + down == 0 {
-                        let _: Result<(), _> = conn.del(&key).await;
-                        continue;
-                    }
-                    self.deliver_pending(&mut conn, &username, seq, up, down)
-                        .await;
-                }
-            }
-            cursor = next_cursor;
-            if cursor == 0 {
-                break;
             }
         }
 
@@ -441,10 +492,8 @@ impl UsageTracker {
                             )
                             .await
                         {
-                            self.clear_pending_advance(
-                                &mut conn, &username, bytes_up, bytes_down,
-                            )
-                            .await;
+                            self.clear_pending_advance(&mut conn, &username, bytes_up, bytes_down)
+                                .await;
                         }
                         continue;
                     }
@@ -457,68 +506,74 @@ impl UsageTracker {
 
         // 3. WAL sweep — bytes whose in-memory copy vanished (crash between
         //    record() and flush) or that were waiting behind an unacked snapshot.
-        let mut cursor: u64 = 0;
-        loop {
-            let (next_cursor, keys): (u64, Vec<String>) = match redis::cmd("SCAN")
-                .arg(cursor)
-                .arg("MATCH")
-                .arg("metering:wal:*")
-                .arg("COUNT")
-                .arg(100)
-                .query_async(&mut conn)
-                .await
-            {
-                Ok(r) => r,
-                Err(e) => {
-                    eprintln!("[Metering] WAL scan error: {}", e);
+        if drain_owner {
+            let mut cursor: u64 = 0;
+            loop {
+                let (next_cursor, keys): (u64, Vec<String>) = match redis::cmd("SCAN")
+                    .arg(cursor)
+                    .arg("MATCH")
+                    .arg("metering:wal:*")
+                    .arg("COUNT")
+                    .arg(100)
+                    .query_async(&mut conn)
+                    .await
+                {
+                    Ok(r) => r,
+                    Err(e) => {
+                        eprintln!("[Metering] WAL scan error: {}", e);
+                        break;
+                    }
+                };
+                for key in keys {
+                    let username = key.trim_start_matches("metering:wal:").to_string();
+                    if self.load_pending(&mut conn, &username).await.is_some() {
+                        continue;
+                    }
+                    let map: std::collections::HashMap<String, i64> =
+                        conn.hgetall(&key).await.unwrap_or_default();
+                    let up = map.get("bytes_up").copied().unwrap_or(0).max(0) as u64;
+                    let down = map.get("bytes_down").copied().unwrap_or(0).max(0) as u64;
+                    if up + down == 0 {
+                        let _: Result<(), _> = conn.del(&key).await;
+                        continue;
+                    }
+                    match self.alloc_seq(&mut conn, &username).await {
+                        Ok(seq) => {
+                            if !self.save_pending(&mut conn, &username, seq, up, down).await {
+                                eprintln!(
+                                    "[Metering] pending write failed for WAL {} — spilling",
+                                    username
+                                );
+                                if self
+                                    .spill_to_control_api(
+                                        &username,
+                                        up,
+                                        down,
+                                        Some(seq),
+                                        "redis_pending_fail",
+                                    )
+                                    .await
+                                {
+                                    self.clear_pending_advance(&mut conn, &username, up, down)
+                                        .await;
+                                }
+                                continue;
+                            }
+                            self.deliver_pending(&mut conn, &username, seq, up, down)
+                                .await;
+                        }
+                        Err(e) => eprintln!("[Metering] {}: {}", username, e),
+                    }
+                }
+                cursor = next_cursor;
+                if cursor == 0 {
                     break;
                 }
-            };
-            for key in keys {
-                let username = key.trim_start_matches("metering:wal:").to_string();
-                if self.load_pending(&mut conn, &username).await.is_some() {
-                    continue;
-                }
-                let map: std::collections::HashMap<String, i64> =
-                    conn.hgetall(&key).await.unwrap_or_default();
-                let up = map.get("bytes_up").copied().unwrap_or(0).max(0) as u64;
-                let down = map.get("bytes_down").copied().unwrap_or(0).max(0) as u64;
-                if up + down == 0 {
-                    let _: Result<(), _> = conn.del(&key).await;
-                    continue;
-                }
-                match self.alloc_seq(&mut conn, &username).await {
-                    Ok(seq) => {
-                        if !self.save_pending(&mut conn, &username, seq, up, down).await {
-                            eprintln!(
-                                "[Metering] pending write failed for WAL {} — spilling",
-                                username
-                            );
-                            if self
-                                .spill_to_control_api(
-                                    &username,
-                                    up,
-                                    down,
-                                    Some(seq),
-                                    "redis_pending_fail",
-                                )
-                                .await
-                            {
-                                self.clear_pending_advance(&mut conn, &username, up, down)
-                                    .await;
-                            }
-                            continue;
-                        }
-                        self.deliver_pending(&mut conn, &username, seq, up, down)
-                            .await;
-                    }
-                    Err(e) => eprintln!("[Metering] {}: {}", username, e),
-                }
             }
-            cursor = next_cursor;
-            if cursor == 0 {
-                break;
-            }
+        }
+
+        if let Some(token) = drain_token {
+            Self::release_drain_lock(&mut conn, &token).await;
         }
     }
 
