@@ -115,7 +115,13 @@ pub mod proxy_gateway_bond {
         require!(ctx.accounts.config.deploy_allowed, BondError::DeployForbidden);
         let bond = &mut ctx.accounts.bond;
         require!(!bond.open_challenge, BondError::ChallengeOpen);
-        require!(bond.bonded, BondError::NotBonded);
+        // BC-HIGH-04: do not gate exit on `bonded`. resolve_slash clears it
+        // when a partial slash drops stake below min_stake, which trapped
+        // the remaining stake (request_unbond reverted NotBonded and
+        // withdraw_bond needs unbonding_at). Exit depends on still holding
+        // stake and not already unbonding.
+        require!(bond.stake_lamports > 0, BondError::NotBonded);
+        require!(bond.unbonding_at == 0, BondError::NotBonded);
         bond.bonded = false;
         bond.unbonding_at = Clock::get()?
             .unix_timestamp
