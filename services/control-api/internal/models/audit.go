@@ -29,8 +29,9 @@ const (
 	AuditSettingsChanged AuditEventType = "user.settings_changed"
 
 	// Wallet Events
-	AuditWalletLinked   AuditEventType = "wallet.linked"
-	AuditWalletUnlinked AuditEventType = "wallet.unlinked"
+	AuditWalletLinked         AuditEventType = "wallet.linked"
+	AuditWalletUnlinked       AuditEventType = "wallet.unlinked"
+	AuditWalletPrimaryChanged AuditEventType = "wallet.primary_changed"
 	AuditWalletDeposit  AuditEventType = "wallet.deposit"
 	AuditWalletWithdraw AuditEventType = "wallet.withdraw"
 

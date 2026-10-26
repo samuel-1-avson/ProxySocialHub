@@ -172,7 +172,7 @@ func recreditOne(ctx context.Context, treasury string, sp txSpec, dryRun, trustC
 			return fmt.Errorf("exceeds daily deposit cap (used=%.6f + %.6f > %.6f)", used, solAmount, maxDaily)
 		}
 
-		if err := models.CreditWalletLockedOpts(tx, &wallet, solAmount, "deposit_auto", sp.sig,
+		if err := models.CreditWalletLockedOpts(tx, &wallet, solAmount, models.LedgerKindDepositAuto, sp.sig,
 			fmt.Sprintf("Auto-Deposit recovery: %.6f SOL", solAmount),
 			models.LedgerOpts{TxHash: sp.sig},
 		); err != nil {

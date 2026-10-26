@@ -232,7 +232,10 @@ func SettleSessionIntent(intentID uuid.UUID) error {
 			if !wallet.CanAffordLamports(costLamports) {
 				return fmt.Errorf("insufficient SOL balance for intent usage")
 			}
-			_ = wallet.RecordSpending(tx, costSOL, models.SpendingUsage, locked.ID.String())
+			// W-33: unrecorded spend must abort the settlement tx.
+			if err := wallet.RecordSpending(tx, costSOL, models.SpendingUsage, locked.ID.String()); err != nil {
+				return err
+			}
 			desc := fmt.Sprintf("Intent usage: %d bytes / $%.4f USD / %.6f SOL", totalBytes, costUSD, costSOL)
 			skip := models.LedgerOpts{JournalKind: "skip"}
 			if err := models.DebitWalletLockedLamports(tx, &wallet, costLamports, models.TransactionUsage, locked.ID.String(), desc, skip); err != nil {
@@ -307,7 +310,7 @@ func creditIntentProviderSkipJournal(tx *gorm.DB, record *models.SessionIntentRe
 	}
 	ref := record.ID.String() + ":provider"
 	desc := fmt.Sprintf("Intent bandwidth earnings: %d bytes / %.6f SOL", totalBytes, costSOL)
-	if err := models.CreditWalletLockedLamports(tx, &providerWallet, costLamports, "provider_earning", ref, desc, models.LedgerOpts{JournalKind: "skip"}); err != nil {
+	if err := models.CreditWalletLockedLamports(tx, &providerWallet, costLamports, models.LedgerKindProviderEarning, ref, desc, models.LedgerOpts{JournalKind: "skip"}); err != nil {
 		return uuid.Nil, 0, err
 	}
 	return providerWallet.ID, costLamports, nil

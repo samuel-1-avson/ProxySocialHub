@@ -72,10 +72,19 @@ func TestEnqueueAndApplyWithdrawalCompensation(t *testing.T) {
 		t.Fatalf("ledger: %v", err)
 	}
 
+	// W-33: spending history is never deleted - the original spend is
+	// retained and a compensating reversal nets it to zero.
 	var spendCount int64
 	db.DB.Model(&models.SpendingRecord{}).Where("reference = ?", ref).Count(&spendCount)
-	if spendCount != 0 {
-		t.Fatalf("expected spending record deleted, count=%d", spendCount)
+	if spendCount != 1 {
+		t.Fatalf("original spending record must be retained, count=%d", spendCount)
+	}
+	var netSpend float64
+	db.DB.Model(&models.SpendingRecord{}).
+		Where("reference IN ?", []string{ref, ref + ":reversal"}).
+		Select("COALESCE(SUM(amount),0)").Scan(&netSpend)
+	if netSpend != 0 {
+		t.Fatalf("spending must net to zero after reversal, got %v", netSpend)
 	}
 
 	// Idempotent second pass.

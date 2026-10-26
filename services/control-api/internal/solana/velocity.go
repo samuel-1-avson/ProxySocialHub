@@ -152,6 +152,19 @@ func (v *VelocityGuard) IsFrozen() bool {
 // keep it on broadcast success (settled), Release it on definite
 // failure. Returns an error if the transfer must be blocked (no
 // reservation is held then; the Lua rollback already ran).
+// CheckTransferCap enforces only the per-transfer cap (W-28: internal
+// platform-to-platform moves like reserve sweeps are cap-checked but do
+// not consume the user-outflow hourly budget).
+func (v *VelocityGuard) CheckTransferCap(amountSOL float64) error {
+	if v.IsFrozen() {
+		return fmt.Errorf("velocity guard frozen")
+	}
+	if amountSOL > v.maxSingleSOL {
+		return fmt.Errorf("%.6f SOL requested but single-transfer cap is %.2f SOL", amountSOL, v.maxSingleSOL)
+	}
+	return nil
+}
+
 func (v *VelocityGuard) Check(ctx context.Context, amountSOL float64) error {
 	// 1. Freeze check (P0-18: also polls Redis so inter-process freeze is honoured)
 	if v.IsFrozen() {

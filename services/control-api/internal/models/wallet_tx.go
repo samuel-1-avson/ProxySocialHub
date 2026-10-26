@@ -180,14 +180,14 @@ func TransferP2PLocked(tx *gorm.DB, sender, recipient *Wallet, amount float64, r
 	if err := tx.Create(&WalletLedgerEntry{
 		WalletID: sender.ID, Amount: -amount, BalanceAfter: sender.BalanceSOL,
 		AmountLamports: -delta, BalanceAfterLamports: sender.BalanceLamports,
-		Type: "p2p_sent", ReferenceID: ref, Description: senderDesc, CreatedAt: now,
+		Type: LedgerKindP2PSent, ReferenceID: ref, Description: senderDesc, CreatedAt: now,
 	}).Error; err != nil {
 		return err
 	}
 	if err := tx.Create(&WalletLedgerEntry{
 		WalletID: recipient.ID, Amount: amount, BalanceAfter: recipient.BalanceSOL,
 		AmountLamports: delta, BalanceAfterLamports: recipient.BalanceLamports,
-		Type: "p2p_received", ReferenceID: ref, Description: recipientDesc, CreatedAt: now,
+		Type: LedgerKindP2PReceived, ReferenceID: ref, Description: recipientDesc, CreatedAt: now,
 	}).Error; err != nil {
 		return err
 	}
@@ -198,7 +198,7 @@ func postCreditJournal(tx *gorm.DB, walletID uuid.UUID, lamports int64, entryTyp
 	if kind == "skip" {
 		return nil
 	}
-	if entryType == "payout_restore" {
+	if entryType == LedgerKindPayoutRestore {
 		return postPayableCreditJournal(tx, walletID, lamports, entryType, ref, desc)
 	}
 	if kind == "unstake" || entryType == "unstake" {

@@ -14,6 +14,16 @@ export async function signWithdrawalMessage(
     return { nonce, signature: bs58.encode(sigBytes) };
 }
 
+/** W-13: sign the server-issued withdrawal challenge message verbatim. */
+export async function signWithdrawChallengeMessage(
+    signMessage: SignMessageFn,
+    serverMessage: string
+): Promise<{ signature: string }> {
+    const encoded = new TextEncoder().encode(serverMessage);
+    const sigBytes = await signMessage(encoded);
+    return { signature: bs58.encode(sigBytes) };
+}
+
 /** Build nonce + signature to schedule GDPR account deletion. */
 export async function signDeleteAccountMessage(
     signMessage: SignMessageFn

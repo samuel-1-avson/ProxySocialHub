@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type Dispatch, type SetStateAction } from 'react';
+import { useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import type { useWallet as useSolanaWallet } from '@solana/wallet-adapter-react';
 import { depositCrypto } from '@/lib/api';
@@ -70,7 +70,11 @@ export function useWalletDeposit(opts: {
     queryClient.invalidateQueries({ queryKey: ['wallet'] });
   };
 
+  // W-35: hard double-submit guard for deposit actions.
+  const depositInFlightRef = useRef(false);
+
   const handleDepositVerify = async () => {
+    if (depositInFlightRef.current) return;
     const amt = parseFloat(depositAmount);
     const txHash = depositTxHash.trim();
     if (!amt || amt <= 0 || !txHash) {
@@ -81,6 +85,7 @@ export function useWalletDeposit(opts: {
       setResult({ success: false, message: 'Link a Solana wallet before verifying a deposit' });
       return;
     }
+    depositInFlightRef.current = true;
     setProcessing(true);
     setResult(null);
     try {
@@ -88,6 +93,7 @@ export function useWalletDeposit(opts: {
     } catch (err: unknown) {
       setResult({ success: false, message: getErrorMessage(err) || 'Deposit verification failed' });
     } finally {
+      depositInFlightRef.current = false;
       setProcessing(false);
     }
   };
@@ -107,6 +113,7 @@ export function useWalletDeposit(opts: {
   };
 
   const handleDepositSol = async () => {
+    if (depositInFlightRef.current) return;
     const amt = parseFloat(depositAmount);
     if (!amt || amt <= 0) {
       setResult({ success: false, message: 'Enter a valid deposit amount' });
@@ -143,6 +150,7 @@ export function useWalletDeposit(opts: {
       return;
     }
 
+    depositInFlightRef.current = true;
     setProcessing(true);
     setResult(null);
     try {
@@ -181,6 +189,7 @@ export function useWalletDeposit(opts: {
     } catch (err: unknown) {
       setResult({ success: false, message: formatSolanaWalletError(err) });
     } finally {
+      depositInFlightRef.current = false;
       setProcessing(false);
     }
   };

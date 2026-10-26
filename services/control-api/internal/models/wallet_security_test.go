@@ -33,7 +33,9 @@ func TestWithdrawalDestination_LinkedMustMatchPrimary(t *testing.T) {
 	}
 }
 
-func TestWithdrawalDestination_WhitelistEnforced(t *testing.T) {
+// W-34: whitelist removed; the stored column is ignored and the
+// destination is pinned to the linked primary.
+func TestWithdrawalDestination_WhitelistIgnored_P2(t *testing.T) {
 	primary := "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuGui4Q5G"
 	other := "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9wYt5WGy"
 	linked := primary
@@ -41,8 +43,12 @@ func TestWithdrawalDestination_WhitelistEnforced(t *testing.T) {
 		PrimaryWithdrawalAddress: &primary,
 		WithdrawalWhitelist:      []string{other},
 	}
-	_, err := w.WithdrawalDestination(&linked)
-	if err == nil {
-		t.Fatal("expected whitelist rejection")
+	dest, err := w.WithdrawalDestination(&linked)
+	if err != nil {
+		t.Fatalf("whitelist must be ignored after W-34: %v", err)
 	}
+	if dest != primary {
+		t.Fatalf("dest must be linked primary, got %s", dest)
+	}
+	_ = other
 }

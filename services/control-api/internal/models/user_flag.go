@@ -1,6 +1,7 @@
 package models
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,4 +26,19 @@ func (uf *UserFlag) BeforeCreate(tx *gorm.DB) (err error) {
 		uf.ID = uuid.New()
 	}
 	return
+}
+
+// ErrUserFrozen: unresolved security flags freeze all user-initiated
+// money movement out of the account (W-34 uniform enforcement).
+var ErrUserFrozen = fmt.Errorf("account is flagged: money movement frozen pending security review")
+
+// UserFrozen reports whether the user has any unresolved UserFlag.
+// Same semantics the withdrawal path has always enforced; now shared
+// by P2P, earnings claim, and escrow release (W-34).
+func UserFrozen(tx *gorm.DB, userID uuid.UUID) (bool, error) {
+	var count int64
+	if err := tx.Model(&UserFlag{}).Where("user_id = ? AND resolved = ?", userID, false).Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }

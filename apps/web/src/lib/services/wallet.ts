@@ -29,12 +29,6 @@ export async function getWallet(): Promise<Wallet> {
     return data.wallet;
 }
 
-export async function depositWallet(amount: number, email: string): Promise<{ status: string; reference: string; message: string; authorization_url: string }> {
-    void amount;
-    void email;
-    throw new Error('Fiat deposits are disabled. Use depositCrypto with /v1/wallet/deposit/crypto.');
-}
-
 export async function linkWallet(address: string, chain: 'solana', signature?: string, message?: string): Promise<{ status: string; message: string }> {
     const response = await fetchWithAuth(`${API_BASE_URL}/v1/wallet/link`, {
         method: 'POST',
@@ -56,11 +50,6 @@ export async function depositCrypto(amount: number, txHash: string, chain: 'sola
         throw new Error(err.error || 'Failed to submit crypto deposit');
     }
     return response.json();
-}
-
-export async function verifyDeposit(reference: string): Promise<{ status: string; message: string }> {
-    void reference;
-    throw new Error('Fiat deposit verification is disabled.');
 }
 
 export async function withdrawWallet(

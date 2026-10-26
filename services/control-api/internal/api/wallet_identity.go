@@ -11,6 +11,10 @@ import (
 	"gorm.io/gorm"
 )
 
+// ErrWalletLinkedElsewhere: the proven address already belongs to a
+// different account (P2 \u00a79 sentinel; was string-matched at 3 sites).
+var ErrWalletLinkedElsewhere = fmt.Errorf("wallet already linked to another account")
+
 // ensurePrimaryLinkedSolana upserts a verified primary Solana row in linked_wallets.
 // Wallet login and /v1/wallet/link historically only wrote profiles.wallet_address;
 // marketplace escrow requires linked_wallets.is_primary. Call this whenever the
@@ -35,7 +39,7 @@ func ensurePrimaryLinkedSolana(tx *gorm.DB, userID uuid.UUID, address string, si
 	err := tx.Where("chain = ? AND address = ?", models.ChainSolana, address).First(&byAddress).Error
 	if err == nil {
 		if byAddress.UserID != userID {
-			return fmt.Errorf("wallet already linked to another account")
+			return ErrWalletLinkedElsewhere
 		}
 		// Clear other primaries for this user+chain, then promote this row.
 		if err := tx.Model(&models.LinkedWallet{}).
@@ -91,8 +95,8 @@ func ensurePrimaryLinkedSolana(tx *gorm.DB, userID uuid.UUID, address string, si
 	return nil
 }
 
-// applyWithdrawalRoutingForSolana maintains wallets.primary_withdrawal_address,
-// the 24h cooldown anchor and the whitelist for a proven-primary Solana
+// applyWithdrawalRoutingForSolana maintains wallets.primary_withdrawal_address
+// and the 24h cooldown anchor for a proven-primary Solana
 // address. Semantics preserved from the historical /wallet/link handler:
 // first primary and every change set changed_at=now (cooldown applies);
 // re-asserting the same address is a no-op.
@@ -115,25 +119,10 @@ func applyWithdrawalRoutingForSolana(tx *gorm.DB, user models.User, address stri
 	if wallet.PrimaryWithdrawalAddress != nil && *wallet.PrimaryWithdrawalAddress == address {
 		return nil
 	}
-	first := wallet.PrimaryWithdrawalAddress == nil || *wallet.PrimaryWithdrawalAddress == ""
 	now := time.Now()
 	wallet.PrimaryWithdrawalAddress = &address
 	wallet.WithdrawalAddressChangedAt = &now
-	if first && len(wallet.WithdrawalWhitelist) == 0 {
-		wallet.WithdrawalWhitelist = []string{address}
-	}
-	if !first && len(wallet.WithdrawalWhitelist) > 0 {
-		found := false
-		for _, a := range wallet.WithdrawalWhitelist {
-			if a == address {
-				found = true
-				break
-			}
-		}
-		if !found {
-			wallet.WithdrawalWhitelist = append(wallet.WithdrawalWhitelist, address)
-		}
-	}
+	// W-34: withdrawal_whitelist no longer maintained (removed feature).
 	return tx.Save(&wallet).Error
 }
 
@@ -174,7 +163,7 @@ func applyEthereumLinkIdentity(tx *gorm.DB, userID uuid.UUID, address string, si
 	err := tx.Where("chain = ? AND address = ?", models.ChainEthereum, address).First(&byAddress).Error
 	if err == nil {
 		if byAddress.UserID != userID {
-			return fmt.Errorf("wallet already linked to another account")
+			return ErrWalletLinkedElsewhere
 		}
 		if err := tx.Model(&models.LinkedWallet{}).
 			Where("user_id = ? AND chain = ? AND id != ?", userID, models.ChainEthereum, byAddress.ID).

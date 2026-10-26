@@ -304,10 +304,19 @@ func TestWithdrawSOL_OnChainFailureCompensates(t *testing.T) {
 		t.Fatalf("expected withdrawal_failed_refund ledger: %v", err)
 	}
 
+	// W-33: failed withdrawal keeps its spending record plus a
+	// compensating reversal (net zero), never a DELETE.
 	var spendingCount int64
 	db.DB.Model(&models.SpendingRecord{}).Where("wallet_id = ? AND type = ?", wallet.ID, models.SpendingWithdraw).Count(&spendingCount)
-	if spendingCount != 0 {
-		t.Fatalf("expected failed withdrawal to remove spending record, got %d", spendingCount)
+	if spendingCount != 2 {
+		t.Fatalf("expected original + reversal spending records, got %d", spendingCount)
+	}
+	var netSpend float64
+	db.DB.Model(&models.SpendingRecord{}).
+		Where("wallet_id = ? AND type = ?", wallet.ID, models.SpendingWithdraw).
+		Select("COALESCE(SUM(amount),0)").Scan(&netSpend)
+	if netSpend != 0 {
+		t.Fatalf("withdraw spending must net to zero after reversal, got %v", netSpend)
 	}
 }
 

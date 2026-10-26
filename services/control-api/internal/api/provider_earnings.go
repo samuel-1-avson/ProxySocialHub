@@ -163,6 +163,12 @@ func claimProviderEarnings(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
+
+	// W-34: uniform freeze on payout claims.
+	if frozen, ferr := models.UserFrozen(db.DB, userID); ferr != nil || frozen {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Account is flagged and payout claims are frozen pending security review."})
+		return
+	}
 	var req claimEarningsRequest
 	if err := c.ShouldBindJSON(&req); err != nil && err.Error() != "EOF" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
