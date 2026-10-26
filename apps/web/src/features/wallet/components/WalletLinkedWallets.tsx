@@ -36,10 +36,6 @@ type WalletLinkedWalletsProps = {
   onDisconnect: () => void;
   onLink: () => void;
   withdrawalSecurity: WithdrawalSecurityLike;
-  whitelistDraft: string;
-  onWhitelistDraftChange: (value: string) => void;
-  whitelistSaving: boolean;
-  onSaveWhitelist: () => void;
   result: WalletResult | null;
 };
 
@@ -53,10 +49,6 @@ export function WalletLinkedWallets({
   onDisconnect,
   onLink,
   withdrawalSecurity,
-  whitelistDraft,
-  onWhitelistDraftChange,
-  whitelistSaving,
-  onSaveWhitelist,
   result,
 }: WalletLinkedWalletsProps) {
   return (
@@ -162,11 +154,11 @@ export function WalletLinkedWallets({
 
       <GlassCard className="!p-8 bg-white/2 border-white/5">
         <h3 className="text-xs font-black font-mono uppercase mb-4 flex items-center gap-3 tracking-[0.2em]">
-          <Shield size={18} className="text-primary" /> Withdrawal whitelist
+          <Shield size={18} className="text-primary" /> Withdrawal destination
         </h3>
         <p className="text-[10px] font-mono text-muted-foreground/70 mb-4 leading-relaxed">
-          When non-empty, withdrawals may only go to addresses listed below (must include your
-          primary withdrawal address). Leave empty to allow only your linked primary address.
+          Withdrawals are pinned to your linked primary wallet. Changing it requires a fresh
+          wallet signature and starts a 24h cooldown before withdrawals resume.
         </p>
         {withdrawalSecurity?.withdrawal_cooldown_active && (
           <p className="text-[9px] font-mono text-amber-500 mb-4 uppercase">
@@ -181,27 +173,6 @@ export function WalletLinkedWallets({
             Primary: {withdrawalSecurity.primary_withdrawal_address}
           </p>
         )}
-        <textarea
-          value={whitelistDraft}
-          onChange={(e) => onWhitelistDraftChange(e.target.value)}
-          placeholder="One Solana address per line"
-          rows={5}
-          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-[11px] font-mono focus:border-primary/50 outline-none resize-y"
-        />
-        <button
-          type="button"
-          onClick={onSaveWhitelist}
-          disabled={whitelistSaving}
-          className="mt-4 w-full btn-retro !py-3 text-[10px] uppercase font-black tracking-widest"
-        >
-          {whitelistSaving ? (
-            <span className="flex items-center justify-center gap-2">
-              <Loader2 size={14} className="animate-spin" /> Saving…
-            </span>
-          ) : (
-            'Save whitelist'
-          )}
-        </button>
       </GlassCard>
 
       {result && <WalletResultBanner result={result} variant="linked" />}

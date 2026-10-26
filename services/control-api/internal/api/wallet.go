@@ -74,6 +74,7 @@ func RegisterWalletRoutes(r *gin.RouterGroup) {
 		wallet.PUT("/limits", RateLimitWithConfig(10, time.Minute), updateSpendingLimits)
 		wallet.POST("/limits/reset", RateLimitWithConfig(5, time.Minute), resetSpendingLimits)
 
+		wallet.GET("/withdrawals", getMyWithdrawals)
 		wallet.GET("/withdrawal-security", getWithdrawalSecurity)
 		wallet.PUT("/withdrawal-security/whitelist", RateLimitWithConfig(10, time.Minute), updateWithdrawalWhitelist)
 		wallet.GET("/security-flags", getMySecurityFlags)
@@ -313,63 +314,6 @@ func listMyWalletTransactions(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"transactions": transactions, "next_cursor": nextCursor})
 }
 
-type depositRequest struct {
-	Amount      float64 `json:"amount" binding:"required,gt=0"`
-	Email       string  `json:"email" binding:"required,email"`
-	AutoConvert bool    `json:"auto_convert"` // New field
-}
-
-func initiateDeposit(c *gin.Context) {
-	// SOL-ONLY: Fiat deposits permanently disabled
-	c.JSON(http.StatusForbidden, gin.H{
-		"error":   "Fiat deposits are disabled.",
-		"message": "This system operates on SOL only. Please use /wallet/deposit/crypto to fund your wallet with SOL.",
-		"action":  "Use /wallet/deposit/crypto",
-	})
-}
-
-// Verify payment endpoint - DEPRECATED: SOL-only system
-func verifyDeposit(c *gin.Context) {
-	c.JSON(http.StatusForbidden, gin.H{
-		"error":   "Fiat deposit verification is disabled.",
-		"message": "This system operates on SOL only. Use /wallet/deposit/crypto to fund your wallet.",
-	})
-}
-
-type withdrawRequest struct {
-	Amount float64 `json:"amount" binding:"required,gt=0"`
-}
-
-func initiateWithdrawal(c *gin.Context) {
-	// SOL-ONLY: Redirect to SOL withdrawal
-	c.JSON(http.StatusBadRequest, gin.H{
-		"error":   "Fiat withdrawals are disabled.",
-		"message": "This system operates on SOL only. Please use /wallet/withdraw/sol to withdraw SOL to your linked wallet.",
-		"action":  "Use /wallet/withdraw/sol",
-	})
-}
-
-// Helper to refund SOL on failure
-// refundWalletSOL credits a user's platform balance and creates an audit
-// ledger entry.  For escrow-backed sessions the on-chain EmergencyRefund
-// instruction already releases SOL to the buyer; this function only mirrors
-// that event in the DB ledger.  For custodial-only sessions (no escrow PDA)
-// this is both the refund record and the source of truth.
-func refundWalletSOL(userID string, amount float64) {
-	var wallet models.Wallet
-	err := db.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userID).First(&wallet).Error; err != nil {
-			return err
-		}
-		refID := uuid.New().String()
-		return models.CreditWalletLocked(tx, &wallet, amount, "refund", refID,
-			fmt.Sprintf("Refund of %.6f SOL", amount))
-	})
-	if err != nil {
-		logging.Error(err).Str("user_id", userID).Float64("amount", amount).Msg("Failed to refund SOL wallet")
-	}
-}
-
 const maxTransferSOL = 10000.0
 
 type p2pTransferRequest struct {
@@ -453,6 +397,14 @@ func transferP2P(c *gin.Context) {
 		}
 	}
 
+	// W-34: uniform freeze - a flagged sender cannot move money out
+	// via P2P either (previously only withdrawals checked flags).
+	if frozen, ferr := models.UserFrozen(tx, senderUUID); ferr != nil || frozen {
+		tx.Rollback()
+		c.JSON(http.StatusForbidden, gin.H{"error": "Account is flagged and transfers are frozen pending security review."})
+		return
+	}
+
 	// 2. Lock Wallets in a consistent order (lower UUID first) to prevent
 	// deadlocks when two concurrent transfers involve the same pair of users.
 	// P1-06: Use explicit pointer assignment instead of a fragile map lookup.
@@ -523,7 +475,10 @@ func transferP2P(c *gin.Context) {
 
 	// Record spending for limit tracking
 	if err := senderWallet.RecordSpending(tx, req.Amount, models.SpendingTransfer, ""); err != nil {
-		logging.Error(err).Msg("Failed to record spending for transfer, continuing")
+		// W-33: a spend that cannot be recorded must not move money.
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to record transfer"})
+		return
 	}
 
 	refID := uuid.New().String()
@@ -697,6 +652,7 @@ func storeIdempotentResponse(userID uuid.UUID, endpoint, key string, status int,
 var (
 	errWithdrawalDestinationChanged = errors.New("withdrawal destination changed during processing")
 	errWithdrawalFrozen             = errors.New("account is flagged and withdrawals are frozen pending security review")
+	errWithdrawalDestinationBlocked = errors.New("withdrawal destination is blocked by screening policy")
 	errWithdrawalCooldown           = errors.New("withdrawal address changed recently")
 )
 
@@ -835,9 +791,12 @@ func withdrawSOL(c *gin.Context) {
 		}
 		{
 		}
-		var flagCount int64
-		if err := tx.Model(&models.UserFlag{}).Where("user_id = ? AND resolved = ?", userUUID, false).Count(&flagCount).Error; err == nil && flagCount > 0 {
+		if frozen, ferr := models.UserFrozen(tx, userUUID); ferr == nil && frozen {
 			return errWithdrawalFrozen
+		}
+		// W-34 screening: never send to a deny-listed destination.
+		if models.AddressBlocked(destAddress) {
+			return errWithdrawalDestinationBlocked
 		}
 
 		if walletRecord.PrimaryWithdrawalAddress != nil &&
@@ -896,6 +855,10 @@ func withdrawSOL(c *gin.Context) {
 		}
 		if errors.Is(err, errWithdrawalFrozen) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Account is flagged and withdrawals are frozen pending security review."})
+			return
+		}
+		if errors.Is(err, errWithdrawalDestinationBlocked) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Withdrawal destination is blocked by screening policy."})
 			return
 		}
 		if errors.Is(err, errWithdrawalCooldown) {
@@ -1097,22 +1060,24 @@ func attemptWithdrawalPayout(c *gin.Context, oracle *solana.OracleClient, userUU
 // reference and terminates the queue row as failed.
 func refundWithdrawalPayoutRow(payoutID uuid.UUID, withdrawalRef string, userUUID uuid.UUID, amountSOL float64, reason string) error {
 	return db.DB.Transaction(func(tx *gorm.DB) error {
+		// Lock FIRST, then check (P2-F): the count-then-lock order raced
+		// concurrent refund paths into double credits.
+		var refundWallet models.Wallet
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userUUID).First(&refundWallet).Error; err != nil {
+			return err
+		}
 		var refunds int64
 		if err := tx.Model(&models.WalletLedgerEntry{}).
-			Where("reference_id = ? AND type = ?", withdrawalRef, "withdrawal_failed_refund").
+			Where("reference_id = ? AND type = ?", withdrawalRef, models.LedgerKindWithdrawalFailedRefund).
 			Count(&refunds).Error; err != nil {
 			return err
 		}
 		if refunds == 0 {
-			var refundWallet models.Wallet
-			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userUUID).First(&refundWallet).Error; err != nil {
+			if err := models.CreditWalletLocked(tx, &refundWallet, amountSOL, models.LedgerKindWithdrawalFailedRefund, withdrawalRef, reason); err != nil {
 				return err
 			}
-			if err := models.CreditWalletLocked(tx, &refundWallet, amountSOL, "withdrawal_failed_refund", withdrawalRef, reason); err != nil {
-				return err
-			}
-			if err := tx.Where("wallet_id = ? AND user_id = ? AND type = ? AND reference = ?", refundWallet.ID, userUUID, models.SpendingWithdraw, withdrawalRef).
-				Delete(&models.SpendingRecord{}).Error; err != nil {
+			// W-33: compensating reversal, never DELETE spending history.
+			if err := models.ReverseSpendingForReference(tx, refundWallet.ID, userUUID, models.SpendingWithdraw, withdrawalRef); err != nil {
 				return err
 			}
 		}
@@ -1175,319 +1140,4 @@ func summarizeOnChainSendError(err error) string {
 	default:
 		return "blockchain transfer could not be submitted"
 	}
-}
-
-// getWithdrawalSecurity returns withdrawal address, whitelist, and cooldown state.
-func getWithdrawalSecurity(c *gin.Context) {
-	userUUID, ok := GetUserID(c)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
-		return
-	}
-
-	var walletRecord models.Wallet
-	if err := db.DB.Where("user_id = ?", userUUID).First(&walletRecord).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Wallet not found"})
-		return
-	}
-
-	cooldownActive := false
-	var cooldownUntil *time.Time
-	if walletRecord.WithdrawalAddressChangedAt != nil &&
-		time.Since(*walletRecord.WithdrawalAddressChangedAt) < 24*time.Hour {
-		cooldownActive = true
-		until := walletRecord.WithdrawalAddressChangedAt.Add(24 * time.Hour)
-		cooldownUntil = &until
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"primary_withdrawal_address":    walletRecord.PrimaryWithdrawalAddress,
-		"withdrawal_whitelist":          walletRecord.WithdrawalWhitelist,
-		"withdrawal_cooldown_active":    cooldownActive,
-		"withdrawal_cooldown_until":     cooldownUntil,
-		"withdrawal_address_changed_at": walletRecord.WithdrawalAddressChangedAt,
-	})
-}
-
-type updateWithdrawalWhitelistRequest struct {
-	Addresses []string `json:"addresses" binding:"required,max=20,dive,required"`
-}
-
-// updateWithdrawalWhitelist replaces the user's withdrawal whitelist (empty = no whitelist restriction).
-func updateWithdrawalWhitelist(c *gin.Context) {
-	userUUID, ok := GetUserID(c)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
-		return
-	}
-
-	var req updateWithdrawalWhitelistRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	seen := make(map[string]struct{}, len(req.Addresses))
-	normalized := make([]string, 0, len(req.Addresses))
-	for _, addr := range req.Addresses {
-		addr = strings.TrimSpace(addr)
-		if _, err := solanaGo.PublicKeyFromBase58(addr); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid Solana address: %s", addr)})
-			return
-		}
-		if _, dup := seen[addr]; dup {
-			continue
-		}
-		seen[addr] = struct{}{}
-		normalized = append(normalized, addr)
-	}
-
-	var walletRecord models.Wallet
-	if err := db.DB.Where("user_id = ?", userUUID).First(&walletRecord).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Wallet not found"})
-		return
-	}
-
-	if walletRecord.PrimaryWithdrawalAddress != nil && *walletRecord.PrimaryWithdrawalAddress != "" && len(normalized) > 0 {
-		primaryInList := false
-		for _, addr := range normalized {
-			if addr == *walletRecord.PrimaryWithdrawalAddress {
-				primaryInList = true
-				break
-			}
-		}
-		if !primaryInList {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Whitelist must include your primary withdrawal address"})
-			return
-		}
-	}
-
-	walletRecord.WithdrawalWhitelist = normalized
-	if err := db.DB.Save(&walletRecord).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update whitelist"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"withdrawal_whitelist": walletRecord.WithdrawalWhitelist,
-		"message":              "Withdrawal whitelist updated",
-	})
-}
-
-// getMySecurityFlags lists unresolved and recent account security flags for the current user.
-func getMySecurityFlags(c *gin.Context) {
-	userUUID, ok := GetUserID(c)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
-		return
-	}
-
-	var flags []models.UserFlag
-	if err := db.DB.Where("user_id = ?", userUUID).Order("created_at DESC").Limit(50).Find(&flags).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load security flags"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"flags": flags, "count": len(flags)})
-}
-
-// sendSOLOnChainHook is overridden in tests to mock treasury payouts without a live oracle.
-var sendSOLOnChainHook = sendSOLOnChain
-
-// sendSOLOnChain builds and submits a SOL transfer instruction from the treasury to recipient.
-func sendSOLOnChain(ctx context.Context, oracle *solana.OracleClient, recipientAddress string, amountSOL float64) (string, error) {
-	recipient, err := solanaGo.PublicKeyFromBase58(recipientAddress)
-	if err != nil {
-		return "", fmt.Errorf("invalid recipient address: %w", err)
-	}
-
-	lamports := solana.SOLToLamports(amountSOL)
-	return oracle.SendSOL(ctx, recipient, lamports)
-}
-
-// Spending Limit Handlers
-
-type spendingLimitsResponse struct {
-	Daily struct {
-		Limit float64 `json:"limit"`
-		Spent float64 `json:"spent"`
-	} `json:"daily"`
-	Weekly struct {
-		Limit float64 `json:"limit"`
-		Spent float64 `json:"spent"`
-	} `json:"weekly"`
-	Monthly struct {
-		Limit float64 `json:"limit"`
-		Spent float64 `json:"spent"`
-	} `json:"monthly"`
-}
-
-// getSpendingLimits returns the user's current spending limits and usage
-func getSpendingLimits(c *gin.Context) {
-	userUUID, ok := GetUserID(c)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
-		return
-	}
-
-	var wallet models.Wallet
-	if err := db.DB.Where("user_id = ?", userUUID).First(&wallet).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Wallet not found"})
-		return
-	}
-
-	// Get current spending
-	spending, err := wallet.GetSpendingForWindow(db.DB)
-	if err != nil {
-		logging.Error(err).Msg("Failed to get spending for window")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve spending data"})
-		return
-	}
-
-	response := spendingLimitsResponse{}
-	response.Daily.Limit = wallet.DailyLimit
-	response.Daily.Spent = spending.DailySpent
-	response.Weekly.Limit = wallet.WeeklyLimit
-	response.Weekly.Spent = spending.WeeklySpent
-	response.Monthly.Limit = wallet.MonthlyLimit
-	response.Monthly.Spent = spending.MonthlySpent
-
-	c.JSON(http.StatusOK, gin.H{
-		"limits":       response,
-		"window_start": wallet.LimitWindowStart,
-	})
-}
-
-type updateLimitsRequest struct {
-	Daily   *float64 `json:"daily,omitempty"`
-	Weekly  *float64 `json:"weekly,omitempty"`
-	Monthly *float64 `json:"monthly,omitempty"`
-}
-
-// updateSpendingLimits allows users to set their own spending limits
-// Users can only set limits equal to or lower than system maximums
-func updateSpendingLimits(c *gin.Context) {
-	userUUID, ok := GetUserID(c)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
-		return
-	}
-
-	var req updateLimitsRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	// Get user's trust tier for max limits
-	var user models.User
-	if err := db.DB.Select("trust_tier").Where("id = ?", userUUID).First(&user).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
-		return
-	}
-
-	maxLimits := models.GetDefaultLimits(user.TrustTier)
-
-	// Validate and apply limits
-	updates := map[string]interface{}{}
-
-	if req.Daily != nil {
-		if *req.Daily <= 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Daily limit must be greater than 0; omit the field to leave it unchanged"})
-			return
-		}
-		if *req.Daily > maxLimits.Daily {
-			c.JSON(http.StatusForbidden, gin.H{
-				"error":       "Daily limit exceeds maximum allowed",
-				"requested":   *req.Daily,
-				"max_allowed": maxLimits.Daily,
-			})
-			return
-		}
-		updates["daily_limit"] = *req.Daily
-	}
-
-	if req.Weekly != nil {
-		if *req.Weekly <= 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Weekly limit must be greater than 0; omit the field to leave it unchanged"})
-			return
-		}
-		if *req.Weekly > maxLimits.Weekly {
-			c.JSON(http.StatusForbidden, gin.H{
-				"error":       "Weekly limit exceeds maximum allowed",
-				"requested":   *req.Weekly,
-				"max_allowed": maxLimits.Weekly,
-			})
-			return
-		}
-		updates["weekly_limit"] = *req.Weekly
-	}
-
-	if req.Monthly != nil {
-		if *req.Monthly <= 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Monthly limit must be greater than 0; omit the field to leave it unchanged"})
-			return
-		}
-		if *req.Monthly > maxLimits.Monthly {
-			c.JSON(http.StatusForbidden, gin.H{
-				"error":       "Monthly limit exceeds maximum allowed",
-				"requested":   *req.Monthly,
-				"max_allowed": maxLimits.Monthly,
-			})
-			return
-		}
-		updates["monthly_limit"] = *req.Monthly
-	}
-
-	if len(updates) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No limits provided"})
-		return
-	}
-
-	if err := db.DB.Model(&models.Wallet{}).Where("user_id = ?", userUUID).Updates(updates).Error; err != nil {
-		logging.Error(err).Msg("Failed to update spending limits")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update limits"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"status":  "success",
-		"message": "Spending limits updated",
-		"limits":  updates,
-	})
-}
-
-// resetSpendingLimits resets limits to default based on trust tier
-func resetSpendingLimits(c *gin.Context) {
-	userUUID, ok := GetUserID(c)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
-		return
-	}
-
-	var user models.User
-	if err := db.DB.Select("trust_tier").Where("id = ?", userUUID).First(&user).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
-		return
-	}
-
-	defaults := models.GetDefaultLimits(user.TrustTier)
-
-	updates := map[string]interface{}{
-		"daily_limit":   defaults.Daily,
-		"weekly_limit":  defaults.Weekly,
-		"monthly_limit": defaults.Monthly,
-	}
-
-	if err := db.DB.Model(&models.Wallet{}).Where("user_id = ?", userUUID).Updates(updates).Error; err != nil {
-		logging.Error(err).Msg("Failed to reset spending limits")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reset limits"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"status":  "success",
-		"message": "Spending limits reset to defaults",
-		"limits":  defaults,
-	})
 }

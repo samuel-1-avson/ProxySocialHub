@@ -202,29 +202,28 @@ func ApplyCompensationOutboxEntry(entry *models.CompensationOutbox) error {
 
 func applyWithdrawalCompensation(entry *models.CompensationOutbox) error {
 	return db.DB.Transaction(func(tx *gorm.DB) error {
+		// Lock FIRST, then check (P2-F): check-then-lock raced - two
+		// concurrent applies both saw "not applied" and both credited.
+		var wallet models.Wallet
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("user_id = ?", entry.UserID).First(&wallet).Error; err != nil {
+			return err
+		}
 		var existing int64
 		if err := tx.Model(&models.WalletLedgerEntry{}).
-			Where("reference_id = ? AND type = ?", entry.ReferenceID, "withdrawal_failed_refund").
+			Where("reference_id = ? AND type = ?", entry.ReferenceID, models.LedgerKindWithdrawalFailedRefund).
 			Count(&existing).Error; err != nil {
 			return err
 		}
 		if existing > 0 {
 			return nil // already applied
 		}
-
-		var wallet models.Wallet
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("user_id = ?", entry.UserID).First(&wallet).Error; err != nil {
-			return err
-		}
-		if err := models.CreditWalletLocked(tx, &wallet, entry.AmountSOL, "withdrawal_failed_refund", entry.ReferenceID,
+		if err := models.CreditWalletLocked(tx, &wallet, entry.AmountSOL, models.LedgerKindWithdrawalFailedRefund, entry.ReferenceID,
 			"Compensating refund (outbox retry) — balance restored after on-chain withdraw failure"); err != nil {
 			return err
 		}
-		_ = tx.Where("wallet_id = ? AND user_id = ? AND type = ? AND reference = ?",
-			wallet.ID, entry.UserID, models.SpendingWithdraw, entry.ReferenceID).
-			Delete(&models.SpendingRecord{}).Error
-		return nil
+		// W-33: compensating reversal, never DELETE spending history.
+		return models.ReverseSpendingForReference(tx, wallet.ID, entry.UserID, models.SpendingWithdraw, entry.ReferenceID)
 	})
 }
 
@@ -403,16 +402,6 @@ func applyP2PCompensation(entry *models.CompensationOutbox) error {
 	recipientID := *entry.CounterpartyUserID
 
 	return db.DB.Transaction(func(tx *gorm.DB) error {
-		var existing int64
-		if err := tx.Model(&models.WalletLedgerEntry{}).
-			Where("reference_id = ? AND type = ?", entry.ReferenceID, "p2p_failed_refund").
-			Count(&existing).Error; err != nil {
-			return err
-		}
-		if existing > 0 {
-			return nil
-		}
-
 		var firstID, secondID uuid.UUID
 		if senderID.String() < recipientID.String() {
 			firstID, secondID = senderID, recipientID
@@ -428,6 +417,17 @@ func applyP2PCompensation(entry *models.CompensationOutbox) error {
 			return err
 		}
 
+		// Existence check AFTER both wallet locks (P2-F race fix).
+		var existing int64
+		if err := tx.Model(&models.WalletLedgerEntry{}).
+			Where("reference_id = ? AND type = ?", entry.ReferenceID, models.LedgerKindP2PFailedRefund).
+			Count(&existing).Error; err != nil {
+			return err
+		}
+		if existing > 0 {
+			return nil
+		}
+
 		var senderWallet, recipientWallet *models.Wallet
 		if firstID == senderID {
 			senderWallet, recipientWallet = &first, &second
@@ -440,17 +440,17 @@ func applyP2PCompensation(entry *models.CompensationOutbox) error {
 		skip := models.LedgerOpts{JournalKind: "skip"}
 		senderDesc := "Compensating P2P refund (outbox retry) — sender restored"
 		recipientDesc := "Compensating P2P debit (outbox retry) — recipient corrected"
-		if err := models.CreditWalletLockedOpts(tx, senderWallet, entry.AmountSOL, "p2p_failed_refund",
+		if err := models.CreditWalletLockedOpts(tx, senderWallet, entry.AmountSOL, models.LedgerKindP2PFailedRefund,
 			entry.ReferenceID, senderDesc, skip); err != nil {
 			return err
 		}
-		if err := models.DebitWalletLockedOpts(tx, recipientWallet, entry.AmountSOL, "p2p_failed_debit",
+		if err := models.DebitWalletLockedOpts(tx, recipientWallet, entry.AmountSOL, models.LedgerKindP2PFailedDebit,
 			entry.ReferenceID, recipientDesc, skip); err != nil {
 			return err
 		}
 		delta := int64(models.SOLToLamports(entry.AmountSOL))
 		sID, rID := senderWallet.ID, recipientWallet.ID
-		return models.PostBalancedJournal(tx, "p2p_failed_refund", entry.ReferenceID, senderDesc, []models.JournalLineSpec{
+		return models.PostBalancedJournal(tx, models.LedgerKindP2PFailedRefund, entry.ReferenceID, senderDesc, []models.JournalLineSpec{
 			{AccountCode: models.AccountUserWalletLiability, WalletID: &rID, AmountLamports: delta},
 			{AccountCode: models.AccountUserWalletLiability, WalletID: &sID, AmountLamports: -delta},
 		})

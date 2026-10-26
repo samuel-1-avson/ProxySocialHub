@@ -77,6 +77,9 @@ func ValidateSecurityPosture() error {
 		problems = append(problems, err.Error())
 	}
 
+	// W-28: signing trust (multisig + KMS + no plaintext keys in prod).
+	problems = append(problems, validateSigningPosture()...)
+
 	for _, key := range boolPostureFlags {
 		if _, _, err := StrictEnvBool(key); err != nil {
 			problems = append(problems, err.Error())
@@ -151,6 +154,9 @@ func EffectivePosture() map[string]interface{} {
 		"journal_as_sot":                 JournalAsSoTEnabled(),
 		"admin_dispute_force_resolve":    AllowAdminDisputeForceResolve(),
 		"emergency_sol_price_configured": strings.TrimSpace(os.Getenv("EMERGENCY_SOL_PRICE_USD")) != "",
+		"multisig_settle_enabled":        func() bool { v, _, _ := StrictEnvBool("PROXYHUB_MULTISIG_SETTLE_ENABLED"); return v }(),
+		"kms_signer_configured":          KMSSignerConfigured(),
+		"raw_env_private_key_present":    strings.TrimSpace(os.Getenv("ORACLE_PRIVATE_KEY")) != "",
 	}
 }
 

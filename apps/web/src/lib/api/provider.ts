@@ -444,6 +444,39 @@ export interface EarningsSummary {
     total_bandwidth_gb: number;
     last_30_days_sol: number;
     last_7_days_sol: number;
+    /** W-10 custodial earnings payable now (claimable). */
+    payable_lamports?: number;
+    payable_sol?: number;
+    auto_payout_enabled?: boolean;
+    auto_payout_threshold_lamports?: number;
+}
+
+// ============ Custodial earnings payout (W-10) ============
+
+export interface PayoutSettings {
+    auto_payout_enabled: boolean;
+    auto_payout_threshold_lamports: number;
+    payable_lamports: number;
+    payable_sol?: number;
+}
+
+/** Manual claim of custodial earnings-payable (0 lamports = claim all). */
+export function claimCustodialEarnings(amountLamports = 0, idempotencyKey?: string) {
+    return apiPost<{ status: string; payout_id?: string; amount_lamports: number; amount_sol: number }>(
+        '/v1/provider/earnings/claim',
+        { amount_lamports: amountLamports, idempotency_key: idempotencyKey }
+    );
+}
+
+export function getPayoutSettings() {
+    return apiGet<PayoutSettings>('/v1/provider/earnings/payout-settings');
+}
+
+export function updatePayoutSettings(body: {
+    auto_payout_enabled?: boolean;
+    auto_payout_threshold_lamports?: number;
+}) {
+    return apiPut<PayoutSettings>('/v1/provider/earnings/payout-settings', body);
 }
 
 /** Overall earnings summary for the provider dashboard. */

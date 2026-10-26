@@ -23,7 +23,7 @@ type SpendingRecord struct {
 	ID        uuid.UUID    `gorm:"type:uuid;primary_key" json:"id"`
 	UserID    uuid.UUID    `gorm:"type:uuid;not null;index:idx_spending_user_time" json:"user_id"`
 	WalletID  uuid.UUID    `gorm:"type:uuid;not null" json:"wallet_id"`
-	Amount    float64      `gorm:"type:numeric(20,9);not null" json:"amount"` // Always positive (spent amount)
+	Amount    float64      `gorm:"type:numeric(20,9);not null" json:"amount"` // Positive = spend; negative = compensating reversal (W-33, never DELETE)
 	Type      SpendingType `gorm:"type:varchar(20);not null" json:"type"`
 	Reference string       `gorm:"type:varchar(128)" json:"reference"` // Related tx/ledger ID
 	CreatedAt time.Time    `gorm:"index:idx_spending_user_time" json:"created_at"`
@@ -249,4 +249,36 @@ func (w *Wallet) InitializeWithDefaultLimits(trustTier TrustTier) {
 	w.MonthlyLimit = limits.Monthly
 	w.LimitWindowStart = time.Now()
 	w.LimitsEnabled = true
+}
+
+// ReverseSpendingForReference appends a compensating negative spending
+// record for each original spend with the given reference (W-33).
+// History is never deleted: window sums net to zero for the reversed
+// spend while the audit trail stays complete. Idempotent: a second
+// call finds the reversal and adds nothing. Must be called with the
+// wallet row locked (same tx as the refund credit).
+func ReverseSpendingForReference(tx *gorm.DB, walletID, userID uuid.UUID, txType SpendingType, reference string) error {
+	var originals []SpendingRecord
+	if err := tx.Where("wallet_id = ? AND user_id = ? AND type = ? AND reference = ? AND amount > 0",
+		walletID, userID, txType, reference).Find(&originals).Error; err != nil {
+		return err
+	}
+	reversalRef := reference + ":reversal"
+	var existing int64
+	if err := tx.Model(&SpendingRecord{}).
+		Where("wallet_id = ? AND reference = ?", walletID, reversalRef).Count(&existing).Error; err != nil {
+		return err
+	}
+	if existing > 0 {
+		return nil
+	}
+	for _, rec := range originals {
+		if err := tx.Create(&SpendingRecord{
+			UserID: userID, WalletID: walletID, Amount: -rec.Amount,
+			Type: txType, Reference: reversalRef,
+		}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }

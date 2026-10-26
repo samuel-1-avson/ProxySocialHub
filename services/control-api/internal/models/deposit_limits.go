@@ -16,7 +16,7 @@ const (
 )
 
 // DepositLedgerTypes are ledger entry types that count toward deposit caps.
-var DepositLedgerTypes = []string{"deposit", "deposit_auto"}
+var DepositLedgerTypes = []string{LedgerKindDeposit, LedgerKindDepositAuto}
 
 func envFloatPositive(key string, fallback float64) float64 {
 	raw := strings.TrimSpace(os.Getenv(key))
@@ -48,4 +48,59 @@ func SumDepositsSince(tx *gorm.DB, walletID uuid.UUID, since time.Time) (float64
 		Select("COALESCE(SUM(amount), 0)").
 		Scan(&total).Error
 	return total, err
+}
+
+// DepositCapsForTier returns per-tier deposit ceilings (W-34), never
+// above the global env caps. KYC-approved users get one tier lift
+// (new+KYC -> verified caps). Deposit ceilings sit above the matching
+// spending ceilings so users can always fund what they may spend.
+func DepositCapsForTier(tier TrustTier, kyc KYCStatus) (single, daily float64) {
+	single, daily = MaxSingleDepositSOL(), MaxDailyDepositSOL()
+	var tSingle, tDaily float64
+	switch tier {
+	case TrustTierPremium:
+		return single, daily
+	case TrustTierVerified:
+		tSingle, tDaily = 250, 500
+	default: // new / unknown
+		tSingle, tDaily = 25, 50
+		if kyc == KYCStatusApproved {
+			tSingle, tDaily = 250, 500
+		}
+	}
+	if tSingle < single {
+		single = tSingle
+	}
+	if tDaily < daily {
+		daily = tDaily
+	}
+	return single, daily
+}
+
+// DepositCapsForUser resolves tier+KYC for a user. On lookup failure it
+// fails closed to the lowest (new) tier caps.
+func DepositCapsForUser(tx *gorm.DB, userID uuid.UUID) (single, daily float64) {
+	var user User
+	if err := tx.Select("trust_tier, kyc_status").Where("id = ?", userID).First(&user).Error; err != nil {
+		return DepositCapsForTier(TrustTierNew, KYCStatusNone)
+	}
+	return DepositCapsForTier(user.TrustTier, user.KYCStatus)
+}
+
+// AddressBlocked reports whether a Solana address is on the operator
+// deny-list (W-34 screening). Config: BLOCKED_SOLANA_ADDRESSES
+// (comma-separated base58). This is a real config-driven hook: an
+// external screening provider can replace the env source behind this
+// function without touching call sites.
+func AddressBlocked(address string) bool {
+	address = strings.TrimSpace(address)
+	if address == "" {
+		return false
+	}
+	for _, a := range strings.Split(os.Getenv("BLOCKED_SOLANA_ADDRESSES"), ",") {
+		if strings.TrimSpace(a) == address {
+			return true
+		}
+	}
+	return false
 }

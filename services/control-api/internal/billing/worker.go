@@ -681,7 +681,7 @@ func creditProviderWallet(tx *gorm.DB, session *models.Session, totalBytes int64
 
 	ref := session.ID.String() + ":provider"
 	desc := fmt.Sprintf("Bandwidth earnings: %d bytes / %.6f SOL", totalBytes, costSOL)
-	if err := models.CreditWalletLockedLamports(tx, &providerWallet, costLamports, "provider_earning", ref, desc, models.LedgerOpts{JournalKind: "skip"}); err != nil {
+	if err := models.CreditWalletLockedLamports(tx, &providerWallet, costLamports, models.LedgerKindProviderEarning, ref, desc, models.LedgerOpts{JournalKind: "skip"}); err != nil {
 		return false, uuid.Nil, fmt.Errorf("billing: failed to credit provider wallet for %s: %w", providerID, err)
 	}
 

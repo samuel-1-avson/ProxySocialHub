@@ -100,115 +100,28 @@ func TestGetWallet_NotFound(t *testing.T) {
 	}
 }
 
-func TestDeposit_FiatDisabled(t *testing.T) {
+// P2-E: the fiat handlers were deleted as dead code (never routed in
+// production). The contract now: no fiat deposit/withdraw routes exist
+// on the wallet router at all.
+func TestFiatRoutesAbsent_P2(t *testing.T) {
 	testutil.SetupTestDB(t)
-	testutil.CleanupTestData(t, "users", "wallets", "wallet_ledger_entries")
-
 	user, _ := createWalletTestUser(t)
 
 	r := setupTestRouter()
 	r.Use(authMiddlewareMock(user.ID.String(), "buyer"))
-	r.POST("/wallet/deposit", initiateDeposit)
+	RegisterWalletRoutes(r.Group("/v1"))
 
-	body := map[string]interface{}{
-		"amount": 50.0,
-		"phone":  "0241234567",
-	}
-	jsonBody, _ := json.Marshal(body)
-
-	req := httptest.NewRequest("POST", "/wallet/deposit", bytes.NewBuffer(jsonBody))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-
-	r.ServeHTTP(w, req)
-
-	// SOL-only: Fiat deposits return 403 Forbidden
-	if w.Code != http.StatusForbidden {
-		t.Errorf("Expected status %d, got %d. Body: %s", http.StatusForbidden, w.Code, w.Body.String())
+	for _, path := range []string{"/v1/wallet/deposit", "/v1/wallet/withdraw", "/v1/wallet/deposit/verify"} {
+		req := httptest.NewRequest(http.MethodPost, path, bytes.NewBufferString("{}"))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusNotFound {
+			t.Errorf("%s: want 404 (fiat removed), got %d body %s", path, w.Code, w.Body.String())
+		}
 	}
 }
 
-func TestDeposit_InvalidAmount_ReturnsForbidden(t *testing.T) {
-	testutil.SetupTestDB(t)
-	testutil.CleanupTestData(t, "users", "wallets")
-
-	user, _ := createWalletTestUser(t)
-
-	r := setupTestRouter()
-	r.Use(authMiddlewareMock(user.ID.String(), "buyer"))
-	r.POST("/wallet/deposit", initiateDeposit)
-
-	body := map[string]interface{}{
-		"amount": -10.0, // Invalid
-		"phone":  "0241234567",
-	}
-	jsonBody, _ := json.Marshal(body)
-
-	req := httptest.NewRequest("POST", "/wallet/deposit", bytes.NewBuffer(jsonBody))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-
-	r.ServeHTTP(w, req)
-
-	// SOL-only: All fiat deposits return 403 Forbidden regardless of amount
-	if w.Code != http.StatusForbidden {
-		t.Errorf("Expected status %d, got %d", http.StatusForbidden, w.Code)
-	}
-}
-
-func TestWithdraw_FiatDisabled(t *testing.T) {
-	testutil.SetupTestDB(t)
-	testutil.CleanupTestData(t, "users", "wallets")
-
-	user, _ := createWalletTestUser(t)
-
-	r := setupTestRouter()
-	r.Use(authMiddlewareMock(user.ID.String(), "buyer"))
-	r.POST("/wallet/withdraw", initiateWithdrawal)
-
-	body := map[string]interface{}{
-		"amount": 25.0,
-	}
-	jsonBody, _ := json.Marshal(body)
-
-	req := httptest.NewRequest("POST", "/wallet/withdraw", bytes.NewBuffer(jsonBody))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-
-	r.ServeHTTP(w, req)
-
-	// SOL-only: Fiat withdrawals return 400 Bad Request with instructions to use SOL
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("Expected status %d, got %d. Body: %s", http.StatusBadRequest, w.Code, w.Body.String())
-	}
-}
-
-func TestWithdraw_InsufficientBalance_ReturnsBadRequest(t *testing.T) {
-	testutil.SetupTestDB(t)
-	testutil.CleanupTestData(t, "users", "wallets")
-
-	user, _ := createWalletTestUser(t)
-
-	r := setupTestRouter()
-	r.Use(authMiddlewareMock(user.ID.String(), "buyer"))
-	r.POST("/wallet/withdraw", initiateWithdrawal)
-
-	body := map[string]interface{}{
-		"amount": 500.0, // More than balance
-	}
-	jsonBody, _ := json.Marshal(body)
-
-	req := httptest.NewRequest("POST", "/wallet/withdraw", bytes.NewBuffer(jsonBody))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-
-	r.ServeHTTP(w, req)
-
-	// SOL-only: All fiat withdrawals return 400 with instructions to use /withdraw/sol
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, w.Code)
-	}
-}
 
 func TestWalletLedgerEntry(t *testing.T) {
 	testutil.SetupTestDB(t)

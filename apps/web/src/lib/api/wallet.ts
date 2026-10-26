@@ -3,13 +3,19 @@
  * All wallet-related API calls and types
  */
 
-import { apiGet, apiPost, apiPut, apiDeleteWithBody } from './client';
+import { apiGet, apiPost, apiDeleteWithBody, ApiError } from './client';
 
 // ============ Types ============
 
 export interface Wallet {
     id: string;
     balance_sol: number;
+    balance_lamports?: number;
+    earnings_payable_lamports?: number;
+    earnings_payable_sol?: number;
+    auto_payout_enabled?: boolean;
+    auto_payout_threshold_lamports?: number;
+    transactions_next_cursor?: string;
     on_chain_sol?: number;
     available_sol?: number;
     solana_network?: string;
@@ -21,7 +27,6 @@ export interface Wallet {
 
 export interface WithdrawalSecurity {
     primary_withdrawal_address?: string | null;
-    withdrawal_whitelist: string[];
     withdrawal_cooldown_active: boolean;
     withdrawal_cooldown_until?: string | null;
     withdrawal_address_changed_at?: string | null;
@@ -40,6 +45,7 @@ export interface WalletTransaction {
     id: string;
     wallet_id?: string;
     amount: number;
+    amount_lamports?: number;
     balance_after?: number;
     type: 'deposit' | 'withdrawal' | 'purchase' | 'earning' | 'refund' | string;
     description: string;
@@ -48,18 +54,6 @@ export interface WalletTransaction {
     solscan_url?: string;
     status?: 'pending' | 'completed' | 'failed' | string;
     created_at: string;
-}
-
-export interface DepositRequest {
-    amount: number;
-    email: string;
-}
-
-export interface DepositResponse {
-    status: string;
-    reference: string;
-    message: string;
-    authorization_url: string;
 }
 
 export interface WithdrawRequest {
@@ -104,48 +98,61 @@ export interface CryptoDepositResponse {
 /**
  * Get user's wallet
  */
+/** Explicit wallet provisioning (W-21: GET /wallet no longer creates). */
+export async function initWallet(): Promise<void> {
+    await apiPost('/v1/wallet/init');
+}
+
 export async function getWallet() {
-    const data = await apiGet<{ wallet: Wallet }>('/v1/wallet');
-    return data.wallet;
+    try {
+        const data = await apiGet<{ wallet: Wallet }>('/v1/wallet');
+        return data.wallet;
+    } catch (err) {
+        if (err instanceof ApiError && err.code === 'wallet_not_initialized') {
+            await initWallet();
+            const data = await apiGet<{ wallet: Wallet }>('/v1/wallet');
+            return data.wallet;
+        }
+        throw err;
+    }
+}
+
+/** Keyset-paginated wallet history (W-21 server-side pagination). */
+export async function getWalletTransactionsPage(cursor?: string, limit = 50) {
+    const data = await apiGet<{ transactions: WalletTransaction[]; next_cursor: string }>(
+        `/v1/wallet/transactions?limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`
+    );
+    return { transactions: data.transactions ?? [], nextCursor: data.next_cursor ?? '' };
 }
 
 /**
  * Get wallet transactions
  */
 export async function getTransactions(limit = 20, offset = 0) {
-    const data = await apiGet<{ wallet: Wallet }>('/v1/wallet');
-    const all = data.wallet.transactions ?? [];
+    // W-21: server-side keyset pagination. offset is emulated by walking
+    // cursors (history is no longer truncated at the first page).
+    let cursor: string | undefined;
+    let remaining = offset;
+    while (remaining > 0) {
+        const page = await getWalletTransactionsPage(cursor, Math.min(remaining, 200));
+        if (page.transactions.length === 0 || !page.nextCursor) {
+            return { transactions: [], total: offset };
+        }
+        remaining -= page.transactions.length;
+        cursor = page.nextCursor;
+    }
+    const page = await getWalletTransactionsPage(cursor, limit);
     return {
-        transactions: all.slice(offset, offset + limit),
-        total: all.length,
+        transactions: page.transactions,
+        total: offset + page.transactions.length + (page.nextCursor ? limit : 0),
     };
 }
 
-/**
- * Initiate a deposit via Paystack (Admin/Legacy only)
- * @deprecated Use depositCrypto for user deposits
- */
-export function depositWallet(amount: number, email: string) {
-    void amount;
-    void email;
-    throw new Error('Fiat deposits are disabled. Use depositCrypto with /v1/wallet/deposit/crypto.');
-}
-
-/**
- * Verify a fiat deposit (Admin/Legacy only)
- * @deprecated
- */
-export function verifyDeposit(reference: string) {
-    void reference;
-    throw new Error('Fiat deposit verification is disabled.');
-}
-
-/**
- * Initiate a withdrawal (Mobile Money - Providers only)
- */
 export interface WithdrawSolOptions {
     nonce?: string;
     signature?: string;
+    /** W-13 server-challenge nonce from requestWithdrawChallenge. */
+    challengeNonce?: string;
     /** P0-9: retries with the same key replay the first result instead of debiting again. */
     idempotencyKey?: string;
 }
@@ -165,7 +172,14 @@ export async function withdrawWallet(
         solscan_url?: string;
         new_balance: number;
         message?: string;
-    }>('/v1/wallet/withdraw/sol', { amount, nonce: opts?.nonce, signature: opts?.signature, idempotency_key: opts?.idempotencyKey });
+    }>('/v1/wallet/withdraw/sol', {
+        amount,
+        amount_lamports: Math.round(amount * 1e9),
+        nonce: opts?.nonce,
+        signature: opts?.signature,
+        challenge_nonce: opts?.challengeNonce,
+        idempotency_key: opts?.idempotencyKey,
+    });
     return {
         status: data.status,
         reference: data.reference || data.tx_hash || '',
@@ -211,27 +225,38 @@ export function unlinkWallet(chain: 'solana' | 'bittensor' = 'solana') {
 export function depositCrypto(amount: number, txHash: string, chain: 'solana' = 'solana') {
     return apiPost<CryptoDepositResponse>('/v1/wallet/deposit/crypto', {
         amount,
+        amount_lamports: Math.round(amount * 1e9),
         tx_hash: txHash,
         chain,
         currency: 'SOL'
     });
 }
 
+/** W-13: server-issued withdrawal challenge to sign verbatim. */
+export function requestWithdrawChallenge(amountLamports: number) {
+    return apiPost<{
+        message: string;
+        nonce: string;
+        destination: string;
+        amount_lamports: number;
+        expires_in_secs: number;
+    }>('/v1/wallet/withdraw/challenge', { amount_lamports: amountLamports });
+}
+
 /**
  * Transfer funds between internal wallets (SOL only)
  */
 export function transferFunds(recipient: string, amount: number, idempotencyKey?: string) {
-    return apiPost<{ status: string; message: string }>('/v1/wallet/transfer', { recipient, amount, idempotency_key: idempotencyKey });
+    return apiPost<{ status: string; message: string }>('/v1/wallet/transfer', {
+        recipient,
+        amount,
+        amount_lamports: Math.round(amount * 1e9),
+        idempotency_key: idempotencyKey,
+    });
 }
 
 export function getWithdrawalSecurity() {
     return apiGet<WithdrawalSecurity>('/v1/wallet/withdrawal-security');
-}
-
-export function updateWithdrawalWhitelist(addresses: string[]) {
-    return apiPut<{ withdrawal_whitelist: string[]; message: string }>('/v1/wallet/withdrawal-security/whitelist', {
-        addresses,
-    });
 }
 
 export function getMySecurityFlags() {
@@ -245,3 +270,21 @@ export const walletKeys = {
     detail: () => [...walletKeys.all, 'detail'] as const,
     transactions: (page?: number) => [...walletKeys.all, 'transactions', page] as const,
 };
+
+export interface WithdrawalPayout {
+    id: string;
+    reference: string;
+    destination: string;
+    amount_sol: number;
+    status: 'requested' | 'funding' | 'paying' | 'submitted' | 'completed' | 'failed' | 'ops_required' | string;
+    attempts: number;
+    tx_hash?: string;
+    created_at: string;
+    updated_at: string;
+}
+
+// W-35: queued-withdrawal status polling.
+export async function getWithdrawals(limit = 20): Promise<WithdrawalPayout[]> {
+    const data = await apiGet<{ withdrawals: WithdrawalPayout[] }>(`/v1/wallet/withdrawals?limit=${limit}`);
+    return data.withdrawals ?? [];
+}

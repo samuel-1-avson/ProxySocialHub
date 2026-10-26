@@ -16,7 +16,6 @@ const (
 	TransactionPayout  = "payout"
 	TransactionRefund  = "refund"
 	TransactionEarning = "earning"
-	TransactionSwap    = "swap"
 )
 
 // Wallet represents a user's SOL-only wallet
@@ -66,8 +65,11 @@ type WalletLedgerEntry struct {
 	CreatedAt            time.Time `json:"created_at"`
 }
 
-// WithdrawalDestination returns the on-chain address for payouts and enforces whitelist rules.
-// When withdrawal_whitelist is non-empty, the destination must appear in that list.
+// WithdrawalDestination returns the on-chain address for payouts.
+// W-34: the withdrawal whitelist was removed - the destination is
+// pinned to the proven linked wallet (enforced below), which made the
+// separate whitelist redundant. The withdrawal_whitelist column is
+// retained for data compatibility and no longer consulted.
 func (w *Wallet) WithdrawalDestination(linkedAddress *string) (string, error) {
 	var dest string
 	if w.PrimaryWithdrawalAddress != nil && *w.PrimaryWithdrawalAddress != "" {
@@ -76,19 +78,6 @@ func (w *Wallet) WithdrawalDestination(linkedAddress *string) (string, error) {
 		dest = *linkedAddress
 	} else {
 		return "", errors.New("no withdrawal destination configured")
-	}
-
-	if len(w.WithdrawalWhitelist) > 0 {
-		allowed := false
-		for _, addr := range w.WithdrawalWhitelist {
-			if addr == dest {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			return "", fmt.Errorf("withdrawal address is not on your whitelist")
-		}
 	}
 
 	if linkedAddress == nil || *linkedAddress == "" {

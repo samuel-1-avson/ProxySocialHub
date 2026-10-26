@@ -191,7 +191,7 @@ func CreditReferralReward(rewardID uuid.UUID) {
 		if err != nil {
 			return err
 		}
-		if err := models.CreditWalletLocked(tx, wallet, locked.RewardAmount, "referral_reward",
+		if err := models.CreditWalletLocked(tx, wallet, locked.RewardAmount, models.LedgerKindReferralReward,
 			locked.ID.String(), "Referral reward"); err != nil {
 			return err
 		}

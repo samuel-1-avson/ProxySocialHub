@@ -165,7 +165,7 @@ func stakeNode(c *gin.Context) {
 		})
 		return
 	}
-	if err := models.DebitWalletLockedOpts(tx, lockedWallet, req.AmountSOL, "stake", txHash,
+	if err := models.DebitWalletLockedOpts(tx, lockedWallet, req.AmountSOL, models.LedgerKindStake, txHash,
 		"Node stake (DB mirror of on-chain stake_provider)",
 		models.LedgerOpts{TxHash: txHash, JournalKind: "stake"},
 	); err != nil {
@@ -327,7 +327,7 @@ func unstakeNode(c *gin.Context) {
 		})
 		return
 	}
-	if err := models.CreditWalletLockedOpts(tx, lockedWallet, returnAmount, "unstake", txHash,
+	if err := models.CreditWalletLockedOpts(tx, lockedWallet, returnAmount, models.LedgerKindUnstake, txHash,
 		"Node unstake return (DB mirror of on-chain unstake_provider)",
 		models.LedgerOpts{TxHash: txHash, JournalKind: "unstake"},
 	); err != nil {

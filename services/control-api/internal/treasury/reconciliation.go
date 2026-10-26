@@ -48,6 +48,9 @@ type ReconciliationReport struct {
 	EscrowBackingLamports int64                `json:"escrow_backing_lamports,omitempty"`
 	DeficitStreak        int                   `json:"deficit_streak,omitempty"`
 	Frozen               bool                  `json:"frozen,omitempty"`
+	// P2-G: incremental per-wallet verification + queue SLO stats.
+	Incremental          *IncrementalVerification `json:"incremental,omitempty"`
+	Queues               []QueueSLOStat           `json:"queues,omitempty"`
 }
 
 // UserBalanceSummary represents a user's balance for reconciliation (SOL-only)
@@ -280,6 +283,47 @@ func (rs *ReconciliationService) RunReconciliation(ctx context.Context) error {
 
 	// 5. Check for additional issues
 	rs.checkAdditionalIssues(report)
+
+	// 6. P2-G incremental per-wallet verification since the watermark.
+	// Failure to verify is an issue, never a silent skip; the
+	// watermark advances only on a fully successful check.
+	if wm, werr := LoadReconWatermark(); werr != nil {
+		report.Issues = append(report.Issues, ReconciliationIssue{
+			Type: "RECON_WATERMARK_ERROR", Severity: "WARNING",
+			Description: fmt.Sprintf("failed to load reconciliation watermark: %v", werr),
+		})
+	} else if inc, verr := VerifyChangedWallets(wm); verr != nil {
+		report.Issues = append(report.Issues, ReconciliationIssue{
+			Type: "RECON_INCREMENTAL_ERROR", Severity: "CRITICAL",
+			Description: fmt.Sprintf("incremental wallet verification failed: %v", verr),
+		})
+	} else {
+		report.Incremental = inc
+		for _, m := range inc.Mismatches {
+			report.Issues = append(report.Issues, ReconciliationIssue{
+				Type: "WALLET_LEDGER_MISMATCH", Severity: "CRITICAL",
+				Description: fmt.Sprintf("wallet %s balance %d != ledger %d (diff %d lamports)",
+					m.WalletID, m.BalanceLamports, m.LedgerLamports, m.DiffLamports),
+			})
+		}
+		if len(inc.Mismatches) == 0 {
+			if serr := SaveReconWatermark(report.Timestamp); serr != nil {
+				logging.Error(serr).Msg("failed to advance reconciliation watermark")
+			}
+		}
+	}
+
+	// 7. P2-G queue SLO stats for every money queue.
+	report.Queues = ComputeQueueSLOStats()
+	for _, q := range report.Queues {
+		if q.DeadLetter > 0 {
+			report.Issues = append(report.Issues, ReconciliationIssue{
+				Type: "QUEUE_DEAD_LETTER", Severity: "WARNING",
+				Description: fmt.Sprintf("queue %s has %d dead-letter rows (depth %d, oldest %ds)",
+					q.Queue, q.DeadLetter, q.Depth, q.OldestAgeSeconds),
+			})
+		}
+	}
 
 	return nil
 }

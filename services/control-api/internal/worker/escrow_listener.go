@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"os"
 	"time"
 
 	"github.com/google/uuid"
@@ -65,7 +64,7 @@ func handleEscrowInitialized(event solana.EscrowEvent) {
 			break
 		}
 		if attempt < maxAttempts {
-			log.Printf("[Worker] EscrowInit PDA %s: order not found (attempt %d/%d), retrying in %sÃ¢â‚¬Â¦",
+			log.Printf("[Worker] EscrowInit PDA %s: order not found (attempt %d/%d), retrying in %s",
 				event.EscrowPDA, attempt, maxAttempts, retryDelay)
 			time.Sleep(retryDelay)
 		}
@@ -75,7 +74,7 @@ func handleEscrowInitialized(event solana.EscrowEvent) {
 		logging.Error(fmt.Errorf("escrow init event lost after %d attempts", maxAttempts)).
 			Str("escrow_pda", event.EscrowPDA).
 			Str("tx_signature", event.TxSignature).
-			Msg("CRITICAL: escrow initialized on-chain but no matching order found Ã¢â‚¬â€ manual reconciliation required")
+			Msg("CRITICAL: escrow initialized on-chain but no matching order found - manual reconciliation required")
 		recordEscrowReconciliation(escrowReconciliationRecord{
 			Source:      "escrow_listener",
 			EventType:   event.Type,
@@ -174,8 +173,6 @@ func handleEscrowSettled(event solana.EscrowEvent) {
 	})
 }
 
-var treasuryAddress = os.Getenv("SOLANA_TREASURY_ADDRESS")
-
 func handleNativeDeposit(event solana.EscrowEvent) {
 	// 0. Verify deposit was sent to an allowed destination (legacy treasury and/or vault).
 	destKind := solana.ResolveDepositDestination(event.Seller)
@@ -183,9 +180,19 @@ func handleNativeDeposit(event solana.EscrowEvent) {
 		logging.Warn().
 			Str("sender", event.Buyer).
 			Str("recipient", event.Seller).
-			Str("legacy_treasury", treasuryAddress).
+			Str("legacy_treasury", solana.GetTreasuryAddress()).
 			Str("vault", solana.GetDepositVaultAddress()).
 			Msg("Auto-Deposit ignored: recipient is not an allowed deposit destination")
+		return
+	}
+
+	// W-34 screening: never auto-credit a deny-listed sender. Funds
+	// remain in the treasury for ops review.
+	if models.AddressBlocked(event.Buyer) {
+		logging.Error(nil).
+			Str("sender", event.Buyer).
+			Str("tx_signature", event.TxSignature).
+			Msg("CRITICAL: auto-deposit from blocked sender refused (funds in treasury, ops review required)")
 		return
 	}
 
@@ -241,7 +248,12 @@ func handleNativeDeposit(event solana.EscrowEvent) {
 	var wallet models.Wallet
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userID).First(&wallet).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// E-11/W-21: auto-created wallets get the same default limits
+			// as signup-provisioned ones.
 			wallet = models.Wallet{UserID: userID}
+			var tierRow struct{ TrustTier string }
+			_ = tx.Raw(`SELECT trust_tier FROM profiles WHERE id = ?`, userID).Scan(&tierRow).Error
+			wallet.InitializeWithDefaultLimits(models.TrustTier(tierRow.TrustTier))
 			if err := tx.Create(&wallet).Error; err != nil {
 				tx.Rollback()
 				logging.Error(err).
@@ -259,7 +271,8 @@ func handleNativeDeposit(event solana.EscrowEvent) {
 	}
 
 	solAmount := float64(event.Amount) / 1e9
-	maxSingle := models.MaxSingleDepositSOL()
+	// W-34: tier single-deposit cap (min with global handled inside).
+	maxSingle, _ := models.DepositCapsForUser(tx, userID)
 	if solAmount > maxSingle {
 		tx.Rollback()
 		logging.Warn().
@@ -290,7 +303,7 @@ func handleNativeDeposit(event solana.EscrowEvent) {
 			Msg("Auto-Deposit skipped: exceeds daily deposit cap")
 		return
 	}
-	if err := models.CreditWalletLockedOpts(tx, &wallet, solAmount, "deposit_auto", event.TxSignature,
+	if err := models.CreditWalletLockedOpts(tx, &wallet, solAmount, models.LedgerKindDepositAuto, event.TxSignature,
 		fmt.Sprintf("Auto-Deposit: %.6f SOL", solAmount),
 		models.LedgerOpts{
 			TxHash:      event.TxSignature,

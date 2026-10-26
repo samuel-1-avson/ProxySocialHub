@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/mr-tron/base58"
+	"github.com/proxyhubb/control-api/internal/audit"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/decentralization"
 	"github.com/proxyhubb/control-api/internal/logging"
@@ -86,6 +87,8 @@ func linkWallet(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to unlink wallet"})
 			return
 		}
+		audit.Log(c, models.AuditWalletUnlinked, "user", userID,
+			"Unlinked wallet via /wallet/link", map[string]interface{}{"chain": req.Chain})
 		c.JSON(http.StatusOK, gin.H{"status": "success", "message": "Wallet unlinked successfully"})
 		return
 	}
@@ -128,7 +131,7 @@ func linkWallet(c *gin.Context) {
 			logging.Error(err).Str("user_id", userID).Str("wallet_address", req.WalletAddress).Msg("Failed to link Solana wallet")
 			status := http.StatusInternalServerError
 			msg := "Failed to link wallet"
-			if strings.Contains(err.Error(), "another account") {
+			if errors.Is(err, ErrWalletLinkedElsewhere) {
 				status = http.StatusConflict
 				msg = err.Error()
 			}
@@ -153,7 +156,7 @@ func linkWallet(c *gin.Context) {
 			logging.Error(err).Str("user_id", userID).Str("wallet_address", req.WalletAddress).Msg("Failed to link Ethereum wallet")
 			status := http.StatusInternalServerError
 			msg := "Failed to link wallet"
-			if strings.Contains(err.Error(), "another account") {
+			if errors.Is(err, ErrWalletLinkedElsewhere) {
 				status = http.StatusConflict
 				msg = err.Error()
 			}
@@ -173,6 +176,9 @@ func linkWallet(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to link wallet"})
 		return
 	}
+	// W-34: withdrawal-security changes are audit-logged.
+	audit.Log(c, models.AuditWalletLinked, "user", userID,
+		"Linked wallet via /wallet/link", map[string]interface{}{"chain": req.Chain})
 	c.JSON(http.StatusOK, gin.H{"status": "success", "message": "Wallet linked successfully"})
 }
 
@@ -213,9 +219,6 @@ func clearWalletWithdrawalRouting(tx *gorm.DB, userID uuid.UUID) error {
 	updates := map[string]interface{}{}
 	if tx.Migrator().HasColumn(&models.Wallet{}, "primary_withdrawal_address") {
 		updates["primary_withdrawal_address"] = nil
-	}
-	if tx.Migrator().HasColumn(&models.Wallet{}, "withdrawal_whitelist") {
-		updates["withdrawal_whitelist"] = []string{}
 	}
 	if len(updates) == 0 {
 		return nil
@@ -339,6 +342,14 @@ func verifyCryptoDeposit(c *gin.Context) {
 				Str("actual_sender", sender).
 				Msg("Deposit sender mismatch - possible fraud attempt")
 			c.JSON(http.StatusForbidden, gin.H{"error": "Transaction sender does not match your linked wallet"})
+			return
+		}
+
+		// W-34 screening: refuse credit from a deny-listed sender.
+		if models.AddressBlocked(sender) {
+			logging.Error(nil).Str("tx_hash", req.TxHash).Str("sender", sender).
+				Msg("CRITICAL: deposit from blocked sender refused (funds remain in treasury, ops review required)")
+			c.JSON(http.StatusForbidden, gin.H{"error": "Deposit sender is blocked by screening policy"})
 			return
 		}
 
@@ -475,7 +486,24 @@ func verifyCryptoDeposit(c *gin.Context) {
 		currency = "SOL"
 	}
 
+	// W-34: KYC/trust-tiered caps (never above the global env caps,
+	// ConfigManager global ceiling still honoured via min()).
+	tierSingle, tierDaily := models.DepositCapsForUser(tx, userUUID)
+	if g := getMaxSingleDepositSOL(); g < tierSingle {
+		tierSingle = g
+	}
 	maxDailyDepositSOL := getMaxDailyDepositSOL()
+	if tierDaily < maxDailyDepositSOL {
+		maxDailyDepositSOL = tierDaily
+	}
+	if creditedAmount > tierSingle {
+		tx.Rollback()
+		c.JSON(http.StatusTooManyRequests, gin.H{
+			"error":   "Deposit exceeds your tier single-deposit limit",
+			"max_sol": tierSingle,
+		})
+		return
+	}
 	depositedToday, err := getWalletDepositsSince(tx, wallet.ID, time.Now().UTC().Add(-24*time.Hour))
 	if err != nil {
 		tx.Rollback()
@@ -498,7 +526,7 @@ func verifyCryptoDeposit(c *gin.Context) {
 		return
 	}
 
-	if err := models.CreditWalletLockedOpts(tx, &wallet, creditedAmount, "deposit", req.TxHash,
+	if err := models.CreditWalletLockedOpts(tx, &wallet, creditedAmount, models.LedgerKindDeposit, req.TxHash,
 		fmt.Sprintf("Crypto Deposit: %.6f %s", creditedAmount, currency),
 		models.LedgerOpts{
 			TxHash:      req.TxHash,

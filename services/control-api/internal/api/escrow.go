@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"errors"
+	"math/bits"
 	"fmt"
 	"log"
 	"net/http"
@@ -32,42 +34,61 @@ const escrowOnChainSkimsPlatformFee = false
 // Do not apply this to PDA settlement amounts while escrowOnChainSkimsPlatformFee is false.
 const legacyPlatformFeeRate = 0.10
 
-// usageProportionalSellerAmount calculates the seller's share of an escrow
-// based on actual bandwidth delivered (P3-03).
-//
-// Matches on-chain settle_escrow math: seller_payout = amount * min(used, limit) / limit
-// with NO platform fee skim while escrowOnChainSkimsPlatformFee is false.
-//
-// Resolves via: EscrowTransaction.OrderID → Order.SessionID → Session.BytesUsed.
-// If any lookup fails or the order has no session, falls back to full escrow amount
-// so as not to under-pay a seller due to a missing data link.
-func usageProportionalSellerAmount(tx *gorm.DB, escrow models.EscrowTransaction) float64 {
-	feeFactor := 1.0
-	if escrowOnChainSkimsPlatformFee {
-		feeFactor = 1 - legacyPlatformFeeRate
-	}
+// ErrEscrowUsageDataMissing: custodial release cannot price the seller
+// share because usage linkage is missing (W-25). Fail CLOSED: pay 0 and
+// park for ops - data corruption must never pay out 100%.
+var ErrEscrowUsageDataMissing = fmt.Errorf("escrow usage data missing")
 
+// usageProportionalSellerLamports is the integer-lamports mirror of the
+// on-chain settle_escrow formula: seller = amount * min(used, limit) / limit,
+// computed overflow-safely (W-25; shared vectors in escrow_p2_test.go).
+func proportionalLamports(amountLamports, usedBytes, limitBytes int64, skimFee bool) int64 {
+	if amountLamports <= 0 || limitBytes <= 0 || usedBytes <= 0 {
+		return 0
+	}
+	if usedBytes > limitBytes {
+		usedBytes = limitBytes
+	}
+	// 128-bit multiply-divide: exact, no float, no overflow.
+	hi, lo := bits.Mul64(uint64(amountLamports), uint64(usedBytes))
+	if hi >= uint64(limitBytes) {
+		// Quotient would exceed amount; only possible if used > limit
+		// (already clamped) - defensive full amount.
+		seller := amountLamports
+		if skimFee {
+			seller -= seller / 10
+		}
+		return seller
+	}
+	q, _ := bits.Div64(hi, lo, uint64(limitBytes))
+	seller := int64(q)
+	if skimFee {
+		seller -= seller / 10 // legacyPlatformFeeRate 10%
+	}
+	return seller
+}
+
+func usageProportionalSellerLamports(tx *gorm.DB, escrow models.EscrowTransaction) (int64, error) {
 	var order models.Order
 	if err := tx.Preload("Session").First(&order, "id = ?", escrow.OrderID).Error; err != nil {
-		return escrow.Amount * feeFactor
+		return 0, fmt.Errorf("%w: order lookup: %v", ErrEscrowUsageDataMissing, err)
 	}
-
-	if order.SessionID == nil || order.Session == nil || order.BandwidthGB <= 0 {
-		return escrow.Amount * feeFactor
+	if order.SessionID == nil || order.Session == nil {
+		return 0, fmt.Errorf("%w: order %s has no session", ErrEscrowUsageDataMissing, order.ID)
 	}
-
-	bytesLimit := order.BandwidthGB * 1024 * 1024 * 1024
-	bytesUsed := float64(order.Session.BytesUsed)
-
-	usageRatio := bytesUsed / bytesLimit
-	if usageRatio > 1.0 {
-		usageRatio = 1.0
+	if order.BandwidthGB <= 0 {
+		return 0, fmt.Errorf("%w: order %s has non-positive bandwidth", ErrEscrowUsageDataMissing, order.ID)
 	}
-	if usageRatio < 0 {
-		usageRatio = 0
+	if order.PlatformFeeSkimRecorded && order.PlatformFeeBps < 0 {
+		return 0, fmt.Errorf("%w: order %s has invalid recorded fee", ErrEscrowUsageDataMissing, order.ID)
 	}
-
-	return escrow.Amount * usageRatio * feeFactor
+	skim := escrowOnChainSkimsPlatformFee
+	if order.PlatformFeeSkimRecorded {
+		skim = order.PlatformFeeBps > 0
+	}
+	amountLamports := int64(models.SOLToLamports(escrow.Amount))
+	limitBytes := int64(order.BandwidthGB * 1024 * 1024 * 1024)
+	return proportionalLamports(amountLamports, order.Session.BytesUsed, limitBytes, skim), nil
 }
 
 // RegisterEscrowRoutes registers escrow-related routes
@@ -99,7 +120,19 @@ func CreateEscrowForOrder(orderID, buyerID, sellerID uuid.UUID, amount float64) 
 		AutoReleaseAt: &autoRelease,
 	}
 
-	return db.DB.Create(&escrow).Error
+	if err := db.DB.Create(&escrow).Error; err != nil {
+		return err
+	}
+	// W-25: freeze fee behaviour per-order at funding time.
+	bps := 0
+	if escrowOnChainSkimsPlatformFee {
+		bps = int(legacyPlatformFeeRate * 10000)
+	}
+	_ = db.DB.Model(&models.Order{}).Where("id = ?", orderID).Updates(map[string]interface{}{
+		"platform_fee_bps":           bps,
+		"platform_fee_skim_recorded": true,
+	}).Error
+	return nil
 }
 
 // escrowSettleTimeout is the single on-chain settle budget for buyer
@@ -222,6 +255,12 @@ func releaseEscrow(c *gin.Context) {
 		return
 	}
 
+	// W-34: uniform freeze - a flagged buyer cannot release escrow.
+	if frozen, ferr := models.UserFrozen(db.DB, userID); ferr != nil || frozen {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Account is flagged and escrow releases are frozen pending security review."})
+		return
+	}
+
 	if err := fsm.Validate(order.Status, models.OrderStatusCompleted, "api.escrow.release"); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -286,7 +325,6 @@ func releaseEscrow(c *gin.Context) {
 	}
 
 	// Update DB state only after on-chain success (or if no on-chain escrow)
-	now := time.Now()
 	tx := db.DB.Begin()
 
 	extras := map[string]interface{}{}
@@ -302,7 +340,7 @@ func releaseEscrow(c *gin.Context) {
 	// Also update internal escrow transaction record if it exists (legacy/sync)
 	tx.Model(&models.EscrowTransaction{}).Where("order_id = ?", orderID).Updates(map[string]interface{}{
 		"status":      models.EscrowReleased,
-		"released_at": now,
+		"released_at": time.Now().UTC(),
 	})
 
 	if err := tx.Commit().Error; err != nil {
@@ -310,7 +348,7 @@ func releaseEscrow(c *gin.Context) {
 		return
 	}
 
-	// P2-13: Financial audit trail ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â escrow settled.
+	// P2-13: Financial audit trail - escrow settled.
 	audit.Log(c, models.AuditFinancialEscrowSettled, "order", order.ID.String(),
 		fmt.Sprintf("Escrow settled for order %s (tx: %s)", order.ID, settleTxHash),
 		map[string]interface{}{
@@ -531,7 +569,6 @@ func AutoReleaseExpiredEscrows() {
 		}
 
 		for _, escrow := range claimed {
-			now := time.Now()
 			var order models.Order
 			if err := db.DB.First(&order, "id = ?", escrow.OrderID).Error; err != nil {
 				log.Printf("[escrow] AutoReleaseExpiredEscrows order lookup error for escrow %s: %v", escrow.ID, err)
@@ -610,7 +647,7 @@ func AutoReleaseExpiredEscrows() {
 					Where("id = ? AND status = ?", escrow.ID, models.EscrowReleasing).
 					Updates(map[string]interface{}{
 						"status":      models.EscrowReleased,
-						"released_at": now,
+						"released_at": time.Now().UTC(),
 					})
 				if res.Error != nil {
 					return res.Error
@@ -624,14 +661,27 @@ func AutoReleaseExpiredEscrows() {
 					if decentralization.RequireEscrowPDAEnabled() {
 						return fmt.Errorf("PROXYHUB_REQUIRE_ESCROW_PDA: refusing custodial seller credit for escrow %s without PDA", escrow.ID)
 					}
+					// W-34: frozen seller parks the release (re-held by
+					// the outer handler) instead of receiving funds.
+					if frozen, ferr := models.UserFrozen(tx, escrow.SellerID); ferr != nil {
+						return ferr
+					} else if frozen {
+						return fmt.Errorf("%w: seller %s", models.ErrUserFrozen, escrow.SellerID)
+					}
 					sellerWallet, err := models.LockWalletForUpdate(tx, escrow.SellerID)
 					if err != nil {
 						return err
 					}
-					sellerAmount := usageProportionalSellerAmount(tx, escrow)
-					if sellerAmount > 0 {
-						if err := models.CreditWalletLocked(tx, sellerWallet, sellerAmount, "escrow_auto_release",
-							escrow.ID.String(), "Escrow auto-released after hold period"); err != nil {
+					sellerLamports, perr := usageProportionalSellerLamports(tx, escrow)
+					if perr != nil {
+						// W-25 fail-closed: no usage proof, no payout. The
+						// finalize tx rolls back; outer handler re-holds
+						// the escrow (parked) for ops review.
+						return perr
+					}
+					if sellerLamports > 0 {
+						if err := models.CreditWalletLockedLamports(tx, sellerWallet, sellerLamports, models.LedgerKindEscrowAutoRelease,
+							escrow.ID.String(), "Escrow auto-released after hold period", models.LedgerOpts{}); err != nil {
 							return err
 						}
 					}
@@ -649,6 +699,10 @@ func AutoReleaseExpiredEscrows() {
 				return fsm.TransitionOrder(tx, &lockedOrder, models.OrderStatusCompleted, "api.escrow.auto_release", extras)
 			}); txErr != nil {
 				log.Printf("[escrow] AutoReleaseExpiredEscrows finalize error for escrow %s: %v", escrow.ID, txErr)
+				if errors.Is(txErr, ErrEscrowUsageDataMissing) {
+					alerts.Send(alerts.Warning, "Escrow Parked: Usage Data Missing",
+						fmt.Sprintf("escrow=%s order=%s parked (no payout): %v", escrow.ID, escrow.OrderID, txErr))
+				}
 				// PDA already settled: leave releasing for ops/reconcile rather than re-hold (would double-settle).
 				if !hasPDA {
 					reclaimEscrowToHeld(escrow.ID)
