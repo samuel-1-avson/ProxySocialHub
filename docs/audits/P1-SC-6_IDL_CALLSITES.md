@@ -125,14 +125,19 @@ Preconditions, in order. Stop if any check fails.
    audited call is account-identical on both versions).
 5. Upgrade the program in place with the wallet that controls
    `6thzwmrf…bRJcR`, using the repo build that produced the committed IDL.
-   Verify the script in
-   `services/solana-programs/proxyhub/deploy-proxyhub-devnet.ps1` still
-   matches the intended upgrade flow before running it (it cites an old
-   bytecode hash); it must not be run verbatim without that check.
-6. Publish the new on-chain IDL (`anchor idl upgrade` or `init` against
-   the committed `idl/proxyhub.json`) so control-api's cached-IDL gates
-   (`SupportsInstructionsFromCachedIDL`, 24h Redis TTL) see the new
-   interface. Flush or wait out the `anchor:idl:<program>` cache.
+   `services/solana-programs/proxyhub/deploy-proxyhub-devnet.ps1` has been
+   rewritten for this (branch `hardening/devnet-runbook`): it reads the
+   on-chain upgrade authority and aborts before spending if the wallet
+   does not match, writes an upgrade buffer, deploys from it, then dumps
+   the deployed binary and fails unless its SHA-256 matches the built
+   artifact. It asks for a typed `UPGRADE` confirmation unless `-Yes` is
+   passed. Expected artifact hashes are recorded in section 7 below.
+6. Publish the on-chain IDL. None exists on devnet today
+   (`anchor idl fetch` returns AccountNotFound for the IDL PDA), so use
+   `anchor idl init` with the upgrade-authority wallet against the
+   committed `idl/proxyhub.json` (`anchor idl upgrade` on later runs).
+   Then flush or wait out control-api's `anchor:idl:<program>` Redis
+   cache (24h TTL) so its cached-IDL gates see the new interface.
 7. Smoke on devnet: initialize escrow, confirm, settle (legacy and
    session), stake/unstake, create proposal, submit review, open dispute.
    Negative smoke: call `update_program_config` and a non-admin
@@ -163,3 +168,27 @@ instruction; keep the window minutes, not hours.
   start jobs for this repository (see PR #44 discussion), so the
   `anchor-test` job that guards these account lists has local evidence
   only until Actions is restored.
+
+## 7. Candidate artifacts (built 2026-10-26, not deployed)
+
+Built with `anchor build` from clean `main` at `0eaccf35` in the pinned
+container toolchain (Rust 1.89.0, Solana 2.3.0, Anchor 0.32.1, Node
+24.10.0). The build is reproducible in that image: these hashes match the
+independent A1 proof build byte for byte, and the rebuilt IDL is identical
+to the committed snapshot. An operator rebuild in the same image should
+produce the same hashes; if it does not, stop and find out why before
+deploying.
+
+| Artifact | Size (bytes) | SHA-256 |
+|---|---|---|
+| `proxyhub.so` | 1,285,040 | `14945d2d21941ff669c7bbb4b21c76c8526caa3349d7c668b48a99384ea067b1` |
+| `session.so` (unchanged, not redeployed) | 330,328 | `0d584abff43b0402371f2baf5a4f6f987437d9544f84acfac08eda2ced20504d` |
+| `idl/proxyhub.json` | 185,828 | `c8446afeb0b27a361e351b2cdcf8722b3c1cc758689fcfd5b85d7e98c90e4c9d` |
+
+Buffer rent note: at 1,285,040 bytes the upgrade buffer needs roughly
+9 SOL of rent while it exists (reclaimed when the deploy consumes it),
+which is why the deploy script now defaults to requiring 10 SOL.
+
+Record after deploy (fill in, do not guess): upgrade slot, deploy
+signature, dumped-binary SHA-256 (must equal the `proxyhub.so` row above),
+IDL account signature.
