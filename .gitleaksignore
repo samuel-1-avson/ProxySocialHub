@@ -1,8 +1,136 @@
-# Reviewed false positives, by gitleaks fingerprint.
-# Add an entry only after confirming the match is not credential material,
-# and say why. Do not add paths here to silence a real finding.
+# gitleaks ignore list, by fingerprint (commit:file:rule:line).
+#
+# Two kinds of entry live here and they are NOT the same:
+#
+#   A. Reviewed false positives - the match is not credential material.
+#      Add an entry only after confirming that, and say why.
+#   B. Known historical leaks - the match IS real credential material that was
+#      committed before the June 2026 secret gates. They are listed only so a
+#      full-history scan (weekly Security Scan, manual CI run) fails on NEW
+#      leaks instead of staying red forever. Each is tracked for rotation in
+#      docs/security/SECRET_HISTORY_FINDINGS.md (ids R1..R8). Nothing in B is
+#      cleared by being listed here; rotate, then it can stay as a record.
+#
+# Fingerprints include the commit SHA, so a re-commit of the same material in a
+# new commit is NOT covered and will fail the gate. Do not add paths here.
+
+# --- A. Reviewed false positives ------------------------------------------------
 
 # CamelCase Go symbol list in a W4.1 evidence pack
 # ("Control-api: GateOnchainGroth16Settlement, ...") scored as a generic
 # API key on entropy alone. It is an identifier, not a secret.
 docs/ops/evidence/W4_1_groth16_fail_closed_20260811.md:generic-api-key:14
+
+
+# docs/audit/WALLET_SYSTEM_DEEP_AUDIT_2026-10-25.md - audit prose scored as a generic key on entropy alone
+b5f45309f66891fd87b99ef2ae0b3d6b5b0d44f9:docs/audit/WALLET_SYSTEM_DEEP_AUDIT_2026-10-25.md:generic-api-key:618
+
+# docs/audits/verification-tools/run-go-tests.ps1 - local test-run script with the CI placeholder values (test-...)
+b5f45309f66891fd87b99ef2ae0b3d6b5b0d44f9:docs/audits/verification-tools/run-go-tests.ps1:generic-api-key:25
+
+# docs/audits/BASELINE_2026-10-25.md - docker run example with the CI placeholder values (test-...)
+1c1f29b658a500322d3b4f4bc4fe5d0483c7fb87:docs/audits/BASELINE_2026-10-25.md:generic-api-key:28
+
+# .github/workflows/deploy-gcp-testnet.yml - a default SSH username string, not a credential (since replaced by secrets.GCP_VM_USER)
+d228b4ceea2f973c22d351a611ae58fc02ccefd7:.github/workflows/deploy-gcp-testnet.yml:generic-api-key:55
+
+# testing/test_provider_cli_contract.ts - test fixture api_key
+7635bc9d861abd7dd367aeb4b382a1939b111a5c:testing/test_provider_cli_contract.ts:generic-api-key:42
+7635bc9d861abd7dd367aeb4b382a1939b111a5c:testing/test_provider_cli_contract.ts:generic-api-key:44
+
+# .github/workflows/ci.yml - CI test-only ENCRYPTION_KEY placeholder
+c7be3c6741745ab9b00c3d15c9f15a67a0f1c0e5:.github/workflows/ci.yml:generic-api-key:125
+cc03126bdee2df93404055028db75743bfc67fc1:.github/workflows/ci.yml:generic-api-key:125
+
+# docs/DECENTRALIZED_AUTH_ARCHITECTURE.md - truncated example token in a design doc
+fc26364019b0a4b19e7ee8c55ce784707b4ea362:docs/DECENTRALIZED_AUTH_ARCHITECTURE.md:generic-api-key:771
+
+# PROVIDER_SYSTEM_ANALYSIS_REPORT.md - example token in an analysis report
+5cccdb8002197c0f3f3fe277f6798607dce8824d:PROVIDER_SYSTEM_ANALYSIS_REPORT.md:generic-api-key:597
+
+# REMOVE_MOCK_DATA_GUIDE.md - curl example with a placeholder bearer token
+5cccdb8002197c0f3f3fe277f6798607dce8824d:REMOVE_MOCK_DATA_GUIDE.md:curl-auth-header:103
+
+# docker-compose.test.yml - test-only JWT_SECRET placeholder
+5cccdb8002197c0f3f3fe277f6798607dce8824d:docker-compose.test.yml:generic-api-key:29
+5cccdb8002197c0f3f3fe277f6798607dce8824d:docker-compose.test.yml:generic-api-key:31
+
+# docs/PROVIDER_SYSTEM_ANALYSIS_REPORT.md - example token in an analysis report
+5cccdb8002197c0f3f3fe277f6798607dce8824d:docs/PROVIDER_SYSTEM_ANALYSIS_REPORT.md:generic-api-key:597
+
+# docs/REMOVE_MOCK_DATA_GUIDE.md - curl example with a placeholder bearer token
+5cccdb8002197c0f3f3fe277f6798607dce8824d:docs/REMOVE_MOCK_DATA_GUIDE.md:curl-auth-header:103
+
+# services/control-api/cmd/provider-cli/README.md - truncated example jwt_token in a README
+5cccdb8002197c0f3f3fe277f6798607dce8824d:services/control-api/cmd/provider-cli/README.md:generic-api-key:122
+
+# README.md - curl example with the literal placeholder YOUR_JWT_TOKEN
+bbd14f320c84ba5e5e77fa64aacaaae45ddc9e74:README.md:curl-auth-header:481
+
+# docs/ENVIRONMENT.md - Supabase ANON key: public by design (ships in the client; access is enforced by RLS)
+bbd14f320c84ba5e5e77fa64aacaaae45ddc9e74:docs/ENVIRONMENT.md:generic-api-key:195
+bbd14f320c84ba5e5e77fa64aacaaae45ddc9e74:docs/ENVIRONMENT.md:generic-api-key:196
+
+# docker-compose.dev.yml - Supabase ANON key: public by design
+669170f79f9272370cacb9aaa9017f35ce9dbb96:docker-compose.dev.yml:jwt:83
+6830fb837ca5c841abeedab6abe462f8160139e7:docker-compose.dev.yml:jwt:25
+
+# apps/mobile/src/lib/config.ts - Supabase ANON key: public by design (ships in the mobile client)
+669170f79f9272370cacb9aaa9017f35ce9dbb96:apps/mobile/src/lib/config.ts:jwt:88
+
+# docker-compose.dev.yml - ORACLE_PRIVATE_KEY is the public Hardhat/Anvil dev account #0 key (well known, holds no value)
+6830fb837ca5c841abeedab6abe462f8160139e7:docker-compose.dev.yml:generic-api-key:28
+6830fb837ca5c841abeedab6abe462f8160139e7:docker-compose.dev.yml:generic-api-key:29
+
+# apps/mobile/src/lib/supabase.ts - Supabase ANON key: public by design (ships in the mobile client)
+587b3ef433a7566fd6dae66a1adf5f573e6ca317:apps/mobile/src/lib/supabase.ts:jwt:4
+
+# services/relayer/main.go - privateKey is the public Hardhat/Anvil dev account #1 key (well known, holds no value)
+0a401ea94bf27a1ae27ce991ea2969a1f7b09354:services/relayer/main.go:generic-api-key:27
+
+# --- B. Known historical leaks (real material; rotation tracked, see header) -----
+
+
+# docs/PROVIDER_CLI_AND_NODE_MANUAL.md - LOW R8 - provider_signing_key in a manual; confirm it is a sample
+7635bc9d861abd7dd367aeb4b382a1939b111a5c:docs/PROVIDER_CLI_AND_NODE_MANUAL.md:generic-api-key:139
+
+# apps/web/test-results/results.json - HIGH R2 - Playwright report with a full environment dump (OPENROUTER_API_KEY, ANTHROPIC_AUTH_TOKEN)
+0b9852a845c0a253aa73c2cbea1710cf90e44874:apps/web/test-results/results.json:generic-api-key:129
+0b9852a845c0a253aa73c2cbea1710cf90e44874:apps/web/test-results/results.json:generic-api-key:148
+0b9852a845c0a253aa73c2cbea1710cf90e44874:apps/web/test-results/results.json:generic-api-key:188
+
+# cli/provider.toml - LOW R7 - control-api provider session JWT (expired)
+850fe0efa0e6c20a2788a35c606c413fd6e628fe:cli/provider.toml:jwt:2
+fb83d5f8d475b91a2ff6ea4f48f0202c2e232e82:cli/provider.toml:jwt:2
+
+# gen_token.go - MEDIUM R5 - HMAC secret hard-coded in a token helper
+fc26364019b0a4b19e7ee8c55ce784707b4ea362:gen_token.go:generic-api-key:11
+
+# infra/oracle-keypair.json - CRITICAL R1 - working signing key for the live oracle/admin identity 8P4uu...Kii2
+3cc998ba3860def69e13c18b8ce71791c9ef28ca:infra/oracle-keypair.json:proxyhubb-solana-keypair-json:1
+
+# login_res.json - LOW R7 - control-api provider session JWT (expired)
+4be478b2f06ebf81fbad4c32d948c3f268c5e76f:login_res.json:jwt:1
+
+# infra/k8s/nginx-ingress.yaml - MEDIUM R4 - Kubernetes Secret manifest
+41c8ef20e04416e6fe12a0182d4a09d770dff676:infra/k8s/nginx-ingress.yaml:kubernetes-secret-yaml:232
+
+# infra/k8s/nginx-ingress.yaml - MEDIUM R4 - Kubernetes Secret with ingress basic-auth (base64)
+41c8ef20e04416e6fe12a0182d4a09d770dff676:infra/k8s/nginx-ingress.yaml:generic-api-key:239
+
+# infra/k8s/postgresql-cluster.yaml - MEDIUM R4 - Kubernetes Secret with the Postgres password (base64)
+41c8ef20e04416e6fe12a0182d4a09d770dff676:infra/k8s/postgresql-cluster.yaml:generic-api-key:61
+41c8ef20e04416e6fe12a0182d4a09d770dff676:infra/k8s/postgresql-cluster.yaml:generic-api-key:62
+41c8ef20e04416e6fe12a0182d4a09d770dff676:infra/k8s/postgresql-cluster.yaml:kubernetes-secret-yaml:54
+
+# docker-compose.dev.yml - LOW R6 - Paystack TEST-mode secret key (sk_test_)
+6830fb837ca5c841abeedab6abe462f8160139e7:docker-compose.dev.yml:stripe-access-token:26
+
+# certs/ca.key - LOW R3 - dev mTLS CA private key (the testnet VM serves a different, Let's Encrypt key)
+0a401ea94bf27a1ae27ce991ea2969a1f7b09354:certs/ca.key:private-key:1
+
+# certs/client.key - LOW R3 - dev mTLS client private key (the testnet VM serves a different, Let's Encrypt key)
+0a401ea94bf27a1ae27ce991ea2969a1f7b09354:certs/client.key:private-key:1
+
+# certs/server.key - LOW R3 - dev mTLS server private key (the testnet VM serves a different, Let's Encrypt key)
+0a401ea94bf27a1ae27ce991ea2969a1f7b09354:certs/server.key:private-key:1
