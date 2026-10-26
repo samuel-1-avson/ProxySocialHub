@@ -20,9 +20,9 @@ const (
 	EscrowStatusPending   EscrowOnChainStatus = 0
 	EscrowStatusActive    EscrowOnChainStatus = 1
 	EscrowStatusSettled   EscrowOnChainStatus = 2
-	EscrowStatusDisputed  EscrowOnChainStatus = 3
-	EscrowStatusRefunded  EscrowOnChainStatus = 4
-	EscrowStatusExpired   EscrowOnChainStatus = 5
+	EscrowStatusRefunded  EscrowOnChainStatus = 3
+	EscrowStatusDisputed  EscrowOnChainStatus = 4
+	// On chain there is no Expired variant (IDL enum ends at Disputed).
 )
 
 // UsageProofOnChainData holds decoded fields from a UsageProofRecord PDA.
@@ -37,11 +37,29 @@ type UsageProofOnChainData struct {
 }
 
 // ReadEscrowStatusOnChain reads the status byte from an on-chain Escrow account.
-// The Escrow layout after 8-byte discriminator has status at byte 72:
+// The Escrow layout after the 8-byte discriminator (see escrowStatusOffset):
 //   [0:32]  buyer     (Pubkey)
 //   [32:64] seller    (Pubkey)
-//   [64:72] amount    (u64 LE)
-//   [72]    status    (u8 — EscrowStatus enum)
+//   [64:72] amount_lamports (u64 LE)
+//   [72:80] bandwidth_limit_gb (u64 LE)
+//   [80:88] bandwidth_used_gb (u64 LE)
+//   [88]    status    (u8, EscrowStatus enum; raw offset 96 with discriminator)
+// escrowStatusOffset is the raw-account offset of Escrow.status: after the
+// 8-byte discriminator the Anchor/Borsh layout is buyer(32) + seller(32) +
+// amount_lamports(8) + bandwidth_limit_gb(8) + bandwidth_used_gb(8), then
+// status(1). Verified against the Escrow type in the committed IDL
+// (services/solana-programs/proxyhub/idl/proxyhub.json) during P2-ABI-1.
+// The previous offset (80) read the low byte of bandwidth_limit_gb.
+const escrowStatusOffset = 8 + 32 + 32 + 8 + 8 + 8
+
+// decodeEscrowStatus extracts the status byte from raw Escrow account data.
+func decodeEscrowStatus(raw []byte) (EscrowOnChainStatus, error) {
+	if len(raw) <= escrowStatusOffset {
+		return 0, fmt.Errorf("account data too short (%d)", len(raw))
+	}
+	return EscrowOnChainStatus(raw[escrowStatusOffset]), nil
+}
+
 func (c *OracleClient) ReadEscrowStatusOnChain(ctx context.Context, escrowPDA sol.PublicKey) (EscrowOnChainStatus, error) {
 	var accountInfo *rpc.GetAccountInfoResult
 	if err := c.withFailover(ctx, func(client *rpc.Client) error {
@@ -56,12 +74,13 @@ func (c *OracleClient) ReadEscrowStatusOnChain(ctx context.Context, escrowPDA so
 	}
 
 	raw := accountInfo.Value.Data.GetBinary()
-	// Minimum: 8 (disc) + 32 (buyer) + 32 (seller) + 8 (amount) + 1 (status) = 81
-	if len(raw) < 81 {
-		return 0, fmt.Errorf("ReadEscrowStatusOnChain: account data too short (%d)", len(raw))
+	// Status sits at escrowStatusOffset; decodeEscrowStatus bounds-checks.
+	status, derr := decodeEscrowStatus(raw)
+	if derr != nil {
+		return 0, fmt.Errorf("ReadEscrowStatusOnChain: %w", derr)
 	}
 
-	status := EscrowOnChainStatus(raw[8+32+32+8])
+	// status decoded above
 	return status, nil
 }
 

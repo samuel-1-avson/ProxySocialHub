@@ -285,7 +285,7 @@ func (w *Watcher) parseLogLine(logLine string, txSig string) *EscrowEvent {
 	// Note: Anchor discriminator is sha256("event:<EventName>")[0:8]
 
 	switch fmt.Sprintf("%x", discriminator) {
-	case getEventDiscriminator("EscrowInitializedEvent"):
+	case getEventDiscriminator("EscrowInitialized"):
 		if len(eventData) < 32+32+32+8+8 {
 			return nil
 		}
@@ -299,17 +299,19 @@ func (w *Watcher) parseLogLine(logLine string, txSig string) *EscrowEvent {
 			TxSignature: txSig,
 			Timestamp:   time.Now(),
 		}
-	case getEventDiscriminator("EscrowSettledEvent"):
+	case getEventDiscriminator("EscrowSettled"):
 		if len(eventData) < 32+8+8+8 {
 			return nil
 		}
 		return &EscrowEvent{
 			Type:        "settled",
 			EscrowPDA:   sol.PublicKeyFromBytes(eventData[0:32]).String(),
+			Amount:      binary.LittleEndian.Uint64(eventData[32:40]), // seller_payout
+			LimitGB:     binary.LittleEndian.Uint64(eventData[48:56]), // bandwidth_used
 			TxSignature: txSig,
 			Timestamp:   time.Now(),
 		}
-	case getEventDiscriminator("EscrowRefundedEvent"):
+	case getEventDiscriminator("EscrowRefunded"):
 		if len(eventData) < 32+32+8 {
 			return nil
 		}
@@ -322,15 +324,16 @@ func (w *Watcher) parseLogLine(logLine string, txSig string) *EscrowEvent {
 			Timestamp:   time.Now(),
 		}
 	case getEventDiscriminator("UsageProofSubmitted"):
-		if len(eventData) < 32+32+32+8+8+8+8 {
+		// IDL UsageProofSubmitted: escrow(32) proof_record(32) proof_index u32(4)
+		// total_bytes u64(8) period_start i64(8) period_end i64(8) = 92 bytes.
+		if len(eventData) < 32+32+4+8+8+8 {
 			return nil
 		}
 		return &EscrowEvent{
 			Type:        "usage_proof_submitted",
 			EscrowPDA:   sol.PublicKeyFromBytes(eventData[0:32]).String(),
-			Buyer:       sol.PublicKeyFromBytes(eventData[32:64]).String(),
-			Seller:      sol.PublicKeyFromBytes(eventData[64:96]).String(),
-			Amount:      binary.LittleEndian.Uint64(eventData[96:104]), // total_bytes
+			Seller:      sol.PublicKeyFromBytes(eventData[32:64]).String(), // proof_record PDA
+			Amount:      binary.LittleEndian.Uint64(eventData[68:76]),      // total_bytes
 			TxSignature: txSig,
 			Timestamp:   time.Now(),
 		}
