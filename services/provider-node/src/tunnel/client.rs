@@ -17,6 +17,10 @@ use yamux::{Control, Stream};
 /// Capabilities the provider declares to the gateway.
 #[derive(Clone, serde::Serialize)]
 pub struct CapabilityInfo {
+    // DP-3: stable per-installation node id (config.node_id). Lets one user
+    // run several nodes; older edges ignore the unknown field.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub node_id: String,
     pub max_connections: u32,
     pub max_bandwidth_mbps: u32,
     pub available_ports: Vec<u16>,
@@ -473,6 +477,7 @@ fn build_provider_capability_payload(
     }
 
     let caps = CapabilityInfo {
+        node_id: config.node_id.clone(),
         max_connections: config.max_connections,
         max_bandwidth_mbps: config.bandwidth_limit_mbps,
         available_ports: config.allowed_ports.clone(),
