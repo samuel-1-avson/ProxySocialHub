@@ -1,7 +1,6 @@
 package models
 
 import (
-	"errors"
 	"fmt"
 	"time"
 
@@ -97,7 +96,9 @@ func DebitWalletLockedOpts(tx *gorm.DB, wallet *Wallet, amount float64, entryTyp
 // ErrInsufficientBalance marks a business (non-infrastructure) debit
 // failure. Settlement workers must not count it toward RPC circuit
 // breakers (W-17).
-var ErrInsufficientBalance = errors.New("insufficient SOL balance")
+// The sentinel itself is declared once in errors.go (shared message
+// "insufficient SOL balance"); this file previously redeclared it, which
+// broke the build on main.
 
 // DebitWalletLockedLamports debits an exact lamports delta (Sprint I / DB-02 lite).
 // When PROXYHUB_JOURNAL_AS_SOT=true, journal posts first (fail-closed); wallet is cache.
