@@ -11,11 +11,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/audit"
+	"github.com/proxyhubb/control-api/internal/billing"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/solana"
-	"gorm.io/gorm"
 )
 
 // RegisterAdminRoutes registers all admin API routes
@@ -353,19 +353,32 @@ func getPendingPayouts(c *gin.Context) {
 }
 
 type ProcessPayoutRequest struct {
-	Phone           string  `json:"phone" binding:"required"`
-	Amount          float64 `json:"amount" binding:"required,min=0.1"`
-	IdempotencyKey  string  `json:"idempotency_key"`
+	Phone          string  `json:"phone"` // legacy, ignored (kept for request compat)
+	Amount         float64 `json:"amount"` // deprecated SOL float; amount_lamports wins
+	AmountLamports int64   `json:"amount_lamports"`
+	IdempotencyKey string  `json:"idempotency_key"`
+	Reason         string  `json:"reason"`
 }
 
-// processPayout atomically debits a provider custodial balance for a manual admin payout.
-// Prefer /v1/admin/payouts batch processing for on-chain disbursement; this handler only
-// records the ledger debit with FOR UPDATE locking (no RMW double-spend).
+// processPayout queues a REAL on-chain provider payout through the same
+// durable state machine as user claims (W-30). The old handler debited
+// the custodial balance, sent nothing, created no payout record, and
+// still answered "processed" - provider liabilities silently vanished
+// into treasury surplus. Now: client idempotency key REQUIRED, amount
+// debited from earnings-payable only, PendingPayout intent committed in
+// the same tx, structured reason + audit log, four-eyes attestation
+// (X-Second-Approver header, distinct from the actor) above the
+// configured threshold.
 func processPayout(c *gin.Context) {
 	userID := c.Param("id")
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user id"})
+		return
+	}
+	adminID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
 
@@ -375,66 +388,104 @@ func processPayout(c *gin.Context) {
 		return
 	}
 
-	reference := strings.TrimSpace(req.IdempotencyKey)
-	if reference == "" {
-		reference = strings.TrimSpace(c.GetHeader("Idempotency-Key"))
+	idemKey := clientIdempotencyKey(c, req.IdempotencyKey)
+	if idemKey == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Idempotency-Key header (or idempotency_key) is required for admin payouts"})
+		return
 	}
-	if reference == "" {
-		reference = "admin-payout-" + uuid.NewString()
+	if strings.TrimSpace(req.Reason) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "reason is required for admin payouts"})
+		return
 	}
-	if len(reference) > 128 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "idempotency_key too long"})
+	lamports := req.AmountLamports
+	if lamports == 0 && req.Amount > 0 {
+		lamports = int64(models.SOLToLamports(req.Amount))
+	}
+	if lamports <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "amount_lamports (or amount) must be positive"})
 		return
 	}
 
-	var newBalance float64
-	err = db.DB.Transaction(func(tx *gorm.DB) error {
-		if reference != "" {
-			var existing models.WalletLedgerEntry
-			if err := tx.Where("type = ? AND reference_id = ?", models.TransactionPayout, reference).
-				First(&existing).Error; err == nil {
-				var w models.Wallet
-				if err := tx.Where("id = ?", existing.WalletID).First(&w).Error; err != nil {
-					return err
-				}
-				newBalance = w.BalanceSOL
-				return nil
-			} else if err != gorm.ErrRecordNotFound {
-				return err
-			}
+	// Four-eyes: above the threshold a second, distinct approver must
+	// attest via header; recorded in the audit entry.
+	fourEyesThreshold := int64(models.SOLToLamports(getAdminPayoutFourEyesSOL()))
+	secondApprover := strings.TrimSpace(c.GetHeader("X-Second-Approver"))
+	if lamports > fourEyesThreshold {
+		approverID, perr := uuid.Parse(secondApprover)
+		if perr != nil || approverID == adminID {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "payouts above the four-eyes threshold require X-Second-Approver with a distinct admin user id"})
+			return
 		}
+	}
 
-		wallet, err := models.LockWalletForUpdate(tx, userUUID)
-		if err != nil {
-			return err
+	if replayStoredIdempotent(c, adminID, models.IdempotencyEndpointAdminPayout, idemKey) {
+		return
+	}
+	rec := models.IdempotencyRecord{UserID: adminID, Endpoint: models.IdempotencyEndpointAdminPayout, IdempotencyKey: idemKey}
+	if err := db.DB.Create(&rec).Error; err != nil {
+		if replayStoredIdempotent(c, adminID, models.IdempotencyEndpointAdminPayout, idemKey) {
+			return
 		}
-		if err := models.DebitWalletLocked(tx, wallet, req.Amount, models.TransactionPayout, reference,
-			"Provider payout to "+req.Phone); err != nil {
-			return err
+		c.JSON(http.StatusConflict, gin.H{"error": "Duplicate request in progress", "status": "in_progress"})
+		return
+	}
+	defer func() {
+		if c.Writer.Status() >= 400 {
+			db.DB.Where("user_id = ? AND endpoint = ? AND idempotency_key = ?", adminID, models.IdempotencyEndpointAdminPayout, idemKey).
+				Delete(&models.IdempotencyRecord{})
 		}
-		newBalance = wallet.BalanceSOL
-		return nil
-	})
+	}()
+
+	payoutID, paidLamports, err := billing.QueueProviderPayoutAmount(userUUID, lamports)
 	if err != nil {
-		if err == gorm.ErrRecordNotFound || strings.Contains(err.Error(), "record not found") {
+		msg := err.Error()
+		switch {
+		case strings.Contains(msg, "record not found"):
 			c.JSON(http.StatusNotFound, gin.H{"error": "Wallet not found"})
-			return
+		case strings.Contains(msg, "no earnings payable"), strings.Contains(msg, "payable balance"), strings.Contains(msg, "no payable wallet"):
+			c.JSON(http.StatusBadRequest, gin.H{"error": msg})
+		default:
+			logging.Error(err).Str("user_id", userID).Msg("admin processPayout failed")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process payout"})
 		}
-		if strings.Contains(err.Error(), "insufficient SOL balance") {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient balance"})
-			return
-		}
-		logging.Error(err).Str("user_id", userID).Msg("admin processPayout failed")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process payout"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"status":      "processed",
-		"reference":   reference,
-		"amount":      req.Amount,
-		"new_balance": newBalance,
-	})
+	audit.LogDirect(&adminID, c.ClientIP(), models.AuditFinancialAdminPayout, "wallet", userUUID.String(),
+		"Admin payout queued: "+strings.TrimSpace(req.Reason),
+		map[string]interface{}{
+			"provider_user_id": userUUID.String(),
+			"amount_lamports":  paidLamports,
+			"payout_id":        payoutID.String(),
+			"reason":           strings.TrimSpace(req.Reason),
+			"second_approver":  secondApprover,
+			"idempotency_key":  idemKey,
+		})
+
+	body := gin.H{
+		"status":          "queued",
+		"reference":       idemKey,
+		"amount":          models.LamportsToSOL(uint64(paidLamports)),
+		"amount_lamports": paidLamports,
+	}
+	if payoutID != uuid.Nil {
+		body["payout_id"] = payoutID.String()
+	}
+	db.DB.Model(&models.IdempotencyRecord{}).
+		Where("user_id = ? AND endpoint = ? AND idempotency_key = ?", adminID, models.IdempotencyEndpointAdminPayout, idemKey).
+		Update("reference", payoutID.String())
+	storeIdempotentResponse(adminID, models.IdempotencyEndpointAdminPayout, idemKey, http.StatusAccepted, body)
+	c.JSON(http.StatusAccepted, body)
+}
+
+// getAdminPayoutFourEyesSOL reads the four-eyes threshold (SOL) from
+// system config, defaulting to 10 SOL.
+func getAdminPayoutFourEyesSOL() float64 {
+	raw := db.GetSystemSetting("admin_payout_four_eyes_sol", "ADMIN_PAYOUT_FOUR_EYES_SOL", "10")
+	if v, err := strconv.ParseFloat(strings.TrimSpace(raw), 64); err == nil && v >= 0 {
+		return v
+	}
+	return 10
 }
 
 func getPayoutHistory(c *gin.Context) {

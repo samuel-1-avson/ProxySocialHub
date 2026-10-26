@@ -231,9 +231,10 @@ func deleteLinkedWalletRows(tx *gorm.DB, userID uuid.UUID, chain models.Blockcha
 }
 
 type cryptoDepositRequest struct {
-	TxHash string  `json:"tx_hash" binding:"required"`
-	Amount float64 `json:"amount" binding:"required,gt=0,lte=100000"`
-	Chain  string  `json:"chain" binding:"required"` // "solana"
+	TxHash         string  `json:"tx_hash" binding:"required"`
+	Amount         float64 `json:"amount" binding:"gte=0,lte=100000"`
+	AmountLamports int64   `json:"amount_lamports"`
+	Chain          string  `json:"chain" binding:"required"` // "solana"
 }
 
 func getMaxSingleDepositSOL() float64 {
@@ -267,6 +268,15 @@ func verifyCryptoDeposit(c *gin.Context) {
 	var req cryptoDepositRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// W-20: exact lamports win; the credited amount is still proven on-chain.
+	if req.AmountLamports > 0 {
+		req.Amount = float64(req.AmountLamports) / 1e9
+	}
+	if req.Amount <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "amount_lamports (or amount) must be positive"})
 		return
 	}
 	maxDepositSOL := getMaxSingleDepositSOL()

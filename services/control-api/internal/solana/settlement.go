@@ -478,7 +478,14 @@ func (c *OracleClient) SendSOL(ctx context.Context, recipient sol.PublicKey, lam
 		data: data,
 	}
 
-	return c.sendInstructionAsPayer(ctx, instruction, payer)
+	sig, err := c.sendInstructionAsPayer(ctx, instruction, payer)
+	if err != nil {
+		// W-27: definite send failure releases the velocity reservation
+		// instead of burning hourly budget on a transfer that never left.
+		c.velocity.Release(ctx, amountSOL)
+		return "", err
+	}
+	return sig, nil
 }
 
 // SendSOLFromTestHook, when set, replaces SendSOLFrom (used by tests).
@@ -657,6 +664,7 @@ func (c *OracleClient) BatchTransferSOL(ctx context.Context, transfers []Transfe
 		return callErr
 	})
 	if err != nil {
+		c.velocity.Release(ctx, totalSOL) // W-27: release reservation
 		return "", fmt.Errorf("failed to send transaction: %w", err)
 	}
 

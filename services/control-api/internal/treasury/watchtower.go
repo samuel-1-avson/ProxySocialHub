@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/proxyhubb/control-api/internal/decentralization"
 	"github.com/proxyhubb/control-api/internal/logging"
+	"github.com/proxyhubb/control-api/internal/solana"
 	"github.com/proxyhubb/control-api/internal/nats"
 	"github.com/proxyhubb/control-api/internal/redis"
 )
@@ -34,35 +36,37 @@ type AlertEvent struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// RecordOutflow records a transaction amount and checks for velocity spikes
+// RecordOutflow observes a completed transfer against THE outflow
+// ledger (W-27 one ledger): the velocity guard's counter is the single
+// source; the watchtower no longer keeps a second bucket with its own
+// threshold. It early-warns at 80% of the hourly cap and keeps the
+// emergency pause as defense-in-depth if the guard was ever bypassed.
 func (w *Watchtower) RecordOutflow(ctx context.Context, amountSOL float64) error {
 	if w == nil || redis.Client == nil {
 		return nil
 	}
-	// 1. Increment hourly bucket
-	now := time.Now().Hour()
-	key := fmt.Sprintf("%s:%d", HourlyOutflowKey, now)
-
-	val, err := redis.Client.IncrByFloat(ctx, key, amountSOL).Result()
+	caps, capErr := decentralization.MoneyCaps()
+	if capErr != nil {
+		return nil // boot gate owns config errors; observation stays best-effort
+	}
+	total, err := redis.Client.Get(ctx, solana.VelocityOutflowKey()).Float64()
 	if err != nil {
-		return fmt.Errorf("failed to record velocity: %w", err)
+		if err == redis.Nil {
+			total = amountSOL
+		} else {
+			return nil
+		}
 	}
-
-	// 2. Set TTL if new key
-	if val == amountSOL {
-		redis.Client.Expire(ctx, key, 1*time.Hour)
-	}
-
-	// 3. Check Velocity Spike
-	if val > MaxHourlySOLOutflow {
-		w.TriggerAlert(ctx, "CRITICAL", "High Outflow Velocity detected", fmt.Sprintf("%.2f SOL/hr", val))
+	if total > caps.MaxHourlyOutflowSOL {
+		w.TriggerAlert(ctx, "CRITICAL", "High Outflow Velocity detected", fmt.Sprintf("%.2f SOL/hr", total))
 		return w.TriggerEmergencyPause(ctx, "Automatic Velocity Breach")
 	}
-
-	if amountSOL > 50.0 {
+	if total >= 0.8*caps.MaxHourlyOutflowSOL {
+		w.TriggerAlert(ctx, "WARNING", "Outflow velocity at 80% of hourly cap", fmt.Sprintf("%.2f/%.2f SOL/hr", total, caps.MaxHourlyOutflowSOL))
+	}
+	if amountSOL > caps.MaxSingleTransferSOL {
 		w.TriggerAlert(ctx, "WARNING", "Large Outflow detected", fmt.Sprintf("%.2f SOL", amountSOL))
 	}
-
 	return nil
 }
 

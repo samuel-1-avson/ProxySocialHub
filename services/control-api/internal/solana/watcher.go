@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -47,7 +48,9 @@ type Watcher struct {
 	depositAddrs   []sol.PublicKey // All addresses monitored for native deposits
 	handlers       []EventHandler
 	pollInterval   time.Duration
-	lastSlot       uint64
+	lastSlot       uint64 // legacy compat mirror (max of cursors)
+	cursors        map[string]uint64 // W-26: durable per-address watermarks
+	pollTicks      int
 	running        bool
 	mu             sync.RWMutex
 	ctx            context.Context
@@ -124,6 +127,7 @@ func NewWatcher(cfg WatcherConfig) (*Watcher, error) {
 		depositAddrs: depositAddrs,
 		handlers:     make([]EventHandler, 0),
 		pollInterval: pollInterval,
+		cursors:      make(map[string]uint64),
 		ctx:          ctx,
 		cancel:       cancel,
 	}
@@ -375,6 +379,66 @@ func getEventDiscriminator(eventName string) string {
 }
 
 // pollForTransactions polls for recent transactions to the program
+const (
+	// W-26: bounded per-address work per poll so a signature burst
+	// cannot blow RPC quota or stall the loop; remainder next tick.
+	watcherMaxSigsPerPoll = 100
+	// Periodic reconciliation re-scan cadence (in poll ticks).
+	watcherReconcileEveryTicks = 20
+)
+
+func (w *Watcher) monitoredAddresses() []sol.PublicKey {
+	addresses := make([]sol.PublicKey, 0, 1+len(w.depositAddrs))
+	addresses = append(addresses, w.depositAddrs...)
+	if len(w.depositAddrs) == 0 && !w.treasuryID.IsZero() {
+		addresses = append(addresses, w.treasuryID)
+	}
+	if strings.TrimSpace(os.Getenv("PROXYHUB_WATCHER_START_SLOT")) != "0" {
+		addresses = append(addresses, w.programID)
+	} else if len(addresses) == 0 {
+		addresses = append(addresses, w.programID)
+	}
+	return addresses
+}
+
+// loadCursors restores durable per-address watermarks (W-26). Fresh
+// addresses start at the current chain slot (no unbounded replay);
+// PROXYHUB_WATCHER_START_SLOT=0 still forces replay for ops recovery.
+func (w *Watcher) loadCursors(currentSlot uint64) {
+	forceReplay := strings.TrimSpace(os.Getenv("PROXYHUB_WATCHER_START_SLOT")) == "0"
+	for _, addr := range w.monitoredAddresses() {
+		key := addr.String()
+		slot := currentSlot
+		if forceReplay {
+			slot = 0
+		} else if db.DB != nil {
+			var cur models.WatcherCursor
+			if err := db.DB.Where("address = ?", key).First(&cur).Error; err == nil {
+				slot = cur.LastSlot
+			}
+		}
+		w.cursors[key] = slot
+		if slot > w.lastSlot {
+			w.lastSlot = slot
+		}
+	}
+	log.Printf("[Watcher] cursors loaded: %v", w.cursors)
+}
+
+func (w *Watcher) persistCursor(address string, slot uint64, sig string) {
+	w.cursors[address] = slot
+	if slot > w.lastSlot {
+		w.lastSlot = slot
+	}
+	if db.DB == nil {
+		return
+	}
+	row := models.WatcherCursor{Address: address, LastSlot: slot, LastSignature: sig, UpdatedAt: time.Now()}
+	if err := db.DB.Save(&row).Error; err != nil {
+		log.Printf("[Watcher] persist cursor %s failed: %v", address, err)
+	}
+}
+
 func (w *Watcher) pollForTransactions() {
 	ticker := time.NewTicker(w.pollInterval)
 	defer ticker.Stop()
@@ -392,115 +456,126 @@ func (w *Watcher) pollForTransactions() {
 		}, 3, 1*time.Second)
 	})
 
-	if err == nil {
-		w.lastSlot = slot
-	} else {
-		log.Printf("[Watcher] Initial slot fetch failed after retries: %v. Starting from 0.", err)
+	if err != nil {
+		log.Printf("[Watcher] Initial slot fetch failed after retries: %v. Cursors from DB/0.", err)
 	}
-	// Ops override: PROXYHUB_WATCHER_START_SLOT=0 forces a full recent-signature replay
-	// (useful after fixing GetTransaction opts so missed deposits can be credited).
-	if v := strings.TrimSpace(os.Getenv("PROXYHUB_WATCHER_START_SLOT")); v == "0" {
-		log.Printf("[Watcher] PROXYHUB_WATCHER_START_SLOT=0 — replaying from slot 0")
-		w.lastSlot = 0
-	}
+	// W-26: resume from durable cursors and backfill immediately -
+	// events during downtime are replayed, never skipped.
+	w.loadCursors(slot)
+	w.checkRecentTransactions()
 
 	for {
 		select {
 		case <-w.ctx.Done():
 			return
 		case <-ticker.C:
+			w.pollTicks++
 			w.checkRecentTransactions()
+			if w.pollTicks%watcherReconcileEveryTicks == 0 {
+				w.reconcileRecentSignatures()
+			}
 		}
 	}
 }
 
 // checkRecentTransactions checks for recent transactions for monitored addresses
 func (w *Watcher) checkRecentTransactions() {
-	addresses := make([]sol.PublicKey, 0, 1+len(w.depositAddrs))
-	// Prefer deposit addresses first so native SOL credits are not starved by
-	// program-log signature volume under public RPC rate limits.
-	for _, addr := range w.depositAddrs {
-		addresses = append(addresses, addr)
+	for _, addr := range w.monitoredAddresses() {
+		w.scanAddress(addr, false)
 	}
-	if len(w.depositAddrs) == 0 && !w.treasuryID.IsZero() {
-		addresses = append(addresses, w.treasuryID)
+}
+
+// reconcileRecentSignatures re-checks the newest signatures per address
+// against the durable processed-events log, filling any holes left by
+// crashes or WS disconnects (W-26). Dedup makes re-emission impossible.
+func (w *Watcher) reconcileRecentSignatures() {
+	for _, addr := range w.monitoredAddresses() {
+		w.scanAddress(addr, true)
 	}
-	// Skip full program history replay when forcing slot-0 deposit catch-up.
-	if strings.TrimSpace(os.Getenv("PROXYHUB_WATCHER_START_SLOT")) != "0" {
-		addresses = append(addresses, w.programID)
-	} else if len(addresses) == 0 {
-		addresses = append(addresses, w.programID)
-	}
+}
 
-	maxSeenSlot := w.lastSlot
-	for _, addr := range addresses {
-		// Get recent signatures for the address with failover
-		var sigs []*rpc.TransactionSignature
-		err := w.withFailover(w.ctx, func(client *rpc.Client) error {
-			return w.withRetry(func() error {
-				res, err := client.GetSignaturesForAddress(
-					w.ctx,
-					addr,
-				)
-				if err != nil {
-					return err
-				}
-				sigs = res
-				return nil
-			}, 2, 500*time.Millisecond) // Lower retry for frequent polling
-		})
+// scanAddress processes new signatures for one address in ascending slot
+// order, bounded per poll, advancing the durable cursor only past
+// successfully fetched transactions.
+func (w *Watcher) scanAddress(addr sol.PublicKey, reconcile bool) {
+	key := addr.String()
+	cursor := w.cursors[key]
 
-		if err != nil {
-			continue
-		}
-
-		if len(sigs) == 0 {
-			continue
-		}
-
-		// Process only new transactions
-		for _, sig := range sigs {
-			if sig.Slot <= w.lastSlot {
-				continue
-			}
-
-			// Fetch transaction details with failover
-			var tx *rpc.GetTransactionResult
-			maxVersion := uint64(0)
-			err = w.withFailover(w.ctx, func(client *rpc.Client) error {
-				var err error
-				tx, err = client.GetTransaction(
-					w.ctx,
-					sig.Signature,
-					&rpc.GetTransactionOpts{
-						Encoding:                       sol.EncodingBase64,
-						MaxSupportedTransactionVersion: &maxVersion,
-					},
-				)
-				return err
-			})
+	var sigs []*rpc.TransactionSignature
+	err := w.withFailover(w.ctx, func(client *rpc.Client) error {
+		return w.withRetry(func() error {
+			res, err := client.GetSignaturesForAddress(w.ctx, addr)
 			if err != nil {
-				log.Printf("[Watcher] GetTransaction failed for %s: %v", sig.Signature.String(), err)
-				continue
+				return err
 			}
-			if sig.Slot > maxSeenSlot {
-				maxSeenSlot = sig.Slot
-			}
+			sigs = res
+			return nil
+		}, 2, 500*time.Millisecond)
+	})
+	if err != nil || len(sigs) == 0 {
+		return
+	}
 
-			// Parse transaction for escrow events OR native transfers
-			event := w.parseTransaction(tx, sig.Signature.String())
-			if event != nil {
-				w.emitEvent(*event)
+	// Ascending slot order so the cursor never jumps over a failure.
+	sort.Slice(sigs, func(i, j int) bool { return sigs[i].Slot < sigs[j].Slot })
+
+	processed := 0
+	newCursor := cursor
+	var lastSig string
+	for _, sig := range sigs {
+		if !reconcile && sig.Slot <= cursor {
+			continue
+		}
+		if processed >= watcherMaxSigsPerPoll {
+			break
+		}
+		if reconcile && w.eventAlreadyProcessed(sig.Signature.String()) {
+			if sig.Slot > newCursor {
+				newCursor = sig.Slot
+				lastSig = sig.Signature.String()
 			}
+			continue
+		}
+
+		var tx *rpc.GetTransactionResult
+		maxVersion := uint64(0)
+		err = w.withFailover(w.ctx, func(client *rpc.Client) error {
+			var err error
+			tx, err = client.GetTransaction(w.ctx, sig.Signature, &rpc.GetTransactionOpts{
+				Encoding:                       sol.EncodingBase64,
+				MaxSupportedTransactionVersion: &maxVersion,
+			})
+			return err
+		})
+		if err != nil {
+			log.Printf("[Watcher] GetTransaction failed for %s: %v (cursor held at %d)", sig.Signature.String(), err, newCursor)
+			break // retry next poll; do not advance past the hole
+		}
+		processed++
+		if sig.Slot > newCursor {
+			newCursor = sig.Slot
+			lastSig = sig.Signature.String()
+		}
+		if event := w.parseTransaction(tx, sig.Signature.String()); event != nil {
+			w.emitEvent(*event)
 		}
 	}
-
-	// Only advance watermark when we successfully scanned; failed GetTransaction
-	// calls leave those slots below lastSlot so the next poll retries them.
-	// Note: under sustained RPC failures this can stall — acceptable vs silent loss.
-	if maxSeenSlot > w.lastSlot {
-		w.lastSlot = maxSeenSlot
+	if newCursor > cursor {
+		w.persistCursor(key, newCursor, lastSig)
 	}
+}
+
+// eventAlreadyProcessed consults the durable dedup log (any event type
+// for this signature counts for reconciliation purposes).
+func (w *Watcher) eventAlreadyProcessed(txSig string) bool {
+	if db.DB == nil || txSig == "" {
+		return false
+	}
+	var count int64
+	if err := db.DB.Model(&models.WatcherProcessedEvent{}).Where("tx_signature = ?", txSig).Count(&count).Error; err != nil {
+		return false
+	}
+	return count > 0
 }
 
 // parseTransaction extracts escrow events from a transaction
@@ -611,6 +686,20 @@ func (w *Watcher) withRetry(fn func() error, maxRetries int, baseDelay time.Dura
 
 // emitEvent sends an event to all registered handlers
 func (w *Watcher) emitEvent(event EscrowEvent) {
+	// W-26: durable dedup first (unique insert). The Redis SetNX below
+	// remains a fast path, but correctness no longer depends on a
+	// 10-minute in-memory TTL surviving restarts/flushes.
+	if db.DB != nil && event.TxSignature != "" {
+		rec := models.WatcherProcessedEvent{TxSignature: event.TxSignature, EventType: event.Type, ProcessedAt: time.Now()}
+		if err := db.DB.Create(&rec).Error; err != nil {
+			if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique constraint") || strings.Contains(err.Error(), "23505") {
+				return // already processed durably
+			}
+			// Table missing (pre-migration) or transient DB error: log and
+			// fall through to Redis dedup rather than dropping the event.
+			log.Printf("[Watcher] durable dedup unavailable for tx %s: %v", event.TxSignature, err)
+		}
+	}
 	// Dedup using Redis SetNX to prevent WS + poll double-execution
 	if redis.Client != nil && event.TxSignature != "" {
 		dedupKey := fmt.Sprintf("watcher:event:%s:%s", event.Type, event.TxSignature)

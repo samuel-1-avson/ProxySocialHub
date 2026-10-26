@@ -27,6 +27,11 @@ type Wallet struct {
 	BalanceSOL float64   `gorm:"column:balance_sol;type:numeric(20,9);default:0" json:"balance_sol"`
 	// BalanceLamports mirrors balance_sol at 1e9 scale (DB trigger keeps them aligned).
 	BalanceLamports int64 `gorm:"column:balance_lamports;default:0" json:"balance_lamports"`
+	// W-10: subset of BalanceLamports that is provider earnings payable
+	// on-chain. Invariant: 0 <= payable <= balance. Payouts sweep only this.
+	EarningsPayableLamports    int64 `gorm:"column:earnings_payable_lamports;default:0" json:"earnings_payable_lamports"`
+	AutoPayoutEnabled          bool  `gorm:"column:auto_payout_enabled;default:false" json:"auto_payout_enabled"`
+	AutoPayoutThresholdLamports int64 `gorm:"column:auto_payout_threshold_lamports;default:50000000" json:"auto_payout_threshold_lamports"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 

@@ -21,6 +21,10 @@ const p0WithdrawAddr = "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuGui4Q5G"
 
 func seedWithdrawUser(t *testing.T, balance float64) (models.User, models.Wallet) {
 	t.Helper()
+	// W-13: these tests cover the durable queue, not signature auth -
+	// lift the dust threshold so no signature is required here (the
+	// challenge flow has its own P1 tests with a real keypair).
+	t.Setenv("WITHDRAW_SIGNATURE_THRESHOLD_LAMPORTS", "100000000000000")
 	user, wallet := createWalletTestUser(t)
 	linkSolanaWallet(t, &user, p0WithdrawAddr)
 	wallet.BalanceSOL = balance

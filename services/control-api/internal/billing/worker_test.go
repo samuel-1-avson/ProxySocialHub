@@ -192,8 +192,8 @@ func TestDebitBuyerWallet_InsufficientBalance(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected insufficient balance error")
 	}
-	if err.Error() != "insufficient SOL balance" {
-		t.Fatalf("unexpected error: %v", err)
+	if !errors.Is(err, models.ErrInsufficientBalance) {
+		t.Fatalf("unexpected error (want ErrInsufficientBalance): %v", err)
 	}
 }
 
@@ -235,6 +235,11 @@ func TestCreditProviderWallet_Atomic(t *testing.T) {
 	var providerWallet models.Wallet
 	if err := db.DB.Where("user_id = ?", provider.ID).First(&providerWallet).Error; err != nil {
 		t.Fatalf("provider wallet: %v", err)
+	}
+	// W-10: queue signal now requires auto-payout opt-in.
+	providerWallet.AutoPayoutEnabled = true
+	if err := db.DB.Save(&providerWallet).Error; err != nil {
+		t.Fatalf("enable auto payout: %v", err)
 	}
 	startBalance := providerWallet.BalanceSOL
 
@@ -386,7 +391,12 @@ func TestCreditProviderWallet_ReturnsQueueWhenAtOrAboveThreshold(t *testing.T) {
 	if err := db.DB.Where("user_id = ?", provider.ID).First(&providerWallet).Error; err != nil {
 		t.Fatalf("provider wallet: %v", err)
 	}
+	// W-10: threshold is on PAYABLE earnings and only for opted-in providers.
 	providerWallet.BalanceSOL = providerPayoutThresholdSOL - 0.01
+	providerWallet.BalanceLamports = int64(models.SOLToLamports(providerWallet.BalanceSOL))
+	providerWallet.EarningsPayableLamports = providerWallet.BalanceLamports
+	providerWallet.AutoPayoutEnabled = true
+	providerWallet.AutoPayoutThresholdLamports = int64(models.SOLToLamports(providerPayoutThresholdSOL))
 	if err := db.DB.Save(&providerWallet).Error; err != nil {
 		t.Fatalf("save provider wallet: %v", err)
 	}
@@ -537,6 +547,8 @@ func TestTriggerProviderPayout_EnqueuesRetryOnOnChainFailure(t *testing.T) {
 		t.Fatalf("wallet: %v", err)
 	}
 	wallet.BalanceSOL = 0.10
+	wallet.BalanceLamports = 100_000_000
+	wallet.EarningsPayableLamports = 100_000_000 // W-10: payouts sweep payable earnings
 	if err := db.DB.Save(&wallet).Error; err != nil {
 		t.Fatalf("save wallet: %v", err)
 	}
