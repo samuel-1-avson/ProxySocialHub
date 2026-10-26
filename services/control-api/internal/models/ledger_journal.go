@@ -18,6 +18,7 @@ const (
 	AccountTreasuryCash        = "1000"
 	AccountDepositVaultCash    = "1001"
 	AccountUserWalletLiability = "2100"
+	AccountProviderPayable     = "2110"
 	AccountEscrowLiability     = "2200"
 	AccountPlatformRevenue     = "4000"
 )
@@ -276,7 +277,7 @@ func PostUsageJournal(tx *gorm.DB, buyerWalletID, providerWalletID uuid.UUID, bu
 	}
 	if providerCredit > 0 && providerWalletID != uuid.Nil {
 		p := providerWalletID
-		lines = append(lines, JournalLineSpec{AccountCode: AccountUserWalletLiability, WalletID: &p, AmountLamports: -providerCredit})
+		lines = append(lines, JournalLineSpec{AccountCode: AccountProviderPayable, WalletID: &p, AmountLamports: -providerCredit})
 	}
 	remaining := buyerDebit - providerCredit
 	if feeLamports > 0 {
@@ -294,4 +295,24 @@ func PostUsageJournal(tx *gorm.DB, buyerWalletID, providerWalletID uuid.UUID, bu
 // postUsageJournal kept as unexported alias for older call sites.
 func postUsageJournal(tx *gorm.DB, buyerWalletID, providerWalletID uuid.UUID, buyerDebit, providerCredit, feeLamports int64, ref, desc string) error {
 	return PostUsageJournal(tx, buyerWalletID, providerWalletID, buyerDebit, providerCredit, feeLamports, ref, desc)
+}
+
+// postPayableDebitJournal: payout decreases provider payable, pays treasury out.
+// Dr 2110 / Cr 1000
+func postPayableDebitJournal(tx *gorm.DB, walletID uuid.UUID, lamports int64, entryType, ref, desc string) error {
+	wid := walletID
+	return PostBalancedJournal(tx, entryType, ref, desc, []JournalLineSpec{
+		{AccountCode: AccountProviderPayable, WalletID: &wid, AmountLamports: lamports},
+		{AccountCode: AccountTreasuryCash, AmountLamports: -lamports},
+	})
+}
+
+// postPayableCreditJournal: payout restore re-credits provider payable.
+// Dr 1000 / Cr 2110
+func postPayableCreditJournal(tx *gorm.DB, walletID uuid.UUID, lamports int64, entryType, ref, desc string) error {
+	wid := walletID
+	return PostBalancedJournal(tx, entryType, ref, desc, []JournalLineSpec{
+		{AccountCode: AccountTreasuryCash, AmountLamports: lamports},
+		{AccountCode: AccountProviderPayable, WalletID: &wid, AmountLamports: -lamports},
+	})
 }

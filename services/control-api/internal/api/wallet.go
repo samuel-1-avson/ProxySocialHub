@@ -17,6 +17,7 @@ import (
 	"github.com/mr-tron/base58"
 	"github.com/proxyhubb/control-api/internal/alerts"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/decentralization"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/redis"
@@ -61,9 +62,12 @@ func RegisterWalletRoutes(r *gin.RouterGroup) {
 
 		// SOL WITHDRAWAL — send SOL to user's linked Solana wallet
 		wallet.POST("/withdraw/sol", RateLimitWithConfig(5, time.Minute), withdrawSOL)
+		wallet.POST("/withdraw/challenge", RateLimitWithConfig(10, time.Minute), getWithdrawChallenge)
 
 		// General Wallet Info
 		wallet.GET("", getWallet)
+		wallet.POST("/init", RateLimitWithConfig(5, time.Minute), initWallet)
+		wallet.GET("/transactions", listMyWalletTransactions)
 
 		// Spending Limits (Security) — rate-limited to prevent rapid reset attacks
 		wallet.GET("/limits", getSpendingLimits)
@@ -83,6 +87,7 @@ type TransactionDTO struct {
 	ID          string    `json:"id"`
 	Type        string    `json:"type"`
 	Amount      float64   `json:"amount"`
+	AmountLamports int64  `json:"amount_lamports"`
 	Description string    `json:"description"`
 	Status      string    `json:"status"` // "settled", "pending", "failed", "completed"
 	TxHash      string    `json:"tx_hash,omitempty"`
@@ -132,166 +137,19 @@ func getWallet(c *gin.Context) {
 	}
 
 	if result.RowsAffected == 0 {
-		// Wallet doesn't exist, try to create it.
-
-		// SAFETY NET: Ensure user exists in local DB to prevent FK violation.
-		// Middleware should handle this, but race conditions or failures might leave gaps.
-		var user models.User
-		if err := db.DB.First(&user, "id = ?", userID).Error; err != nil {
-			// User missing, create placeholder
-			logging.Warn().Str("user_id", userIDStr).Msg("getWallet: User missing in local DB, attempting fallback creation")
-
-			userEmail := c.GetString("userEmail")
-			if userEmail == "" {
-				c.JSON(http.StatusNotFound, gin.H{"error": "User account not initialized"})
-				return
-			}
-			username := strings.Split(userEmail, "@")[0]
-			// Append part of UUID to username to ensure uniqueness and avoid collision errors
-			if len(userIDStr) >= 8 {
-				username = fmt.Sprintf("%s_%s", username, userIDStr[:8])
-			}
-
-			// Ensure auth.users parent row exists first (satisfies profiles_id_fkey FK)
-			if authErr := db.DB.Exec(
-				`INSERT INTO auth.users (id, email) VALUES (?, ?) ON CONFLICT (id) DO NOTHING`,
-				userID, userEmail,
-			).Error; authErr != nil {
-				logging.Error(authErr).Str("user_id", userIDStr).Msg("getWallet: Failed to sync auth.users row")
-			}
-
-			user = models.User{
-				ID:        userID,
-				Email:     userEmail,
-				Username:  &username,
-				TrustTier: models.TrustTierNew,
-				Role:      c.GetString("userRole"),
-			}
-			// Attempt to create user, log error if it fails
-			if err := db.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&user).Error; err != nil {
-				logging.Error(err).Str("user_id", userIDStr).Msg("getWallet: Fallback user creation failed.")
-				// We still re-check if user exists now (maybe created by concurrent request)
-			}
-
-			// Final check: Does user exist now?
-			if err := db.DB.First(&user, "id = ?", userID).Error; err != nil {
-				logging.Error(err).Str("user_id", userIDStr).Msg("getWallet: User does not exist and fallback creation failed")
-				c.JSON(http.StatusNotFound, gin.H{"error": "User account not initialized. Please log in again."})
-				return
-			}
-			logging.Info().Str("user_id", userIDStr).Msg("getWallet: User profile confirmed/created")
-		}
-
-		// M-02: Wrap wallet creation in a transaction with SELECT FOR UPDATE on the
-		// user row to serialize concurrent creation attempts. Two goroutines that
-		// both passed the "wallet doesn't exist" check above will contend on this
-		// lock; only one proceeds to INSERT while the other waits, then re-fetches
-		// the wallet the winner created.
-		createErr := db.DB.Transaction(func(tx *gorm.DB) error {
-			// Lock the user row — serializes all concurrent wallet-creation attempts
-			// for this user.
-			var lockedUser models.User
-			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-				Where("id = ?", userID).First(&lockedUser).Error; err != nil {
-				return fmt.Errorf("failed to lock user row: %w", err)
-			}
-
-			// Another goroutine may have created the wallet while we waited for the
-			// lock — check again before inserting.
-			var existing models.Wallet
-			if err := tx.Where("user_id = ?", userID).First(&existing).Error; err == nil {
-				wallet = existing
-				return nil
-			}
-
-			newWallet := models.Wallet{
-				UserID:     userID,
-				BalanceSOL: 0,
-			}
-			newWallet.InitializeWithDefaultLimits(lockedUser.TrustTier)
-			if err := tx.Create(&newWallet).Error; err != nil {
-				return fmt.Errorf("failed to create wallet: %w", err)
-			}
-			wallet = newWallet
-			return nil
+		// W-21: GET is side-effect-free. Provisioning happens at signup
+		// (wallet-login) or explicitly via POST /v1/wallet/init - never
+		// as a hidden write inside a read (the old block also invented
+		// user rows + auth.users rows from ambient JWT claims on a GET).
+		c.JSON(http.StatusNotFound, gin.H{
+			"error":  "wallet not initialized",
+			"code":   "wallet_not_initialized",
+			"action": "POST /v1/wallet/init",
 		})
-		if createErr != nil {
-			logging.Error(createErr).Str("user_id", userIDStr).Msg("getWallet: Wallet creation failed")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to initialize wallet"})
-			return
-		}
-		logging.Info().Str("wallet_id", wallet.ID.String()).Msg("getWallet: Initialized wallet")
+		return
 	}
 
-	// Prepare unified transactions list
-	var transactions []TransactionDTO
-
-	// 1. Get Settled Transactions (Ledger)
-	var ledger []models.WalletLedgerEntry
-	if err := db.DB.Where("wallet_id = ?", wallet.ID).Order("created_at DESC").Limit(txLimit).Find(&ledger).Error; err != nil {
-		logging.Error(err).Msg("getWallet: Failed to fetch ledger")
-	}
-
-	ledgerMap := make(map[string]bool)
-	for _, l := range ledger {
-		ledgerMap[l.ReferenceID] = true // Track references to avoid duplicates if we merge
-		dto := TransactionDTO{
-			ID:          l.ID.String(),
-			Type:        l.Type,
-			Amount:      l.Amount,
-			Description: ledgerEntryDescription(l),
-			Status:      ledgerEntryStatus(l),
-			CreatedAt:   l.CreatedAt,
-		}
-		if l.TxHash != "" {
-			dto.TxHash = l.TxHash
-			dto.SolscanURL = SolscanTxURL(l.TxHash)
-		} else if isLikelySolanaSignature(l.ReferenceID) {
-			dto.TxHash = l.ReferenceID
-			dto.SolscanURL = SolscanTxURL(l.ReferenceID)
-		}
-		transactions = append(transactions, dto)
-	}
-
-	// 2. Get Recent Payment Attempts (Pending/Processing/Completed/Failed)
-	// We fetch ALL recent attempts to debug "ghost" transactions (Status=Completed but not in ledger)
-	var paymentAttempts []models.PendingTransaction
-	if err := db.DB.Where("user_id = ?", userIDStr).Order("created_at DESC").Limit(txLimit).Find(&paymentAttempts).Error; err != nil {
-		logging.Error(err).Msg("getWallet: Failed to fetch payment attempts")
-	}
-
-	for _, p := range paymentAttempts {
-		// Skip if this reference is already in the ledger (means it is fully settled)
-		if ledgerMap[p.Reference] {
-			continue
-		}
-
-		status := p.Status
-		if status == "processing" {
-			status = "pending"
-		}
-
-		desc := fmt.Sprintf("%s (%s)", p.Type, p.Provider)
-		if p.Type == "deposit" {
-			desc = "Deposit via " + p.Provider
-		} else if p.Type == "withdrawal" {
-			desc = "Withdrawal to " + p.Provider
-		}
-
-		displayAmount := p.Amount
-		if p.Type == "withdrawal" {
-			displayAmount = -p.Amount
-		}
-
-		transactions = append(transactions, TransactionDTO{
-			ID:          p.ID.String(),
-			Type:        p.Type,
-			Amount:      displayAmount,
-			Description: desc, // Note: "Ghost" tx might appear here
-			Status:      status,
-			CreatedAt:   p.CreatedAt,
-		})
-	}
+	transactions, nextCursor := fetchWalletTransactions(wallet.ID, userID, txLimit, c.Query("cursor"))
 
 	// Fetch user to check linked Solana wallet
 	var user models.User
@@ -326,8 +184,16 @@ func getWallet(c *gin.Context) {
 		"wallet_id":             wallet.ID,
 		"balance_sol":           wallet.BalanceSOL,
 		"balance_lamports":      wallet.EffectiveBalanceLamports(),
-		"transactions":          transactions,
-		"linked_solana_address": user.WalletAddress,
+		// W-10: earnings payable sub-balance + auto-payout settings.
+		"earnings_payable_lamports":      wallet.PayableLamports(),
+		"earnings_payable_sol":           models.LamportsToSOL(uint64(wallet.PayableLamports())),
+		"auto_payout_enabled":            wallet.AutoPayoutEnabled,
+		"auto_payout_threshold_lamports": wallet.AutoPayoutThresholdOrDefault(),
+		"transactions":                   transactions,
+		"linked_solana_address":          user.WalletAddress,
+	}
+	if nextCursor != "" {
+		walletResp["transactions_next_cursor"] = nextCursor
 	}
 	if onChainSOL != nil {
 		// on_chain_sol: actual SOL held in the user's external wallet (not escrowed)
@@ -343,6 +209,108 @@ func getWallet(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"wallet": walletResp,
 	})
+}
+
+// ensureWalletProvisioned creates the user profile (when missing) and
+// wallet under a user-row lock. Extracted from the old GET /wallet
+// write-on-read block (W-21); now only POST /wallet/init calls it.
+func ensureWalletProvisioned(userID uuid.UUID, userEmail, role string) (models.Wallet, bool, error) {
+	userIDStr := userID.String()
+	var user models.User
+	if err := db.DB.First(&user, "id = ?", userID).Error; err != nil {
+		if userEmail == "" {
+			return models.Wallet{}, false, fmt.Errorf("user account not initialized")
+		}
+		username := strings.Split(userEmail, "@")[0]
+		if len(userIDStr) >= 8 {
+			username = fmt.Sprintf("%s_%s", username, userIDStr[:8])
+		}
+		if authErr := db.DB.Exec(
+			`INSERT INTO auth.users (id, email) VALUES (?, ?) ON CONFLICT (id) DO NOTHING`,
+			userID, userEmail,
+		).Error; authErr != nil {
+			logging.Error(authErr).Str("user_id", userIDStr).Msg("initWallet: Failed to sync auth.users row")
+		}
+		user = models.User{
+			ID:        userID,
+			Email:     userEmail,
+			Username:  &username,
+			TrustTier: models.TrustTierNew,
+			Role:      role,
+		}
+		if err := db.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&user).Error; err != nil {
+			logging.Error(err).Str("user_id", userIDStr).Msg("initWallet: user creation failed")
+		}
+		if err := db.DB.First(&user, "id = ?", userID).Error; err != nil {
+			return models.Wallet{}, false, fmt.Errorf("user account not initialized")
+		}
+	}
+
+	var wallet models.Wallet
+	created := false
+	err := db.DB.Transaction(func(tx *gorm.DB) error {
+		var lockedUser models.User
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ?", userID).First(&lockedUser).Error; err != nil {
+			return fmt.Errorf("failed to lock user row: %w", err)
+		}
+		var existing models.Wallet
+		if err := tx.Where("user_id = ?", userID).First(&existing).Error; err == nil {
+			wallet = existing
+			return nil
+		}
+		newWallet := models.Wallet{UserID: userID, BalanceSOL: 0}
+		newWallet.InitializeWithDefaultLimits(lockedUser.TrustTier)
+		if err := tx.Create(&newWallet).Error; err != nil {
+			return fmt.Errorf("failed to create wallet: %w", err)
+		}
+		wallet = newWallet
+		created = true
+		return nil
+	})
+	return wallet, created, err
+}
+
+// POST /v1/wallet/init — explicit, idempotent wallet provisioning (W-21).
+func initWallet(c *gin.Context) {
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+	wallet, created, err := ensureWalletProvisioned(userID, c.GetString("userEmail"), c.GetString("userRole"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to initialize wallet"})
+		return
+	}
+	status := http.StatusOK
+	if created {
+		status = http.StatusCreated
+	}
+	c.JSON(status, gin.H{"wallet_id": wallet.ID, "created": created})
+}
+
+// GET /v1/wallet/transactions?limit=50&cursor=... — keyset pagination (W-21).
+func listMyWalletTransactions(c *gin.Context) {
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+	var wallet models.Wallet
+	if err := db.DB.Where("user_id = ?", userID).First(&wallet).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "wallet not initialized", "code": "wallet_not_initialized", "action": "POST /v1/wallet/init"})
+		return
+	}
+	limit := 50
+	if l := c.Query("limit"); l != "" {
+		var n int
+		if _, err := fmt.Sscanf(l, "%d", &n); err == nil && n > 0 && n <= 200 {
+			limit = n
+		}
+	}
+	transactions, nextCursor := fetchWalletTransactions(wallet.ID, userID, limit, c.Query("cursor"))
+	c.JSON(http.StatusOK, gin.H{"transactions": transactions, "next_cursor": nextCursor})
 }
 
 type depositRequest struct {
@@ -406,7 +374,8 @@ const maxTransferSOL = 10000.0
 
 type p2pTransferRequest struct {
 	RecipientIdentifier string  `json:"recipient" binding:"required"` // Email or Username
-	Amount              float64 `json:"amount" binding:"required,gt=0,lte=10000"`
+	Amount              float64 `json:"amount" binding:"gte=0,lte=10000"`
+	AmountLamports      int64   `json:"amount_lamports"`
 	IdempotencyKey      string  `json:"idempotency_key"`
 }
 
@@ -414,6 +383,14 @@ func transferP2P(c *gin.Context) {
 	var req p2pTransferRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	// W-20: exact lamports win over the deprecated float.
+	if req.AmountLamports > 0 {
+		req.Amount = models.LamportsToSOL(uint64(req.AmountLamports))
+	}
+	if req.Amount <= 0 || req.Amount > 10000 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "amount_lamports (or amount) must be within (0, 10000] SOL"})
 		return
 	}
 
@@ -587,10 +564,15 @@ func transferP2P(c *gin.Context) {
 }
 
 type withdrawSOLRequest struct {
-	Amount         float64 `json:"amount" binding:"required,gt=0,lte=10000"`
+	Amount         float64 `json:"amount" binding:"gte=0,lte=10000"`
+	AmountLamports int64   `json:"amount_lamports"`
 	IdempotencyKey string  `json:"idempotency_key"`
-	Nonce          string  `json:"nonce"`
-	Signature      string  `json:"signature"`
+	// W-13 challenge scheme (preferred): server-issued nonce from
+	// POST /wallet/withdraw/challenge.
+	ChallengeNonce string `json:"challenge_nonce"`
+	// Legacy fields (deprecated client-timestamp scheme, large withdrawals).
+	Nonce     string `json:"nonce"`
+	Signature string `json:"signature"`
 }
 
 func verifyWithdrawalSignature(c *gin.Context, walletAddress string, amount float64, nonce string, signature string) bool {
@@ -612,11 +594,6 @@ func verifyWalletSignedMessage(c *gin.Context, walletAddress, nonce, signature, 
 		return false
 	}
 
-	key := fmt.Sprintf("%s:%s:%s", redisPrefix, walletAddress, nonce)
-	if !redis.Client.SetNX(c.Request.Context(), key, "1", 5*time.Minute).Val() {
-		return false
-	}
-
 	pubKeyBytes, err := base58.Decode(walletAddress)
 	if err != nil || len(pubKeyBytes) != 32 {
 		return false
@@ -625,8 +602,14 @@ func verifyWalletSignedMessage(c *gin.Context, walletAddress, nonce, signature, 
 	if err != nil || len(sigBytes) != 64 {
 		return false
 	}
-
-	return ed25519.Verify(pubKeyBytes, []byte(message), sigBytes)
+	// W-13: verify FIRST, then burn. The old order let anyone burn a
+	// victim's nonce with a garbage signature; the atomic SetNX claim
+	// after a successful verify still makes the nonce single-use.
+	if !ed25519.Verify(pubKeyBytes, []byte(message), sigBytes) {
+		return false
+	}
+	key := fmt.Sprintf("%s:%s:%s", redisPrefix, walletAddress, nonce)
+	return redis.Client.SetNX(c.Request.Context(), key, "1", 5*time.Minute).Val()
 }
 
 // --- P0-9: client idempotency helpers (transfer + withdrawal) ---
@@ -772,13 +755,50 @@ func withdrawSOL(c *gin.Context) {
 		return
 	}
 
-	// Large withdrawal requires re-signature before balance/oracle work.
-	largeWithdrawalThresholdSOL := getLargeWithdrawalThresholdSOL()
-	if req.Amount > largeWithdrawalThresholdSOL {
-		if !verifyWithdrawalSignature(c, destAddress, req.Amount, req.Nonce, req.Signature) {
+	// W-20/W-13: exact lamports are the signed, debited amount. The float
+	// field is a deprecated convenience and loses to amount_lamports.
+	amountLamports := req.AmountLamports
+	if amountLamports == 0 && req.Amount > 0 {
+		amountLamports = int64(models.SOLToLamports(req.Amount))
+	}
+	// W-27: the API cap comes from the single money-caps config and is
+	// enforced BEFORE debit, so users never get debited for a withdrawal
+	// the velocity guard would reject at broadcast.
+	caps, capErr := decentralization.MoneyCaps()
+	capLamports := int64(models.SOLToLamports(10000))
+	if capErr == nil {
+		capLamports = int64(models.SOLToLamports(caps.WithdrawAPICapSOL))
+	}
+	if amountLamports <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "amount_lamports (or amount) must be positive"})
+		return
+	}
+	if amountLamports > capLamports {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":           "amount exceeds the per-withdrawal cap; split into smaller withdrawals",
+			"cap_lamports":    capLamports,
+			"cap_sol":         models.LamportsToSOL(uint64(capLamports)),
+		})
+		return
+	}
+	req.Amount = models.LamportsToSOL(uint64(amountLamports))
+
+	// W-13: above the dust threshold a fresh wallet signature over the
+	// server challenge (exact lamports + destination + user) is required
+	// before any balance/oracle work. The legacy timestamp-nonce scheme
+	// is still accepted for large withdrawals from older clients.
+	sigThreshold := getWithdrawSignatureThresholdLamports()
+	if amountLamports > sigThreshold {
+		verified := false
+		if req.ChallengeNonce != "" {
+			verified = verifyWithdrawChallengeSignature(c.Request.Context(), userUUID, destAddress, amountLamports, req.ChallengeNonce, req.Signature)
+		} else if req.Amount > getLargeWithdrawalThresholdSOL() {
+			verified = verifyWithdrawalSignature(c, destAddress, req.Amount, req.Nonce, req.Signature)
+		}
+		if !verified {
 			c.JSON(http.StatusForbidden, gin.H{
-				"error":         fmt.Sprintf("Signature verification required for large withdrawals (>%.6g SOL)", largeWithdrawalThresholdSOL),
-				"threshold_sol": largeWithdrawalThresholdSOL,
+				"error":              "Wallet signature verification required for this withdrawal. POST /v1/wallet/withdraw/challenge, sign the returned message, and retry with challenge_nonce + signature.",
+				"threshold_lamports": sigThreshold,
 			})
 			return
 		}

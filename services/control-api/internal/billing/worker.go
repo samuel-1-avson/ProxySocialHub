@@ -691,7 +691,11 @@ func creditProviderWallet(tx *gorm.DB, session *models.Session, totalBytes int64
 		tx.Save(&score)
 	}
 
-	return providerWallet.BalanceSOL >= providerPayoutThresholdSOL, providerWallet.ID, nil
+	// W-10: auto-payout is opt-in and considers only the earnings-payable
+	// sub-balance - buyer funds in the same wallet never trigger a sweep.
+	shouldQueue := providerWallet.AutoPayoutEnabled &&
+		providerWallet.PayableLamports() >= providerWallet.AutoPayoutThresholdOrDefault()
+	return shouldQueue, providerWallet.ID, nil
 }
 
 // triggerProviderPayout sends accumulated SOL from treasury to provider's linked Solana wallet.
@@ -699,47 +703,54 @@ func creditProviderWallet(tx *gorm.DB, session *models.Session, totalBytes int64
 // C-3: pendingSOL parameter removed — the locked payoutAmount from the DB transaction is used
 // for all on-chain operations so the deducted amount always matches what is sent.
 func triggerProviderPayout(providerID uuid.UUID) {
+	triggerProviderPayoutAmount(providerID, 0)
+}
+
+// triggerProviderPayoutAmount pays lamports of earnings-payable (0 = all
+// payable) on-chain immediately. W-10: it can only ever sweep payable
+// earnings, never the provider's buyer funds.
+func triggerProviderPayoutAmount(providerID uuid.UUID, lamports int64) {
 	ctx := context.Background()
 
-	// N-07: Prefer the provider's primary verified linked Solana wallet.
-	// Fall back to the legacy profile wallet_address if no linked wallet is set.
 	walletAddress, err := resolveProviderWallet(providerID)
 	if err != nil {
 		logging.Warn().Str("provider_id", providerID.String()).Err(err).Msg("Provider payout: no payable wallet found")
 		return
 	}
 
-	// C-3: Capture the locked balance inside the transaction so the on-chain transfer
-	// always sends exactly what was deducted from the DB — no stale snapshot.
-	var payoutAmount float64
-
+	var payoutLamports int64
 	txErr := db.DB.Transaction(func(tx *gorm.DB) error {
 		var wallet models.Wallet
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", providerID).First(&wallet).Error; err != nil {
 			return err
 		}
-		if !wallet.CanAffordSOL(providerPayoutThresholdSOL) {
-			return fmt.Errorf("balance dropped below threshold before payout")
+		payoutLamports = lamports
+		if payoutLamports <= 0 {
+			payoutLamports = wallet.PayableLamports()
 		}
-		payoutAmount = wallet.BalanceSOL // captured for use after the transaction
+		if payoutLamports <= 0 {
+			return fmt.Errorf("no earnings payable for payout")
+		}
+		if wallet.PayableLamports() < payoutLamports {
+			return fmt.Errorf("payable balance dropped below payout amount before payout")
+		}
 		ref := fmt.Sprintf("payout:%s:%s", providerID.String(), uuid.New().String())
-		desc := fmt.Sprintf("On-chain payout to %s (%.6f SOL devnet)", walletAddress, payoutAmount)
-		return models.DebitWalletLocked(tx, &wallet, payoutAmount, models.TransactionPayout, ref, desc)
+		desc := fmt.Sprintf("On-chain payout to %s (%d lamports)", walletAddress, payoutLamports)
+		return models.DebitEarningsPayable(tx, &wallet, payoutLamports, ref, desc)
 	})
 	if txErr != nil {
 		logging.Error(txErr).Str("provider_id", providerID.String()).Msg("Provider payout: wallet deduction failed")
 		return
 	}
+	payoutAmount := models.LamportsToSOL(uint64(payoutLamports))
 
-	// C-3: Send the locked payoutAmount on-chain, not the stale goroutine argument.
 	if err := sendSOLToWallet(ctx, walletAddress, payoutAmount); err != nil {
-		// Enqueue to retry queue instead of silently dropping or refunding.
 		errMsg := err.Error()
 		now := time.Now()
 		entry := models.PayoutRetryQueue{
 			ProviderID:      providerID,
 			WalletAddress:   walletAddress,
-			AmountSOL:       payoutAmount, // C-3: use locked amount, not stale arg
+			AmountSOL:       payoutAmount,
 			AttemptCount:    1,
 			LastAttemptedAt: &now,
 			NextRetryAt:     now.Add(2 * time.Minute),
@@ -754,8 +765,8 @@ func triggerProviderPayout(providerID uuid.UUID) {
 					return err
 				}
 				ref := fmt.Sprintf("payout-restore:%s:%s", providerID.String(), uuid.New().String())
-				desc := fmt.Sprintf("Restore after payout enqueue failure (%.6f SOL)", payoutAmount)
-				return models.CreditWalletLocked(tx, &w, payoutAmount, "payout_restore", ref, desc)
+				desc := fmt.Sprintf("Restore after payout enqueue failure (%d lamports)", payoutLamports)
+				return models.CreditEarningsPayableRestore(tx, &w, payoutLamports, ref, desc)
 			})
 			if restoreErr != nil {
 				logging.Error(restoreErr).Str("provider_id", providerID.String()).Msg("Provider payout: enqueue failed and balance restore failed")
@@ -771,7 +782,7 @@ func triggerProviderPayout(providerID uuid.UUID) {
 	logging.Info().
 		Str("provider_id", providerID.String()).
 		Str("wallet", walletAddress).
-		Float64("amount_sol", payoutAmount). // C-3: log the actual sent amount
+		Float64("amount_sol", payoutAmount).
 		Msg("Provider payout completed on-chain (devnet)")
 }
 
@@ -781,57 +792,75 @@ func triggerProviderPayout(providerID uuid.UUID) {
 // transaction, keyed by a per-payout UUID. There is no restore dance: any
 // failure rolls the debit back together with the enqueue.
 func queueProviderPayout(providerID uuid.UUID) {
-	// Resolve provider wallet
+	if _, _, err := QueueProviderPayoutAmount(providerID, 0); err != nil {
+		logging.Error(err).Str("provider_id", providerID.String()).Msg("Provider payout: queue failed (no debit persisted)")
+	}
+}
+
+// QueueProviderPayoutAmount atomically debits lamports of earnings-payable
+// (0 = all payable) and enqueues the batch payout intent in ONE
+// transaction (P0-1 atomicity, W-10 payable scoping). Used by opt-in
+// auto-payout and by the manual claim endpoint. Large amounts route to
+// the immediate on-chain path, which owns its own debit+send+retry
+// bookkeeping over the same payable funds.
+func QueueProviderPayoutAmount(providerID uuid.UUID, lamports int64) (uuid.UUID, int64, error) {
 	walletAddress, err := resolveProviderWallet(providerID)
 	if err != nil {
-		logging.Warn().Str("provider_id", providerID.String()).Err(err).Msg("Provider payout: no payable wallet found")
-		return
+		return uuid.Nil, 0, fmt.Errorf("no payable wallet found: %w", err)
 	}
 
 	if globalBatchProcessor == nil {
-		logging.Warn().Str("provider_id", providerID.String()).Msg("Batch processor not initialized, using immediate payout")
-		go triggerProviderPayout(providerID)
-		return
+		go triggerProviderPayoutAmount(providerID, lamports)
+		return uuid.Nil, lamports, nil
 	}
 
-	// Route large payouts through the immediate path, which owns its own
-	// debit+send+retry bookkeeping. Peek unlocked; triggerProviderPayout
-	// re-locks and re-validates before debiting.
+	// Peek payable for the immediate-path route; the tx re-validates.
 	var peek models.Wallet
-	if err := db.DB.Select("balance_sol").Where("user_id = ?", providerID).First(&peek).Error; err == nil &&
-		peek.BalanceSOL >= globalBatchProcessor.ImmediateThreshold() {
-		go triggerProviderPayout(providerID)
-		return
+	if err := db.DB.Select("earnings_payable_lamports", "balance_lamports").Where("user_id = ?", providerID).First(&peek).Error; err == nil {
+		routeLamports := lamports
+		if routeLamports <= 0 {
+			routeLamports = peek.PayableLamports()
+		}
+		if models.LamportsToSOL(uint64(routeLamports)) >= globalBatchProcessor.ImmediateThreshold() {
+			go triggerProviderPayoutAmount(providerID, lamports)
+			return uuid.Nil, routeLamports, nil
+		}
 	}
 
 	payoutID := uuid.New()
 	ledgerRef := fmt.Sprintf("payout-queue:%s:%s", providerID.String(), payoutID.String())
-	var payoutAmount float64
+	var payoutLamports int64
 	txErr := db.DB.Transaction(func(tx *gorm.DB) error {
 		var wallet models.Wallet
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", providerID).First(&wallet).Error; err != nil {
 			return err
 		}
-		if !wallet.CanAffordSOL(providerPayoutThresholdSOL) {
-			return fmt.Errorf("balance dropped below threshold before payout")
+		payoutLamports = lamports
+		if payoutLamports <= 0 {
+			payoutLamports = wallet.PayableLamports()
 		}
-		payoutAmount = wallet.BalanceSOL
-		desc := fmt.Sprintf("Queued for batch payout to %s (%.6f SOL)", walletAddress, payoutAmount)
-		if err := models.DebitWalletLocked(tx, &wallet, payoutAmount, models.TransactionPayout, ledgerRef, desc); err != nil {
+		if payoutLamports <= 0 {
+			return fmt.Errorf("no earnings payable for payout")
+		}
+		if wallet.PayableLamports() < payoutLamports {
+			return fmt.Errorf("payable balance %d below requested payout %d", wallet.PayableLamports(), payoutLamports)
+		}
+		desc := fmt.Sprintf("Queued for batch payout to %s (%d lamports)", walletAddress, payoutLamports)
+		if err := models.DebitEarningsPayable(tx, &wallet, payoutLamports, ledgerRef, desc); err != nil {
 			return err
 		}
-		return globalBatchProcessor.EnqueuePayoutTx(tx, providerID, walletAddress, payoutAmount, payoutID.String())
+		return globalBatchProcessor.EnqueuePayoutTx(tx, providerID, walletAddress, models.LamportsToSOL(uint64(payoutLamports)), payoutID.String())
 	})
 	if txErr != nil {
-		logging.Error(txErr).Str("provider_id", providerID.String()).Msg("Provider payout: atomic debit+queue failed (no debit persisted)")
-		return
+		return uuid.Nil, 0, txErr
 	}
 
 	logging.Info().
 		Str("provider_id", providerID.String()).
 		Str("payout_id", payoutID.String()).
-		Float64("amount", payoutAmount).
+		Int64("amount_lamports", payoutLamports).
 		Msg("Provider payout queued for batch processing")
+	return payoutID, payoutLamports, nil
 }
 
 // resolveProviderWallet returns the best payout address for a provider.

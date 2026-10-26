@@ -1,7 +1,6 @@
 package models
 
 import (
-	"errors"
 	"fmt"
 	"time"
 
@@ -55,9 +54,13 @@ func CreditWalletLockedLamports(tx *gorm.DB, wallet *Wallet, lamports int64, ent
 		}
 	}
 	wallet.CreditLamports(lamports)
+	if entryType == "provider_earning" {
+		wallet.EarningsPayableLamports += lamports
+	}
 	if err := tx.Model(wallet).Updates(map[string]interface{}{
-		"balance_sol":      wallet.BalanceSOL,
-		"balance_lamports": wallet.BalanceLamports,
+		"balance_sol":               wallet.BalanceSOL,
+		"balance_lamports":          wallet.BalanceLamports,
+		"earnings_payable_lamports": wallet.EarningsPayableLamports,
 	}).Error; err != nil {
 		return err
 	}
@@ -94,10 +97,8 @@ func DebitWalletLockedOpts(tx *gorm.DB, wallet *Wallet, amount float64, entryTyp
 	return DebitWalletLockedLamports(tx, wallet, int64(SOLToLamports(amount)), entryType, referenceID, description, opts)
 }
 
-// ErrInsufficientBalance marks a business (non-infrastructure) debit
-// failure. Settlement workers must not count it toward RPC circuit
-// breakers (W-17).
-var ErrInsufficientBalance = errors.New("insufficient SOL balance")
+// ErrInsufficientBalance (errors.go) marks a business (non-infrastructure)
+// debit failure; settlement must not count it toward RPC breakers (W-17).
 
 // DebitWalletLockedLamports debits an exact lamports delta (Sprint I / DB-02 lite).
 // When PROXYHUB_JOURNAL_AS_SOT=true, journal posts first (fail-closed); wallet is cache.
@@ -117,9 +118,11 @@ func DebitWalletLockedLamports(tx *gorm.DB, wallet *Wallet, lamports int64, entr
 	if !wallet.DebitLamports(lamports) {
 		return fmt.Errorf("%w: have %d lamports, need %d", ErrInsufficientBalance, have, lamports)
 	}
+	wallet.clampPayableToBalance()
 	if err := tx.Model(wallet).Updates(map[string]interface{}{
-		"balance_sol":      wallet.BalanceSOL,
-		"balance_lamports": wallet.BalanceLamports,
+		"balance_sol":               wallet.BalanceSOL,
+		"balance_lamports":          wallet.BalanceLamports,
+		"earnings_payable_lamports": wallet.EarningsPayableLamports,
 	}).Error; err != nil {
 		return err
 	}
@@ -158,13 +161,18 @@ func TransferP2PLocked(tx *gorm.DB, sender, recipient *Wallet, amount float64, r
 	recipient.CreditSOL(amount)
 	// W-19: DebitSOL/CreditSOL already maintain lamports exactly; do NOT
 	// recompute lamports from the float shadow (precision round-trip).
+	// W-10: sender spending draws non-earnings first (clamp handles it);
+	// a P2P credit is never earnings, so recipient payable is unchanged.
+	sender.clampPayableToBalance()
 	if err := tx.Model(sender).Updates(map[string]interface{}{
 		"balance_sol": sender.BalanceSOL, "balance_lamports": sender.BalanceLamports,
+		"earnings_payable_lamports": sender.EarningsPayableLamports,
 	}).Error; err != nil {
 		return err
 	}
 	if err := tx.Model(recipient).Updates(map[string]interface{}{
 		"balance_sol": recipient.BalanceSOL, "balance_lamports": recipient.BalanceLamports,
+		"earnings_payable_lamports": recipient.EarningsPayableLamports,
 	}).Error; err != nil {
 		return err
 	}
@@ -190,6 +198,9 @@ func postCreditJournal(tx *gorm.DB, walletID uuid.UUID, lamports int64, entryTyp
 	if kind == "skip" {
 		return nil
 	}
+	if entryType == "payout_restore" {
+		return postPayableCreditJournal(tx, walletID, lamports, entryType, ref, desc)
+	}
 	if kind == "unstake" || entryType == "unstake" {
 		return postUnstakeJournal(tx, walletID, lamports, entryType, ref, desc)
 	}
@@ -203,8 +214,42 @@ func postDebitJournal(tx *gorm.DB, walletID uuid.UUID, lamports int64, entryType
 	if kind == "skip" {
 		return nil
 	}
+	if kind == "payable" {
+		return postPayableDebitJournal(tx, walletID, lamports, entryType, ref, desc)
+	}
 	if kind == "stake" || entryType == "stake" {
 		return postStakeJournal(tx, walletID, lamports, entryType, ref, desc)
 	}
 	return postUserDebitJournal(tx, walletID, lamports, entryType, ref, desc)
+}
+
+// DebitEarningsPayable debits lamports from the wallet AND from the
+// earnings-payable sub-balance (W-10). Payout paths must use this - a
+// plain debit would sweep buyer funds and strand the payable tag.
+func DebitEarningsPayable(tx *gorm.DB, wallet *Wallet, lamports int64, referenceID, description string) error {
+	if lamports <= 0 {
+		return fmt.Errorf("payable debit lamports must be positive")
+	}
+	if wallet.PayableLamports() < lamports {
+		return fmt.Errorf("%w: payable %d lamports, need %d", ErrInsufficientBalance, wallet.PayableLamports(), lamports)
+	}
+	if err := DebitWalletLockedLamports(tx, wallet, lamports, TransactionPayout, referenceID, description, LedgerOpts{JournalKind: "payable"}); err != nil {
+		return err
+	}
+	wallet.EarningsPayableLamports -= lamports
+	if wallet.EarningsPayableLamports < 0 {
+		wallet.EarningsPayableLamports = 0
+	}
+	return tx.Model(wallet).Update("earnings_payable_lamports", wallet.EarningsPayableLamports).Error
+}
+
+// CreditEarningsPayableRestore reverses a payout debit (enqueue/send
+// failure before durable handoff): balance and payable both restored.
+func CreditEarningsPayableRestore(tx *gorm.DB, wallet *Wallet, lamports int64, referenceID, description string) error {
+	if err := CreditWalletLockedLamports(tx, wallet, lamports, "payout_restore", referenceID, description, LedgerOpts{}); err != nil {
+		return err
+	}
+	wallet.EarningsPayableLamports += lamports
+	wallet.clampPayableToBalance()
+	return tx.Model(wallet).Update("earnings_payable_lamports", wallet.EarningsPayableLamports).Error
 }

@@ -99,6 +99,8 @@ func SetupTestDB(t *testing.T) {
 			&models.WalletLedgerEntry{},
 			&models.LedgerAccount{},
 			&models.UsageMeteringClaim{},
+			&models.WatcherCursor{},
+			&models.WatcherProcessedEvent{},
 			&models.LedgerJournal{},
 			&models.LedgerJournalLine{},
 			&models.ProfilePrivate{},
