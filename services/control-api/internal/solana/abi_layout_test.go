@@ -61,9 +61,9 @@ func TestDecodeProgramConfigLayout(t *testing.T) {
 	binary.LittleEndian.PutUint64(body[34:42], 1_700_000_000)
 	body[42] = 254 // bump
 
-	cfg, err := decodeProgramConfig(raw, sol.PublicKey{})
+	cfg, err := decodeProgramConfigData(raw)
 	if err != nil {
-		t.Fatalf("decodeProgramConfig: %v", err)
+		t.Fatalf("decodeProgramConfigData: %v", err)
 	}
 	if cfg.KYCMinSOLLamports != 100_000_000 || cfg.PlatformFeeBPS != 250 ||
 		cfg.MaxDailySpendLamports != 5_000_000_000 || cfg.MaxSessionBWBytes != 1<<40 {
@@ -75,7 +75,7 @@ func TestDecodeProgramConfigLayout(t *testing.T) {
 	if cfg.UpdatedAt != 1_700_000_000 {
 		t.Fatalf("updated_at = %d, want 1700000000 (old decoder returned the cooldown)", cfg.UpdatedAt)
 	}
-	if _, err := decodeProgramConfig(make([]byte, 50), sol.PublicKey{}); err == nil {
+	if _, err := decodeProgramConfigData(make([]byte, 50)); err == nil {
 		t.Fatal("short input: want error, got nil")
 	}
 }
