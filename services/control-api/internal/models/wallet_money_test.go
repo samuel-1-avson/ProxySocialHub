@@ -77,9 +77,16 @@ func TestEffectiveBalanceLamportsPrefersStored(t *testing.T) {
 	if w.EffectiveBalanceLamports() != 1_000_000_000 {
 		t.Fatalf("expected synced lamports")
 	}
+	// W-19 (P1): a drained wallet (lamports 0) with a stale float shadow
+	// reads 0 - the old read-time derivation resurrected drained wallets.
+	// Legacy repair happens once at write time via BeforeSave.
 	legacy := &Wallet{BalanceSOL: 2.0, BalanceLamports: 0}
+	if legacy.EffectiveBalanceLamports() != 0 {
+		t.Fatalf("drained wallet must not resurrect from float shadow")
+	}
+	legacy.SyncLamportsFromSOLForLegacyRow()
 	if legacy.EffectiveBalanceLamports() != int64(SOLToLamports(2.0)) {
-		t.Fatalf("legacy row should derive from BalanceSOL")
+		t.Fatalf("write-time legacy repair should derive lamports once")
 	}
 }
 

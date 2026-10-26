@@ -9,9 +9,12 @@ import (
 
 // Withdrawal payout queue statuses (FIFO drain by worker).
 const (
-	WithdrawalPayoutRequested   = "requested"
-	WithdrawalPayoutFunding     = "funding"
-	WithdrawalPayoutPaying      = "paying"
+	WithdrawalPayoutRequested = "requested"
+	WithdrawalPayoutFunding   = "funding"
+	WithdrawalPayoutPaying    = "paying"
+	// WithdrawalPayoutSubmitted: on-chain tx broadcast and tx_hash persisted;
+	// awaiting confirmation. Never auto-refunded or re-sent (P0-3).
+	WithdrawalPayoutSubmitted   = "submitted"
 	WithdrawalPayoutCompleted   = "completed"
 	WithdrawalPayoutFailed      = "failed"
 	WithdrawalPayoutOpsRequired = "ops_required"
@@ -55,6 +58,7 @@ func ActiveWithdrawalPayoutStatuses() []string {
 		WithdrawalPayoutRequested,
 		WithdrawalPayoutFunding,
 		WithdrawalPayoutPaying,
+		WithdrawalPayoutSubmitted,
 		WithdrawalPayoutOpsRequired,
 	}
 }

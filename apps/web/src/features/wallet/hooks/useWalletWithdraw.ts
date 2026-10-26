@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type Dispatch, type SetStateAction } from 'react';
+import { useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { useWallet as useSolanaWallet } from '@solana/wallet-adapter-react';
 import { withdrawWallet } from '@/lib/api';
 import { signWithdrawalMessage } from '@/lib/solana-message-sign';
@@ -40,6 +40,9 @@ export function useWalletWithdraw(opts: {
   } = opts;
 
   const [withdrawAmount, setWithdrawAmount] = useState('');
+  // P0-9: one idempotency key per (amount) attempt; retries reuse it so the
+  // server replays the first result instead of debiting twice.
+  const idemRef = useRef<{ amount: number; key: string } | null>(null);
   const withdrawRequiresSignature = parseFloat(withdrawAmount) > largeWithdrawThresholdSOL;
 
   const handleWithdrawSol = async () => {
@@ -60,7 +63,7 @@ export function useWalletWithdraw(opts: {
     setProcessing(true);
     setResult(null);
     try {
-      let opts: { nonce?: string; signature?: string } | undefined;
+      let opts: { nonce?: string; signature?: string; idempotencyKey?: string } | undefined;
       if (amt > largeWithdrawThresholdSOL) {
         if (!signMessage || !connected || !publicKey) {
           throw new Error(
@@ -75,6 +78,13 @@ export function useWalletWithdraw(opts: {
         }
         opts = await signWithdrawalMessage(signMessage, amt);
       }
+      if (!idemRef.current || idemRef.current.amount !== amt) {
+        const key =
+          globalThis.crypto?.randomUUID?.() ??
+          'withdraw-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+        idemRef.current = { amount: amt, key };
+      }
+      opts = { ...(opts ?? {}), idempotencyKey: idemRef.current.key };
       const res = await withdrawWallet(amt, '', '', opts);
       const txRef = res.tx_hash || res.reference;
       const processing = res.status === 'processing';
@@ -90,6 +100,7 @@ export function useWalletWithdraw(opts: {
           ? undefined
           : res.solscan_url || (txRef ? getSolscanTxUrl(txRef) : undefined),
       });
+      idemRef.current = null;
       setWithdrawAmount('');
       queryClient.invalidateQueries({ queryKey: ['wallet'] });
     } catch (err: unknown) {

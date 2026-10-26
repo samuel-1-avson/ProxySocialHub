@@ -329,6 +329,10 @@ func walletLogin(c *gin.Context) {
 	// Keep linked_wallets in sync with profile identity (marketplace escrow requires it).
 	if err := ensurePrimaryLinkedSolana(db.DB, user.ID, req.Address, &req.Signature, &req.Nonce); err != nil {
 		log.Printf("[AUTH] ensurePrimaryLinkedSolana for %s: %v", req.Address, err)
+	} else if routingErr := applyWithdrawalRoutingForSolana(db.DB, user, req.Address); routingErr != nil {
+		// P0-4: login-proven primary also maintains withdrawal routing +
+		// cooldown. Best-effort: never fail a valid login over routing sync.
+		log.Printf("[AUTH] wallet login: withdrawal routing sync failed for %s: %v", user.ID, routingErr)
 	}
 
 	// 4. Issue JWT

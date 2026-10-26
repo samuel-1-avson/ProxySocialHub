@@ -146,6 +146,8 @@ export function verifyDeposit(reference: string) {
 export interface WithdrawSolOptions {
     nonce?: string;
     signature?: string;
+    /** P0-9: retries with the same key replay the first result instead of debiting again. */
+    idempotencyKey?: string;
 }
 
 export async function withdrawWallet(
@@ -163,7 +165,7 @@ export async function withdrawWallet(
         solscan_url?: string;
         new_balance: number;
         message?: string;
-    }>('/v1/wallet/withdraw/sol', { amount, nonce: opts?.nonce, signature: opts?.signature });
+    }>('/v1/wallet/withdraw/sol', { amount, nonce: opts?.nonce, signature: opts?.signature, idempotency_key: opts?.idempotencyKey });
     return {
         status: data.status,
         reference: data.reference || data.tx_hash || '',
@@ -177,6 +179,14 @@ export async function withdrawWallet(
 /**
  * Link a blockchain wallet
  */
+/** P0-4: server-issued, single-use message the wallet must sign to link. */
+export function getLinkChallenge(address: string, chain: 'solana' | 'ethereum' = 'solana') {
+    return apiPost<{ message: string; expires_in_secs: number }>('/v1/wallet/link/challenge', {
+        wallet_address: address,
+        chain,
+    });
+}
+
 export function linkWallet(address: string, chain: 'solana', signature?: string, message?: string) {
     return apiPost<{ status: string; message: string }>('/v1/wallet/link', {
         wallet_address: address,
@@ -210,8 +220,8 @@ export function depositCrypto(amount: number, txHash: string, chain: 'solana' = 
 /**
  * Transfer funds between internal wallets (SOL only)
  */
-export function transferFunds(recipient: string, amount: number) {
-    return apiPost<{ status: string; message: string }>('/v1/wallet/transfer', { recipient, amount });
+export function transferFunds(recipient: string, amount: number, idempotencyKey?: string) {
+    return apiPost<{ status: string; message: string }>('/v1/wallet/transfer', { recipient, amount, idempotency_key: idempotencyKey });
 }
 
 export function getWithdrawalSecurity() {

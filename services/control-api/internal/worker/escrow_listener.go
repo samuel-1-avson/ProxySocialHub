@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -239,9 +240,15 @@ func handleNativeDeposit(event solana.EscrowEvent) {
 
 	var wallet models.Wallet
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userID).First(&wallet).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			wallet = models.Wallet{UserID: userID}
-			tx.Create(&wallet)
+			if err := tx.Create(&wallet).Error; err != nil {
+				tx.Rollback()
+				logging.Error(err).
+					Str("user_id", userID.String()).
+					Msg("Auto-Deposit: failed to create wallet")
+				return
+			}
 		} else {
 			tx.Rollback()
 			logging.Error(err).
@@ -309,7 +316,14 @@ func handleNativeDeposit(event solana.EscrowEvent) {
 		ExternalRef:     event.TxSignature,
 		DestinationKind: string(destKind),
 	}
-	tx.Create(&pendingTx)
+	if err := tx.Create(&pendingTx).Error; err != nil {
+		tx.Rollback()
+		logging.Error(err).
+			Str("user_id", userID.String()).
+			Str("tx_signature", event.TxSignature).
+			Msg("Auto-Deposit: failed to record pending transaction (rolled back credit)")
+		return
+	}
 
 	if err := tx.Commit().Error; err != nil {
 		logging.Error(err).
