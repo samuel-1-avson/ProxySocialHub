@@ -1,0 +1,10 @@
+# Server-side file types must be LF in every checkout and in `git archive`
+# output. A tarball built with `git archive` on Windows (core.autocrlf=true)
+# otherwise ships CRLF everywhere, and bash then rejects scripts/*.sh
+# ("syntax error near unexpected token `in\r'").
+*.sh          text eol=lf
+Dockerfile*   text eol=lf
+*.yml         text eol=lf
+*.yaml        text eol=lf
+.env*         text eol=lf
+*.sql         text eol=lf
