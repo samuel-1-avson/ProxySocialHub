@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
+import { getWalletTransactionsPage } from '@/lib/api';
 import { ExternalLink, History } from 'lucide-react';
 import { type ColumnDef } from '@tanstack/react-table';
 import { getSolscanTxUrl } from '@/lib/solscan';
@@ -20,6 +21,7 @@ type WalletTransaction = {
 
 type WalletActivityProps = {
   transactions: WalletTransaction[] | null | undefined;
+  initialNextCursor?: string | null;
 };
 
 function txStatusVariant(status?: string | null): StatusVariant {
@@ -29,8 +31,25 @@ function txStatusVariant(status?: string | null): StatusVariant {
   return 'pending';
 }
 
-export function WalletActivity({ transactions }: WalletActivityProps) {
-  const rows = transactions ?? [];
+export function WalletActivity({ transactions, initialNextCursor }: WalletActivityProps) {
+  // W-21: server-side keyset pages appended on demand; the first page
+  // still arrives embedded in GET /wallet.
+  const [extraRows, setExtraRows] = useState<WalletTransaction[]>([]);
+  const [cursor, setCursor] = useState<string | null>(initialNextCursor ?? null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const rows = [...(transactions ?? []), ...extraRows];
+
+  const loadMore = async () => {
+    if (!cursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const page = await getWalletTransactionsPage(cursor);
+      setExtraRows((prev) => [...prev, ...(page.transactions as WalletTransaction[])]);
+      setCursor(page.nextCursor || null);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   const columns = useMemo<ColumnDef<WalletTransaction, unknown>[]>(
     () => [
@@ -146,6 +165,16 @@ export function WalletActivity({ transactions }: WalletActivityProps) {
           );
         }}
       />
+      {cursor ? (
+        <button
+          type="button"
+          onClick={loadMore}
+          disabled={loadingMore}
+          className="w-full rounded-[var(--radius-md)] border border-border px-3 py-2 text-xs font-medium uppercase tracking-wider text-primary disabled:opacity-50"
+        >
+          {loadingMore ? 'Loading…' : 'Load more'}
+        </button>
+      ) : null}
     </div>
   );
 }

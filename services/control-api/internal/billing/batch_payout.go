@@ -1,6 +1,7 @@
 package billing
 
 import (
+	"math"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -196,9 +197,14 @@ func (bp *BatchPayoutProcessor) QueuePayout(providerID uuid.UUID, walletAddress 
 	return nil
 }
 
-// calculatePriority assigns priority based on amount (larger = higher priority)
+// calculatePriority assigns priority on a log scale so sub-1 SOL
+// payouts are differentiated (E-9: int truncation queued 0.01 and 0.99
+// SOL identically).
 func (bp *BatchPayoutProcessor) calculatePriority(amountSOL float64) int {
-	priority := int(amountSOL)
+	if amountSOL <= 0 {
+		return 1
+	}
+	priority := 1 + int(10*math.Log10(1+amountSOL))
 	if priority > 100 {
 		priority = 100
 	}
@@ -608,7 +614,14 @@ func (bp *BatchPayoutProcessor) GetStats() (*models.BatchPayoutStats, error) {
 		stats.AverageBatchSize = float64(stats.TotalPayouts) / float64(stats.TotalBatches)
 	}
 
-	stats.SavingsPercent = 30.0 // Estimated based on config
+	// E-8: measured signature-fee saving vs one tx per payout
+	// (5000 lamports base fee per signature): saved fraction of fees.
+	if stats.TotalPayouts > 0 {
+		stats.SavingsPercent = (1 - float64(stats.TotalBatches)/float64(stats.TotalPayouts)) * 100
+		if stats.SavingsPercent < 0 {
+			stats.SavingsPercent = 0
+		}
+	}
 
 	return &stats, nil
 }

@@ -537,19 +537,42 @@ func BuildSignedSOLTransfer(from sol.PrivateKey, recipient sol.PublicKey, lampor
 
 // SendSOLFrom transfers lamports from an arbitrary platform-owned keypair (for
 // example the cold reserve) to recipient. Unlike SendSOL it never signs with the
-// payout wallet, so funds move out of `from` and nowhere else. The VelocityGuard
-// is not applied: it limits outflow from the platform, and this moves funds
-// between platform wallets.
+// payout wallet, so funds move out of `from` and nowhere else.
+//
+// W-28: every platform-key send is velocity-accounted. Sends to known
+// platform addresses (treasury/vault/payout/oracle) are per-transfer
+// cap-checked only - they are internal custody moves. Sends anywhere
+// else reserve against the full hourly outflow budget like SendSOL.
 func (c *OracleClient) SendSOLFrom(ctx context.Context, from sol.PrivateKey, recipient sol.PublicKey, lamports uint64) (string, error) {
 	if SendSOLFromTestHook != nil {
 		return SendSOLFromTestHook(ctx, c, from.PublicKey(), recipient, lamports)
 	}
+	if c.velocity == nil {
+		return "", fmt.Errorf("SendSOLFrom blocked: VelocityGuard not initialised — call SetVelocityGuard before sending SOL")
+	}
+	amountSOL := LamportsToSOL(lamports)
+	internal := c.isPlatformAddress(recipient)
+	if internal {
+		if err := c.velocity.CheckTransferCap(amountSOL); err != nil {
+			return "", fmt.Errorf("SendSOLFrom blocked by velocity guard: %w", err)
+		}
+	} else {
+		if err := c.velocity.Check(ctx, amountSOL); err != nil {
+			return "", fmt.Errorf("SendSOLFrom blocked by velocity guard: %w", err)
+		}
+	}
 	recentBlockhash, err := c.getLatestBlockhashWithRetry(ctx, rpc.CommitmentFinalized)
 	if err != nil {
+		if !internal {
+			c.velocity.Release(ctx, amountSOL)
+		}
 		return "", fmt.Errorf("failed to get recent blockhash: %w", err)
 	}
 	tx, err := BuildSignedSOLTransfer(from, recipient, lamports, recentBlockhash.Value.Blockhash)
 	if err != nil {
+		if !internal {
+			c.velocity.Release(ctx, amountSOL)
+		}
 		return "", err
 	}
 	var sig sol.Signature
@@ -559,9 +582,29 @@ func (c *OracleClient) SendSOLFrom(ctx context.Context, from sol.PrivateKey, rec
 		return sendErr
 	})
 	if err != nil {
+		if !internal {
+			c.velocity.Release(ctx, amountSOL)
+		}
 		return "", err
 	}
 	return sig.String(), nil
+}
+
+// isPlatformAddress reports whether pub is a known platform custody
+// address (W-28 velocity scoping for SendSOLFrom).
+func (c *OracleClient) isPlatformAddress(pub sol.PublicKey) bool {
+	if pub.Equals(c.GetPayoutPublicKey()) || pub.Equals(c.GetOraclePublicKey()) {
+		return true
+	}
+	for _, s := range []string{GetTreasuryAddress(), GetDepositVaultAddress()} {
+		if s == "" {
+			continue
+		}
+		if pk, err := sol.PublicKeyFromBase58(s); err == nil && pub.Equals(pk) {
+			return true
+		}
+	}
+	return false
 }
 
 // GenericInstruction is a generic Solana instruction builder

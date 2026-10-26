@@ -11,7 +11,6 @@ import {
   useSolanaBalances,
   useWalletDeposit,
   useWalletWithdraw,
-  useWalletWhitelist,
   useWalletLinking,
   WalletPageHeader,
   WalletOverview,
@@ -43,7 +42,6 @@ export default function UnifiedWalletPage() {
     walletError,
     treasuryConfig,
     withdrawalSecurity,
-    refetchWithdrawalSecurity,
     largeWithdrawThresholdSOL,
     solanaNetwork,
     isDevnet,
@@ -80,12 +78,6 @@ export default function UnifiedWalletPage() {
     setProcessing,
     setResult,
     queryClient,
-  });
-
-  const whitelist = useWalletWhitelist({
-    withdrawalSecurity,
-    refetchWithdrawalSecurity,
-    setResult,
   });
 
   const linking = useWalletLinking({
@@ -181,6 +173,11 @@ export default function UnifiedWalletPage() {
                   className="space-y-6"
                 >
                   {result && <WalletResultBanner result={result} variant="overview" />}
+                  {withdraw.pendingWithdrawal && (
+                    <p className="text-[10px] font-mono text-amber-500 uppercase tracking-widest">
+                      {withdraw.pendingWithdrawal}
+                    </p>
+                  )}
                   <div className="glass-card p-6 border-white/5 bg-white/2">
                     <WalletDeposit
                       depositAmount={deposit.depositAmount}
@@ -260,7 +257,7 @@ export default function UnifiedWalletPage() {
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: 20 }}
                 >
-                  <WalletActivity transactions={wallet?.transactions} />
+                  <WalletActivity transactions={wallet?.transactions} initialNextCursor={wallet?.transactions_next_cursor} />
                 </motion.div>
               )}
 
@@ -275,10 +272,6 @@ export default function UnifiedWalletPage() {
                   onDisconnect={() => disconnect()}
                   onLink={linking.handleLinkSolana}
                   withdrawalSecurity={withdrawalSecurity}
-                  whitelistDraft={whitelist.whitelistDraft}
-                  onWhitelistDraftChange={whitelist.setWhitelistDraft}
-                  whitelistSaving={whitelist.whitelistSaving}
-                  onSaveWhitelist={whitelist.handleSaveWhitelist}
                   result={result}
                 />
               )}

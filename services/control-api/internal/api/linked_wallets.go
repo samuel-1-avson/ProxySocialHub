@@ -2,11 +2,10 @@
 package api
 
 import (
+	"errors"
 	"crypto/ed25519"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"math/big"
 	"net/http"
 	"strings"
 
@@ -15,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/mr-tron/base58"
+	"github.com/proxyhubb/control-api/internal/audit"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
@@ -115,7 +115,7 @@ func LinkWallet(c *gin.Context) {
 		var existing models.LinkedWallet
 		if err := tx.Where("chain = ? AND address = ?", req.Chain, req.Address).First(&existing).Error; err == nil {
 			if existing.UserID != userUUID {
-				return fmt.Errorf("wallet already linked to another account")
+				return ErrWalletLinkedElsewhere
 			}
 			linked = existing
 			status = http.StatusOK
@@ -159,7 +159,7 @@ func LinkWallet(c *gin.Context) {
 		return tx.Where("chain = ? AND address = ? AND user_id = ?", req.Chain, req.Address, userUUID).First(&linked).Error
 	})
 	if txErr != nil {
-		if strings.Contains(txErr.Error(), "another account") {
+		if errors.Is(txErr, ErrWalletLinkedElsewhere) {
 			c.JSON(http.StatusConflict, gin.H{"error": "Wallet already linked to another account"})
 			return
 		}
@@ -178,6 +178,11 @@ func LinkWallet(c *gin.Context) {
 		Str("chain", string(req.Chain)).
 		Str("address", req.Address).
 		Msg("Wallet linked successfully")
+
+	// W-34: withdrawal-security changes are audit-logged.
+	audit.Log(c, models.AuditWalletLinked, "wallet", linked.ID.String(),
+		"Linked "+string(req.Chain)+" wallet "+req.Address,
+		map[string]interface{}{"chain": string(req.Chain), "address": req.Address})
 
 	stripVerificationSecrets(&linked)
 	c.JSON(status, linked)
@@ -255,6 +260,10 @@ func SetPrimaryWallet(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load wallet"})
 		return
 	}
+	// W-34: primary (withdrawal destination) changes are audit-logged.
+	audit.Log(c, models.AuditWalletPrimaryChanged, "wallet", wallet.ID.String(),
+		"Primary wallet changed to "+wallet.Address,
+		map[string]interface{}{"chain": string(wallet.Chain), "address": wallet.Address})
 	stripVerificationSecrets(&wallet)
 	c.JSON(http.StatusOK, wallet)
 }
@@ -300,6 +309,10 @@ func UnlinkWallet(c *gin.Context) {
 		Str("user_id", userUUID.String()).
 		Str("wallet_id", walletID).
 		Msg("Wallet unlinked")
+
+	// W-34: withdrawal-security changes are audit-logged.
+	audit.Log(c, models.AuditWalletUnlinked, "wallet", walletID,
+		"Unlinked wallet "+walletID, map[string]interface{}{"wallet_id": walletID})
 
 	c.Status(http.StatusNoContent)
 }
@@ -417,88 +430,6 @@ func verifyEthereumSignature(address, message, signature string) (bool, error) {
 	}
 
 	return false, fmt.Errorf("signature does not match address")
-}
-
-// verifyEIP712Signature verifies an EIP-712 typed data signature.
-// It parses the typed data JSON to compute the domain separator and struct hash,
-// then recovers the signer address from the EIP-712 hash: keccak256(\x19\x01 || domainSeparator || structHash).
-func verifyEIP712Signature(address string, typedData, signature string) (bool, error) {
-	// Parse the typed-data envelope
-	var envelope struct {
-		Domain struct {
-			Name              string `json:"name"`
-			Version           string `json:"version"`
-			ChainID           int64  `json:"chainId"`
-			VerifyingContract string `json:"verifyingContract"`
-		} `json:"domain"`
-		Message map[string]interface{} `json:"message"`
-	}
-	if err := json.Unmarshal([]byte(typedData), &envelope); err != nil {
-		// If the typed data cannot be parsed, fall back to personal-sign verification
-		// so that wallets using personal_sign instead of signTypedData still work.
-		return verifyEthereumSignature(address, typedData, signature)
-	}
-
-	// Compute EIP-712 domain separator:
-	// keccak256(abi.encode(typeHash, nameHash, versionHash, chainId, verifyingContract))
-	domainTypeHash := crypto.Keccak256([]byte("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"))
-	nameHash := crypto.Keccak256([]byte(envelope.Domain.Name))
-	versionHash := crypto.Keccak256([]byte(envelope.Domain.Version))
-
-	// Encode chainId as uint256
-	chainIDBytes := make([]byte, 32)
-	big.NewInt(envelope.Domain.ChainID).FillBytes(chainIDBytes)
-
-	// Encode verifying contract
-	contractAddr := common.HexToAddress(envelope.Domain.VerifyingContract)
-	contractPadded := make([]byte, 32)
-	copy(contractPadded[12:], contractAddr.Bytes())
-
-	var domainBuf []byte
-	domainBuf = append(domainBuf, domainTypeHash...)
-	domainBuf = append(domainBuf, nameHash...)
-	domainBuf = append(domainBuf, versionHash...)
-	domainBuf = append(domainBuf, chainIDBytes...)
-	domainBuf = append(domainBuf, contractPadded...)
-	domainSeparator := crypto.Keccak256(domainBuf)
-
-	// For the struct hash, serialise the message fields deterministically.
-	// This is a simplified approach: hash the canonical JSON of the message.
-	msgJSON, _ := json.Marshal(envelope.Message)
-	structHash := crypto.Keccak256(msgJSON)
-
-	// Final EIP-712 hash: keccak256(\x19\x01 || domainSeparator || structHash)
-	var eip712Buf []byte
-	eip712Buf = append(eip712Buf, 0x19, 0x01)
-	eip712Buf = append(eip712Buf, domainSeparator...)
-	eip712Buf = append(eip712Buf, structHash...)
-	eip712Hash := crypto.Keccak256Hash(eip712Buf)
-
-	// Decode signature
-	sigHex := strings.TrimPrefix(signature, "0x")
-	sigBytes, err := hex.DecodeString(sigHex)
-	if err != nil || len(sigBytes) != 65 {
-		return false, fmt.Errorf("invalid signature format")
-	}
-
-	// Normalise v value
-	if sigBytes[64] >= 27 {
-		sigBytes[64] -= 27
-	}
-
-	pubKey, err := crypto.SigToPub(eip712Hash.Bytes(), sigBytes)
-	if err != nil {
-		// If EIP-712 recovery fails, fall back to personal-sign verification
-		return verifyEthereumSignature(address, typedData, signature)
-	}
-
-	recoveredAddr := crypto.PubkeyToAddress(*pubKey)
-	if strings.EqualFold(recoveredAddr.Hex(), address) {
-		return true, nil
-	}
-
-	// Final fallback: try standard personal-sign verification
-	return verifyEthereumSignature(address, typedData, signature)
 }
 
 // ============================================================================

@@ -106,7 +106,8 @@ func TestUpdateWithdrawalWhitelist_Success(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
+	// W-34: whitelist removed - endpoint is 410 Gone.
+	if w.Code != http.StatusGone {
 		t.Fatalf("status %d body %s", w.Code, w.Body.String())
 	}
 }
@@ -127,8 +128,9 @@ func TestUpdateWithdrawalWhitelist_InvalidAddress(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 got %d body %s", w.Code, w.Body.String())
+	// W-34: endpoint gone regardless of body validity.
+	if w.Code != http.StatusGone {
+		t.Fatalf("expected 410 got %d body %s", w.Code, w.Body.String())
 	}
 }
 
@@ -185,16 +187,22 @@ func TestWithdrawSOL_LargeWithdrawRequiresSignature(t *testing.T) {
 	}
 }
 
-func TestWithdrawSOL_WhitelistBlocksDestination(t *testing.T) {
+func TestWithdrawSOL_WhitelistIgnored_P2(t *testing.T) {
 	testutil.SetupTestDB(t)
 	testutil.CleanupTestData(t, "users", "wallets", "wallet_ledger_entries", "profiles", "auth.users")
 
-	user, wallet, addr, _ := setupWalletSecurityUser(t, 20.0)
+	// W-34: a stale whitelist that excludes the linked primary must no
+	// longer block withdrawals (destination is pinned to linked wallet).
+	user, wallet, _, _ := setupWalletSecurityUser(t, 20.0)
 	other := "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9wYt5WGy"
 	wallet.WithdrawalWhitelist = []string{other}
 	past := time.Now().Add(-48 * time.Hour)
 	wallet.WithdrawalAddressChangedAt = &past
 	db.DB.Save(&wallet)
+
+	withWithdrawSOLMocks(t, func(ctx context.Context, o *solana.OracleClient, dest string, amount float64) (string, error) {
+		return "sig", nil
+	})
 
 	r := setupTestRouter()
 	r.Use(authMiddlewareMock(user.ID.String(), "buyer"))
@@ -206,10 +214,12 @@ func TestWithdrawSOL_WhitelistBlocksDestination(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 got %d body %s", w.Code, w.Body.String())
+	if w.Code == http.StatusForbidden {
+		t.Fatalf("whitelist must not block after W-34 removal: %d body %s", w.Code, w.Body.String())
 	}
-	_ = addr
+	if w.Code != http.StatusOK && w.Code != http.StatusAccepted {
+		t.Fatalf("expected withdraw to proceed, got %d body %s", w.Code, w.Body.String())
+	}
 }
 
 func TestVerifyWithdrawalSignature_Valid(t *testing.T) {

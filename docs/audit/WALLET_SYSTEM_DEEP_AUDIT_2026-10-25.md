@@ -644,5 +644,46 @@ All §13 P0 items implemented and verified via Docker Go 1.25 + Postgres 16 (`go
 
 Verification notes: 30+ new regression tests pass. Pre-existing failures (proven identical on clean HEAD, not regressions): billing `TestEvaluateEscrowCustodialGate_*` (2), worker `TestPurgeUserAccount_*` (missing test-DB relations), API 16 failures (orders/sessions/messaging/KYC/config incl. `TestWithdrawSOL_SpendingLimitExceeded` expecting 400 vs handler 403). Unverified: frontend `tsc`; full-repo vet beyond touched packages; live-chain deposit/withdrawal against a real RPC. P1/P2 items remain open.
 
+---
 
+## Addendum B — P1 Remediation Status (2026-10-26)
 
+All §13 P1 items implemented and verified via Docker Go 1.25 + Postgres 16 (build + vet + api/billing/worker/models/solana/treasury/decentralization suites; failures identical to clean-HEAD baseline: API 16, billing 2, worker 2 — all pre-existing). User decisions: incremental lamports (no breaking API change); manual earnings claim by default; withdrawal signature above 0.1 SOL.
+
+| Finding | Status | Key change |
+|---|---|---|
+| W-19/W-20 (incr) | Done | `balance_lamports` sole authoritative read (resurrecting heuristic deleted); write-time legacy repair; migration 000159 backfill + reversed sync trigger; `amount_lamports` accepted on withdraw/transfer/deposit and returned on transactions; frontend sends lamports. Float columns/DTOs retained as deprecated shadow — full removal deferred by decision |
+| W-29 | Done | `UNIQUE(external_ref, entry_type)` (000160, history preserved), `ErrJournalDuplicate`, boot `AssertJournalSchema` (fatal prod/staging), usage-journal residual ⇒ error (never revenue), per-claim namespaced journal refs. Finish-vs-demote journal decision still open for P2 |
+| W-16 | Done | Durable metering claims (000161): owner-token lock → atomic GETDEL → claim row settled inside the money tx; failure requeues once; stale-claim sweeper |
+| W-17 (part) | Done | Business failures (insufficient/limit) and price outages never trip the RPC breaker. Still open (P2): ≤1-lamport auto-topup policy, debt-suspension threshold |
+| W-10 | Done | Earnings payable sub-balance + journal `2110` (000162); payouts sweep payable only; manual claim `POST /v1/provider/earnings/claim`; opt-in auto-payout with per-user threshold (`GET/PUT .../payout-settings`); frontend claim/settings client functions |
+| W-30 | Done | Admin payout queues a real payout via the durable machine; idempotency key required; structured reason + audit log; four-eyes `X-Second-Approver` above configurable threshold (10 SOL) |
+| W-12 | Done (P0) | Destination/flags/cooldown/limits re-validated under lock — shipped with P0-3 |
+| W-13 | Done | Server-challenge signatures >0.1 SOL (128-bit nonce, exact lamports+destination+user binding, verify-then-burn, single-use); legacy scheme fixed to verify-then-burn; pre-debit API cap from single caps config |
+| W-18 | Done | Lamports-exact SQL liabilities incl. all queues/holds; escrow-PDA backing sampled; aggregates-only NATS publish; sustained deficit (2 runs) auto-freezes outflows |
+| W-26 | Done | Durable per-address cursors + boot backfill (000163), bounded ascending scans stopping at first failure, durable dedup table, periodic reconciliation re-scan |
+| W-24 | Done | Stale-`releasing` reaper (evidence-based outcomes); dispute-vs-settle precedence = one conditional claim under order→escrow lock order; RPC-health gate on auto-release; shared 45s settle timeout |
+| W-27 | Done | Single `MoneyCaps` config boot-validated; guard Check=reserve / Release on definite failure; watchtower observes the one outflow ledger; withdraw API cap enforced pre-debit |
+| W-21 | Done | `GET /wallet` side-effect-free (404 `wallet_not_initialized`); `POST /v1/wallet/init`; signup provisioning already existed for wallet-login; server keyset pagination `GET /v1/wallet/transactions` + `transactions_next_cursor`; frontend init-fallback + Load-more |
+
+Unverified: frontend `tsc` (`cd apps/web && npm run typecheck` after dependency install — no `node_modules` in this environment); live-chain deposit/payout/withdrawal against a real RPC; prod data check for `-Σ(2100+2110)` vs `Σ wallets` after 000162. Behaviour changes to note: production boot now also requires coherent money caps; withdrawals >50 SOL (default cap) are rejected pre-debit with a split-withdrawal error; earnings no longer auto-sweep unless the provider opts in. P2 items remain open.
+
+## Addendum C — P2 remediation status (2026-10-26)
+
+All §13 P2 items implemented and verified (Docker Go 1.25 + Postgres 16, suites at -p=1;
+failure set identical to the proven pre-existing baseline: API 16, billing 2, worker 2).
+Migrations 000164–000165 (reversible, validated up/down/up).
+
+| Item | Status | Evidence |
+|---|---|---|
+| W-25 | Done | Custodial escrow release maths in integer lamports (128-bit mul/div), fail-closed: missing usage ⇒ pay 0 + park + alert (was: silent 100%); fee behaviour frozen per-order (000164); shared formula vectors |
+| E-bundle (§7 cheap) | Done | released_at at finalize + UTC (E-6/E-7); measured SavingsPercent (E-8); log-scale payout priority (E-9); listener wallets get default limits (E-11); mojibake repaired (E-12); stale captured treasury address deleted (E-13) |
+| W-28 | Done | Prod boot gate: multisig asserted + KMS/HSM signer fully configured + ORACLE_PRIVATE_KEY forbidden + keypair files must be encrypted-at-rest; loader enforces 0600 (POSIX) and refuses plaintext in prod; local-keypair signer refused in prod; SendSOLFrom velocity-accounted (cap-only for internal custody, full reserve externally); runbook docs/runbooks/KEY_ROTATION_AND_FREEZE.md |
+| W-34 | Done | Whitelist REMOVED (PUT returns 410 for one release; field/enforcement/UI gone; destination pinned to linked wallet); KYC/trust-tiered deposit caps (new 25/50, verified 250/500 SOL, premium=global; KYC-approved lifts one tier); config deny-list screening (BLOCKED_SOLANA_ADDRESSES) on deposit sender (HTTP+watcher) and withdrawal destination; uniform UserFlag freeze on withdraw/P2P/earnings-claim/escrow-release (+seller-freeze parks auto-release); link/unlink/set-primary audit-logged on both link paths |
+| W-35 | Done | GET /v1/wallet/withdrawals (own rows, newest first) + frontend polling with live queued status; ref-based double-submit guards in withdraw/deposit hooks; fiat throw-stubs + types deleted (both wallet clients), dead fiat callback page replaced, dead useDeposit mutation deleted |
+| W-33 | Done (during P2-F) | Spending history never DELETEd on refund paths — compensating reversal records (net zero, idempotent) at all 3 sites; RecordSpending failure now aborts P2P and intent settlement (was log-and-continue / ignored) |
+| §9 safe subsets | Done | Dead code deleted: unrouted fiat handlers, refundWalletSOL, verifyEIP712Signature, TransactionSwap (tests converted to route-absence contract); moneykind registry (closed kind set, DepositLedgerTypes + 15 call sites rewired, p2p_failed_* kinds registered); ErrWalletLinkedElsewhere sentinel replaces string matching (3 sites); wallet.go split (263 lines → wallet_limits_security.go, same package) |
+| §14 key tests | Done | Under -race: parallel debits never overdraw (exactly 10/20 succeed, ends at 0 lamports); bidirectional parallel P2P conservation (balances + ledger nets); concurrent journal post credits once (1 success / 7 ErrJournalDuplicate); concurrent compensation apply credits once as clean no-op — the last one FOUND a real check-then-lock double-credit race in compensation + inline refund paths, fixed to lock-then-check |
+| Incremental recon (§6/§9) | Done | Watermark table (000165); per-wallet balance==Σledger verified only for wallets changed since watermark, mismatches surface as CRITICAL issues, watermark advances only on clean verification; queue SLO stats (depth/oldest-age/dead-letter) for withdrawal, provider payouts, payout retry, compensation outbox, metering claims in every recon report |
+
+Unverified (unchanged from Addendum B unless noted): frontend `tsc` (`cd apps/web && npm run typecheck` after dependency install); live-chain flows against a real RPC; prod data check `-Σ journal(2100+2110)` vs `Σ wallets`. Behaviour changes to coordinate before deploy: production will not boot until multisig + KMS env is actually provisioned (W-28); per-tier deposit caps now bind below the old global caps for new/verified users; `PUT /withdrawal-security/whitelist` returns 410; frozen (flagged) users are now also blocked from P2P sends, earnings claims, and escrow releases. Not in scope by user decision: logging-facade sweep, full WalletIdentityService extraction, float-column removal.

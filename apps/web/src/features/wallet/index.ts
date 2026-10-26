@@ -6,7 +6,6 @@ export { useWalletPageData } from './hooks/useWalletPageData';
 export { useSolanaBalances } from './hooks/useSolanaBalances';
 export { useWalletDeposit } from './hooks/useWalletDeposit';
 export { useWalletWithdraw } from './hooks/useWalletWithdraw';
-export { useWalletWhitelist } from './hooks/useWalletWhitelist';
 export { useWalletLinking } from './hooks/useWalletLinking';
 
 export { WalletResultBanner } from './components/WalletResultBanner';

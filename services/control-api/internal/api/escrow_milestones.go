@@ -69,7 +69,7 @@ func (e *MilestoneReleaseEngine) releaseMilestone(escrow models.EscrowTransactio
 		if err != nil {
 			return err
 		}
-		if err := models.CreditWalletLocked(tx, wallet, locked.Amount, "milestone_release",
+		if err := models.CreditWalletLocked(tx, wallet, locked.Amount, models.LedgerKindMilestoneRelease,
 			locked.ID.String(), "Progressive milestone payout for bandwidth delivery"); err != nil {
 			return err
 		}

@@ -222,18 +222,19 @@ func failAndRefundWithdrawal(row models.WithdrawalPayout, reason string) {
 		// Idempotence: never credit twice for the same reference.
 		var existingRefunds int64
 		if err := tx.Model(&models.WalletLedgerEntry{}).
-			Where("reference_id = ? AND type = ?", row.Reference, "withdrawal_failed_refund").
+			Where("reference_id = ? AND type = ?", row.Reference, models.LedgerKindWithdrawalFailedRefund).
 			Count(&existingRefunds).Error; err != nil {
 			return err
 		}
 		if existingRefunds == 0 {
 			desc := "Queued withdrawal failed: " + truncateErr(reason, 120) + " — balance restored"
-			if err := models.CreditWalletLocked(tx, &wallet, row.AmountSOL, "withdrawal_failed_refund", row.Reference, desc); err != nil {
+			if err := models.CreditWalletLocked(tx, &wallet, row.AmountSOL, models.LedgerKindWithdrawalFailedRefund, row.Reference, desc); err != nil {
 				return err
 			}
-			_ = tx.Where("wallet_id = ? AND user_id = ? AND type = ? AND reference = ?",
-				wallet.ID, row.UserID, models.SpendingWithdraw, row.Reference).
-				Delete(&models.SpendingRecord{}).Error
+			// W-33: compensating reversal, never DELETE spending history.
+			if err := models.ReverseSpendingForReference(tx, wallet.ID, row.UserID, models.SpendingWithdraw, row.Reference); err != nil {
+				return err
+			}
 		}
 		now := time.Now().UTC()
 		return tx.Model(&models.WithdrawalPayout{}).Where("id = ? AND status != ?", row.ID, models.WithdrawalPayoutCompleted).Updates(map[string]interface{}{

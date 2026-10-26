@@ -32,15 +32,6 @@ export function useTransactions(limit = 20, offset = 0) {
     });
 }
 
-export function useDeposit() {
-    const queryClient = useQueryClient();
-    return useMutation({
-        mutationFn: async ({ amount, email }: walletApi.DepositRequest) => walletApi.depositWallet(amount, email),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: walletApi.walletKeys.all });
-        },
-    });
-}
 
 export function useWithdraw() {
     const queryClient = useQueryClient();

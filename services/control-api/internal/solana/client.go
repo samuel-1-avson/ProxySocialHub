@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -209,6 +210,11 @@ func NewOracleClient(cfg Config) (*OracleClient, error) {
 			fmt.Printf("[SolanaClient] Initialized AWS KMS HSM signer with key: %s\n", kmsKeyID)
 		}
 	} else {
+		// W-28 defense-in-depth: production never falls back to a local
+		// keypair signer (boot posture gates this too).
+		if IsProductionEnv() {
+			return nil, fmt.Errorf("production requires a KMS/HSM signer (USE_GCP_KMS/USE_AWS_KMS/USE_GCP_KMS_HOT); local keypair signing refused (W-28)")
+		}
 		// Standard local keypair flow
 		k, err := loadKeypair(cfg.OracleKeypairPath)
 		if err != nil {
@@ -378,10 +384,43 @@ func IsUsageProofAlreadyOnChain(err error) bool {
 // AES-256-GCM encrypted (written by EncryptKeypairFile); otherwise the legacy
 // plaintext JSON format is accepted so existing dev setups keep working.
 func loadKeypair(path string) (sol.PrivateKey, error) {
+	if err := checkKeypairFilePerms(path); err != nil {
+		return nil, err
+	}
 	if encKey := os.Getenv("ORACLE_KEYPAIR_ENCRYPTION_KEY"); encKey != "" {
 		return LoadEncryptedKeypairFromFile(path, encKey)
 	}
+	// W-28: plaintext key files are refused in production. Boot posture
+	// also gates this; the loader is the last line for non-main inits.
+	if IsProductionEnv() {
+		return nil, fmt.Errorf("plaintext keypair file %s refused in production: set ORACLE_KEYPAIR_ENCRYPTION_KEY and use an encrypted keypair, or use KMS (W-28)", path)
+	}
 	return LoadKeypairFromFile(path)
+}
+
+// IsProductionEnv mirrors decentralization.IsProduction without an import cycle.
+func IsProductionEnv() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV"))) {
+	case "production", "prod":
+		return true
+	}
+	return false
+}
+
+// checkKeypairFilePerms enforces owner-only access (0600) on keypair
+// files wherever they are still used (W-28). POSIX mode bits only.
+func checkKeypairFilePerms(path string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("stat keypair file: %w", err)
+	}
+	if perm := info.Mode().Perm(); perm&0o077 != 0 {
+		return fmt.Errorf("keypair file %s has permissions %04o: group/other access must be removed (chmod 0600) (W-28)", path, perm)
+	}
+	return nil
 }
 
 // LoadKeypairFromFile loads a Solana keypair from a plaintext JSON file.

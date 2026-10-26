@@ -46,6 +46,11 @@ type Order struct {
 	TxSignature      string  `gorm:"size:128" json:"tx_signature,omitempty"`
 	// EscrowSeedKind: ""|"legacy" = ["escrow",buyer,seller]; "multisig" = escrow_multisig + expires_at (BC-06).
 	EscrowSeedKind  string `gorm:"size:16;default:''" json:"escrow_seed_kind,omitempty"`
+	// PlatformFeeBps/PlatformFeeSkimRecorded (W-25): fee behaviour frozen
+	// per-order at funding time so program upgrades cannot silently
+	// flip release accounting for in-flight escrows.
+	PlatformFeeBps            int  `gorm:"column:platform_fee_bps;default:0" json:"platform_fee_bps"`
+	PlatformFeeSkimRecorded   bool `gorm:"column:platform_fee_skim_recorded;default:false" json:"platform_fee_skim_recorded"`
 	EscrowExpiresAt int64  `gorm:"default:0" json:"escrow_expires_at,omitempty"`
 
 	CreatedAt time.Time `json:"created_at"`
