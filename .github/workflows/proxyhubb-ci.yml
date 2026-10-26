@@ -655,7 +655,23 @@ jobs:
         ./scripts/ci-write-compose-env.sh
 
     - name: Provider stack E2E (gateway + provider-node)
+      # scripts/provider-docker-e2e.sh waits on `proxyhubb-control-api-1` and reads
+      # `proxyhubb-edge-gateway-1` logs. Compose names containers <project>-<service>-N
+      # and defaults the project to the checkout directory (`proxysocialhub` on a
+      # runner, `proxyhubb` on the VM), so pin it or the wait times out.
+      env:
+        COMPOSE_PROJECT_NAME: proxyhubb
       run: |
+        set -euo pipefail
+        # The credential helper (go run ./cmd/provider_dev_token) runs on the host, not
+        # in compose, and the .env copied from .env.example has an empty DATABASE_URL.
+        # The E2E script does `source .env`, which would overwrite a variable exported
+        # here, so append the URL to this job's .env (the last assignment wins for both
+        # `source` and godotenv). It points at the published Postgres port with the
+        # runtime-generated password. The containers are unaffected: docker-compose.yml
+        # sets their DATABASE_URL under `environment:`, which beats env_file.
+        envval() { grep -E "^$1=" .env | tail -n1 | cut -d= -f2- | sed 's/[[:space:]]*#.*$//'; }
+        echo "DATABASE_URL=postgresql://$(envval POSTGRES_USER):$(envval POSTGRES_PASSWORD)@127.0.0.1:${POSTGRES_HOST_PORT:-55432}/$(envval POSTGRES_DB)?sslmode=disable" >> .env
         chmod +x scripts/provider-docker-e2e.sh
         PROVIDER_E2E_SKIP_HEAL=1 ./scripts/provider-docker-e2e.sh
 
@@ -671,18 +687,17 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ env.NODE_VERSION }}
-        cache: 'npm'
-        cache-dependency-path: package-lock.json
 
-    - name: Install root dependencies
-      run: npm ci
-
+    # The root package-lock.json was deleted on 2026-08-19 (a3ceb334) and the root
+    # package.json declares no dependencies, so there is nothing for `npm ci` to
+    # install (it also fails without a lockfile) and nothing to cache. These four
+    # suites import only node:crypto; tsx is fetched on demand.
     - name: Run Solana Protocol Security & Invariant Suite
       run: |
-        npx tsx testing/test_security_hardening.ts
-        npx tsx testing/test_zk_and_p2p.ts
-        npx tsx testing/test_depin_ecosystem.ts
-        npx tsx testing/test_staked_gateway.ts
+        npx --yes tsx testing/test_security_hardening.ts
+        npx --yes tsx testing/test_zk_and_p2p.ts
+        npx --yes tsx testing/test_depin_ecosystem.ts
+        npx --yes tsx testing/test_staked_gateway.ts
 
     # BC-CRIT-01: the program once failed to compile and the old step hid it behind
     # `|| true`. Compiling it is the gate that matters, so it has no bypass.
@@ -711,6 +726,15 @@ jobs:
     timeout-minutes: 90
     steps:
     - uses: actions/checkout@v4
+
+    # The Docker build (rust image, Solana toolchain, anchor build, test binaries)
+    # filled the runner disk and failed linking w9a_soak with "No space left on
+    # device". Drop toolchains this job never uses.
+    - name: Free disk space
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        sudo docker image prune --all --force > /dev/null
+        df -h /
 
     - name: Build programs and run Anchor + soak tests (Docker)
       run: |
