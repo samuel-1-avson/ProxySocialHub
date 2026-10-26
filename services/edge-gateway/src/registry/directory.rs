@@ -153,6 +153,13 @@ impl ProviderDirectory {
 
     /// Refresh TTL for an active provider (heartbeats).
     pub async fn touch(&self, node_id: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // DP-3: a heartbeat must refresh liveness only. Reusing claim()
+        // rewrote the record with empty country/quality/latency on every
+        // touch, blanking the metadata claim_with_info had published.
+        if let Some(mut record) = self.lookup(node_id).await? {
+            record.updated_at = Self::now_secs();
+            return self.write_record(&record).await;
+        }
         self.claim(node_id).await
     }
 
