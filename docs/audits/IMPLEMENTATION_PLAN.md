@@ -355,7 +355,7 @@ Suggested order for one person working serially:
 | P1-SC-2 | Auth constraints | BC-CRIT-02..05 | S-M | ☑ plus the six more found in C21. Anchor tests ran in a container (`phub-anchor-env`: build, local validator, `tests/**/*.ts`): 72 passing. Not deployed. `claim_bandwidth_rewards` has a new account list (no client uses it); control-api must be deployed before the upgrade because `submit_review_attestation` gained an account |
 | P1-SC-3 | u128 settlement math | BC-HIGH-01 | XS | ☑ all six sites fail closed (`CalculationOverflow`); unit tests in `lib.rs` |
 | P1-SC-4 | Legacy settle_escrow | BC-CRIT-08 | XS | ☑ admin only (D5); a buyer-initiated settle is rejected in the Anchor tests |
-| P1-SC-5 | Negative tests | all SC | S | ◐ `tests/zz_access_control.ts` and the `lib.rs` unit tests exist and pass locally; CI does not run the Anchor suite yet |
+| P1-SC-5 | Negative tests | all SC | S | ☑ `tests/zz_access_control.ts` and the `lib.rs` unit tests exist; CI `anchor-test` job builds the SBF programs, runs `tests/**/*.ts` (72 passing) and `tests/w9a_soak.rs` with no bypass (verified locally end to end; first hosted CI run still to observe). Marking the job a required status check needs repository settings access: the branch-protection API returns 403 on the current GitHub plan |
 | P1-SC-6 | Devnet redeploy + IDL | n/a | S | ☐ |
 | P1-CP-1 | P2P treasury drain | BE-CRIT-01 | XS | ☑ migration 000154 |
 | P1-CP-2 | Single provider payout | BE-CRIT-02 | M | ◐ steps 1-3 done (kill switch, one payout path per session, earning rows marked paid; ADR 0016); step 4 (reconcile sessions already paid more than once) needs production ledger access |
