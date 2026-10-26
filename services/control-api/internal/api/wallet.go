@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"crypto/ed25519"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -53,6 +55,7 @@ func RegisterWalletRoutes(r *gin.RouterGroup) {
 
 		// CRYPTO DEPOSITS
 		wallet.POST("/deposit/crypto", RateLimitWithConfig(5, time.Minute), verifyCryptoDeposit)
+		wallet.POST("/link/challenge", RateLimitWithConfig(10, time.Minute), getWalletLinkChallenge)
 		wallet.POST("/link", linkWallet)
 		wallet.DELETE("/link", linkWallet)
 
@@ -404,6 +407,7 @@ const maxTransferSOL = 10000.0
 type p2pTransferRequest struct {
 	RecipientIdentifier string  `json:"recipient" binding:"required"` // Email or Username
 	Amount              float64 `json:"amount" binding:"required,gt=0,lte=10000"`
+	IdempotencyKey      string  `json:"idempotency_key"`
 }
 
 func transferP2P(c *gin.Context) {
@@ -415,6 +419,12 @@ func transferP2P(c *gin.Context) {
 
 	senderUUID, _ := GetUserID(c)
 	senderID := senderUUID.String()
+
+	// P0-9: replay a previously completed transfer with the same key.
+	idemKey := clientIdempotencyKey(c, req.IdempotencyKey)
+	if idemKey != "" && replayStoredIdempotent(c, senderUUID, models.IdempotencyEndpointWalletTransfer, idemKey) {
+		return
+	}
 
 	// Runtime check: prevent extremely large amounts that could cause float overflow
 	if req.Amount > maxTransferSOL {
@@ -542,6 +552,16 @@ func transferP2P(c *gin.Context) {
 	refID := uuid.New().String()
 	senderDesc := fmt.Sprintf("Sent to %s", req.RecipientIdentifier)
 	recipientDesc := fmt.Sprintf("Received from %s", senderID)
+	if idemKey != "" {
+		if err := claimIdempotencyTx(tx, senderUUID, models.IdempotencyEndpointWalletTransfer, idemKey, refID); err != nil {
+			tx.Rollback()
+			if replayStoredIdempotent(c, senderUUID, models.IdempotencyEndpointWalletTransfer, idemKey) {
+				return
+			}
+			c.JSON(http.StatusConflict, gin.H{"error": "Duplicate request in progress"})
+			return
+		}
+	}
 	if err := models.TransferP2PLocked(tx, &senderWallet, &recipientWallet, req.Amount, refID, senderDesc, recipientDesc); err != nil {
 		tx.Rollback()
 		logging.Error(err).Str("ref", refID).Msg("Failed to transfer P2P")
@@ -561,13 +581,16 @@ func transferP2P(c *gin.Context) {
 	// bounce a balance back and forth and drain the treasury. Users who want SOL on
 	// chain withdraw it through POST /v1/wallet/withdraw/sol, which debits them.
 
-	c.JSON(http.StatusOK, gin.H{"status": "success", "message": "Transfer complete", "reference": refID})
+	body := gin.H{"status": "success", "message": "Transfer complete", "reference": refID}
+	storeIdempotentResponse(senderUUID, models.IdempotencyEndpointWalletTransfer, idemKey, http.StatusOK, body)
+	c.JSON(http.StatusOK, body)
 }
 
 type withdrawSOLRequest struct {
-	Amount    float64 `json:"amount" binding:"required,gt=0,lte=10000"`
-	Nonce     string  `json:"nonce"`
-	Signature string  `json:"signature"`
+	Amount         float64 `json:"amount" binding:"required,gt=0,lte=10000"`
+	IdempotencyKey string  `json:"idempotency_key"`
+	Nonce          string  `json:"nonce"`
+	Signature      string  `json:"signature"`
 }
 
 func verifyWithdrawalSignature(c *gin.Context, walletAddress string, amount float64, nonce string, signature string) bool {
@@ -606,7 +629,105 @@ func verifyWalletSignedMessage(c *gin.Context, walletAddress, nonce, signature, 
 	return ed25519.Verify(pubKeyBytes, []byte(message), sigBytes)
 }
 
+// --- P0-9: client idempotency helpers (transfer + withdrawal) ---
+
+var errIdempotencyClaimed = errors.New("idempotency key already claimed")
+
+// clientIdempotencyKey resolves the key from the Idempotency-Key header,
+// falling back to the JSON body field. Oversized keys are ignored.
+func clientIdempotencyKey(c *gin.Context, bodyKey string) string {
+	key := strings.TrimSpace(c.GetHeader("Idempotency-Key"))
+	if key == "" {
+		key = strings.TrimSpace(bodyKey)
+	}
+	if len(key) > 128 {
+		return ""
+	}
+	return key
+}
+
+// replayStoredIdempotent writes the stored terminal response (or an
+// in-progress 409) for a previously claimed key. Returns true when the
+// request was handled.
+func replayStoredIdempotent(c *gin.Context, userID uuid.UUID, endpoint, key string) bool {
+	if key == "" || db.DB == nil {
+		return false
+	}
+	var rec models.IdempotencyRecord
+	err := db.DB.Where("user_id = ? AND endpoint = ? AND idempotency_key = ?", userID, endpoint, key).First(&rec).Error
+	if err != nil {
+		return false
+	}
+	if rec.ResponseBody != "" && rec.ResponseStatus != 0 {
+		c.Data(rec.ResponseStatus, "application/json; charset=utf-8", []byte(rec.ResponseBody))
+		return true
+	}
+	body := gin.H{"error": "Duplicate request in progress", "status": "in_progress"}
+	if rec.Reference != "" {
+		body["reference"] = rec.Reference
+		// Surface live withdrawal queue state when available.
+		var row models.WithdrawalPayout
+		if err := db.DB.Where("reference = ?", rec.Reference).First(&row).Error; err == nil {
+			body["status"] = row.Status
+			if row.TxHash != "" {
+				body["tx_hash"] = row.TxHash
+			}
+		}
+	}
+	c.JSON(http.StatusConflict, body)
+	return true
+}
+
+// claimIdempotencyTx inserts the key claim inside the money transaction so
+// the claim and the balance change commit atomically.
+func claimIdempotencyTx(tx *gorm.DB, userID uuid.UUID, endpoint, key, reference string) error {
+	rec := models.IdempotencyRecord{
+		UserID:         userID,
+		Endpoint:       endpoint,
+		IdempotencyKey: key,
+		Reference:      reference,
+	}
+	if err := tx.Create(&rec).Error; err != nil {
+		return fmt.Errorf("%w: %v", errIdempotencyClaimed, err)
+	}
+	return nil
+}
+
+// storeIdempotentResponse persists the terminal response for verbatim replay.
+func storeIdempotentResponse(userID uuid.UUID, endpoint, key string, status int, body gin.H) {
+	if key == "" || db.DB == nil {
+		return
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return
+	}
+	if err := db.DB.Model(&models.IdempotencyRecord{}).
+		Where("user_id = ? AND endpoint = ? AND idempotency_key = ?", userID, endpoint, key).
+		Updates(map[string]interface{}{"response_status": status, "response_body": string(raw)}).Error; err != nil {
+		logging.Error(err).Str("endpoint", endpoint).Msg("idempotency: failed to store response")
+	}
+}
+
+// --- P0-3: durable withdrawal state machine ---
+
+var (
+	errWithdrawalDestinationChanged = errors.New("withdrawal destination changed during processing")
+	errWithdrawalFrozen             = errors.New("account is flagged and withdrawals are frozen pending security review")
+	errWithdrawalCooldown           = errors.New("withdrawal address changed recently")
+)
+
+// confirmWithdrawTxHook resolves on-chain confirmation for a withdrawal.
+// Tests override it like sendSOLOnChainHook.
+var confirmWithdrawTxHook = func(ctx context.Context, oracle *solana.OracleClient, txHash string) solana.TxConfirmState {
+	return solana.WaitForTxConfirmation(ctx, oracle, txHash)
+}
+
 // withdrawSOL sends SOL from the user's internal balance to their linked Solana wallet.
+// P0-3: the debit and a durable withdrawal_payout_queue row (status=requested)
+// commit in ONE transaction. A fast-path then claims the row, sends with a
+// bounded context, persists submitted+tx_hash, and only reports success after
+// on-chain confirmation; otherwise the payout worker owns completion.
 func withdrawSOL(c *gin.Context) {
 	var req withdrawSOLRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -634,7 +755,6 @@ func withdrawSOL(c *gin.Context) {
 		return
 	}
 
-	// Load user's Wallet to check security (cooldown, whitelist, balance)
 	var walletRecord models.Wallet
 	if err := db.DB.Where("user_id = ?", userUUID).First(&walletRecord).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Wallet not found"})
@@ -664,91 +784,51 @@ func withdrawSOL(c *gin.Context) {
 		}
 	}
 
-	// Check oracle is available
 	oracle := solana.GetOracleClient()
 	if oracle == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Blockchain oracle not available"})
 		return
 	}
 
-	// Preflight: payout (treasury hot) wallet must cover withdrawal + fee headroom.
-	// If thin: event-driven vault→hot, recheck once; still short → queue (202 processing).
-	const feeHeadroomLamports uint64 = 10_000 // rent/fee buffer
-	needLamports := models.SOLToLamports(req.Amount) + feeHeadroomLamports
-	payoutPK := oracle.GetPayoutPublicKey()
-	balCtx, balCancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
-	defer balCancel()
-	payoutBal, balErr := oracle.GetBalance(balCtx, payoutPK)
-	if balErr != nil {
-		logging.Error(balErr).
-			Str("payout_wallet", payoutPK.String()).
-			Msg("withdraw: failed to read payout wallet balance")
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Unable to verify treasury payout balance. Try again shortly."})
+	// P0-9: replay before touching balances.
+	idemKey := clientIdempotencyKey(c, req.IdempotencyKey)
+	if idemKey != "" && replayStoredIdempotent(c, userUUID, models.IdempotencyEndpointWalletWithdraw, idemKey) {
 		return
 	}
 
-	tm := treasury.GetManager()
-	if payoutBal < needLamports {
-		topCtx, topCancel := context.WithTimeout(c.Request.Context(), 45*time.Second)
-		txHash, topErr := tm.EnsureHotLiquidity(topCtx, needLamports)
-		topCancel()
-		if topErr != nil {
-			logging.Warn().Err(topErr).
-				Str("payout_wallet", payoutPK.String()).
-				Uint64("need_lamports", needLamports).
-				Msg("withdraw: immediate vault→hot failed; will queue if debit succeeds")
-		} else if txHash != "" {
-			logging.Info().Str("tx_hash", txHash).Msg("withdraw: vault→hot submitted before payout")
-		}
-		reCtx, reCancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
-		payoutBal, balErr = oracle.GetBalance(reCtx, payoutPK)
-		reCancel()
-		if balErr != nil {
-			logging.Error(balErr).Msg("withdraw: recheck payout balance failed")
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Unable to verify treasury payout balance. Try again shortly."})
-			return
-		}
-	}
-
-	queueInstead := payoutBal < needLamports
-	if queueInstead {
-		logging.Warn().
-			Str("payout_wallet", payoutPK.String()).
-			Uint64("payout_lamports", payoutBal).
-			Uint64("need_lamports", needLamports).
-			Msg("withdraw: hot still thin after vault top-up — enqueueing payout")
-	}
-
-	// Check if user is flagged/frozen
-	var flagCount int64
-	if err := db.DB.Model(&models.UserFlag{}).Where("user_id = ? AND resolved = ?", userUUID, false).Count(&flagCount).Error; err == nil && flagCount > 0 {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Account is flagged and withdrawals are frozen pending security review."})
-		return
-	}
-
-	// Check withdrawal cooldown: withdrawals blocked for 24 hours after primary address change
-	if walletRecord.PrimaryWithdrawalAddress != nil &&
-		walletRecord.WithdrawalAddressChangedAt != nil &&
-		time.Since(*walletRecord.WithdrawalAddressChangedAt) < 24*time.Hour {
-		c.JSON(http.StatusForbidden, gin.H{
-			"error": "Withdrawal address changed recently. Please wait 24 hours.",
-		})
-		return
-	}
-
-	// Atomically deduct from internal balance
+	// Atomically: re-validate destination/flags/cooldown/limits under lock,
+	// debit, and create the durable payout intent (+ idempotency claim).
 	withdrawalRef := uuid.NewString()
+	var payoutID uuid.UUID
 	err = db.DB.Transaction(func(tx *gorm.DB) error {
-		// Reload wallet for update locking
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userUUID).First(&walletRecord).Error; err != nil {
 			return fmt.Errorf("wallet not found")
 		}
 
-		// Check spending limits
+		var lockedUser models.User
+		if err := tx.Select("id, wallet_address").Where("id = ?", userUUID).First(&lockedUser).Error; err != nil {
+			return fmt.Errorf("user not found")
+		}
+		lockedDest, destErr := walletRecord.WithdrawalDestination(lockedUser.WalletAddress)
+		if destErr != nil || lockedDest != destAddress {
+			return errWithdrawalDestinationChanged
+		}
+		{
+		}
+		var flagCount int64
+		if err := tx.Model(&models.UserFlag{}).Where("user_id = ? AND resolved = ?", userUUID, false).Count(&flagCount).Error; err == nil && flagCount > 0 {
+			return errWithdrawalFrozen
+		}
+
+		if walletRecord.PrimaryWithdrawalAddress != nil &&
+			walletRecord.WithdrawalAddressChangedAt != nil &&
+			time.Since(*walletRecord.WithdrawalAddressChangedAt) < 24*time.Hour {
+			return errWithdrawalCooldown
+		}
+
 		if err := walletRecord.CheckSpendingLimit(tx, req.Amount, models.SpendingWithdraw); err != nil {
 			return err
 		}
-
 		if !walletRecord.CanAffordSOL(req.Amount) {
 			return fmt.Errorf("insufficient SOL balance: have %.6f, need %.6f", walletRecord.BalanceSOL, req.Amount)
 		}
@@ -757,14 +837,51 @@ func withdrawSOL(c *gin.Context) {
 		if err := models.DebitWalletLocked(tx, &walletRecord, req.Amount, models.TransactionPayout, withdrawalRef, desc); err != nil {
 			return err
 		}
-
-		// Record spending for limit tracking
 		if err := walletRecord.RecordSpending(tx, req.Amount, models.SpendingWithdraw, withdrawalRef); err != nil {
-			logging.Error(err).Msg("Failed to record spending for withdrawal, continuing")
+			return err
+		}
+
+		walletID := walletRecord.ID
+		row := models.WithdrawalPayout{
+			UserID:      userUUID,
+			WalletID:    &walletID,
+			Reference:   withdrawalRef,
+			Destination: destAddress,
+			AmountSOL:   req.Amount,
+			Status:      models.WithdrawalPayoutRequested,
+		}
+		if err := tx.Create(&row).Error; err != nil {
+			return err
+		}
+		payoutID = row.ID
+
+		if idemKey != "" {
+			if err := claimIdempotencyTx(tx, userUUID, models.IdempotencyEndpointWalletWithdraw, idemKey, withdrawalRef); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
 	if err != nil {
+		if errors.Is(err, errIdempotencyClaimed) {
+			if replayStoredIdempotent(c, userUUID, models.IdempotencyEndpointWalletWithdraw, idemKey) {
+				return
+			}
+			c.JSON(http.StatusConflict, gin.H{"error": "Duplicate request in progress"})
+			return
+		}
+		if errors.Is(err, errWithdrawalDestinationChanged) {
+			c.JSON(http.StatusConflict, gin.H{"error": "Withdrawal destination changed during processing. Please retry."})
+			return
+		}
+		if errors.Is(err, errWithdrawalFrozen) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Account is flagged and withdrawals are frozen pending security review."})
+			return
+		}
+		if errors.Is(err, errWithdrawalCooldown) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Withdrawal address changed recently. Please wait 24 hours."})
+			return
+		}
 		if spendingErr, ok := err.(*models.SpendingLimitError); ok {
 			c.JSON(http.StatusForbidden, gin.H{
 				"error":      "Spending limit exceeded",
@@ -780,121 +897,211 @@ func withdrawSOL(c *gin.Context) {
 		return
 	}
 
-	// Hot still thin after vault top-up: enqueue for payout worker (202 processing).
-	if queueInstead {
-		walletID := walletRecord.ID
-		queued := models.WithdrawalPayout{
-			UserID:      userUUID,
-			WalletID:    &walletID,
-			Reference:   withdrawalRef,
-			Destination: destAddress,
-			AmountSOL:   req.Amount,
-			Status:      models.WithdrawalPayoutRequested,
-		}
-		if qErr := db.DB.Create(&queued).Error; qErr != nil {
-			logging.Error(qErr).Str("ref", withdrawalRef).Msg("withdraw: failed to enqueue payout — refunding")
-			_ = db.DB.Transaction(func(tx *gorm.DB) error {
-				var refundWallet models.Wallet
-				if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userUUID).First(&refundWallet).Error; err != nil {
-					return err
-				}
-				desc := "Withdrawal queue failed — balance restored"
-				if err := models.CreditWalletLocked(tx, &refundWallet, req.Amount, "withdrawal_failed_refund", withdrawalRef, desc); err != nil {
-					return err
-				}
-				return tx.Where("wallet_id = ? AND user_id = ? AND type = ? AND reference = ?",
-					refundWallet.ID, userUUID, models.SpendingWithdraw, withdrawalRef).
-					Delete(&models.SpendingRecord{}).Error
-			})
-			c.JSON(http.StatusServiceUnavailable, gin.H{
-				"error": "Platform payout wallet is temporarily unable to process this withdrawal. Please try again shortly.",
-			})
-			return
-		}
-		// Kick vault top-up + worker asynchronously.
-		go func() {
-			bg, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-			defer cancel()
-			_, _ = tm.EnsureHotLiquidity(bg, needLamports)
-			treasury.NotifyPayoutDrain()
-		}()
-		logging.Info().
-			Str("user_id", userUUID.String()).
-			Str("reference", withdrawalRef).
-			Float64("amount_sol", req.Amount).
-			Msg("SOL withdrawal queued (processing)")
-		c.JSON(http.StatusAccepted, gin.H{
-			"status":      "processing",
-			"reference":   withdrawalRef,
-			"amount_sol":  req.Amount,
-			"destination": destAddress,
-			"new_balance": walletRecord.BalanceSOL,
-			"message":     "Withdrawal submitted — usually completes in under a few minutes",
-		})
-		return
+	status, body := attemptWithdrawalPayout(c, oracle, userUUID, payoutID, withdrawalRef, destAddress, req.Amount, walletRecord.BalanceSOL)
+	storeIdempotentResponse(userUUID, models.IdempotencyEndpointWalletWithdraw, idemKey, status, body)
+	c.JSON(status, body)
+}
+
+func isHotWalletInsufficientErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "insufficient sol balance") ||
+		strings.Contains(msg, "insufficient lamports") ||
+		strings.Contains(msg, "insufficient funds")
+}
+
+// attemptWithdrawalPayout claims the durable payout row and tries to pay it
+// now. Every exit leaves the row in a state the worker can finish safely.
+func attemptWithdrawalPayout(c *gin.Context, oracle *solana.OracleClient, userUUID, payoutID uuid.UUID, withdrawalRef, destAddress string, amountSOL, newBalance float64) (int, gin.H) {
+	processing := gin.H{
+		"status":      "processing",
+		"reference":   withdrawalRef,
+		"amount_sol":  amountSOL,
+		"destination": destAddress,
+		"new_balance": newBalance,
+		"message":     "Withdrawal submitted — usually completes in under a few minutes",
 	}
 
-	// FIN-006: Fire on-chain transfer *after* the DB commit. If the chain
-	// transfer fails we issue a compensating DB credit with a full ledger entry
-	// so the failure is auditable (not a silent UPDATE).
-	ctx := context.Background()
-	txHash, sendErr := sendSOLOnChainHook(ctx, oracle, destAddress, req.Amount)
+	claim := db.DB.Model(&models.WithdrawalPayout{}).
+		Where("id = ? AND status = ?", payoutID, models.WithdrawalPayoutRequested).
+		Updates(map[string]interface{}{
+			"status":   models.WithdrawalPayoutPaying,
+			"attempts": gorm.Expr("attempts + 1"),
+		})
+	if claim.Error != nil || claim.RowsAffected == 0 {
+		return http.StatusAccepted, processing
+	}
+
+	const feeHeadroomLamports uint64 = 10_000
+	needLamports := models.SOLToLamports(amountSOL) + feeHeadroomLamports
+	tm := treasury.GetManager()
+
+	// Best-effort vault->hot top-up when the payout balance is readable and
+	// thin. The send itself is the authority on sufficiency.
+	if tm != nil {
+		balCtx, balCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if payoutBal, balErr := oracle.GetBalance(balCtx, oracle.GetPayoutPublicKey()); balErr == nil && payoutBal < needLamports {
+			topCtx, topCancel := context.WithTimeout(context.Background(), 45*time.Second)
+			if _, topErr := tm.EnsureHotLiquidity(topCtx, needLamports); topErr != nil {
+				logging.Warn().Err(topErr).Str("reference", withdrawalRef).Msg("withdraw: fast-path vault top-up failed; attempting send, worker retains ownership on failure")
+			}
+			topCancel()
+		}
+		balCancel()
+	}
+
+	sendCtx, sendCancel := context.WithTimeout(context.Background(), 45*time.Second)
+	txHash, sendErr := sendSOLOnChainHook(sendCtx, oracle, destAddress, amountSOL)
+	timedOut := errors.Is(sendCtx.Err(), context.DeadlineExceeded)
+	sendCancel()
+
 	if sendErr != nil {
-		// Compensating refund with proper audit trail.
-		refundErr := db.DB.Transaction(func(tx *gorm.DB) error {
+		if timedOut {
+			// Ambiguous: the tx may have broadcast. Leave the row in
+			// paying; the worker parks stale paying rows for review and
+			// never blindly re-sends or refunds.
+			if uerr := db.DB.Model(&models.WithdrawalPayout{}).Where("id = ?", payoutID).
+				Update("last_error", "fast-path send timed out; outcome ambiguous").Error; uerr != nil {
+				logging.Warn().Err(uerr).Str("payout_id", payoutID.String()).Msg("WithdrawSOL: failed to note ambiguous send on payout row")
+			}
+			return http.StatusAccepted, processing
+		}
+		if isHotWalletInsufficientErr(sendErr) {
+			if uerr := db.DB.Model(&models.WithdrawalPayout{}).Where("id = ?", payoutID).
+				Updates(map[string]interface{}{
+					"status":     models.WithdrawalPayoutFunding,
+					"last_error": "hot wallet thin on fast path; queued for payout worker",
+				}).Error; uerr != nil {
+				// Row stays in paying and is swept by the worker, so the
+				// 202 is still honest — but the failure must be visible.
+				logging.Error(uerr).Str("payout_id", payoutID.String()).Msg("WithdrawSOL: failed to move payout to funding; worker sweep will recover")
+			}
+			go func() {
+				bg, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+				defer cancel()
+				if tm != nil {
+					_, _ = tm.EnsureHotLiquidity(bg, needLamports)
+				}
+				treasury.NotifyPayoutDrain()
+			}()
+			return http.StatusAccepted, processing
+		}
+		// Definite pre-broadcast failure: refund synchronously (prior API
+		// behaviour), through the durable row.
+		if refundErr := refundWithdrawalPayoutRow(payoutID, withdrawalRef, userUUID, amountSOL, "Withdrawal failed: "+summarizeOnChainSendError(sendErr)+" — balance restored"); refundErr != nil {
+			logging.Error(refundErr).Str("user_id", userUUID.String()).Float64("amount", amountSOL).
+				Msg("CRITICAL: Compensating refund failed — enqueued for retry")
+			alerts.Send(alerts.Critical, "Compensating Refund Failed", fmt.Sprintf("User: %s | Amount: %.6f SOL | Ref: %s | Err: %v", userUUID, amountSOL, withdrawalRef, refundErr))
+			EnqueueCompensation(models.CompensationKindWithdrawalRefund, userUUID, nil, amountSOL, withdrawalRef, refundErr.Error())
+			return http.StatusInternalServerError, gin.H{
+				"error":  "On-chain transfer failed. Balance restoration is being retried.",
+				"reason": summarizeOnChainSendError(sendErr),
+			}
+		}
+		logging.Error(sendErr).Str("user_id", userUUID.String()).Float64("amount", amountSOL).
+			Msg("SOL withdrawal: on-chain transfer failed, balance restored")
+		return http.StatusInternalServerError, gin.H{
+			"error":  "On-chain transfer failed. Balance has been restored.",
+			"reason": summarizeOnChainSendError(sendErr),
+		}
+	}
+
+	// Persist submitted + tx hash before any success claim.
+	now := time.Now()
+	if updErr := db.DB.Model(&models.WithdrawalPayout{}).Where("id = ?", payoutID).Updates(map[string]interface{}{
+		"status":  models.WithdrawalPayoutSubmitted,
+		"tx_hash": txHash,
+		"paid_at": now,
+	}).Error; updErr != nil {
+		logging.Error(updErr).Str("reference", withdrawalRef).Str("tx_hash", txHash).
+			Msg("CRITICAL: withdrawal sent but submitted state not persisted — manual reconciliation required")
+		alerts.Send(alerts.Critical, "Withdrawal Sent But State Not Persisted",
+			fmt.Sprintf("User: %s | Ref: %s | Tx: %s | Amount: %.6f SOL", userUUID, withdrawalRef, txHash, amountSOL))
+	}
+
+	confirmCtx, confirmCancel := context.WithTimeout(context.Background(), 25*time.Second)
+	state := confirmWithdrawTxHook(confirmCtx, oracle, txHash)
+	confirmCancel()
+
+	switch state {
+	case solana.TxConfirmed:
+		if err := db.DB.Model(&models.WithdrawalPayout{}).
+			Where("id = ? AND status != ?", payoutID, models.WithdrawalPayoutCompleted).
+			Update("status", models.WithdrawalPayoutCompleted).Error; err != nil {
+			logging.Error(err).Str("reference", withdrawalRef).Msg("withdraw: failed to mark payout completed")
+		}
+		if tm != nil {
+			_ = tm.RecordOutgoingTransfer(context.Background(), amountSOL)
+		}
+		logging.Info().Str("user_id", userUUID.String()).Str("wallet", destAddress).
+			Float64("amount_sol", amountSOL).Str("tx_hash", txHash).Msg("SOL withdrawal completed")
+		return http.StatusOK, gin.H{
+			"status":      "success",
+			"tx_hash":     txHash,
+			"solscan_url": SolscanTxURL(txHash),
+			"amount_sol":  amountSOL,
+			"destination": destAddress,
+			"new_balance": newBalance,
+		}
+	case solana.TxFailed:
+		if refundErr := refundWithdrawalPayoutRow(payoutID, withdrawalRef, userUUID, amountSOL, "Withdrawal transaction failed on-chain — balance restored"); refundErr != nil {
+			EnqueueCompensation(models.CompensationKindWithdrawalRefund, userUUID, nil, amountSOL, withdrawalRef, refundErr.Error())
+			alerts.Send(alerts.Critical, "Compensating Refund Failed", fmt.Sprintf("User: %s | Amount: %.6f SOL | Ref: %s | Err: %v", userUUID, amountSOL, withdrawalRef, refundErr))
+			return http.StatusInternalServerError, gin.H{
+				"error":  "On-chain transfer failed. Balance restoration is being retried.",
+				"reason": "transaction failed on-chain",
+			}
+		}
+		return http.StatusInternalServerError, gin.H{
+			"error":  "On-chain transfer failed. Balance has been restored.",
+			"reason": "transaction failed on-chain",
+		}
+	default:
+		body := gin.H{
+			"status":      "processing",
+			"reference":   withdrawalRef,
+			"tx_hash":     txHash,
+			"solscan_url": SolscanTxURL(txHash),
+			"amount_sol":  amountSOL,
+			"destination": destAddress,
+			"new_balance": newBalance,
+			"message":     "Withdrawal submitted — awaiting on-chain confirmation",
+		}
+		return http.StatusAccepted, body
+	}
+}
+
+// refundWithdrawalPayoutRow credits the user back exactly once for a payout
+// reference and terminates the queue row as failed.
+func refundWithdrawalPayoutRow(payoutID uuid.UUID, withdrawalRef string, userUUID uuid.UUID, amountSOL float64, reason string) error {
+	return db.DB.Transaction(func(tx *gorm.DB) error {
+		var refunds int64
+		if err := tx.Model(&models.WalletLedgerEntry{}).
+			Where("reference_id = ? AND type = ?", withdrawalRef, "withdrawal_failed_refund").
+			Count(&refunds).Error; err != nil {
+			return err
+		}
+		if refunds == 0 {
 			var refundWallet models.Wallet
 			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userUUID).First(&refundWallet).Error; err != nil {
 				return err
 			}
-			desc := "Withdrawal failed: " + summarizeOnChainSendError(sendErr) + " — balance restored"
-			if err := models.CreditWalletLocked(tx, &refundWallet, req.Amount, "withdrawal_failed_refund", withdrawalRef, desc); err != nil {
+			if err := models.CreditWalletLocked(tx, &refundWallet, amountSOL, "withdrawal_failed_refund", withdrawalRef, reason); err != nil {
 				return err
 			}
-			return tx.Where("wallet_id = ? AND user_id = ? AND type = ? AND reference = ?", refundWallet.ID, userUUID, models.SpendingWithdraw, withdrawalRef).
-				Delete(&models.SpendingRecord{}).Error
-		})
-		if refundErr != nil {
-			logging.Error(refundErr).
-				Str("user_id", userUUID.String()).
-				Float64("amount", req.Amount).
-				Msg("CRITICAL: Compensating refund failed — enqueued for retry")
-			alerts.Send(alerts.Critical, "Compensating Refund Failed", fmt.Sprintf("User: %s | Amount: %.6f SOL | Ref: %s | Err: %v", userUUID, req.Amount, withdrawalRef, refundErr))
-			EnqueueCompensation(models.CompensationKindWithdrawalRefund, userUUID, nil, req.Amount, withdrawalRef, refundErr.Error())
-			logging.Error(sendErr).
-				Str("user_id", userUUID.String()).
-				Float64("amount", req.Amount).
-				Msg("SOL withdrawal: on-chain transfer failed, refund queued")
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":  "On-chain transfer failed. Balance restoration is being retried.",
-				"reason": summarizeOnChainSendError(sendErr),
-			})
-			return
+			if err := tx.Where("wallet_id = ? AND user_id = ? AND type = ? AND reference = ?", refundWallet.ID, userUUID, models.SpendingWithdraw, withdrawalRef).
+				Delete(&models.SpendingRecord{}).Error; err != nil {
+				return err
+			}
 		}
-		logging.Error(sendErr).
-			Str("user_id", userUUID.String()).
-			Float64("amount", req.Amount).
-			Msg("SOL withdrawal: on-chain transfer failed, balance restored")
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":  "On-chain transfer failed. Balance has been restored.",
-			"reason": summarizeOnChainSendError(sendErr),
-		})
-		return
-	}
-
-	logging.Info().
-		Str("user_id", userUUID.String()).
-		Str("wallet", destAddress).
-		Float64("amount_sol", req.Amount).
-		Str("tx_hash", txHash).
-		Msg("SOL withdrawal completed")
-
-	c.JSON(http.StatusOK, gin.H{
-		"status":      "success",
-		"tx_hash":     txHash,
-		"solscan_url": SolscanTxURL(txHash),
-		"amount_sol":  req.Amount,
-		"destination": destAddress,
-		"new_balance": walletRecord.BalanceSOL,
+		return tx.Model(&models.WithdrawalPayout{}).
+			Where("id = ? AND status != ?", payoutID, models.WithdrawalPayoutCompleted).
+			Updates(map[string]interface{}{
+				"status":     models.WithdrawalPayoutFailed,
+				"last_error": reason,
+			}).Error
 	})
 }
 
@@ -1165,6 +1372,10 @@ func updateSpendingLimits(c *gin.Context) {
 	updates := map[string]interface{}{}
 
 	if req.Daily != nil {
+		if *req.Daily <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Daily limit must be greater than 0; omit the field to leave it unchanged"})
+			return
+		}
 		if *req.Daily > maxLimits.Daily {
 			c.JSON(http.StatusForbidden, gin.H{
 				"error":       "Daily limit exceeds maximum allowed",
@@ -1177,6 +1388,10 @@ func updateSpendingLimits(c *gin.Context) {
 	}
 
 	if req.Weekly != nil {
+		if *req.Weekly <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Weekly limit must be greater than 0; omit the field to leave it unchanged"})
+			return
+		}
 		if *req.Weekly > maxLimits.Weekly {
 			c.JSON(http.StatusForbidden, gin.H{
 				"error":       "Weekly limit exceeds maximum allowed",
@@ -1189,6 +1404,10 @@ func updateSpendingLimits(c *gin.Context) {
 	}
 
 	if req.Monthly != nil {
+		if *req.Monthly <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Monthly limit must be greater than 0; omit the field to leave it unchanged"})
+			return
+		}
 		if *req.Monthly > maxLimits.Monthly {
 			c.JSON(http.StatusForbidden, gin.H{
 				"error":       "Monthly limit exceeds maximum allowed",

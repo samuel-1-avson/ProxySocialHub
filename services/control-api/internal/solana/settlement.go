@@ -266,10 +266,10 @@ func (c *OracleClient) buildSettleInstruction(params SettleEscrowParams) sol.Ins
 		programID: c.programID,
 		accounts: []*sol.AccountMeta{
 			{PublicKey: c.GetOraclePublicKey(), IsSigner: true, IsWritable: false}, // oracle
-			{PublicKey: params.EscrowPDA, IsSigner: false, IsWritable: true},        // escrow
-			{PublicKey: params.Buyer, IsSigner: false, IsWritable: true},            // buyer
-			{PublicKey: params.Seller, IsSigner: false, IsWritable: true},           // seller
-			{PublicKey: statePDA, IsSigner: false, IsWritable: false},               // program_state
+			{PublicKey: params.EscrowPDA, IsSigner: false, IsWritable: true},       // escrow
+			{PublicKey: params.Buyer, IsSigner: false, IsWritable: true},           // buyer
+			{PublicKey: params.Seller, IsSigner: false, IsWritable: true},          // seller
+			{PublicKey: statePDA, IsSigner: false, IsWritable: false},              // program_state
 		},
 		data: data,
 	}
@@ -370,12 +370,12 @@ func (c *OracleClient) SubmitUsageProof(ctx context.Context, params SubmitUsageP
 	instruction := &GenericInstruction{
 		programID: c.programID,
 		accounts: []*sol.AccountMeta{
-			{PublicKey: c.GetOraclePublicKey(), IsSigner: true, IsWritable: true}, // 0 oracle (admin)
-			{PublicKey: params.EscrowPDA, IsSigner: false, IsWritable: false},     // 1 escrow
-			{PublicKey: usageProofPDA, IsSigner: false, IsWritable: true},         // 2 usage_proof
+			{PublicKey: c.GetOraclePublicKey(), IsSigner: true, IsWritable: true},         // 0 oracle (admin)
+			{PublicKey: params.EscrowPDA, IsSigner: false, IsWritable: false},             // 1 escrow
+			{PublicKey: usageProofPDA, IsSigner: false, IsWritable: true},                 // 2 usage_proof
 			{PublicKey: sol.SysVarInstructionsPubkey, IsSigner: false, IsWritable: false}, // 3
-			{PublicKey: sol.SystemProgramID, IsSigner: false, IsWritable: false},  // 4
-			{PublicKey: statePDA, IsSigner: false, IsWritable: false},             // 5 program_state (BC-05)
+			{PublicKey: sol.SystemProgramID, IsSigner: false, IsWritable: false},          // 4
+			{PublicKey: statePDA, IsSigner: false, IsWritable: false},                     // 5 program_state (BC-05)
 		},
 		data: data,
 	}
@@ -437,6 +437,10 @@ func (c *OracleClient) CheckEscrowStatus(ctx context.Context, buyer, seller sol.
 
 // SendSOLTestHook, when set, replaces SendSOL (used by api package tests).
 var SendSOLTestHook func(ctx context.Context, c *OracleClient, recipient sol.PublicKey, lamports uint64) (string, error)
+
+// GetTransactionTestHook, when set (tests only), replaces on-chain fetches in
+// GetTransaction. Mirrors SendSOLTestHook.
+var GetTransactionTestHook func(ctx context.Context, signature string) (*rpc.GetTransactionResult, error)
 
 // SendSOL transfers lamports from the payout (treasury hot) wallet to a recipient
 // using a System Program transfer instruction. Oracle signing key is used only when
@@ -660,6 +664,48 @@ func (c *OracleClient) BatchTransferSOL(ctx context.Context, transfers []Transfe
 }
 
 // TransferRequest represents a single transfer in a batch
+type TxConfirmState int
+
+const (
+	TxPending TxConfirmState = iota
+	TxConfirmed
+	TxFailed
+)
+
+// CheckTxConfirmed performs a single confirmation lookup for signature.
+// A fetched transaction with meta.err is TxFailed (definitively rejected
+// on-chain); a fetched transaction without error is TxConfirmed at the
+// commitment GetTransaction requests; anything else stays TxPending.
+func CheckTxConfirmed(ctx context.Context, c *OracleClient, signature string) TxConfirmState {
+	if c == nil || signature == "" {
+		return TxPending
+	}
+	tx, err := c.GetTransaction(ctx, signature)
+	if err != nil || tx == nil {
+		return TxPending
+	}
+	if tx.Meta != nil && tx.Meta.Err != nil {
+		return TxFailed
+	}
+	return TxConfirmed
+}
+
+// WaitForTxConfirmation polls until the transaction confirms/fails or ctx
+// ends (TxPending). P0-3: a withdrawal is only "successful" once this
+// returns TxConfirmed.
+func WaitForTxConfirmation(ctx context.Context, c *OracleClient, signature string) TxConfirmState {
+	for {
+		if state := CheckTxConfirmed(ctx, c, signature); state != TxPending {
+			return state
+		}
+		select {
+		case <-ctx.Done():
+			return TxPending
+		case <-time.After(2 * time.Second):
+		}
+	}
+}
+
 type TransferRequest struct {
 	Recipient sol.PublicKey
 	Lamports  uint64

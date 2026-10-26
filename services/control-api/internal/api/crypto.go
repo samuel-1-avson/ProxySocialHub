@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"crypto/ed25519"
 	"fmt"
 	"net/http"
@@ -31,7 +32,11 @@ type linkWalletRequest struct {
 	Message       string `json:"message"`
 }
 
-// linkWallet links or unlinks an external wallet address to the user profile
+// linkWallet links or unlinks an external wallet address to the user profile.
+// P0-4: linking requires a fresh server-issued challenge (single-use, 5 min)
+// obtained from POST /v1/wallet/link/challenge; the signed message must match
+// it verbatim. All identity stores are updated through the unified helpers
+// in wallet_identity.go.
 func linkWallet(c *gin.Context) {
 	var req linkWalletRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -76,35 +81,30 @@ func linkWallet(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported chain"})
 			return
 		}
-		tx.Commit()
+		if err := tx.Commit().Error; err != nil {
+			logging.Error(err).Str("user_id", userID).Msg("Failed to commit wallet unlink")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to unlink wallet"})
+			return
+		}
 		c.JSON(http.StatusOK, gin.H{"status": "success", "message": "Wallet unlinked successfully"})
 		return
 	}
 
 	// Handle Link (POST)
-	// Update appropriate field based on chain
+	if req.Signature == "" || req.Message == "" {
+		tx.Rollback()
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Signature and message required for verification"})
+		return
+	}
+
+	// Single-use, server-issued challenge binds user+chain+address+nonce.
+	if !consumeLinkChallenge(c.Request.Context(), user.ID, req.Chain, req.WalletAddress, req.Message) {
+		tx.Rollback()
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Link challenge expired or invalid. Request a new challenge."})
+		return
+	}
+
 	if req.Chain == "solana" {
-		// 1. Verify Verification Params
-		if req.Signature == "" || req.Message == "" {
-			tx.Rollback()
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Signature and message required for verification"})
-			return
-		}
-
-		// 2. Verify Message Content Binding
-		// Message must contain UserID and WalletAddress to bind them together
-		if !strings.Contains(req.Message, userID) {
-			tx.Rollback()
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid message: User ID mismatch"})
-			return
-		}
-		if !strings.Contains(req.Message, req.WalletAddress) {
-			tx.Rollback()
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid message: Wallet Address mismatch"})
-			return
-		}
-
-		// 3. Decode & Verify Signature
 		pubKeyBytes, err := base58.Decode(req.WalletAddress)
 		if err != nil || len(pubKeyBytes) != 32 {
 			tx.Rollback()
@@ -117,117 +117,50 @@ func linkWallet(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid signature encoding or length"})
 			return
 		}
-
 		if !ed25519.Verify(pubKeyBytes, []byte(req.Message), sigBytes) {
 			tx.Rollback()
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Signature verification failed"})
 			return
 		}
 
-		user.WalletAddress = &req.WalletAddress
-
-		// Setup/update primary withdrawal address and cooldown in user's Wallet
-		var wallet models.Wallet
-		if err := tx.Where("user_id = ?", user.ID).First(&wallet).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				now := time.Now()
-				wallet = models.Wallet{
-					UserID:                     user.ID,
-					PrimaryWithdrawalAddress:   &req.WalletAddress,
-					WithdrawalAddressChangedAt: &now,
-				}
-				wallet.InitializeWithDefaultLimits(user.TrustTier)
-				if err := tx.Create(&wallet).Error; err != nil {
-					tx.Rollback()
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create wallet for user"})
-					return
-				}
-			} else {
-				tx.Rollback()
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error checking wallet"})
-				return
+		if err := applySolanaLinkIdentity(tx, user, req.WalletAddress, &req.Signature, &req.Message); err != nil {
+			tx.Rollback()
+			logging.Error(err).Str("user_id", userID).Str("wallet_address", req.WalletAddress).Msg("Failed to link Solana wallet")
+			status := http.StatusInternalServerError
+			msg := "Failed to link wallet"
+			if strings.Contains(err.Error(), "another account") {
+				status = http.StatusConflict
+				msg = err.Error()
 			}
-		} else {
-			if wallet.PrimaryWithdrawalAddress == nil || *wallet.PrimaryWithdrawalAddress == "" {
-				// First linked wallet = automatic primary withdrawal address
-				wallet.PrimaryWithdrawalAddress = &req.WalletAddress
-				now := time.Now()
-				wallet.WithdrawalAddressChangedAt = &now
-				if len(wallet.WithdrawalWhitelist) == 0 {
-					wallet.WithdrawalWhitelist = []string{req.WalletAddress}
-				}
-				if err := tx.Save(&wallet).Error; err != nil {
-					tx.Rollback()
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update wallet primary address"})
-					return
-				}
-			} else if *wallet.PrimaryWithdrawalAddress != req.WalletAddress {
-				// Changing primary withdrawal address sets changed_at = NOW()
-				wallet.PrimaryWithdrawalAddress = &req.WalletAddress
-				now := time.Now()
-				wallet.WithdrawalAddressChangedAt = &now
-				if len(wallet.WithdrawalWhitelist) > 0 {
-					found := false
-					for _, a := range wallet.WithdrawalWhitelist {
-						if a == req.WalletAddress {
-							found = true
-							break
-						}
-					}
-					if !found {
-						wallet.WithdrawalWhitelist = append(wallet.WithdrawalWhitelist, req.WalletAddress)
-					}
-				}
-				if err := tx.Save(&wallet).Error; err != nil {
-					tx.Rollback()
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update wallet primary address"})
-					return
-				}
-			}
+			c.JSON(status, gin.H{"error": msg})
+			return
 		}
-
-		logging.Info().
-			Str("user_id", userID).
-			Str("wallet", req.WalletAddress).
-			Msg("Solana wallet linked with Ed25519 verification")
+		logging.Info().Str("user_id", userID).Str("wallet", req.WalletAddress).Msg("Solana wallet linked with challenge + Ed25519 verification")
 
 	} else if req.Chain == "ethereum" {
-		// Ethereum linking with ECDSA verification
-		if req.Signature == "" || req.Message == "" {
-			tx.Rollback()
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Signature and message required for verification"})
-			return
-		}
-
-		// Verify message contains binding
-		if !strings.Contains(req.Message, userID) {
-			tx.Rollback()
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid message: User ID mismatch"})
-			return
-		}
-		if !strings.Contains(req.Message, req.WalletAddress) {
-			tx.Rollback()
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid message: Wallet Address mismatch"})
-			return
-		}
-
-		// Verify Ethereum signature using the linked_wallets implementation
 		verified, err := verifyEthereumSignature(req.WalletAddress, req.Message, req.Signature)
 		if err != nil || !verified {
 			tx.Rollback()
-			logging.Error(err).
-				Str("address", req.WalletAddress).
-				Msg("Ethereum signature verification failed")
+			logging.Error(err).Str("address", req.WalletAddress).Msg("Ethereum signature verification failed")
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Ethereum signature verification failed"})
 			return
 		}
 
-		user.WalletAddress = &req.WalletAddress
-
-		logging.Info().
-			Str("user_id", userID).
-			Str("wallet", req.WalletAddress).
-			Msg("Ethereum wallet linked with ECDSA verification")
+		// W-05: Ethereum identity lives only in linked_wallets; it must
+		// never overwrite profiles.wallet_address (the Solana identity).
+		if err := applyEthereumLinkIdentity(tx, user.ID, req.WalletAddress, &req.Signature, &req.Message); err != nil {
+			tx.Rollback()
+			logging.Error(err).Str("user_id", userID).Str("wallet_address", req.WalletAddress).Msg("Failed to link Ethereum wallet")
+			status := http.StatusInternalServerError
+			msg := "Failed to link wallet"
+			if strings.Contains(err.Error(), "another account") {
+				status = http.StatusConflict
+				msg = err.Error()
+			}
+			c.JSON(status, gin.H{"error": msg})
+			return
+		}
+		logging.Info().Str("user_id", userID).Str("wallet", req.WalletAddress).Msg("Ethereum wallet linked with challenge + ECDSA verification")
 
 	} else {
 		tx.Rollback()
@@ -235,34 +168,11 @@ func linkWallet(c *gin.Context) {
 		return
 	}
 
-	if err := setProfileWalletAddress(tx, user.ID, user.WalletAddress); err != nil {
-		tx.Rollback()
-		logging.Error(err).
-			Str("user_id", userID).
-			Str("chain", req.Chain).
-			Str("wallet_address", req.WalletAddress).
-			Msg("Failed to save user with wallet link")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to link wallet: " + err.Error()})
+	if err := tx.Commit().Error; err != nil {
+		logging.Error(err).Str("user_id", userID).Msg("Failed to commit wallet link")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to link wallet"})
 		return
 	}
-
-	if req.Chain == "solana" {
-		if err := ensurePrimaryLinkedSolana(tx, user.ID, req.WalletAddress, &req.Signature, &req.Message); err != nil {
-			tx.Rollback()
-			logging.Error(err).
-				Str("user_id", userID).
-				Str("wallet_address", req.WalletAddress).
-				Msg("Failed to upsert linked_wallets on /wallet/link")
-			status := http.StatusInternalServerError
-			if strings.Contains(err.Error(), "another account") {
-				status = http.StatusConflict
-			}
-			c.JSON(status, gin.H{"error": err.Error()})
-			return
-		}
-	}
-
-	tx.Commit()
 	c.JSON(http.StatusOK, gin.H{"status": "success", "message": "Wallet linked successfully"})
 }
 
@@ -274,11 +184,15 @@ func setProfileWalletAddress(tx *gorm.DB, userID uuid.UUID, address *string) err
 
 // clearLinkedWalletIdentity removes the linked on-chain identity and withdrawal routing.
 func clearLinkedWalletIdentity(tx *gorm.DB, userID uuid.UUID, chain string) error {
-	if err := setProfileWalletAddress(tx, userID, nil); err != nil {
-		return err
-	}
-	if err := clearWalletWithdrawalRouting(tx, userID); err != nil {
-		return err
+	// W-05: only a Solana unlink clears the Solana profile identity and
+	// withdrawal routing. Ethereum identity lives solely in linked_wallets.
+	if chain == "solana" {
+		if err := setProfileWalletAddress(tx, userID, nil); err != nil {
+			return err
+		}
+		if err := clearWalletWithdrawalRouting(tx, userID); err != nil {
+			return err
+		}
 	}
 	var chainType models.BlockchainType
 	switch chain {
@@ -388,45 +302,10 @@ func verifyCryptoDeposit(c *gin.Context) {
 			return
 		}
 
-		// Prefer vault when both are credited in the same tx (unlikely); check vault first if enabled.
-		var receivedSOL float64
-		var valid bool
-		candidates := []struct {
-			addr string
-			kind solana.DepositDestinationKind
-		}{}
-		if v := solana.GetDepositVaultAddress(); v != "" {
-			candidates = append(candidates, struct {
-				addr string
-				kind solana.DepositDestinationKind
-			}{v, solana.DepositDestVault})
-		}
-		if t := solana.GetTreasuryAddress(); t != "" {
-			candidates = append(candidates, struct {
-				addr string
-				kind solana.DepositDestinationKind
-			}{t, solana.DepositDestTreasury})
-		}
-		for _, cand := range candidates {
-			ok, amt, verr := solana.VerifyTransferAmount(txResult, cand.addr, 0)
-			if verr == nil && ok && amt > 0 {
-				kind := solana.ResolveDepositDestination(cand.addr)
-				if kind == "" {
-					continue // flag disabled for this destination
-				}
-				valid = true
-				receivedSOL = amt
-				depositDestKind = kind
-				break
-			}
-		}
-		if !valid {
-			logging.Warn().Str("tx_hash", req.TxHash).Msg("Transaction did not credit an allowed deposit destination")
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Transaction does not credit platform treasury or deposit vault"})
-			return
-		}
-
-		// SECURITY: Verify transaction sender matches user's linked wallet
+		// SECURITY (P0-6): the fee-payer signer must be the user's linked
+		// wallet, and the credited legs must be System Program transfers
+		// sourced from that signer — proven at instruction level in
+		// integer lamports, never from balance deltas alone.
 		sender, err := solana.GetTransactionSender(txResult)
 		if err != nil {
 			logging.Error(err).Str("tx_hash", req.TxHash).Msg("Failed to get transaction sender")
@@ -434,18 +313,15 @@ func verifyCryptoDeposit(c *gin.Context) {
 			return
 		}
 
-		// Get user's linked wallet address
 		var user models.User
 		if err := db.DB.Where("id = ?", userID).First(&user).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "User lookup failed"})
 			return
 		}
-
 		if user.WalletAddress == nil || *user.WalletAddress == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "No linked wallet found. Please link your wallet first"})
 			return
 		}
-
 		if sender != *user.WalletAddress {
 			logging.Warn().
 				Str("tx_hash", req.TxHash).
@@ -456,12 +332,57 @@ func verifyCryptoDeposit(c *gin.Context) {
 			return
 		}
 
-		verifiedAmount = receivedSOL
+		// Credit EVERY verified leg to an enabled destination (a tx can
+		// legitimately pay both vault and treasury); previously only the
+		// first matching leg was credited and the rest silently dropped.
+		candidates := []struct {
+			addr string
+			kind solana.DepositDestinationKind
+		}{}
+		if v := solana.GetDepositVaultAddress(); v != "" {
+			candidates = append(candidates, struct {
+				addr string
+				kind solana.DepositDestinationKind
+			}{v, solana.DepositDestVault})
+		}
+		if taddr := solana.GetTreasuryAddress(); taddr != "" {
+			candidates = append(candidates, struct {
+				addr string
+				kind solana.DepositDestinationKind
+			}{taddr, solana.DepositDestTreasury})
+		}
+
+		var totalLamports uint64
+		var creditedKinds []string
+		for _, cand := range candidates {
+			kind := solana.ResolveDepositDestination(cand.addr)
+			if kind == "" {
+				continue // flag disabled for this destination
+			}
+			lamports, verr := solana.VerifyDepositTransfers(txResult, cand.addr, sender)
+			if verr != nil || lamports == 0 {
+				continue
+			}
+			totalLamports += lamports
+			creditedKinds = append(creditedKinds, string(kind))
+			// Prefer vault as the recorded kind when both legs paid.
+			if depositDestKind != solana.DepositDestVault {
+				depositDestKind = kind
+			}
+		}
+		if totalLamports == 0 {
+			logging.Warn().Str("tx_hash", req.TxHash).Msg("Transaction did not credit an allowed deposit destination")
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Transaction does not credit platform treasury or deposit vault"})
+			return
+		}
+
+		verifiedAmount = float64(totalLamports) / 1e9
 		logging.Info().
 			Str("tx_hash", req.TxHash).
+			Uint64("amount_lamports", totalLamports).
 			Float64("amount_sol", verifiedAmount).
 			Str("sender", sender).
-			Str("destination_kind", string(depositDestKind)).
+			Strs("destination_kinds", creditedKinds).
 			Msg("Solana deposit verified on-chain with sender ownership confirmed")
 
 	} else if req.Chain == "ethereum" {
@@ -511,7 +432,7 @@ func verifyCryptoDeposit(c *gin.Context) {
 	// 3. Credit Internal Wallet
 	var wallet models.Wallet
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userID).First(&wallet).Error; err != nil {
-		if err.Error() == "record not found" {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			// Get user's trust tier for default limits
 			var userTrustTier models.TrustTier = models.TrustTierNew
 			db.DB.Model(&models.User{}).Select("trust_tier").Where("id = ?", userID).Scan(&userTrustTier)
@@ -606,7 +527,17 @@ func verifyCryptoDeposit(c *gin.Context) {
 		return
 	}
 
-	tx.Commit()
+	// P0-10: a failed commit must never report a credited deposit. The
+	// chain payment is verifiable, so ask for a retry (idempotency on the
+	// pending_tx signature makes retrying safe).
+	if err := tx.Commit().Error; err != nil {
+		logging.Error(err).
+			Str("user_id", userID).
+			Str("tx_hash", req.TxHash).
+			Msg("CRITICAL: deposit verified on-chain but commit failed")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to persist deposit credit; retry with the same transaction signature"})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"status":      "success",

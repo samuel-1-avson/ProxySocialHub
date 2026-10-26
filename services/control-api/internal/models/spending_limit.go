@@ -45,14 +45,54 @@ type SpendingWindow struct {
 	WindowStart  time.Time `json:"window_start"`
 }
 
+// EffectiveLimits returns the limits actually enforced at spend time:
+// the stored per-wallet limits clamped to the user's trust-tier ceilings
+// (GetDefaultLimits doubles as the tier maximum, matching the settings
+// API). A stored 0 stays 0 (zero allowed). When the user row cannot be
+// loaded (e.g. unit tests with synthetic wallets), stored limits apply
+// unclamped.
+func (w *Wallet) EffectiveLimits(db *gorm.DB) DefaultSpendingLimits {
+	eff := DefaultSpendingLimits{Daily: w.DailyLimit, Weekly: w.WeeklyLimit, Monthly: w.MonthlyLimit}
+	if db == nil || w.UserID == uuid.Nil {
+		return eff
+	}
+	var user User
+	if err := db.Select("trust_tier").Where("id = ?", w.UserID).First(&user).Error; err != nil {
+		return eff
+	}
+	max := GetDefaultLimits(user.TrustTier)
+	// Uninitialized-wallet guard: an enabled wallet with NO window ever
+	// configured (legacy/bare creation paths) gets tier defaults — the
+	// same normalization migration 000158 applies to stored rows. A
+	// single zero window alongside configured ones still blocks.
+	if eff.Daily <= 0 && eff.Weekly <= 0 && eff.Monthly <= 0 {
+		return max
+	}
+	if eff.Daily > max.Daily {
+		eff.Daily = max.Daily
+	}
+	if eff.Weekly > max.Weekly {
+		eff.Weekly = max.Weekly
+	}
+	if eff.Monthly > max.Monthly {
+		eff.Monthly = max.Monthly
+	}
+	return eff
+}
+
 // CheckSpendingLimit checks if a transaction would exceed spending limits
 // Returns nil if allowed, error if limit would be exceeded
 func (w *Wallet) CheckSpendingLimit(db *gorm.DB, amount float64, txType SpendingType) error {
-	// P2-17: Limits only apply when explicitly enabled by the user.
-	// A limit value of 0 means "zero spending allowed", not "unlimited".
+	// P2-17 + P0-5 (W-06): Limits only apply when explicitly enabled.
+	// When enabled, a limit value of 0 means "zero spending allowed" —
+	// it must never skip the check (that inverted guard made 0 unlimited
+	// and defeated trust-tier ceilings). Enforcement uses the effective
+	// (tier-clamped) limits, never raw stored values above the ceiling.
 	if !w.LimitsEnabled {
 		return nil
 	}
+
+	limits := w.EffectiveLimits(db)
 
 	// Get current spending in each window
 	spending, err := w.GetSpendingForWindow(db)
@@ -60,39 +100,28 @@ func (w *Wallet) CheckSpendingLimit(db *gorm.DB, amount float64, txType Spending
 		return fmt.Errorf("failed to check spending: %w", err)
 	}
 
-	// Check daily limit
-	if w.DailyLimit > 0 {
-		if spending.DailySpent+amount > w.DailyLimit {
-			return &SpendingLimitError{
-				LimitType:    "daily",
-				Limit:        w.DailyLimit,
-				CurrentSpend: spending.DailySpent,
-				Attempted:    amount,
-			}
+	if spending.DailySpent+amount > limits.Daily {
+		return &SpendingLimitError{
+			LimitType:    "daily",
+			Limit:        limits.Daily,
+			CurrentSpend: spending.DailySpent,
+			Attempted:    amount,
 		}
 	}
-
-	// Check weekly limit
-	if w.WeeklyLimit > 0 {
-		if spending.WeeklySpent+amount > w.WeeklyLimit {
-			return &SpendingLimitError{
-				LimitType:    "weekly",
-				Limit:        w.WeeklyLimit,
-				CurrentSpend: spending.WeeklySpent,
-				Attempted:    amount,
-			}
+	if spending.WeeklySpent+amount > limits.Weekly {
+		return &SpendingLimitError{
+			LimitType:    "weekly",
+			Limit:        limits.Weekly,
+			CurrentSpend: spending.WeeklySpent,
+			Attempted:    amount,
 		}
 	}
-
-	// Check monthly limit
-	if w.MonthlyLimit > 0 {
-		if spending.MonthlySpent+amount > w.MonthlyLimit {
-			return &SpendingLimitError{
-				LimitType:    "monthly",
-				Limit:        w.MonthlyLimit,
-				CurrentSpend: spending.MonthlySpent,
-				Attempted:    amount,
-			}
+	if spending.MonthlySpent+amount > limits.Monthly {
+		return &SpendingLimitError{
+			LimitType:    "monthly",
+			Limit:        limits.Monthly,
+			CurrentSpend: spending.MonthlySpent,
+			Attempted:    amount,
 		}
 	}
 

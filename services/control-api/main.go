@@ -22,6 +22,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/config"
 	"github.com/proxyhubb/control-api/internal/core/services"
 	cryptoPkg "github.com/proxyhubb/control-api/internal/crypto"
+	"github.com/proxyhubb/control-api/internal/decentralization"
 	"github.com/proxyhubb/control-api/internal/db"
 	gatewayPkg "github.com/proxyhubb/control-api/internal/gateway"
 	"github.com/proxyhubb/control-api/internal/gateways"
@@ -55,6 +56,13 @@ func main() {
 
 	// Structured logger must init before alerts / workers (zerolog nop otherwise).
 	logging.Init()
+
+	// P0-8: production refuses to boot unless the secure wallet posture
+	// is asserted explicitly; posture flag typos are fatal everywhere.
+	if err := decentralization.ValidateSecurityPosture(); err != nil {
+		log.Fatalf("FATAL: %v", err)
+	}
+	log.Printf("Security posture: %+v", decentralization.EffectivePosture())
 
 	// Initialise platform-native alerts (durable journal + NATS; no Slack/PagerDuty)
 	alerts.Init()
@@ -93,6 +101,14 @@ func main() {
 	// Initialize DB
 	if err := db.Init(cfg.Database.DatabaseURL); err != nil {
 		log.Fatalf("Failed to init DB: %v", err)
+	}
+	// W-29: the double-entry journal schema must exist before money
+	// routes serve — dual-write must never silently degrade.
+	if err := models.AssertJournalSchema(db.DB); err != nil {
+		if decentralization.IsProduction() || appEnv == "staging" {
+			log.Fatalf("FATAL: %v", err)
+		}
+		log.Printf("WARNING: %v (journal dual-write will soft-skip in this env)", err)
 	}
 	db.SeedAll()
 
