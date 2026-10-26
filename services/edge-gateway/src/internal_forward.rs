@@ -10,7 +10,7 @@ use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use std::sync::Arc;
 use std::time::Instant;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tracing::{debug, error, warn};
 
@@ -18,6 +18,40 @@ pub const INTERNAL_FORWARD_HOST: &str = "bridge.internal";
 pub const HDR_INTERNAL: &str = "x-proxyhub-internal-forward";
 pub const HDR_NODE_ID: &str = "x-proxyhub-node-id";
 pub const HDR_DEST: &str = "x-proxyhub-dest";
+
+/// Length-checked constant-time-ish equality for the shared gateway secret
+/// (avoids leaking prefix matches through ordinary string compare timing).
+fn secrets_match(provided: &str, expected: &str) -> bool {
+    let (a, b) = (provided.as_bytes(), expected.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for i in 0..a.len() {
+        diff |= a[i] ^ b[i];
+    }
+    diff == 0
+}
+
+/// Read one HTTP head (up to and including CRLFCRLF) byte by byte so tunnel
+/// bytes arriving in the same segment as the response head are not consumed
+/// and dropped (DP-1). Handshakes only; capped to fail fast on garbage.
+async fn read_http_head<S: AsyncRead + Unpin>(stream: &mut S) -> std::io::Result<Vec<u8>> {
+    const MAX_HEAD: usize = 8192;
+    let mut buf = Vec::with_capacity(256);
+    let mut byte = [0u8; 1];
+    while buf.len() < MAX_HEAD {
+        let n = stream.read(&mut byte).await?;
+        if n == 0 {
+            break;
+        }
+        buf.push(byte[0]);
+        if buf.len() >= 4 && &buf[buf.len() - 4..] == b"\r\n\r\n" {
+            break;
+        }
+    }
+    Ok(buf)
+}
 
 pub fn is_internal_forward_request<B>(req: &Request<B>) -> bool {
     if req.method() != hyper::Method::CONNECT {
@@ -41,7 +75,7 @@ fn gateway_basic_auth(secret: &str) -> String {
 fn validate_gateway_auth(headers: &HeaderMap, secret: &str) -> bool {
     if let Some(v) = headers.get(PROXY_AUTHORIZATION) {
         if let Ok(s) = v.to_str() {
-            if s.trim() == gateway_basic_auth(secret) {
+            if secrets_match(s.trim(), &gateway_basic_auth(secret)) {
                 return true;
             }
         }
@@ -131,6 +165,9 @@ pub async fn bridge_via_peer(
     node_id: String,
     peer_base_url: String,
     gateway_secret: String,
+    shaper: &crate::qos::TrafficShaper,
+    shaper_key: String,
+    bandwidth_cap: u32,
 ) -> std::io::Result<(u64, u64)> {
     let (host, port) = parse_peer_http_endpoint(&peer_base_url)?;
     let peer_addr = format!("{host}:{port}");
@@ -149,15 +186,14 @@ pub async fn bridge_via_peer(
     );
     peer.write_all(request.as_bytes()).await?;
 
-    let mut buf = vec![0u8; 4096];
-    let n = peer.read(&mut buf).await?;
-    if n == 0 {
+    let head_bytes = read_http_head(&mut peer).await?;
+    if head_bytes.is_empty() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::ConnectionRefused,
             "Peer closed before response",
         ));
     }
-    let head = String::from_utf8_lossy(&buf[..n]);
+    let head = String::from_utf8_lossy(&head_bytes);
     if !head.contains(" 101 ") && !head.contains(" 200 ") {
         return Err(std::io::Error::new(
             std::io::ErrorKind::ConnectionRefused,
@@ -168,6 +204,10 @@ pub async fn bridge_via_peer(
         ));
     }
 
+    // DP-1: auth and metering stay on this (ingress) pod, and so does the
+    // bandwidth cap: shape the peer stream with the session's cap instead
+    // of the owner pod's previous unlimited bridge.
+    let mut peer = shaper.wrap_with_cap(peer, shaper_key, bandwidth_cap);
     let mut client = TokioIo::new(upgraded);
     let (bytes_to_peer, bytes_from_peer) = tokio::io::copy_bidirectional(&mut client, &mut peer)
         .await
@@ -213,15 +253,14 @@ pub(crate) async fn open_peer_tunnel(
     );
     peer.write_all(request.as_bytes()).await?;
 
-    let mut buf = vec![0u8; 4096];
-    let n = peer.read(&mut buf).await?;
-    if n == 0 {
+    let head_bytes = read_http_head(&mut peer).await?;
+    if head_bytes.is_empty() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::ConnectionRefused,
             "Peer closed before response",
         ));
     }
-    let head = String::from_utf8_lossy(&buf[..n]);
+    let head = String::from_utf8_lossy(&head_bytes);
     if !head.contains(" 101 ") && !head.contains(" 200 ") {
         return Err(std::io::Error::new(
             std::io::ErrorKind::ConnectionRefused,
@@ -257,6 +296,19 @@ fn parse_peer_http_endpoint(base: &str) -> std::io::Result<(String, u16)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn read_http_head_stops_at_head_boundary() {
+        let (mut a, mut b) = tokio::io::duplex(8192);
+        a.write_all(b"HTTP/1.1 101 Switching\r\nX: y\r\n\r\nEARLYBYTES")
+            .await
+            .unwrap();
+        let head = read_http_head(&mut b).await.unwrap();
+        assert!(head.ends_with(b"\r\n\r\n"), "head: {head:?}");
+        let mut rest = [0u8; 10];
+        b.read_exact(&mut rest).await.unwrap();
+        assert_eq!(&rest, b"EARLYBYTES", "bytes after the head must survive");
+    }
 
     #[test]
     fn parse_peer_url() {
