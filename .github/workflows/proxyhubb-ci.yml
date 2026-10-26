@@ -665,10 +665,13 @@ jobs:
         set -euo pipefail
         # The credential helper (go run ./cmd/provider_dev_token) runs on the host, not
         # in compose, and the .env copied from .env.example has an empty DATABASE_URL.
-        # Point it at the published Postgres port using the runtime-generated password.
-        # A process env var wins over godotenv, so the containers are unaffected.
+        # The E2E script does `source .env`, which would overwrite a variable exported
+        # here, so append the URL to this job's .env (the last assignment wins for both
+        # `source` and godotenv). It points at the published Postgres port with the
+        # runtime-generated password. The containers are unaffected: docker-compose.yml
+        # sets their DATABASE_URL under `environment:`, which beats env_file.
         envval() { grep -E "^$1=" .env | tail -n1 | cut -d= -f2- | sed 's/[[:space:]]*#.*$//'; }
-        export DATABASE_URL="postgresql://$(envval POSTGRES_USER):$(envval POSTGRES_PASSWORD)@127.0.0.1:${POSTGRES_HOST_PORT:-55432}/$(envval POSTGRES_DB)?sslmode=disable"
+        echo "DATABASE_URL=postgresql://$(envval POSTGRES_USER):$(envval POSTGRES_PASSWORD)@127.0.0.1:${POSTGRES_HOST_PORT:-55432}/$(envval POSTGRES_DB)?sslmode=disable" >> .env
         chmod +x scripts/provider-docker-e2e.sh
         PROVIDER_E2E_SKIP_HEAL=1 ./scripts/provider-docker-e2e.sh
 
