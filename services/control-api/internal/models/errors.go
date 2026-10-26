@@ -10,7 +10,7 @@ var (
 	ErrUserNotFound        = errors.New("user not found")
 	ErrUsernameExists      = errors.New("username already taken")
 	ErrListingNotFound     = errors.New("listing not found")
-	ErrInsufficientBalance = errors.New("insufficient balance")
+	ErrInsufficientBalance = errors.New("insufficient SOL balance")
 	ErrOrderNotFound       = errors.New("order not found")
 	ErrReviewExists        = errors.New("review already exists for this order")
 	ErrConversationExists  = errors.New("conversation already exists")
