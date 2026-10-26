@@ -1,0 +1,12 @@
+# Daily check that the edge gateways carry Caddy's current certificate. Caddy renews
+# about 30 days before expiry, so a daily run swaps the cert within a day of renewal.
+[Unit]
+Description=Daily edge gateway certificate sync
+
+[Timer]
+OnCalendar=*-*-* 04:17:00
+RandomizedDelaySec=20min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
