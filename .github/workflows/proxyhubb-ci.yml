@@ -662,6 +662,13 @@ jobs:
       env:
         COMPOSE_PROJECT_NAME: proxyhubb
       run: |
+        set -euo pipefail
+        # The credential helper (go run ./cmd/provider_dev_token) runs on the host, not
+        # in compose, and the .env copied from .env.example has an empty DATABASE_URL.
+        # Point it at the published Postgres port using the runtime-generated password.
+        # A process env var wins over godotenv, so the containers are unaffected.
+        envval() { grep -E "^$1=" .env | tail -n1 | cut -d= -f2- | sed 's/[[:space:]]*#.*$//'; }
+        export DATABASE_URL="postgresql://$(envval POSTGRES_USER):$(envval POSTGRES_PASSWORD)@127.0.0.1:${POSTGRES_HOST_PORT:-55432}/$(envval POSTGRES_DB)?sslmode=disable"
         chmod +x scripts/provider-docker-e2e.sh
         PROVIDER_E2E_SKIP_HEAL=1 ./scripts/provider-docker-e2e.sh
 
