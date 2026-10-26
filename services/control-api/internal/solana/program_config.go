@@ -2,16 +2,18 @@
 //
 // Security-critical parameters (KYC min balance, platform fee, spending limits)
 // are stored in the ProgramConfig PDA so they cannot be changed by a single
-// compromised admin DB row.  Updates require the multisig oracle.
+// compromised admin DB row.  On chain, update_program_config binds its
+// signer to program_state.admin (P1-SC-2 hardening). This client is
+// read-only: it has no update sender, so control-api cannot change it.
 //
 // PDA seeds: ["program_config"]
 //
 // Account order for update_program_config:
-//   0  oracle          — Signer (must be in multisig_oracle.signers)
+//   0  oracle          — Signer (must equal program_state.admin)
 //   1  program_config  — init_if_needed PDA ["program_config"]
 //   2  system_program
-//   3  multisig_oracle — read-only (threshold check)
-//   4  program_state   — pause guard
+//   3  multisig_oracle — read-only
+//   4  program_state   — pause guard + admin binding
 package solana
 
 import (

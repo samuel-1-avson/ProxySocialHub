@@ -7,9 +7,10 @@
 // PDA seeds: ["review", order_escrow_pda (32 bytes), reviewer_wallet (32 bytes)]
 //
 // Account order for submit_review_attestation:
-//   0  oracle              — Signer, writable (pays rent)
+//   0  oracle              — Signer, writable (pays rent); must equal program_state.admin
 //   1  review_attestation  — init PDA
 //   2  system_program
+//   3  program_state       — admin binding (appended by the P1-SC-2 hardening)
 package solana
 
 import (
