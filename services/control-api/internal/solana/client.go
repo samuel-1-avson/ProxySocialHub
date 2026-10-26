@@ -292,6 +292,9 @@ func (c *OracleClient) rpc() *rpc.Client {
 
 // rotateRPC switches to the next available RPC endpoint
 func (c *OracleClient) rotateRPC() {
+	if c == nil || len(c.rpcClients) == 0 {
+		return
+	}
 	c.currentIdx = (c.currentIdx + 1) % len(c.rpcClients)
 }
 
@@ -513,8 +516,15 @@ func trimSpace(s string) string {
 
 // GetOraclePublicKey returns the oracle's public key
 func (c *OracleClient) GetOraclePublicKey() sol.PublicKey {
+	if c == nil {
+		return sol.PublicKey{}
+	}
 	if c.hsm != nil {
 		return c.hsm.PublicKey()
+	}
+	if len(c.oracleKey) != 64 {
+		// Unconfigured/zero-value client: never panic on key access.
+		return sol.PublicKey{}
 	}
 	return c.oracleKey.PublicKey()
 }
@@ -748,6 +758,9 @@ func (c *OracleClient) GetEscrowPDA(buyer, seller sol.PublicKey) (sol.PublicKey,
 // leaves currentIdx pointing at the last-tried (broken) endpoint, meaning the
 // next call skips the primary entirely.
 func (c *OracleClient) withFailover(ctx context.Context, f func(client *rpc.Client) error) error {
+	if c == nil || len(c.rpcClients) == 0 {
+		return fmt.Errorf("solana: no RPC clients configured")
+	}
 	var lastErr error
 	for i := 0; i < len(c.rpcClients); i++ {
 		err := f(c.rpc())
@@ -893,8 +906,16 @@ func (c *OracleClient) GetBalance(ctx context.Context, pubkey sol.PublicKey) (ui
 		})
 		if err == nil {
 			c.balMu.Lock()
-			c.balCache[key] = balCacheEntry{lamports: balance.Value, at: time.Now()}
+			if c.balCache == nil {
+				c.balCache = make(map[string]balCacheEntry)
+			}
+			if balance != nil {
+				c.balCache[key] = balCacheEntry{lamports: balance.Value, at: time.Now()}
+			}
 			c.balMu.Unlock()
+			if balance == nil {
+				return 0, fmt.Errorf("solana: empty GetBalance result")
+			}
 			return balance.Value, nil
 		}
 		lastErr = err
@@ -1250,6 +1271,9 @@ func (c *OracleClient) VerifyTransaction(ctx context.Context, signature string, 
 
 // GetTransaction fetches a transaction by signature
 func (c *OracleClient) GetTransaction(ctx context.Context, signature string) (*rpc.GetTransactionResult, error) {
+	if GetTransactionTestHook != nil {
+		return GetTransactionTestHook(ctx, signature)
+	}
 	sig, err := sol.SignatureFromBase58(signature)
 	if err != nil {
 		return nil, fmt.Errorf("invalid signature: %w", err)

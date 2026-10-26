@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	sol "github.com/gagliardetto/solana-go"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/decentralization"
@@ -17,7 +18,6 @@ import (
 	"github.com/proxyhubb/control-api/internal/redis"
 	"github.com/proxyhubb/control-api/internal/sessionintent"
 	"github.com/proxyhubb/control-api/internal/solana"
-	sol "github.com/gagliardetto/solana-go"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -143,17 +143,6 @@ func StartSettlementWorker() {
 
 const settleLockTTL = 2 * time.Minute
 
-// acquireSettleLock takes a short per-session lock. SettleUsage runs on every control-api
-// pod; without it two pods could both read the same pending bytes and both debit the buyer
-// and credit the provider before either deleted the Redis key.
-func acquireSettleLock(sessionID string) bool {
-	ok, err := redis.Client.SetNX(context.Background(), "billing:settle-lock:"+sessionID, "1", settleLockTTL).Result()
-	return err == nil && ok
-}
-
-func releaseSettleLock(sessionID string) {
-	redis.Client.Del(context.Background(), "billing:settle-lock:"+sessionID)
-}
 
 // SettleUsage moves pending usage from Redis to SQL Ledger
 func SettleUsage() {
@@ -165,38 +154,25 @@ func SettleUsage() {
 
 	logging.Info().Msg("Starting billing settlement...")
 
-	// 1. Scan all pending sessions
-	// Keys: billing:session:{session_id}:pending
+	// W-16: recover bytes from claims whose settler died mid-flight.
+	sweepStaleMeteringClaims()
+
+	// 1. Scan all pending sessions. Bytes are claimed atomically AFTER
+	// the lock, inside settleSession - never read before it (W-16).
 	iter := redis.Client.Scan(context.Background(), 0, "billing:session:*:pending", 0).Iterator()
 
 	count := 0
 	for iter.Next(context.Background()) {
 		key := iter.Val()
-		// P1-19: The Redis key format is billing:session:{sessionID}:pending
-		// where sessionID is the session UUID primary key.
 		sessionID := strings.TrimPrefix(key, "billing:session:")
 		sessionID = strings.TrimSuffix(sessionID, ":pending")
 
-		// Get Bytes
-		bytesStr, err := redis.Client.Get(context.Background(), key).Result()
-		if err != nil {
+		token, ok := acquireSettleLock(sessionID)
+		if !ok {
 			continue
 		}
-
-		// Parse bytes (simple atoi)
-		var totalBytes int64
-		fmt.Sscanf(bytesStr, "%d", &totalBytes)
-
-		if totalBytes == 0 {
-			continue
-		}
-
-		// 2. Process Settlement for this Session. Another pod may be settling it right now.
-		if !acquireSettleLock(sessionID) {
-			continue
-		}
-		err = settleSession(sessionID, totalBytes, key)
-		releaseSettleLock(sessionID)
+		err := settleSession(sessionID, 0, key)
+		releaseSettleLock(sessionID, token)
 		if err != nil {
 			logging.Error(err).Str("session_id", sessionID).Msg("Failed to settle session")
 		} else {
@@ -223,8 +199,8 @@ func settleSession(sessionID string, totalBytes int64, redisKey string) error {
 			Str("session_id", sessionID).
 			Str("reason", reason).
 			Msg("billing: skipping custodial settle for escrow-backed marketplace session")
-		if err := redis.Client.Del(context.Background(), redisKey).Err(); err != nil {
-			logging.Warn().Str("redis_key", redisKey).Err(err).Msg("billing: failed to delete escrow-settled Redis key")
+		if err := consumeExternalClaim(sessionID, redisKey, totalBytes); err != nil {
+			return err
 		}
 		if err := markSettlementArtifactsSettled(session.ID); err != nil {
 			logging.Warn().Err(err).Str("session_id", session.ID.String()).Msg("Billing: failed to mark escrow session artifacts settled")
@@ -237,12 +213,24 @@ func settleSession(sessionID string, totalBytes int64, redisKey string) error {
 			Str("session_id", sessionID).
 			Str("reason", reason).
 			Msg("billing: settling session escrow PDA on-chain (skip custodial)")
-		if err := settleSessionEscrowOnChain(&session, totalBytes); err != nil {
+		claim, err := claimSessionUsage(sessionID, redisKey, totalBytes, 0)
+		if err != nil {
+			return err
+		}
+		claimedBytes := totalBytes
+		if claim != nil {
+			claimedBytes = claim.Bytes
+		}
+		if err := settleSessionEscrowOnChain(&session, claimedBytes); err != nil {
+			requeueClaim(claim, err)
 			logging.Error(err).Str("session_id", sessionID).Msg("billing: session escrow on-chain settle failed")
 			return err
 		}
-		if err := redis.Client.Del(context.Background(), redisKey).Err(); err != nil {
-			logging.Warn().Str("redis_key", redisKey).Err(err).Msg("billing: failed to delete session-pda Redis key")
+		if claim != nil {
+			now := time.Now().UTC()
+			_ = db.DB.Model(&models.UsageMeteringClaim{}).
+				Where("id = ? AND status = ?", claim.ID, models.MeteringClaimClaimed).
+				Updates(map[string]interface{}{"status": models.MeteringClaimExternal, "settled_at": now}).Error
 		}
 		if err := markSettlementArtifactsSettled(session.ID); err != nil {
 			logging.Warn().Err(err).Str("session_id", session.ID.String()).Msg("Billing: failed to mark session-pda artifacts settled")
@@ -255,7 +243,36 @@ func settleSession(sessionID string, totalBytes int64, redisKey string) error {
 		return fmt.Errorf("PROXYHUB_REQUIRE_SESSION_PDA: session %s has no session_pda; custodial balance_sol settle disabled", sessionID)
 	}
 
-	costLamports, costUSD, costSOL := computeSessionCostLamports(&session, totalBytes)
+	// Price pre-check on a non-destructive peek: on outage nothing is
+	// claimed or deleted (P0-7 semantics preserved under W-16 claims).
+	peekedBytes := peekPendingBytes(redisKey, totalBytes)
+	solPrice := sessionSOLPrice(sessionID)
+	_, peekUSD, _ := computeSessionCostLamportsAtPrice(&session, peekedBytes, solPrice)
+	if peekedBytes > 0 && peekUSD > 0 && solPrice <= 0 {
+		// W-17: a price outage is not RPC degradation - never trip the
+		// settlement circuit breaker for it.
+		logging.Error(ErrSOLPriceUnavailable).
+			Str("session_id", sessionID).
+			Int64("bytes", peekedBytes).
+			Float64("cost_usd", peekUSD).
+			Msg("ALERT: billing settlement deferred — SOL price unavailable (usage retained, not billed)")
+		return fmt.Errorf("%w: session %s (%d bytes, $%.6f unbilled)", ErrSOLPriceUnavailable, sessionID, peekedBytes, peekUSD)
+	}
+
+	// W-16: durable claim. From here the claim row - not Redis - is the
+	// metering evidence; every failure requeues from it.
+	claim, err := claimSessionUsage(sessionID, redisKey, totalBytes, solPrice)
+	if err != nil {
+		return err
+	}
+	if claim == nil {
+		return nil // nothing pending (raced or zero)
+	}
+	totalBytes = claim.Bytes
+	if claim.SOLPriceUSD != nil && *claim.SOLPriceUSD > 0 {
+		solPrice = *claim.SOLPriceUSD
+	}
+	costLamports, costUSD, costSOL := computeSessionCostLamportsAtPrice(&session, totalBytes, solPrice)
 
 	// queuePayoutAfterCommit is set inside the tx and consumed after commit (FW-02).
 	var queuePayoutAfterCommit uuid.UUID
@@ -280,17 +297,34 @@ func settleSession(sessionID string, totalBytes int64, redisKey string) error {
 			providerCredit = buyerDebit // full amount to provider in current model
 		}
 		desc := fmt.Sprintf("Usage settle %s", session.ID.String())
-		if err := models.PostUsageJournal(tx, buyerWallet, providerWalletID, buyerDebit, providerCredit, 0, session.ID.String(), desc); err != nil {
+		// W-29: journal refs are namespaced per settlement EVENT (claim),
+		// never the bare session id - (external_ref, entry_type) is unique.
+		journalRef := "usage-settle:" + claim.ID.String()
+		if err := models.PostUsageJournal(tx, buyerWallet, providerWalletID, buyerDebit, providerCredit, 0, journalRef, desc); err != nil {
 			return err
 		}
 
-		// Clear Redis key after successful settlement (I6).
-		if err := redis.Client.Del(context.Background(), redisKey).Err(); err != nil {
-			logging.Warn().Str("redis_key", redisKey).Err(err).Msg("billing: failed to delete settled Redis key")
+		// The claim settles in the SAME tx as the money (W-16).
+		now := time.Now().UTC()
+		res := tx.Model(&models.UsageMeteringClaim{}).
+			Where("id = ? AND status = ?", claim.ID, models.MeteringClaimClaimed).
+			Updates(map[string]interface{}{"status": models.MeteringClaimSettled, "settled_at": now})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected != 1 {
+			return fmt.Errorf("metering claim %s no longer claimed (concurrent settle?)", claim.ID)
 		}
 		return nil
 	}); err != nil {
-		// P3-13: Record failure; alert if the breaker just tripped.
+		requeueClaim(claim, err)
+		// W-17: business failures (buyer cannot pay / over limit) must
+		// not trip the RPC circuit breaker for every other session.
+		if isBusinessSettleFailure(err) {
+			logging.Warn().Err(err).Str("session_id", sessionID).
+				Msg("billing: business settlement failure (not counted toward circuit breaker); bytes requeued")
+			return err
+		}
 		if tripped := settlementCB.recordFailure(); tripped {
 			logging.Error(fmt.Errorf("circuit breaker tripped")).
 				Str("session_id", sessionID).
@@ -300,7 +334,6 @@ func settleSession(sessionID string, totalBytes int64, redisKey string) error {
 		return err
 	}
 
-	// P3-13: Successful settlement resets the failure window.
 	settlementCB.recordSuccess()
 
 	if err := markSettlementArtifactsSettled(session.ID); err != nil {
@@ -312,6 +345,16 @@ func settleSession(sessionID string, totalBytes int64, redisKey string) error {
 		go queueProviderPayout(queuePayoutAfterCommit)
 	}
 	return nil
+}
+
+// isBusinessSettleFailure classifies buyer-side failures that say
+// nothing about infrastructure health (W-17).
+func isBusinessSettleFailure(err error) bool {
+	if errors.Is(err, models.ErrInsufficientBalance) {
+		return true
+	}
+	var limitErr *models.SpendingLimitError
+	return errors.As(err, &limitErr)
 }
 
 // markProviderEarningPaid moves the session's provider_earnings row from pending to paid
@@ -530,12 +573,30 @@ func computeSessionCost(session *models.Session, totalBytes int64) (costSOL, cos
 
 // computeSessionCostLamports returns lamports SoT plus display USD/SOL (Sprint I / DB-02 lite).
 func computeSessionCostLamports(session *models.Session, totalBytes int64) (costLamports int64, costUSD, costSOL float64) {
+	return computeSessionCostLamportsAtPrice(session, totalBytes, solPriceNow())
+}
+
+func computeSessionCostLamportsAtPrice(session *models.Session, totalBytes int64, solPriceUSD float64) (costLamports int64, costUSD, costSOL float64) {
 	pricePerGB := 0.50 // USD/GB default
 	if session.Listing != nil && session.Listing.PricePerGB > 0 {
 		pricePerGB = session.Listing.PricePerGB
 	}
-	return CostFromBytesUSD(totalBytes, pricePerGB)
+	return CostFromBytesUSDAtSOLPrice(totalBytes, pricePerGB, solPriceUSD)
 }
+
+// sessionSOLPrice resolves the price for settlement: consumption-time
+// snapshot first (P0-7), live feed second. Zero means unavailable.
+func sessionSOLPrice(sessionID string) float64 {
+	if redis.Client != nil {
+		if v, err := redis.Client.Get(context.Background(), SessionPriceSnapshotKey(sessionID)).Float64(); err == nil && v > 0 {
+			return v
+		}
+	}
+	return solPriceNow()
+}
+
+// (P0-7 deleteSessionBillingKeys was removed by W-16: pending keys are
+// consumed atomically by claimSessionUsage GETDEL, never deleted after.)
 
 // debitBuyerWallet checks spending limits, deducts costLamports from the buyer's locked
 // wallet, records spending, and writes the debit ledger entry — all within tx.
@@ -559,7 +620,7 @@ func debitBuyerWallet(tx *gorm.DB, session *models.Session, totalBytes int64, co
 				Float64("limit", spendingErr.Limit).
 				Float64("attempted", costSOL).
 				Msg("Billing: spending limit would be exceeded")
-			return uuid.Nil, fmt.Errorf("spending limit exceeded: %s limit of %.6f SOL", spendingErr.LimitType, spendingErr.Limit)
+			return uuid.Nil, fmt.Errorf("spending limit exceeded: %s limit of %.6f SOL: %w", spendingErr.LimitType, spendingErr.Limit, spendingErr)
 		}
 		return uuid.Nil, err
 	}
@@ -568,7 +629,7 @@ func debitBuyerWallet(tx *gorm.DB, session *models.Session, totalBytes int64, co
 		logging.Warn().Str("session_id", session.ID.String()).
 			Int64("need_lamports", costLamports).Int64("have_lamports", wallet.EffectiveBalanceLamports()).
 			Msg("Billing: insufficient SOL balance")
-		return uuid.Nil, fmt.Errorf("insufficient SOL balance")
+		return uuid.Nil, fmt.Errorf("%w: session %s", models.ErrInsufficientBalance, session.ID)
 	}
 
 	if err := wallet.RecordSpending(tx, costSOL, models.SpendingUsage, session.ID.String()); err != nil {
@@ -716,6 +777,9 @@ func triggerProviderPayout(providerID uuid.UUID) {
 
 // queueProviderPayout queues a provider payout for batch processing.
 // This is the preferred method as it saves gas by batching multiple payouts.
+// P0-1: the wallet debit and the PendingPayout intent row commit in ONE
+// transaction, keyed by a per-payout UUID. There is no restore dance: any
+// failure rolls the debit back together with the enqueue.
 func queueProviderPayout(providerID uuid.UUID) {
 	// Resolve provider wallet
 	walletAddress, err := resolveProviderWallet(providerID)
@@ -724,7 +788,24 @@ func queueProviderPayout(providerID uuid.UUID) {
 		return
 	}
 
-	// Lock balance and queue for batch processing
+	if globalBatchProcessor == nil {
+		logging.Warn().Str("provider_id", providerID.String()).Msg("Batch processor not initialized, using immediate payout")
+		go triggerProviderPayout(providerID)
+		return
+	}
+
+	// Route large payouts through the immediate path, which owns its own
+	// debit+send+retry bookkeeping. Peek unlocked; triggerProviderPayout
+	// re-locks and re-validates before debiting.
+	var peek models.Wallet
+	if err := db.DB.Select("balance_sol").Where("user_id = ?", providerID).First(&peek).Error; err == nil &&
+		peek.BalanceSOL >= globalBatchProcessor.ImmediateThreshold() {
+		go triggerProviderPayout(providerID)
+		return
+	}
+
+	payoutID := uuid.New()
+	ledgerRef := fmt.Sprintf("payout-queue:%s:%s", providerID.String(), payoutID.String())
 	var payoutAmount float64
 	txErr := db.DB.Transaction(func(tx *gorm.DB) error {
 		var wallet models.Wallet
@@ -735,60 +816,22 @@ func queueProviderPayout(providerID uuid.UUID) {
 			return fmt.Errorf("balance dropped below threshold before payout")
 		}
 		payoutAmount = wallet.BalanceSOL
-		ref := fmt.Sprintf("payout-queue:%s:%s", providerID.String(), uuid.New().String())
 		desc := fmt.Sprintf("Queued for batch payout to %s (%.6f SOL)", walletAddress, payoutAmount)
-		return models.DebitWalletLocked(tx, &wallet, payoutAmount, models.TransactionPayout, ref, desc)
+		if err := models.DebitWalletLocked(tx, &wallet, payoutAmount, models.TransactionPayout, ledgerRef, desc); err != nil {
+			return err
+		}
+		return globalBatchProcessor.EnqueuePayoutTx(tx, providerID, walletAddress, payoutAmount, payoutID.String())
 	})
 	if txErr != nil {
-		logging.Error(txErr).Str("provider_id", providerID.String()).Msg("Provider payout: failed to queue for batch")
+		logging.Error(txErr).Str("provider_id", providerID.String()).Msg("Provider payout: atomic debit+queue failed (no debit persisted)")
 		return
 	}
 
-	// Queue for batch processing
-	if globalBatchProcessor != nil {
-		if err := globalBatchProcessor.QueuePayout(providerID, walletAddress, payoutAmount, nil); err != nil {
-			logging.Error(err).Str("provider_id", providerID.String()).Msg("Failed to queue payout for batch processing, restoring balance and falling back to immediate payout")
-			// Restore balance first
-			restoreErr := db.DB.Transaction(func(tx *gorm.DB) error {
-				var wallet models.Wallet
-				if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", providerID).First(&wallet).Error; err != nil {
-					return err
-				}
-				ref := fmt.Sprintf("payout-refund:%s:%s", providerID.String(), uuid.New().String())
-				return models.CreditWalletLocked(tx, &wallet, payoutAmount, "refund", ref,
-					"Batch queue failed: balance restored for immediate payout fallback")
-			})
-			if restoreErr != nil {
-				logging.Error(restoreErr).Str("provider_id", providerID.String()).Msg("CRITICAL: Failed to restore balance during batch queue fallback!")
-				return
-			}
-			// Fall back to immediate processing
-			go triggerProviderPayout(providerID)
-			return
-		}
-		logging.Info().
-			Str("provider_id", providerID.String()).
-			Float64("amount", payoutAmount).
-			Msg("Provider payout queued for batch processing")
-	} else {
-		// Batch processor not initialized, use immediate processing
-		logging.Warn().Str("provider_id", providerID.String()).Msg("Batch processor not initialized, using immediate payout")
-		// Since we zeroed the balance inside queueProviderPayout tx, we must restore it before calling triggerProviderPayout
-		restoreErr := db.DB.Transaction(func(tx *gorm.DB) error {
-			var wallet models.Wallet
-			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", providerID).First(&wallet).Error; err != nil {
-				return err
-			}
-			ref := fmt.Sprintf("payout-refund:%s:%s", providerID.String(), uuid.New().String())
-			return models.CreditWalletLocked(tx, &wallet, payoutAmount, "refund", ref,
-				"Batch processor not initialized: balance restored for immediate payout fallback")
-		})
-		if restoreErr != nil {
-			logging.Error(restoreErr).Str("provider_id", providerID.String()).Msg("CRITICAL: Failed to restore balance when batch processor not initialized!")
-			return
-		}
-		go triggerProviderPayout(providerID)
-	}
+	logging.Info().
+		Str("provider_id", providerID.String()).
+		Str("payout_id", payoutID.String()).
+		Float64("amount", payoutAmount).
+		Msg("Provider payout queued for batch processing")
 }
 
 // resolveProviderWallet returns the best payout address for a provider.

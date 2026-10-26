@@ -1,9 +1,12 @@
 package models
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -32,8 +35,8 @@ func (LedgerAccount) TableName() string { return "ledger_accounts" }
 // LedgerJournal is a double-entry journal header.
 type LedgerJournal struct {
 	ID          uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
-	ExternalRef string    `gorm:"column:external_ref" json:"external_ref,omitempty"`
-	EntryType   string    `gorm:"column:entry_type" json:"entry_type"`
+	ExternalRef string    `gorm:"column:external_ref;uniqueIndex:uq_ledger_journals_ref_type,priority:1,where:external_ref <> ''" json:"external_ref,omitempty"`
+	EntryType   string    `gorm:"column:entry_type;uniqueIndex:uq_ledger_journals_ref_type,priority:2,where:external_ref <> ''" json:"entry_type"`
 	Description string    `gorm:"column:description" json:"description,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 }
@@ -79,6 +82,65 @@ type JournalLineSpec struct {
 	AmountLamports int64 // >0 debit, <0 credit
 }
 
+// ErrJournalDuplicate marks a second post of the same
+// (external_ref, entry_type) - an ambiguous-commit retry attempting to
+// double-post (W-29). The surrounding money transaction must roll back.
+var ErrJournalDuplicate = errors.New("journal already posted for (external_ref, entry_type)")
+
+func isJournalUniqueViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "uq_ledger_journals_ref_type") ||
+		strings.Contains(msg, "duplicate key value violates unique constraint")
+}
+
+// journalSchemaPresentCache memoises "table exists" per connection pool.
+// Presence is cached forever (tables are not dropped at runtime); absence
+// is re-checked so tests that AutoMigrate later still start dual-writing.
+var (
+	journalSchemaMu      sync.RWMutex
+	journalSchemaPresent = map[*sql.DB]bool{}
+)
+
+func journalTablePresent(tx *gorm.DB) (bool, error) {
+	sqlDB, derr := tx.DB()
+	if derr == nil && sqlDB != nil {
+		journalSchemaMu.RLock()
+		present := journalSchemaPresent[sqlDB]
+		journalSchemaMu.RUnlock()
+		if present {
+			return true, nil
+		}
+	}
+	var reg *string
+	if err := tx.Raw(`SELECT to_regclass('public.ledger_journals')::text`).Scan(&reg).Error; err != nil {
+		return false, fmt.Errorf("journal schema check: %w", err)
+	}
+	present := reg != nil && *reg != ""
+	if present && sqlDB != nil {
+		journalSchemaMu.Lock()
+		journalSchemaPresent[sqlDB] = true
+		journalSchemaMu.Unlock()
+	}
+	return present, nil
+}
+
+// AssertJournalSchema fails fast at boot when the double-entry schema is
+// missing (W-29): dual-write must never silently degrade to single-entry
+// in an environment that serves money routes.
+func AssertJournalSchema(db *gorm.DB) error {
+	present, err := journalTablePresent(db)
+	if err != nil {
+		return err
+	}
+	if !present {
+		return fmt.Errorf("ledger_journals table missing; run migration 000124+ (dual-write journal required)")
+	}
+	return nil
+}
+
 // PostBalancedJournal inserts a journal header + balanced lines in the same tx.
 //
 // Lines MUST be inserted in a single multi-row INSERT. Migration 000124 installs
@@ -98,11 +160,11 @@ func PostBalancedJournal(tx *gorm.DB, entryType, externalRef, description string
 	if sum != 0 {
 		return fmt.Errorf("journal unbalanced: sum=%d", sum)
 	}
-	var n int64
-	if err := tx.Raw(`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='ledger_journals'`).Scan(&n).Error; err != nil {
-		return fmt.Errorf("journal schema check: %w", err)
+	present, err := journalTablePresent(tx)
+	if err != nil {
+		return err
 	}
-	if n == 0 {
+	if !present {
 		// Soft-skip only outside staging/production (unit tests / pre-migration local).
 		env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
 		switch env {
@@ -118,6 +180,9 @@ func PostBalancedJournal(tx *gorm.DB, entryType, externalRef, description string
 		Description: description,
 	}
 	if err := tx.Create(&j).Error; err != nil {
+		if isJournalUniqueViolation(err) {
+			return fmt.Errorf("%w: ref=%s type=%s", ErrJournalDuplicate, externalRef, entryType)
+		}
 		return err
 	}
 	now := time.Now().UTC()
@@ -219,8 +284,9 @@ func PostUsageJournal(tx *gorm.DB, buyerWalletID, providerWalletID uuid.UUID, bu
 		remaining -= feeLamports
 	}
 	if remaining != 0 {
-		// Absorb residual into platform revenue so the journal stays balanced.
-		lines = append(lines, JournalLineSpec{AccountCode: AccountPlatformRevenue, AmountLamports: -remaining})
+		// W-29: a residual is an upstream maths bug. Never plug it into
+		// platform revenue - fail the settlement so it is investigated.
+		return fmt.Errorf("usage journal residual %d lamports (debit=%d credit=%d fee=%d): amounts do not reconcile", remaining, buyerDebit, providerCredit, feeLamports)
 	}
 	return PostBalancedJournal(tx, TransactionUsage, ref, desc, lines)
 }

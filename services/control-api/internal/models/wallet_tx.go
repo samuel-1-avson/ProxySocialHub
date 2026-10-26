@@ -1,6 +1,7 @@
 package models
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -93,6 +94,11 @@ func DebitWalletLockedOpts(tx *gorm.DB, wallet *Wallet, amount float64, entryTyp
 	return DebitWalletLockedLamports(tx, wallet, int64(SOLToLamports(amount)), entryType, referenceID, description, opts)
 }
 
+// ErrInsufficientBalance marks a business (non-infrastructure) debit
+// failure. Settlement workers must not count it toward RPC circuit
+// breakers (W-17).
+var ErrInsufficientBalance = errors.New("insufficient SOL balance")
+
 // DebitWalletLockedLamports debits an exact lamports delta (Sprint I / DB-02 lite).
 // When PROXYHUB_JOURNAL_AS_SOT=true, journal posts first (fail-closed); wallet is cache.
 func DebitWalletLockedLamports(tx *gorm.DB, wallet *Wallet, lamports int64, entryType, referenceID, description string, opts LedgerOpts) error {
@@ -101,7 +107,7 @@ func DebitWalletLockedLamports(tx *gorm.DB, wallet *Wallet, lamports int64, entr
 	}
 	have := wallet.EffectiveBalanceLamports()
 	if have < lamports {
-		return fmt.Errorf("insufficient SOL balance: have %d lamports, need %d", have, lamports)
+		return fmt.Errorf("%w: have %d lamports, need %d", ErrInsufficientBalance, have, lamports)
 	}
 	if decentralization.JournalAsSoTEnabled() {
 		if err := postDebitJournal(tx, wallet.ID, lamports, entryType, referenceID, description, opts.JournalKind); err != nil {
@@ -109,7 +115,7 @@ func DebitWalletLockedLamports(tx *gorm.DB, wallet *Wallet, lamports int64, entr
 		}
 	}
 	if !wallet.DebitLamports(lamports) {
-		return fmt.Errorf("insufficient SOL balance: have %d lamports, need %d", have, lamports)
+		return fmt.Errorf("%w: have %d lamports, need %d", ErrInsufficientBalance, have, lamports)
 	}
 	if err := tx.Model(wallet).Updates(map[string]interface{}{
 		"balance_sol":      wallet.BalanceSOL,
@@ -150,8 +156,8 @@ func TransferP2PLocked(tx *gorm.DB, sender, recipient *Wallet, amount float64, r
 		return fmt.Errorf("insufficient SOL balance: have %.9f, need %.9f", sender.BalanceSOL, amount)
 	}
 	recipient.CreditSOL(amount)
-	sender.BalanceLamports = int64(SOLToLamports(sender.BalanceSOL))
-	recipient.BalanceLamports = int64(SOLToLamports(recipient.BalanceSOL))
+	// W-19: DebitSOL/CreditSOL already maintain lamports exactly; do NOT
+	// recompute lamports from the float shadow (precision round-trip).
 	if err := tx.Model(sender).Updates(map[string]interface{}{
 		"balance_sol": sender.BalanceSOL, "balance_lamports": sender.BalanceLamports,
 	}).Error; err != nil {
