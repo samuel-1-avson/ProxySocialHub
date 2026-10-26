@@ -52,3 +52,13 @@ description = "Solana 64-byte keypair JSON array in repo"
 regex = '''\[\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*,'''
 path = '''\.json$'''
 tags = ["key", "solana"]
+
+# Anchor IDLs carry PDA seed constants as byte arrays (e.g. "program_state" as
+# 112,114,111,...). That is exactly what this rule matches, so every regenerated
+# IDL tripped it. IDLs hold no key material; real keypairs stay covered by this
+# rule everywhere else and by *keypair*.json in .gitignore.
+[rules.allowlist]
+description = "Anchor IDL JSON: seed byte arrays, not keypairs"
+paths = [
+  '''(^|/)idl/[^/]+\.json$''',
+]
