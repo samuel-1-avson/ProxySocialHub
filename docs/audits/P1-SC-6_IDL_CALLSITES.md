@@ -89,8 +89,14 @@ runtime precondition is that the control-api **oracle key equals
   (from the ProgramData account `5goYxHCJopnqc34axdnbjTpDkwLDrPkTo7gYbhB3tk9n`).
 - `program_state` PDA `DhtQtWwASyx6aKCNQTKRpE6sDT2jVrVypRu3KKcJwVVj` exists:
   admin `8P4uuapgGfW8L7VvdQJ9W7RpJqpfyifhPx9UQaHnKii2`, no pending admin,
-  not paused. That admin pubkey appears nowhere in this repo, so the
-  oracle-equals-admin check needs the operator's oracle **public** key.
+  not paused. That admin pubkey appears nowhere in this repo.
+  Operator confirmed 2026-10-26: the devnet oracle signer **is** this
+  admin key, so no admin rotation is needed. (A different pubkey,
+  `BHWyKN5Q…PypBq`, was briefly supplied and then withdrawn by the
+  operator; it is a seller test wallet in
+  `docs/ops/evidence/PHASE_C_money_loop_20260820.md`, not the oracle.
+  Do not use it.) Custody of the private keys was not and cannot be
+  verified from here; that part rests on the operator's confirmation.
 - The deployed binary still predates the hardening commits. Only
   `submit_review_attestation` is order-sensitive: each side rejects the
   other side's account list for that one instruction. The order below
@@ -100,12 +106,13 @@ runtime precondition is that the control-api **oracle key equals
 
 Preconditions, in order. Stop if any check fails.
 
-1. Confirm the devnet control-api oracle pubkey equals
-   `8P4uuapg…nKii2` above. If it does not, decide first: rotate
+1. Oracle == admin: **confirmed by the operator** (see section 4).
+   Before deploying, sanity-check that the target environment's oracle
+   signer still resolves to `8P4uuapg…nKii2` (for example from
+   control-api startup logs). If it ever stops matching, stop: rotate
    `program_state.admin` (two-step `propose_admin_transfer` /
-   `accept_admin_transfer`, signed by the current admin and the nominee)
-   or repoint control-api at the admin key. Do not deploy either side
-   until they match.
+   `accept_admin_transfer`) or repoint control-api; deploy neither side
+   until they match again.
 2. Set `ADMIN_JWT_SECRET` in the target environment (admin auth answers
    503 while it is empty). Decide `ENABLE_PROVIDER_CLAIM` stays off.
 3. Build from clean `main` after this PR merges. Keep the previous
@@ -145,7 +152,8 @@ instruction; keep the window minutes, not hours.
 
 - The devnet upgrade itself, and the on-chain IDL publish. Awaiting
   operator keys and explicit go-ahead.
-- Confirming oracle == admin. Needs the operator's oracle public key.
+- Verifying private-key custody for the admin (`8P4uuapg…nKii2`) and
+  upgrade authority (`6thzwmrf…bRJcR`) keys. Operator-side only.
 - C22 (jury vote spoofing, first-caller initializers) and C23 (mutual
   receipt unit mismatch) are unchanged by this work and still need their
   own decisions.
