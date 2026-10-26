@@ -3,7 +3,7 @@ package models
 import "testing"
 
 func TestWalletLamportsRoundTrip(t *testing.T) {
-	w := &Wallet{BalanceSOL: LamportsToSOL(1_000_000_000)}
+	w := &Wallet{BalanceSOL: LamportsToSOL(1_000_000_000), BalanceLamports: 1_000_000_000}
 	w.CreditSOL(LamportsToSOL(1))
 	if got := SOLToLamports(w.BalanceSOL); got != 1_000_000_001 {
 		t.Fatalf("unexpected balance lamports after 1-lamport credit: %d", got)
@@ -11,7 +11,7 @@ func TestWalletLamportsRoundTrip(t *testing.T) {
 }
 
 func TestWalletDebitInsufficient(t *testing.T) {
-	w := &Wallet{BalanceSOL: 0.5}
+	w := &Wallet{BalanceSOL: 0.5, BalanceLamports: 500_000_000}
 	if w.DebitSOL(0.500000001) {
 		t.Fatal("expected debit of more than balance to fail")
 	}
@@ -21,7 +21,7 @@ func TestWalletDebitInsufficient(t *testing.T) {
 }
 
 func TestWalletDebitExact(t *testing.T) {
-	w := &Wallet{BalanceSOL: 1.0}
+	w := &Wallet{BalanceSOL: 1.0, BalanceLamports: 1_000_000_000}
 	if !w.DebitSOL(1.0) {
 		t.Fatal("exact debit should succeed")
 	}

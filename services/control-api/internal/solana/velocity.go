@@ -4,11 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
-	"strconv"
 	"sync/atomic"
 	"time"
 
+	"github.com/proxyhubb/control-api/internal/decentralization"
 	internalRedis "github.com/proxyhubb/control-api/internal/redis"
 	"github.com/redis/go-redis/v9"
 )
@@ -58,26 +57,58 @@ type VelocityGuard struct {
 	alertFn            func(title, message string) // injected alert callback
 }
 
-// NewVelocityGuard reads limits from env vars and returns a configured guard.
+// NewVelocityGuard reads limits from the single money-caps config
+// (W-27: decentralization.MoneyCaps, validated at boot).
 // rc may be nil — guard falls back to logging-only (less accurate across replicas).
 func NewVelocityGuard(rc internalRedis.RedisClient, alertFn func(string, string)) *VelocityGuard {
 	maxSingle := defaultMaxSingleTransferSOL
-	if v := os.Getenv("ORACLE_MAX_SINGLE_TRANSFER_SOL"); v != "" {
-		if f, err := strconv.ParseFloat(v, 64); err == nil {
-			maxSingle = f
-		}
-	}
 	maxHourly := defaultMaxHourlyOutflowSOL
-	if v := os.Getenv("ORACLE_MAX_HOURLY_OUTFLOW_SOL"); v != "" {
-		if f, err := strconv.ParseFloat(v, 64); err == nil {
-			maxHourly = f
-		}
+	if caps, err := decentralization.MoneyCaps(); err == nil {
+		maxSingle = caps.MaxSingleTransferSOL
+		maxHourly = caps.MaxHourlyOutflowSOL
+	} else {
+		// Boot validation (ValidateSecurityPosture) rejects bad caps in
+		// production; log loudly here and keep safe defaults.
+		log.Printf("[velocity] invalid money caps (%v); using defaults single=%.2f hourly=%.2f", err, maxSingle, maxHourly)
 	}
 	return &VelocityGuard{
 		redis:        rc,
 		maxSingleSOL: maxSingle,
 		maxHourlySOL: maxHourly,
 		alertFn:      alertFn,
+	}
+}
+
+// VelocityOutflowKey is THE outflow ledger key (W-27 one ledger): the
+// watchtower observes this counter instead of keeping its own bucket.
+func VelocityOutflowKey() string { return velocityRedisKey }
+
+// Caps exposes the configured limits for observers (watchtower).
+func (v *VelocityGuard) Caps() (singleSOL, hourlySOL float64) {
+	return v.maxSingleSOL, v.maxHourlySOL
+}
+
+const velocityReleaseScript = `
+local key = KEYS[1]
+local amount = tonumber(ARGV[1])
+local total = tonumber(redis.call('INCRBYFLOAT', key, -amount))
+if total < 0 then
+  redis.call('SET', key, '0', 'KEEPTTL')
+  return '0'
+end
+return tostring(total)`
+
+// Release returns a previously Checked (reserved) amount to the hourly
+// budget after a DEFINITE send failure (W-27 reserve/settle accounting:
+// Check reserves, broadcast success settles by keeping the reservation,
+// failure releases). Reservations abandoned by a crash expire with the
+// hourly window TTL.
+func (v *VelocityGuard) Release(ctx context.Context, amountSOL float64) {
+	if v == nil || v.redis == nil || amountSOL <= 0 {
+		return
+	}
+	if err := v.redis.Eval(ctx, velocityReleaseScript, []string{velocityRedisKey}, fmt.Sprintf("%f", amountSOL)).Err(); err != nil {
+		log.Printf("[velocity] release %.6f SOL failed: %v", amountSOL, err)
 	}
 }
 
@@ -116,8 +147,11 @@ func (v *VelocityGuard) IsFrozen() bool {
 	return v.frozen.Load()
 }
 
-// Check validates a proposed transfer against all velocity limits.
-// Returns an error if the transfer must be blocked.
+// Check RESERVES amountSOL against the hourly budget and validates all
+// velocity limits (W-27): on success the caller owns a reservation -
+// keep it on broadcast success (settled), Release it on definite
+// failure. Returns an error if the transfer must be blocked (no
+// reservation is held then; the Lua rollback already ran).
 func (v *VelocityGuard) Check(ctx context.Context, amountSOL float64) error {
 	// 1. Freeze check (P0-18: also polls Redis so inter-process freeze is honoured)
 	if v.IsFrozen() {
@@ -189,8 +223,8 @@ func parseVelocityEvalResult(cmd *redis.Cmd) (total string, exceeded bool, err e
 }
 
 // RecordOutflow records a completed transfer in the hourly window.
-// Call this after a successful transfer to keep the counter accurate
-// even when Check() was not called (e.g., manually triggered transfers).
+// ONLY for sends that bypassed Check (e.g. manually triggered
+// transfers): calling it after a Checked send double-counts (W-27).
 func (v *VelocityGuard) RecordOutflow(ctx context.Context, amountSOL float64) {
 	if v.redis == nil {
 		return

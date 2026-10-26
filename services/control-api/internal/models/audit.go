@@ -75,6 +75,7 @@ const (
 	AuditFinancialBatchPayout    AuditEventType = "financial.batch_payout"
 	AuditFinancialAutoDeposit    AuditEventType = "financial.auto_deposit"
 	AuditFinancialWithdrawal     AuditEventType = "financial.withdrawal"
+	AuditFinancialAdminPayout    AuditEventType = "financial.admin_payout"
 	AuditFinancialTransfer       AuditEventType = "financial.transfer"
 )
 

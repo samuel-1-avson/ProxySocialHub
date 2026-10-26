@@ -11,6 +11,8 @@ import (
 const (
 	IdempotencyEndpointWalletTransfer = "wallet_transfer"
 	IdempotencyEndpointWalletWithdraw = "wallet_withdraw_sol"
+	IdempotencyEndpointEarningsClaim  = "provider_earnings_claim"
+	IdempotencyEndpointAdminPayout    = "admin_process_payout"
 )
 
 // IdempotencyRecord is a durable client Idempotency-Key claim (P0-9).

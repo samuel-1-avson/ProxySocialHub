@@ -26,6 +26,7 @@ type ReconciliationService struct {
 	oracle     *solana.OracleClient
 	treasuryAddr string
 	discrepancyThreshold float64 // Minimum discrepancy to trigger alert (in SOL)
+	deficitStreak int          // consecutive DEFICIT runs (W-18 auto-freeze)
 }
 
 // ReconciliationReport contains the results of a reconciliation run
@@ -39,6 +40,14 @@ type ReconciliationReport struct {
 	Status              string                `json:"status"` // MATCHED, DISCREPANCY, ERROR
 	UserBalances        []UserBalanceSummary  `json:"user_balances,omitempty"`
 	Issues              []ReconciliationIssue `json:"issues,omitempty"`
+	// W-18 lamports-exact fields (authoritative; float fields retained
+	// for consumer compatibility during deprecation).
+	BackingLamports      int64                 `json:"backing_lamports,omitempty"`
+	Liabilities          *LiabilitiesBreakdown `json:"liabilities,omitempty"`
+	DiscrepancyLamports  int64                 `json:"discrepancy_lamports,omitempty"`
+	EscrowBackingLamports int64                `json:"escrow_backing_lamports,omitempty"`
+	DeficitStreak        int                   `json:"deficit_streak,omitempty"`
+	Frozen               bool                  `json:"frozen,omitempty"`
 }
 
 // UserBalanceSummary represents a user's balance for reconciliation (SOL-only)
@@ -180,10 +189,19 @@ func (rs *ReconciliationService) RunReconciliation(ctx context.Context) error {
 		}
 	}
 	report.VaultBalance = vaultBalance
-	report.CombinedBackingSOL = treasuryBalance + vaultBalance
 
-	// 2. Calculate internal liabilities (sum of all user balances)
-	internalLiabilities, userBalances, err := rs.calculateInternalLiabilities()
+	// W-18: escrow PDA backing (sampled) - held escrow SOL sits in PDAs,
+	// not in treasury/vault, but backs the escrow liabilities below.
+	escrowBackingLamports := rs.sampleEscrowPDABacking(ctx, report)
+	report.EscrowBackingLamports = escrowBackingLamports
+
+	backingLamports := int64(solana.SOLToLamports(treasuryBalance)) +
+		int64(solana.SOLToLamports(vaultBalance)) + escrowBackingLamports
+	report.BackingLamports = backingLamports
+	report.CombinedBackingSOL = solana.LamportsToSOL(uint64(backingLamports))
+
+	// 2. Internal liabilities in integer lamports, every queue/hold (W-18).
+	breakdown, err := ComputeLiabilitiesLamports()
 	if err != nil {
 		report.Issues = append(report.Issues, ReconciliationIssue{
 			Type:        "INTERNAL_CALCULATION_ERROR",
@@ -192,11 +210,16 @@ func (rs *ReconciliationService) RunReconciliation(ctx context.Context) error {
 		})
 		return err
 	}
+	report.Liabilities = breakdown
+	internalLiabilities := solana.LamportsToSOL(uint64(breakdown.TotalLamports))
 	report.InternalLiabilities = internalLiabilities
-	report.UserBalances = userBalances
 
-	// 3. Calculate discrepancy against combined hot+vault backing
-	discrepancy := report.CombinedBackingSOL - internalLiabilities
+	// 3. Discrepancy in lamports (float mirror retained for compat).
+	report.DiscrepancyLamports = backingLamports - breakdown.TotalLamports
+	discrepancy := solana.LamportsToSOL(uint64(abs64i(report.DiscrepancyLamports)))
+	if report.DiscrepancyLamports < 0 {
+		discrepancy = -discrepancy
+	}
 	report.Discrepancy = discrepancy
 
 	// 4. Determine status
@@ -236,6 +259,23 @@ func (rs *ReconciliationService) RunReconciliation(ctx context.Context) error {
 		alerts.Send(alerts.Critical, "Treasury Deficit Detected",
 			fmt.Sprintf("Deficit: %.6f SOL | Treasury: %.6f SOL | Liabilities: %.6f SOL",
 				abs(discrepancy), treasuryBalance, internalLiabilities))
+		// W-18: a sustained deficit freezes outflows automatically -
+		// alerting while withdrawals continue only deepens the hole.
+		rs.deficitStreak++
+		report.DeficitStreak = rs.deficitStreak
+		if rs.deficitStreak >= deficitFreezeStreak {
+			report.Frozen = true
+			if ferr := FreezeOutflows(ctx, fmt.Sprintf("reconciliation deficit streak %d (deficit %d lamports)", rs.deficitStreak, report.DiscrepancyLamports)); ferr != nil {
+				logging.Error(ferr).Msg("CRITICAL: deficit auto-freeze FAILED to engage")
+				alerts.Send(alerts.Critical, "Deficit Auto-Freeze FAILED", ferr.Error())
+			} else {
+				alerts.Send(alerts.Critical, "Outflows Auto-Frozen (Treasury Deficit)",
+					fmt.Sprintf("Deficit persisted %d runs; emergency pause engaged", rs.deficitStreak))
+			}
+		}
+	}
+	if report.Status != "DEFICIT" {
+		rs.deficitStreak = 0
 	}
 
 	// 5. Check for additional issues
@@ -267,47 +307,6 @@ func (rs *ReconciliationService) getTreasuryBalance(ctx context.Context) (float6
 	}
 
 	return solana.LamportsToSOL(balance), nil
-}
-
-// calculateInternalLiabilities sums all user wallet balances plus any amounts
-// committed in pending outgoing transactions (withdrawals that have been
-// deducted from wallet balances but not yet settled on-chain).
-//
-// P2-08: Including pending_outgoing prevents a false DEFICIT signal when a
-// withdrawal is in-flight: the wallet balance was already debited, but the
-// on-chain treasury balance has not yet decreased.
-func (rs *ReconciliationService) calculateInternalLiabilities() (float64, []UserBalanceSummary, error) {
-	var wallets []models.Wallet
-	if err := db.DB.Find(&wallets).Error; err != nil {
-		return 0, nil, err
-	}
-
-	var total float64
-	summaries := make([]UserBalanceSummary, 0, len(wallets))
-
-	for _, wallet := range wallets {
-		total += wallet.BalanceSOL
-		summaries = append(summaries, UserBalanceSummary{
-			UserID:     wallet.UserID.String(),
-			BalanceSOL: wallet.BalanceSOL,
-		})
-	}
-
-	// Add pending outgoing SOL amounts (withdrawals in-flight to the chain).
-	// These reduce the treasury balance without yet reducing wallet balances.
-	var pendingResult struct{ Total float64 }
-	err := db.DB.Model(&models.PendingTransaction{}).
-		Select("COALESCE(SUM(amount), 0) AS total").
-		Where("status = ? AND currency = ? AND type IN ?",
-			"pending", "SOL", []string{"withdrawal", "payout", "batch_payout"}).
-		Scan(&pendingResult).Error
-	if err != nil {
-		logging.Warn().Err(err).Msg("[Reconciliation] Could not sum pending outgoing — omitting from liabilities")
-	} else {
-		total += pendingResult.Total
-	}
-
-	return total, summaries, nil
 }
 
 // checkAdditionalIssues performs additional consistency checks
@@ -364,10 +363,12 @@ func (rs *ReconciliationService) checkAdditionalIssues(report *ReconciliationRep
 	}
 }
 
-// publishReport publishes the reconciliation report to NATS
+// publishReport publishes AGGREGATES ONLY to NATS (W-18): the old code
+// broadcast every user's balance on the reconciliation subject.
 func (rs *ReconciliationService) publishReport(ctx context.Context, report *ReconciliationReport) {
-	// Publish to reconciliation channel
-	nats.Publish(ctx, "proxy.treasury.v1.reconciliation", report)
+	public := *report
+	public.UserBalances = nil
+	nats.Publish(ctx, "proxy.treasury.v1.reconciliation", &public)
 
 	// If critical issues, also publish to alerts
 	if report.Status == "DEFICIT" {
@@ -376,7 +377,7 @@ func (rs *ReconciliationService) publishReport(ctx context.Context, report *Reco
 			"severity":    "CRITICAL",
 			"message":     fmt.Sprintf("Treasury deficit detected: %.6f SOL", report.Discrepancy),
 			"timestamp":   time.Now().UTC(),
-			"report":      report,
+			"report":      &public,
 		})
 	}
 }
@@ -548,7 +549,7 @@ func (rs *ReconciliationService) ReconcileJournals(ctx context.Context) error {
 	if err := db.DB.WithContext(ctx).Raw(`
 		SELECT
 			COALESCE((
-				SELECT SUM(amount_lamports) FROM ledger_journal_lines WHERE account_code = '2100'
+				SELECT SUM(amount_lamports) FROM ledger_journal_lines WHERE account_code IN ('2100','2110')
 			), 0) AS liability_sum,
 			COALESCE((SELECT SUM(balance_lamports) FROM wallets), 0) AS wallet_sum
 	`).Scan(&check).Error; err != nil {
@@ -585,7 +586,7 @@ func (rs *ReconciliationService) ReconcileJournals(ctx context.Context) error {
 		LEFT JOIN (
 			SELECT wallet_id, SUM(amount_lamports) AS liability_sum
 			FROM ledger_journal_lines
-			WHERE account_code = '2100' AND wallet_id IS NOT NULL
+			WHERE account_code IN ('2100','2110') AND wallet_id IS NOT NULL
 			GROUP BY wallet_id
 		) j ON j.wallet_id = w.id
 		WHERE COALESCE(j.liability_sum, 0) + w.balance_lamports <> 0
@@ -616,4 +617,58 @@ func (rs *ReconciliationService) ReconcileJournals(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+const deficitFreezeStreak = 2
+
+func abs64i(x int64) int64 {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
+// FreezeOutflows engages the watchtower emergency pause (W-18). It is a
+// package-level seam so reconciliation tests can observe the freeze.
+var FreezeOutflows = func(ctx context.Context, reason string) error {
+	wt := &Watchtower{}
+	return wt.TriggerEmergencyPause(ctx, reason)
+}
+
+// sampleEscrowPDABacking sums on-chain balances of escrow PDAs backing
+// held/releasing/disputed escrows (capped sample; W-18).
+func (rs *ReconciliationService) sampleEscrowPDABacking(ctx context.Context, report *ReconciliationReport) int64 {
+	if rs.oracle == nil || !tableExists(db.DB, "orders") || !tableExists(db.DB, "escrow_transactions") {
+		return 0
+	}
+	var pdas []string
+	if err := db.DB.Raw(`
+		SELECT DISTINCT o.escrow_pda FROM escrow_transactions e
+		JOIN orders o ON o.id = e.order_id
+		WHERE e.status IN ('held','releasing','disputed')
+		  AND o.escrow_pda IS NOT NULL AND o.escrow_pda <> ''
+		LIMIT 100`).Scan(&pdas).Error; err != nil {
+		report.Issues = append(report.Issues, ReconciliationIssue{
+			Type: "ESCROW_BACKING_READ_ERROR", Severity: "WARNING",
+			Description: fmt.Sprintf("escrow PDA list failed: %v", err),
+		})
+		return 0
+	}
+	var total int64
+	for _, addr := range pdas {
+		pk, err := sol.PublicKeyFromBase58(addr)
+		if err != nil {
+			continue
+		}
+		bal, err := rs.oracle.GetBalance(ctx, pk)
+		if err != nil {
+			report.Issues = append(report.Issues, ReconciliationIssue{
+				Type: "ESCROW_BACKING_READ_ERROR", Severity: "WARNING",
+				Description: fmt.Sprintf("escrow PDA %s balance failed: %v", addr, err),
+			})
+			continue
+		}
+		total += int64(bal)
+	}
+	return total
 }

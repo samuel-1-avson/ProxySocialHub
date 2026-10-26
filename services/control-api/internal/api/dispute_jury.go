@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"context"
 	"crypto/sha256"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/orders/fsm"
 	"github.com/proxyhubb/control-api/internal/solana"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // RegisterDisputeJuryRoutes registers decentralized dispute resolution routes
@@ -115,13 +117,28 @@ func createDisputeJury(c *gin.Context) {
 	}
 
 	if err := db.DB.Transaction(func(tx *gorm.DB) error {
+		// W-24 precedence: lock the ORDER row first (single lock order:
+		// order -> escrow), then conditionally claim the escrow. If the
+		// settle finalize committed first, the conditional update fails
+		// and the dispute is rejected instead of overwriting `released`
+		// after funds were paid.
+		var lockedOrder models.Order
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&lockedOrder, "id = ?", order.ID).Error; err != nil {
+			return err
+		}
+		order = lockedOrder
 		var escrow models.EscrowTransaction
 		if err := tx.Where("order_id = ?", order.ID).First(&escrow).Error; err == nil {
 			jury.EscrowID = escrow.ID
-			if escrow.Status == models.EscrowHeld || escrow.Status == models.EscrowReleasing {
-				if err := tx.Model(&escrow).Update("status", models.EscrowDisputed).Error; err != nil {
-					return err
-				}
+			if escrow.Status == models.EscrowReleased || escrow.Status == models.EscrowRefunded {
+				return fmt.Errorf("escrow already %s; dispute must be raised before settlement completes", escrow.Status)
+			}
+			claimed, err := markEscrowDisputedTx(tx, escrow.ID)
+			if err != nil {
+				return err
+			}
+			if !claimed && escrow.Status != models.EscrowDisputed {
+				return fmt.Errorf("escrow settlement completed concurrently; dispute rejected")
 			}
 		}
 		if err := tx.Create(&jury).Error; err != nil {

@@ -12,7 +12,6 @@ import (
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/redis"
-	goredis "github.com/redis/go-redis/v9"
 )
 
 // W-16: durable metering claims.
@@ -26,12 +25,23 @@ import (
 
 const staleClaimAfter = 10 * time.Minute
 
-var releaseLockScript = goredis.NewScript(`
+const releaseLockScript = `
 if redis.call("get", KEYS[1]) == ARGV[1] then
   return redis.call("del", KEYS[1])
 else
   return 0
-end`)
+end`
+
+const getDelScript = `
+local v = redis.call("get", KEYS[1])
+if v then redis.call("del", KEYS[1]) end
+return v`
+
+// evalGetDel atomically reads and deletes a key (the RedisClient
+// interface has Eval but no GetDel).
+func evalGetDel(key string) (string, error) {
+	return redis.Client.Eval(context.Background(), getDelScript, []string{key}).Text()
+}
 
 // acquireSettleLock takes the per-session settle lock with an owner
 // token; release only deletes our own lock (W-16: the old unconditional
@@ -52,7 +62,7 @@ func releaseSettleLock(sessionID, token string) {
 	if redis.Client == nil || token == "" {
 		return
 	}
-	_ = releaseLockScript.Run(context.Background(), redis.Client, []string{"billing:settle-lock:" + sessionID}, token).Err()
+	_ = redis.Client.Eval(context.Background(), releaseLockScript, []string{"billing:settle-lock:" + sessionID}, token).Err()
 }
 
 func pendingKeyForSession(sessionID string) string {
@@ -87,15 +97,14 @@ func claimSessionUsage(sessionID, redisKey string, fallbackBytes int64, solPrice
 	bytesN := fallbackBytes
 	var snapshot *float64
 	if redis.Client != nil {
-		ctx := context.Background()
-		if v, gerr := redis.Client.GetDel(ctx, redisKey).Result(); gerr == nil {
+		if v, gerr := evalGetDel(redisKey); gerr == nil {
 			if n, perr := strconv.ParseInt(strings.TrimSpace(v), 10, 64); perr == nil {
 				bytesN = n
 			}
-		} else if gerr != goredis.Nil {
+		} else if gerr != redis.Nil {
 			return nil, fmt.Errorf("claim usage: GETDEL pending: %w", gerr)
 		}
-		if v, gerr := redis.Client.GetDel(ctx, PriceSnapshotKeyForPendingKey(redisKey)).Result(); gerr == nil {
+		if v, gerr := evalGetDel(PriceSnapshotKeyForPendingKey(redisKey)); gerr == nil {
 			if f, perr := strconv.ParseFloat(strings.TrimSpace(v), 64); perr == nil && f > 0 {
 				snapshot = &f
 			}

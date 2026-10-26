@@ -113,6 +113,8 @@ func TestQueueProviderPayout_SecondPayoutNotSwallowed(t *testing.T) {
 		t.Fatalf("wallet: %v", err)
 	}
 	wallet.BalanceSOL = 0.10
+	wallet.BalanceLamports = 100_000_000
+	wallet.EarningsPayableLamports = 100_000_000 // W-10: payouts sweep payable
 	if err := db.DB.Save(&wallet).Error; err != nil {
 		t.Fatalf("save wallet: %v", err)
 	}
@@ -138,6 +140,8 @@ func TestQueueProviderPayout_SecondPayoutNotSwallowed(t *testing.T) {
 		t.Fatalf("wallet should be debited to 0 after first queue, got %.6f", wallet.BalanceSOL)
 	}
 	wallet.BalanceSOL = 0.10
+	wallet.BalanceLamports = 100_000_000
+	wallet.EarningsPayableLamports = 100_000_000
 	if err := db.DB.Save(&wallet).Error; err != nil {
 		t.Fatalf("re-credit wallet: %v", err)
 	}

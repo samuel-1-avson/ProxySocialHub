@@ -102,6 +102,24 @@ func CreateEscrowForOrder(orderID, buyerID, sellerID uuid.UUID, amount float64) 
 	return db.DB.Create(&escrow).Error
 }
 
+// escrowSettleTimeout is the single on-chain settle budget for buyer
+// release and auto-release (W-24: paths drifted 30s vs 45s).
+const escrowSettleTimeout = 45 * time.Second
+
+// escrowChainHealthy probes the oracle RPC before any PDA settle work.
+// Settling against a lagging/unhealthy RPC is how escrows got stuck in
+// `releasing` (W-24): fail the run fast and let the tick retry.
+func escrowChainHealthy() bool {
+	oracle := solanaClient.GetOracleClient()
+	if oracle == nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err := oracle.GetCurrentSlot(ctx)
+	return err == nil
+}
+
 // StartEscrowAutoReleaseWorker periodically releases held escrows past auto_release_at
 // when no buyer challenge / dispute / jury is open.
 func StartEscrowAutoReleaseWorker() {
@@ -109,8 +127,10 @@ func StartEscrowAutoReleaseWorker() {
 		log.Println("[escrow] AutoRelease worker started (interval=15m)")
 		ticker := time.NewTicker(15 * time.Minute)
 		defer ticker.Stop()
+		ReapStaleReleasingEscrows() // W-24: recover crash-orphaned claims first
 		AutoReleaseExpiredEscrows()
 		for range ticker.C {
+			ReapStaleReleasingEscrows()
 			AutoReleaseExpiredEscrows()
 		}
 	}()
@@ -247,7 +267,9 @@ func releaseEscrow(c *gin.Context) {
 		}
 
 		var txErr error
-		settleTxHash, txErr = SettleOrderEscrow(c.Request.Context(), "api.escrow.release", &order)
+		settleCtx, settleCancel := context.WithTimeout(c.Request.Context(), escrowSettleTimeout)
+		settleTxHash, txErr = SettleOrderEscrow(settleCtx, "api.escrow.release", &order)
+		settleCancel()
 		if txErr != nil {
 			log.Printf("[escrow] on-chain settlement failed for order %s: %v — enqueueing retry", order.ID, txErr)
 			EnqueueEscrowSettle(&order, "api.escrow.release")
@@ -539,6 +561,11 @@ func AutoReleaseExpiredEscrows() {
 				continue
 			}
 			if hasPDA {
+				if !escrowChainHealthy() {
+					log.Printf("[escrow] AutoReleaseExpiredEscrows RPC unhealthy; aborting run (escrow %s reclaimed)", escrow.ID)
+					reclaimEscrowToHeld(escrow.ID)
+					return
+				}
 				if solanaClient.GetOracleClient() == nil {
 					log.Printf("[escrow] AutoReleaseExpiredEscrows oracle client not available, reclaiming escrow %s", escrow.ID)
 					reclaimEscrowToHeld(escrow.ID)
@@ -560,7 +587,7 @@ func AutoReleaseExpiredEscrows() {
 					continue
 				}
 
-				ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+				ctx, cancel := context.WithTimeout(context.Background(), escrowSettleTimeout)
 				var txErr error
 				settleTxHash, txErr = SettleOrderEscrow(ctx, "api.escrow.auto_release", &order)
 				cancel()

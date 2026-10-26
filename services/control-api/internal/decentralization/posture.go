@@ -72,6 +72,11 @@ func IsProduction() bool {
 func ValidateSecurityPosture() error {
 	var problems []string
 
+	// W-27: money caps must be coherent (single config, boot-validated).
+	if _, err := MoneyCaps(); err != nil {
+		problems = append(problems, err.Error())
+	}
+
 	for _, key := range boolPostureFlags {
 		if _, _, err := StrictEnvBool(key); err != nil {
 			problems = append(problems, err.Error())
@@ -146,5 +151,18 @@ func EffectivePosture() map[string]interface{} {
 		"journal_as_sot":                 JournalAsSoTEnabled(),
 		"admin_dispute_force_resolve":    AllowAdminDisputeForceResolve(),
 		"emergency_sol_price_configured": strings.TrimSpace(os.Getenv("EMERGENCY_SOL_PRICE_USD")) != "",
+	}
+}
+
+// EffectiveCaps returns the resolved money caps for posture reporting.
+func EffectiveCaps() map[string]interface{} {
+	caps, err := MoneyCaps()
+	if err != nil {
+		return map[string]interface{}{"error": err.Error()}
+	}
+	return map[string]interface{}{
+		"max_single_transfer_sol": caps.MaxSingleTransferSOL,
+		"max_hourly_outflow_sol":  caps.MaxHourlyOutflowSOL,
+		"withdraw_api_cap_sol":    caps.WithdrawAPICapSOL,
 	}
 }

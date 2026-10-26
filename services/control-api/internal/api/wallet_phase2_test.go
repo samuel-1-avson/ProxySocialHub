@@ -20,6 +20,9 @@ import (
 
 func withWithdrawSOLMocks(t *testing.T, hook func(context.Context, *solana.OracleClient, string, float64) (string, error)) {
 	t.Helper()
+	// W-13: pre-P1 withdraw tests exercise queue mechanics, not signature
+	// auth; lift the dust threshold (P1 challenge tests reset it).
+	t.Setenv("WITHDRAW_SIGNATURE_THRESHOLD_LAMPORTS", "100000000000000")
 	prevHook := sendSOLOnChainHook
 	prevConfirm := confirmWithdrawTxHook
 	prevOracle := solana.GetOracleClient()

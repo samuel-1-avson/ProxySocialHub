@@ -36,16 +36,17 @@ func (w *Wallet) BalanceDriftLamports() int64 {
 	return w.BalanceLamports - int64(SOLToLamports(w.BalanceSOL))
 }
 
-// SyncLamportsFromSOLForLegacyRow repairs a pre-lamports row exactly
-// once at write time: lamports unset but SOL present. All other states
-// sync the float display FROM the authoritative lamports.
+// SyncLamportsFromSOLForLegacyRow reconciles the dual-write pair at
+// SAVE time for writers that still assign the deprecated float field
+// directly (test seeding, legacy writers): when the pair disagrees, the
+// explicitly-assigned float wins for this write - the same fixed point
+// the DB trigger enforces. Production money writers never assign
+// BalanceSOL directly (locked helpers maintain both from lamports), so
+// this cannot resurrect a drained wallet in production; the read path
+// (EffectiveBalanceLamports) never guesses.
 func (w *Wallet) SyncLamportsFromSOLForLegacyRow() {
-	if w.BalanceLamports == 0 && w.BalanceSOL > 0 {
-		w.BalanceLamports = int64(SOLToLamports(w.BalanceSOL))
-		return
-	}
-	if w.BalanceLamports >= 0 {
-		w.BalanceSOL = LamportsToSOL(uint64(w.BalanceLamports))
+	if derived := int64(SOLToLamports(w.BalanceSOL)); derived != w.BalanceLamports {
+		w.BalanceLamports = derived
 	}
 }
 
@@ -96,4 +97,38 @@ func (w *Wallet) DebitSOL(amount float64) bool {
 // CanAffordSOL reports whether balance covers amount at lamports precision.
 func (w *Wallet) CanAffordSOL(amount float64) bool {
 	return w.CanAffordLamports(int64(SOLToLamports(amount)))
+}
+
+// DefaultAutoPayoutThresholdLamports is the historical 0.05 SOL sweep floor.
+const DefaultAutoPayoutThresholdLamports = 50_000_000
+
+// PayableLamports returns earnings available for on-chain payout (W-10).
+func (w *Wallet) PayableLamports() int64 {
+	if w.EarningsPayableLamports < 0 {
+		return 0
+	}
+	if w.EarningsPayableLamports > w.BalanceLamports {
+		return w.BalanceLamports
+	}
+	return w.EarningsPayableLamports
+}
+
+// AutoPayoutThresholdOrDefault resolves the user's auto-payout threshold.
+func (w *Wallet) AutoPayoutThresholdOrDefault() int64 {
+	if w.AutoPayoutThresholdLamports > 0 {
+		return w.AutoPayoutThresholdLamports
+	}
+	return DefaultAutoPayoutThresholdLamports
+}
+
+// clampPayableToBalance enforces payable <= balance after a debit:
+// spending draws non-earnings funds first, earnings only once the rest
+// is gone (W-10).
+func (w *Wallet) clampPayableToBalance() {
+	if w.EarningsPayableLamports > w.BalanceLamports {
+		w.EarningsPayableLamports = w.BalanceLamports
+	}
+	if w.EarningsPayableLamports < 0 {
+		w.EarningsPayableLamports = 0
+	}
 }
