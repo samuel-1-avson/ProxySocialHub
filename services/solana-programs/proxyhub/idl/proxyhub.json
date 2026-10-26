@@ -1,0 +1,9187 @@
+{
+  "address": "AZGhGfvsiGJQ5S91nkdhGi9qvSNKv3sBZyVJ63KQLfvu",
+  "metadata": {
+    "name": "proxyhub",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Created with Anchor"
+  },
+  "instructions": [
+    {
+      "name": "accept_admin_transfer",
+      "docs": [
+        "Step 2: The nominated account accepts and becomes the new admin.",
+        "Only the exact `pending_admin` key may call this."
+      ],
+      "discriminator": [
+        89,
+        211,
+        96,
+        212,
+        233,
+        0,
+        251,
+        7
+      ],
+      "accounts": [
+        {
+          "name": "program_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "new_admin",
+          "docs": [
+            "Must be the pending_admin nominated by `propose_admin_transfer`."
+          ],
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "add_oracle_signer",
+      "docs": [
+        "Add a signer to the multi-sig oracle"
+      ],
+      "discriminator": [
+        66,
+        217,
+        139,
+        89,
+        215,
+        220,
+        193,
+        3
+      ],
+      "accounts": [
+        {
+          "name": "multisig_oracle",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  117,
+                  108,
+                  116,
+                  105,
+                  115,
+                  105,
+                  103,
+                  95,
+                  111,
+                  114,
+                  97,
+                  99,
+                  108,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "program_state"
+        }
+      ],
+      "args": [
+        {
+          "name": "new_signer",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "calculate_session_price",
+      "docs": [
+        "Calculate dynamic price for a session"
+      ],
+      "discriminator": [
+        98,
+        221,
+        190,
+        74,
+        247,
+        25,
+        24,
+        94
+      ],
+      "accounts": [
+        {
+          "name": "price_oracle",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  105,
+                  99,
+                  101,
+                  95,
+                  111,
+                  114,
+                  97,
+                  99,
+                  108,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "bandwidth_gb",
+          "type": "u64"
+        },
+        {
+          "name": "connection_type",
+          "type": "string"
+        },
+        {
+          "name": "quality_multiplier",
+          "type": "u8"
+        }
+      ],
+      "returns": "u64"
+    },
+    {
+      "name": "cast_governance_vote",
+      "docs": [
+        "Cast an on-chain governance vote.  The voter signs the transaction",
+        "directly — the server cannot forge votes on their behalf.",
+        "",
+        "`voting_power` remains in the instruction IDL for compatibility but is",
+        "**ignored**. Weight is fixed at 1 (one wallet = one vote) until a",
+        "stake/token CPI can prove voting power on-chain. Clients cannot inflate",
+        "yes/no totals by editing the unsigned transaction."
+      ],
+      "discriminator": [
+        157,
+        100,
+        219,
+        247,
+        27,
+        45,
+        188,
+        41
+      ],
+      "accounts": [
+        {
+          "name": "voter",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "proposal",
+          "writable": true
+        },
+        {
+          "name": "governance_vote",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  95,
+                  118,
+                  111,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "proposal"
+              },
+              {
+                "kind": "account",
+                "path": "voter"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "vote_yes",
+          "type": "bool"
+        },
+        {
+          "name": "_voting_power",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "cast_jury_vote_onchain",
+      "docs": [
+        "Cast an immutable jury vote.  The juror signs directly."
+      ],
+      "discriminator": [
+        167,
+        80,
+        1,
+        139,
+        86,
+        171,
+        168,
+        158
+      ],
+      "accounts": [
+        {
+          "name": "juror",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "dispute"
+        },
+        {
+          "name": "jury_vote",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  106,
+                  117,
+                  114,
+                  121,
+                  95,
+                  118,
+                  111,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "dispute"
+              },
+              {
+                "kind": "account",
+                "path": "juror"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "vote_buyer",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "cast_vote",
+      "docs": [
+        "Cast vote in jury dispute"
+      ],
+      "discriminator": [
+        20,
+        212,
+        15,
+        189,
+        69,
+        180,
+        69,
+        151
+      ],
+      "accounts": [
+        {
+          "name": "jury",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  106,
+                  117,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "jury.escrow",
+                "account": "Jury"
+              }
+            ]
+          }
+        },
+        {
+          "name": "juror",
+          "signer": true
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "vote_for_buyer",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "claim_bandwidth_rewards",
+      "docs": [
+        "Pay a provider's proportional Proof-of-Bandwidth mining reward for an epoch.",
+        "",
+        "`provider_bytes_verified` is a claim about off-chain metering, so the program admin",
+        "(oracle) must sign to attest it, and one `EpochClaimReceipt` per provider per epoch",
+        "is created so the same provider cannot be paid twice. Before this, the provider",
+        "signed for itself and chose the byte count, so anyone could claim the whole pool."
+      ],
+      "discriminator": [
+        222,
+        82,
+        255,
+        84,
+        180,
+        166,
+        209,
+        155
+      ],
+      "accounts": [
+        {
+          "name": "epoch_reward_pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  112,
+                  111,
+                  99,
+                  104,
+                  45,
+                  114,
+                  101,
+                  119,
+                  97,
+                  114,
+                  100,
+                  115
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "epoch_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "epoch_claim",
+          "docs": [
+            "One receipt per provider per epoch; `init` makes a second claim fail."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  112,
+                  111,
+                  99,
+                  104,
+                  95,
+                  99,
+                  108,
+                  97,
+                  105,
+                  109
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "epoch_id"
+              },
+              {
+                "kind": "account",
+                "path": "provider_wallet"
+              }
+            ]
+          }
+        },
+        {
+          "name": "provider_wallet",
+          "writable": true
+        },
+        {
+          "name": "oracle",
+          "docs": [
+            "Program admin attesting `provider_bytes_verified`; also pays the receipt's rent."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "epoch_id",
+          "type": "u64"
+        },
+        {
+          "name": "provider_bytes_verified",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "close_channel",
+      "docs": [
+        "Close a state channel: oracle submits the final nonce + earned_lamports.",
+        "`earned_lamports` is paid to the provider; remainder refunded to buyer.",
+        "The channel PDA is closed (rent returned to oracle)."
+      ],
+      "discriminator": [
+        0,
+        104,
+        36,
+        1,
+        66,
+        0,
+        103,
+        157
+      ],
+      "accounts": [
+        {
+          "name": "oracle",
+          "docs": [
+            "Payer of the transaction fee."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "channel",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  116,
+                  101,
+                  95,
+                  99,
+                  104,
+                  97,
+                  110,
+                  110,
+                  101,
+                  108
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "session_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "provider_wallet",
+          "writable": true
+        },
+        {
+          "name": "buyer",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "multisig_oracle",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  117,
+                  108,
+                  116,
+                  105,
+                  115,
+                  105,
+                  103,
+                  95,
+                  111,
+                  114,
+                  97,
+                  99,
+                  108,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "instructions",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "session_id",
+          "type": {
+            "array": [
+              "u8",
+              16
+            ]
+          }
+        },
+        {
+          "name": "final_nonce",
+          "type": "u64"
+        },
+        {
+          "name": "earned_lamports",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "close_escrow",
+      "docs": [
+        "Close a terminal (settled/refunded) legacy escrow and return the rent",
+        "reserve to the buyer. Frees the buyer+seller PDA for re-initialization;",
+        "escrows settled after this upgrade close automatically on settle."
+      ],
+      "discriminator": [
+        139,
+        171,
+        94,
+        146,
+        191,
+        91,
+        144,
+        50
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "escrow.buyer",
+                "account": "Escrow"
+              },
+              {
+                "kind": "account",
+                "path": "escrow.seller",
+                "account": "Escrow"
+              }
+            ]
+          }
+        },
+        {
+          "name": "buyer",
+          "writable": true
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "contribute_insurance",
+      "docs": [
+        "Contribute to insurance pool"
+      ],
+      "discriminator": [
+        16,
+        213,
+        125,
+        98,
+        170,
+        198,
+        239,
+        47
+      ],
+      "accounts": [
+        {
+          "name": "insurance_pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  115,
+                  117,
+                  114,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "stake_account",
+          "writable": true
+        },
+        {
+          "name": "provider",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "create_proposal",
+      "docs": [
+        "Create an on-chain governance proposal.  Oracle pays rent, but the",
+        "proposer's wallet is recorded for accountability."
+      ],
+      "discriminator": [
+        132,
+        116,
+        68,
+        174,
+        216,
+        160,
+        198,
+        22
+      ],
+      "accounts": [
+        {
+          "name": "oracle",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "proposal",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  95,
+                  112,
+                  114,
+                  111,
+                  112,
+                  111,
+                  115,
+                  97,
+                  108
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "proposal_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "proposal_id",
+          "type": {
+            "array": [
+              "u8",
+              16
+            ]
+          }
+        },
+        {
+          "name": "proposer",
+          "type": "pubkey"
+        },
+        {
+          "name": "title_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "end_slot",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "deactivate_listing_commitment",
+      "docs": [
+        "Mark a listing commitment inactive (delist / supersede). Does not close the account."
+      ],
+      "discriminator": [
+        121,
+        27,
+        147,
+        251,
+        37,
+        148,
+        204,
+        144
+      ],
+      "accounts": [
+        {
+          "name": "listing_commitment",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  115,
+                  116,
+                  105,
+                  110,
+                  103,
+                  45,
+                  99,
+                  111,
+                  109,
+                  109,
+                  105,
+                  116,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "provider"
+              },
+              {
+                "kind": "arg",
+                "path": "offer_hash"
+              }
+            ]
+          }
+        },
+        {
+          "name": "oracle",
+          "signer": true
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "_provider",
+          "type": "pubkey"
+        },
+        {
+          "name": "_offer_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "deregister_gateway",
+      "docs": [
+        "Deregister an edge gateway operator and return bonded stake to owner."
+      ],
+      "discriminator": [
+        7,
+        177,
+        118,
+        160,
+        203,
+        67,
+        228,
+        241
+      ],
+      "accounts": [
+        {
+          "name": "gateway_registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  116,
+                  101,
+                  119,
+                  97,
+                  121,
+                  45,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "gateway_registry.gateway",
+                "account": "GatewayRegistry"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "gateway_registry"
+          ]
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "deregister_provider",
+      "docs": [
+        "Mark a provider as inactive in the on-chain registry.",
+        "Called by the oracle when a provider deregisters or is removed."
+      ],
+      "discriminator": [
+        155,
+        165,
+        230,
+        205,
+        237,
+        143,
+        134,
+        112
+      ],
+      "accounts": [
+        {
+          "name": "provider_registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  118,
+                  105,
+                  100,
+                  101,
+                  114,
+                  45,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "provider"
+              }
+            ]
+          }
+        },
+        {
+          "name": "oracle",
+          "docs": [
+            "Oracle must be the current program admin."
+          ],
+          "signer": true
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "provider",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "emergency_pause",
+      "docs": [
+        "Emergency pause - halts all operations"
+      ],
+      "discriminator": [
+        21,
+        143,
+        27,
+        142,
+        200,
+        181,
+        210,
+        255
+      ],
+      "accounts": [
+        {
+          "name": "program_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "emergency_resume",
+      "docs": [
+        "Resume operations after pause"
+      ],
+      "discriminator": [
+        0,
+        243,
+        48,
+        185,
+        6,
+        73,
+        190,
+        83
+      ],
+      "accounts": [
+        {
+          "name": "program_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "execute_jury_verdict",
+      "docs": [
+        "Execute jury verdict with rewards"
+      ],
+      "discriminator": [
+        234,
+        236,
+        145,
+        163,
+        34,
+        79,
+        91,
+        162
+      ],
+      "accounts": [
+        {
+          "name": "jury",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  106,
+                  117,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "jury.escrow",
+                "account": "Jury"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow",
+          "writable": true
+        },
+        {
+          "name": "buyer",
+          "writable": true
+        },
+        {
+          "name": "seller",
+          "writable": true
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "execute_proposal",
+      "docs": [
+        "Execute a passed governance proposal.  Only the admin can execute, and",
+        "the proposal must have status 1 (passed).  A minimum timelock of 24 hours",
+        "(172 800 slots @ ~400ms) after finalization is enforced.",
+        "",
+        "Status transitions: 1 (passed) → 3 (executed)."
+      ],
+      "discriminator": [
+        186,
+        60,
+        116,
+        133,
+        108,
+        128,
+        111,
+        28
+      ],
+      "accounts": [
+        {
+          "name": "proposal",
+          "writable": true
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "program_state"
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "execute_signer_rotation_proposal",
+      "docs": [
+        "Execute a passed proposal to rotate a multisig oracle signer."
+      ],
+      "discriminator": [
+        161,
+        247,
+        56,
+        156,
+        255,
+        50,
+        169,
+        243
+      ],
+      "accounts": [
+        {
+          "name": "proposal",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  95,
+                  112,
+                  114,
+                  111,
+                  112,
+                  111,
+                  115,
+                  97,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "proposal.proposal_id",
+                "account": "GovernanceProposal"
+              }
+            ]
+          }
+        },
+        {
+          "name": "multisig_oracle",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  117,
+                  108,
+                  116,
+                  105,
+                  115,
+                  105,
+                  103,
+                  95,
+                  111,
+                  114,
+                  97,
+                  99,
+                  108,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "old_signer",
+          "type": "pubkey"
+        },
+        {
+          "name": "new_signer",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "finalize_proposal",
+      "docs": [
+        "Finalize a proposal once its end_slot has passed.  Permissionless —",
+        "anyone can call this.  Sets status to passed (1) or rejected (2)."
+      ],
+      "discriminator": [
+        23,
+        68,
+        51,
+        167,
+        109,
+        173,
+        187,
+        164
+      ],
+      "accounts": [
+        {
+          "name": "proposal",
+          "writable": true
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "gateway_heartbeat",
+      "docs": [
+        "Submit periodic heartbeat and telemetry from a gateway operator."
+      ],
+      "discriminator": [
+        149,
+        194,
+        12,
+        32,
+        222,
+        44,
+        89,
+        145
+      ],
+      "accounts": [
+        {
+          "name": "gateway_registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  116,
+                  101,
+                  119,
+                  97,
+                  121,
+                  45,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "gateway"
+              }
+            ]
+          }
+        },
+        {
+          "name": "gateway",
+          "signer": true,
+          "relations": [
+            "gateway_registry"
+          ]
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "active_tunnels",
+          "type": "u32"
+        },
+        {
+          "name": "quality_score",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "initialize_deposit_vault",
+      "docs": [
+        "Initialize the platform deposit vault PDA (seeds: [\"deposit_vault\"]).",
+        "Binds the sole hot-treasury withdraw destination and an oracle withdraw authority.",
+        "Users deposit via native SOL transfer to the vault address."
+      ],
+      "discriminator": [
+        186,
+        57,
+        99,
+        237,
+        54,
+        248,
+        125,
+        207
+      ],
+      "accounts": [
+        {
+          "name": "deposit_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "hot_treasury",
+          "type": "pubkey"
+        },
+        {
+          "name": "withdraw_authority",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "initialize_epoch_reward_pool",
+      "docs": [
+        "Initialize an epoch reward emission pool."
+      ],
+      "discriminator": [
+        20,
+        118,
+        218,
+        142,
+        146,
+        128,
+        160,
+        173
+      ],
+      "accounts": [
+        {
+          "name": "epoch_reward_pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  112,
+                  111,
+                  99,
+                  104,
+                  45,
+                  114,
+                  101,
+                  119,
+                  97,
+                  114,
+                  100,
+                  115
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "epoch_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "epoch_id",
+          "type": "u64"
+        },
+        {
+          "name": "total_emission_lamports",
+          "type": "u64"
+        },
+        {
+          "name": "total_bandwidth_verified",
+          "type": "u64"
+        },
+        {
+          "name": "duration_seconds",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "initialize_escrow",
+      "docs": [
+        "Initialize SOL escrow (legacy - single oracle)"
+      ],
+      "discriminator": [
+        243,
+        160,
+        77,
+        153,
+        11,
+        92,
+        48,
+        209
+      ],
+      "accounts": [
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "buyer"
+              },
+              {
+                "kind": "account",
+                "path": "seller"
+              }
+            ]
+          }
+        },
+        {
+          "name": "buyer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "seller"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "bandwidth_limit_gb",
+          "type": "u64"
+        },
+        {
+          "name": "expires_at",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "initialize_escrow_multisig",
+      "docs": [
+        "Initialize SOL escrow with multi-sig oracle"
+      ],
+      "discriminator": [
+        115,
+        166,
+        10,
+        94,
+        148,
+        185,
+        148,
+        85
+      ],
+      "accounts": [
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119,
+                  95,
+                  109,
+                  117,
+                  108,
+                  116,
+                  105,
+                  115,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "buyer"
+              },
+              {
+                "kind": "account",
+                "path": "seller"
+              },
+              {
+                "kind": "arg",
+                "path": "expires_at"
+              }
+            ]
+          }
+        },
+        {
+          "name": "buyer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "seller"
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "price_oracle",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  105,
+                  99,
+                  101,
+                  95,
+                  111,
+                  114,
+                  97,
+                  99,
+                  108,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "bandwidth_limit_gb",
+          "type": "u64"
+        },
+        {
+          "name": "expires_at",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "initialize_insurance_pool",
+      "docs": [
+        "Initialize insurance pool"
+      ],
+      "discriminator": [
+        109,
+        87,
+        201,
+        131,
+        246,
+        236,
+        11,
+        238
+      ],
+      "accounts": [
+        {
+          "name": "insurance_pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  115,
+                  117,
+                  114,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "initialize_multisig_oracle",
+      "docs": [
+        "Initialize multi-sig oracle configuration"
+      ],
+      "discriminator": [
+        150,
+        185,
+        118,
+        109,
+        67,
+        91,
+        173,
+        204
+      ],
+      "accounts": [
+        {
+          "name": "multisig_oracle",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  117,
+                  108,
+                  116,
+                  105,
+                  115,
+                  105,
+                  103,
+                  95,
+                  111,
+                  114,
+                  97,
+                  99,
+                  108,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "signers",
+          "type": {
+            "vec": "pubkey"
+          }
+        },
+        {
+          "name": "threshold",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "initialize_price_oracle",
+      "docs": [
+        "Initialize price oracle"
+      ],
+      "discriminator": [
+        61,
+        200,
+        206,
+        137,
+        205,
+        74,
+        242,
+        172
+      ],
+      "accounts": [
+        {
+          "name": "price_oracle",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  105,
+                  99,
+                  101,
+                  95,
+                  111,
+                  114,
+                  97,
+                  99,
+                  108,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "residential",
+          "type": "u64"
+        },
+        {
+          "name": "datacenter",
+          "type": "u64"
+        },
+        {
+          "name": "mobile",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "initialize_program",
+      "docs": [
+        "Initialize program state with emergency pause capability"
+      ],
+      "discriminator": [
+        176,
+        107,
+        205,
+        168,
+        24,
+        157,
+        175,
+        103
+      ],
+      "accounts": [
+        {
+          "name": "program_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "min_oracle_signatures",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "initialize_session_escrow",
+      "docs": [
+        "Initialize a funded session escrow PDA. Buyer pays rent + locks `amount` lamports."
+      ],
+      "discriminator": [
+        50,
+        196,
+        117,
+        5,
+        3,
+        210,
+        211,
+        114
+      ],
+      "accounts": [
+        {
+          "name": "buyer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "seller"
+        },
+        {
+          "name": "session_escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110,
+                  95,
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "session_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "session_id",
+          "type": {
+            "array": [
+              "u8",
+              16
+            ]
+          }
+        },
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "bandwidth_limit_bytes",
+          "type": "u64"
+        },
+        {
+          "name": "price_per_gb_lamports",
+          "type": "u64"
+        },
+        {
+          "name": "expires_at",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "initiate_jury_dispute",
+      "docs": [
+        "Initiate decentralized jury dispute"
+      ],
+      "discriminator": [
+        137,
+        93,
+        136,
+        198,
+        178,
+        194,
+        70,
+        240
+      ],
+      "accounts": [
+        {
+          "name": "escrow",
+          "writable": true
+        },
+        {
+          "name": "jury",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  106,
+                  117,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "escrow"
+              }
+            ]
+          }
+        },
+        {
+          "name": "dispute",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  105,
+                  115,
+                  112,
+                  117,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "escrow"
+              }
+            ]
+          }
+        },
+        {
+          "name": "initiator",
+          "docs": [
+            "Program admin only. The initiator chooses the jurors, so letting a buyer or seller (or",
+            "anyone) call this let them seat their own jury and have it award them the escrow."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "jurors",
+          "type": {
+            "vec": "pubkey"
+          }
+        },
+        {
+          "name": "reward_per_juror",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "lock_session_commitment",
+      "docs": [
+        "Lock session parameters on-chain at session creation time.",
+        "The edge gateway verifies bandwidth_limit_bytes against this PDA to",
+        "prevent server-side tampering of session limits mid-flight."
+      ],
+      "discriminator": [
+        228,
+        107,
+        30,
+        63,
+        209,
+        92,
+        191,
+        57
+      ],
+      "accounts": [
+        {
+          "name": "oracle",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "session_commitment",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110,
+                  95,
+                  99,
+                  111,
+                  109,
+                  109,
+                  105,
+                  116,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "session_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "session_id",
+          "type": {
+            "array": [
+              "u8",
+              16
+            ]
+          }
+        },
+        {
+          "name": "buyer_wallet",
+          "type": "pubkey"
+        },
+        {
+          "name": "seller_wallet",
+          "type": "pubkey"
+        },
+        {
+          "name": "bandwidth_limit_bytes",
+          "type": "u64"
+        },
+        {
+          "name": "price_per_gb_lamports",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "log_spending_event",
+      "docs": [
+        "Emit an on-chain event for high-value spending operations.",
+        "Uses events (not persistent accounts) to keep cost minimal.",
+        "op_type: 0=withdraw, 1=p2p_transfer, 2=session_charge"
+      ],
+      "discriminator": [
+        134,
+        230,
+        41,
+        156,
+        64,
+        107,
+        50,
+        99
+      ],
+      "accounts": [
+        {
+          "name": "oracle",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "wallet",
+          "type": "pubkey"
+        },
+        {
+          "name": "amount_lamports",
+          "type": "u64"
+        },
+        {
+          "name": "op_type",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "multi_sig_pause_vote",
+      "docs": [
+        "Pause the program once `multisig_oracle.threshold` distinct oracle signers have",
+        "signed this transaction. `oracle_signer` is one of them; every other approver passes",
+        "their wallet in `remaining_accounts`, where it must be a transaction signer.",
+        "",
+        "`approvals` is kept so existing callers still serialize, but it is ignored: it is",
+        "instruction data, so listing another signer's public key proved nothing. Counting it",
+        "let a single oracle key pause the protocol by naming the rest of the set."
+      ],
+      "discriminator": [
+        181,
+        89,
+        159,
+        51,
+        60,
+        3,
+        117,
+        171
+      ],
+      "accounts": [
+        {
+          "name": "program_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "multisig_oracle",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  117,
+                  108,
+                  116,
+                  105,
+                  115,
+                  105,
+                  103,
+                  95,
+                  111,
+                  114,
+                  97,
+                  99,
+                  108,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "oracle_signer",
+          "docs": [
+            "One oracle signer submitting their pause approval."
+          ],
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "approvals",
+          "type": {
+            "vec": "pubkey"
+          }
+        }
+      ]
+    },
+    {
+      "name": "open_channel",
+      "docs": [
+        "Open a state channel: buyer transfers `deposit_lamports` into the channel",
+        "PDA vault.  The oracle records buyer+provider pubkeys and the session UUID."
+      ],
+      "discriminator": [
+        91,
+        45,
+        253,
+        71,
+        140,
+        166,
+        107,
+        109
+      ],
+      "accounts": [
+        {
+          "name": "buyer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "provider_wallet"
+        },
+        {
+          "name": "channel",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  116,
+                  101,
+                  95,
+                  99,
+                  104,
+                  97,
+                  110,
+                  110,
+                  101,
+                  108
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "session_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "session_id",
+          "type": {
+            "array": [
+              "u8",
+              16
+            ]
+          }
+        },
+        {
+          "name": "deposit_lamports",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "open_dispute_onchain",
+      "docs": [
+        "Open a dispute on-chain.  The slot_seed (recent slot hash bytes as u64)",
+        "is used as a VRF seed for jury selection — the server cannot control it."
+      ],
+      "discriminator": [
+        31,
+        236,
+        47,
+        228,
+        132,
+        169,
+        136,
+        91
+      ],
+      "accounts": [
+        {
+          "name": "oracle",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "escrow"
+        },
+        {
+          "name": "dispute_record",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  105,
+                  115,
+                  112,
+                  117,
+                  116,
+                  101,
+                  95,
+                  114,
+                  101,
+                  99,
+                  111,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "escrow"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "reason_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "slot_seed",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "propose_admin_transfer",
+      "docs": [
+        "Step 1: Current admin nominates a new admin.",
+        "The new key is stored in `pending_admin`; it takes effect only when",
+        "the nominee calls `accept_admin_transfer`."
+      ],
+      "discriminator": [
+        218,
+        178,
+        115,
+        190,
+        80,
+        107,
+        95,
+        158
+      ],
+      "accounts": [
+        {
+          "name": "program_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "docs": [
+            "Must be the current admin."
+          ],
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "new_admin",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "provider_heartbeat",
+      "docs": [
+        "Update provider heartbeat and cumulative metrics.",
+        "Called by the oracle every heartbeat cycle."
+      ],
+      "discriminator": [
+        113,
+        19,
+        171,
+        146,
+        132,
+        109,
+        4,
+        120
+      ],
+      "accounts": [
+        {
+          "name": "provider_registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  118,
+                  105,
+                  100,
+                  101,
+                  114,
+                  45,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "provider"
+              }
+            ]
+          }
+        },
+        {
+          "name": "oracle",
+          "docs": [
+            "Oracle must be the current program admin."
+          ],
+          "signer": true
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "provider",
+          "type": "pubkey"
+        },
+        {
+          "name": "quality_score",
+          "type": "u8"
+        },
+        {
+          "name": "bandwidth_served_delta",
+          "type": "u64"
+        },
+        {
+          "name": "successful_sessions_delta",
+          "type": "u32"
+        },
+        {
+          "name": "failed_sessions_delta",
+          "type": "u32"
+        }
+      ]
+    },
+    {
+      "name": "register_gateway",
+      "docs": [
+        "Register an edge gateway operator with bonded SOL stake."
+      ],
+      "discriminator": [
+        183,
+        184,
+        135,
+        228,
+        71,
+        191,
+        76,
+        222
+      ],
+      "accounts": [
+        {
+          "name": "gateway_registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  116,
+                  101,
+                  119,
+                  97,
+                  121,
+                  45,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "gateway"
+              }
+            ]
+          }
+        },
+        {
+          "name": "gateway"
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "endpoint",
+          "type": "string"
+        },
+        {
+          "name": "stake_amount",
+          "type": "u64"
+        },
+        {
+          "name": "min_stake_lamports",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "register_listing_commitment",
+      "docs": [
+        "Register a listing offer-hash commitment PDA."
+      ],
+      "discriminator": [
+        153,
+        58,
+        70,
+        227,
+        100,
+        0,
+        123,
+        103
+      ],
+      "accounts": [
+        {
+          "name": "listing_commitment",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  115,
+                  116,
+                  105,
+                  110,
+                  103,
+                  45,
+                  99,
+                  111,
+                  109,
+                  109,
+                  105,
+                  116,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "provider"
+              },
+              {
+                "kind": "arg",
+                "path": "offer_hash"
+              }
+            ]
+          }
+        },
+        {
+          "name": "oracle",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "provider",
+          "type": "pubkey"
+        },
+        {
+          "name": "offer_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "listing_id",
+          "type": {
+            "array": [
+              "u8",
+              16
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "register_provider",
+      "docs": [
+        "Register a provider node in the on-chain registry.",
+        "Called by the oracle when a provider completes registration via the API."
+      ],
+      "discriminator": [
+        254,
+        209,
+        54,
+        184,
+        46,
+        197,
+        109,
+        78
+      ],
+      "accounts": [
+        {
+          "name": "provider_registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  118,
+                  105,
+                  100,
+                  101,
+                  114,
+                  45,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "provider"
+              }
+            ]
+          }
+        },
+        {
+          "name": "oracle",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "provider",
+          "type": "pubkey"
+        },
+        {
+          "name": "endpoint",
+          "type": "string"
+        },
+        {
+          "name": "location",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "remove_oracle_signer",
+      "docs": [
+        "Remove a signer from the multi-sig oracle"
+      ],
+      "discriminator": [
+        103,
+        205,
+        177,
+        215,
+        115,
+        60,
+        121,
+        113
+      ],
+      "accounts": [
+        {
+          "name": "multisig_oracle",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  117,
+                  108,
+                  116,
+                  105,
+                  115,
+                  105,
+                  103,
+                  95,
+                  111,
+                  114,
+                  97,
+                  99,
+                  108,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "program_state"
+        }
+      ],
+      "args": [
+        {
+          "name": "signer",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "settle_escrow",
+      "docs": [
+        "Settle escrow (legacy). Program admin (oracle) only: the caller chooses",
+        "`bandwidth_used_gb`, so letting the buyer or the seller call it let the buyer",
+        "report zero usage for a full refund, or the seller report the full limit."
+      ],
+      "discriminator": [
+        22,
+        135,
+        160,
+        194,
+        23,
+        186,
+        124,
+        110
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "escrow.buyer",
+                "account": "Escrow"
+              },
+              {
+                "kind": "account",
+                "path": "escrow.seller",
+                "account": "Escrow"
+              }
+            ]
+          }
+        },
+        {
+          "name": "buyer",
+          "writable": true
+        },
+        {
+          "name": "seller",
+          "writable": true
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "bandwidth_used_gb",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "settle_escrow_multisig",
+      "docs": [
+        "Settle escrow with multi-sig oracle verification"
+      ],
+      "discriminator": [
+        147,
+        227,
+        159,
+        121,
+        20,
+        161,
+        183,
+        56
+      ],
+      "accounts": [
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119,
+                  95,
+                  109,
+                  117,
+                  108,
+                  116,
+                  105,
+                  115,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "escrow.buyer",
+                "account": "Escrow"
+              },
+              {
+                "kind": "account",
+                "path": "escrow.seller",
+                "account": "Escrow"
+              },
+              {
+                "kind": "account",
+                "path": "escrow.expires_at",
+                "account": "Escrow"
+              }
+            ]
+          }
+        },
+        {
+          "name": "buyer",
+          "writable": true
+        },
+        {
+          "name": "seller",
+          "writable": true
+        },
+        {
+          "name": "multisig_oracle",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  117,
+                  108,
+                  116,
+                  105,
+                  115,
+                  105,
+                  103,
+                  95,
+                  111,
+                  114,
+                  97,
+                  99,
+                  108,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "oracle_signature",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  114,
+                  97,
+                  99,
+                  108,
+                  101,
+                  95,
+                  115,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "escrow"
+              },
+              {
+                "kind": "account",
+                "path": "multisig_oracle.nonce",
+                "account": "MultiSigOracle"
+              }
+            ]
+          }
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "instructions",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "bandwidth_used_gb",
+          "type": "u64"
+        },
+        {
+          "name": "oracle_signers",
+          "type": {
+            "vec": "pubkey"
+          }
+        }
+      ]
+    },
+    {
+      "name": "settle_escrow_mutual_receipt",
+      "docs": [
+        "Settle escrow with a cryptographically mutual session receipt.",
+        "",
+        "The transaction must include 2 preceding Ed25519SigVerify instructions:",
+        "- Preceding Ix 0: Buyer signature on `receipt:v1:{escrow}:{buyer}:{seller}:{bytes_used}:{sequence_num}`",
+        "- Preceding Ix 1: Seller signature on `receipt:v1:{escrow}:{buyer}:{seller}:{bytes_used}:{sequence_num}`",
+        "",
+        "This allows buyer and seller to settle bandwidth usage trustlessly without an oracle."
+      ],
+      "discriminator": [
+        53,
+        162,
+        229,
+        209,
+        164,
+        47,
+        221,
+        51
+      ],
+      "accounts": [
+        {
+          "name": "escrow",
+          "writable": true
+        },
+        {
+          "name": "buyer",
+          "writable": true
+        },
+        {
+          "name": "seller",
+          "writable": true
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "instructions",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "bytes_used",
+          "type": "u64"
+        },
+        {
+          "name": "sequence_num",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "settle_session_escrow",
+      "docs": [
+        "Settle session escrow pro-rata by bytes_used. Oracle (program admin) only.",
+        "Seller receives billed share; buyer receives unused escrow + rent (account closed)."
+      ],
+      "discriminator": [
+        246,
+        48,
+        189,
+        61,
+        250,
+        245,
+        62,
+        4
+      ],
+      "accounts": [
+        {
+          "name": "oracle",
+          "docs": [
+            "Oracle must be the current program admin."
+          ],
+          "signer": true
+        },
+        {
+          "name": "session_escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110,
+                  95,
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "session_escrow.session_id",
+                "account": "SessionEscrow"
+              }
+            ]
+          }
+        },
+        {
+          "name": "buyer",
+          "writable": true
+        },
+        {
+          "name": "seller",
+          "writable": true
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "bytes_used",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "slash_gateway",
+      "docs": [
+        "Slash a malicious or non-compliant gateway's bonded stake."
+      ],
+      "discriminator": [
+        200,
+        74,
+        209,
+        45,
+        103,
+        139,
+        156,
+        24
+      ],
+      "accounts": [
+        {
+          "name": "gateway_registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  116,
+                  101,
+                  119,
+                  97,
+                  121,
+                  45,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "gateway_registry.gateway",
+                "account": "GatewayRegistry"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "slash_amount",
+          "type": "u64"
+        },
+        {
+          "name": "reason_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "slash_provider_insurance",
+      "docs": [
+        "Slash provider with insurance protection"
+      ],
+      "discriminator": [
+        204,
+        189,
+        130,
+        253,
+        121,
+        182,
+        217,
+        216
+      ],
+      "accounts": [
+        {
+          "name": "insurance_pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  115,
+                  117,
+                  114,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "stake_account",
+          "writable": true
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "reason",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "stake_provider",
+      "docs": [
+        "Stakes provider collateral on-chain using treasury/oracle custody.",
+        "",
+        "The provider's internal DB balance is debited off-chain by control-api;",
+        "this instruction is the canonical on-chain lock of that collateral into",
+        "the provider stake PDA."
+      ],
+      "discriminator": [
+        18,
+        199,
+        109,
+        78,
+        14,
+        224,
+        5,
+        119
+      ],
+      "accounts": [
+        {
+          "name": "oracle",
+          "docs": [
+            "Program admin (treasury custody) only: it funds the stake on the provider's behalf."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "stake_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "provider_wallet"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "provider_wallet",
+          "type": "pubkey"
+        },
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "submit_review_attestation",
+      "docs": [
+        "Submit an immutable review attestation for a completed order.",
+        "The rating_hash is SHA-256(rating || comment || review_id) — the plaintext",
+        "stays in the DB; the on-chain hash makes it tamper-evident."
+      ],
+      "discriminator": [
+        176,
+        158,
+        228,
+        163,
+        79,
+        111,
+        34,
+        45
+      ],
+      "accounts": [
+        {
+          "name": "oracle",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "review_attestation",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  118,
+                  105,
+                  101,
+                  119
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "order_escrow_pda"
+              },
+              {
+                "kind": "arg",
+                "path": "reviewer"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "program_state",
+          "docs": [
+            "Appended last so the account order of existing callers is unchanged; they must add it."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "order_escrow_pda",
+          "type": "pubkey"
+        },
+        {
+          "name": "reviewer",
+          "type": "pubkey"
+        },
+        {
+          "name": "rating_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "submit_usage_proof",
+      "docs": [
+        "Anchor a bandwidth usage proof on-chain for a specific escrow window.",
+        "",
+        "Called by the oracle when:",
+        "- A 15-minute metering batch accumulates signed proofs, OR",
+        "- A session is terminated (bandwidth exhausted or user-initiated).",
+        "",
+        "The instruction is idempotent in effect: submitting the same (escrow,",
+        "proof_index) twice will fail at PDA init (account already exists),",
+        "preventing double-counting."
+      ],
+      "discriminator": [
+        250,
+        182,
+        153,
+        196,
+        130,
+        23,
+        216,
+        16
+      ],
+      "accounts": [
+        {
+          "name": "oracle",
+          "docs": [
+            "Oracle/admin pays for the PDA rent. Bound to program_state.admin (BC-05)."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "escrow",
+          "docs": [
+            "The escrow PDA this proof belongs to.  Accepted as unchecked AccountInfo",
+            "so both the legacy and multi-sig escrow seed variants are valid."
+          ]
+        },
+        {
+          "name": "usage_proof",
+          "docs": [
+            "New immutable usage proof record.",
+            "Seeds: [\"usage_proof\", escrow_key, proof_index (u32 LE)]"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  97,
+                  103,
+                  101,
+                  95,
+                  112,
+                  114,
+                  111,
+                  111,
+                  102
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "escrow"
+              },
+              {
+                "kind": "arg",
+                "path": "proof_index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "sysvar_instructions"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "proof_index",
+          "type": "u32"
+        },
+        {
+          "name": "total_bytes",
+          "type": "u64"
+        },
+        {
+          "name": "period_start",
+          "type": "i64"
+        },
+        {
+          "name": "period_end",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "submit_zk_batch",
+      "docs": [
+        "`proof_hash`    — SHA-256 of the off-chain ZK proof blob.  Set to all-zeros",
+        "when no off-chain proof was attached. Non-zero means the",
+        "oracle attested it produced/verified that blob off-chain;",
+        "Solana does not yet verify Halo2 inside this instruction."
+      ],
+      "discriminator": [
+        78,
+        51,
+        239,
+        208,
+        75,
+        61,
+        205,
+        50
+      ],
+      "accounts": [
+        {
+          "name": "oracle",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "zk_batch",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  122,
+                  107,
+                  95,
+                  98,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "batch_root"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "instructions",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "batch_root",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "session_count",
+          "type": "u32"
+        },
+        {
+          "name": "total_bytes",
+          "type": "u64"
+        },
+        {
+          "name": "period_start",
+          "type": "i64"
+        },
+        {
+          "name": "period_end",
+          "type": "i64"
+        },
+        {
+          "name": "proof_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "submit_zk_batch_groth16",
+      "discriminator": [
+        189,
+        222,
+        181,
+        67,
+        150,
+        159,
+        148,
+        41
+      ],
+      "accounts": [
+        {
+          "name": "oracle",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "zk_batch",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  122,
+                  107,
+                  95,
+                  98,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "batch_root"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "groth16_proof"
+        },
+        {
+          "name": "groth16_vk"
+        }
+      ],
+      "args": [
+        {
+          "name": "batch_root",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "session_count",
+          "type": "u32"
+        },
+        {
+          "name": "total_bytes",
+          "type": "u64"
+        },
+        {
+          "name": "period_start",
+          "type": "i64"
+        },
+        {
+          "name": "period_end",
+          "type": "i64"
+        },
+        {
+          "name": "leaves_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "proof_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "vk_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "proof",
+          "type": {
+            "array": [
+              "u8",
+              256
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "unstake_provider",
+      "docs": [
+        "Unstakes provider collateral from the stake PDA back to treasury/oracle."
+      ],
+      "discriminator": [
+        3,
+        113,
+        230,
+        51,
+        82,
+        247,
+        160,
+        38
+      ],
+      "accounts": [
+        {
+          "name": "oracle",
+          "docs": [
+            "Program admin (treasury custody) only: the withdrawn lamports are credited to this",
+            "account, which is the custody wallet. With any signer allowed, an attacker could",
+            "withdraw every provider's stake into their own wallet."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "stake_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "provider_wallet"
+              }
+            ]
+          }
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "provider_wallet",
+          "type": "pubkey"
+        },
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "update_deposit_vault_hot",
+      "docs": [
+        "Rotate the hot treasury binding on the deposit vault (admin/authority only)."
+      ],
+      "discriminator": [
+        248,
+        254,
+        246,
+        68,
+        183,
+        61,
+        80,
+        206
+      ],
+      "accounts": [
+        {
+          "name": "deposit_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "new_hot_treasury",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "update_prices",
+      "docs": [
+        "Update market prices"
+      ],
+      "discriminator": [
+        62,
+        161,
+        234,
+        136,
+        106,
+        26,
+        18,
+        160
+      ],
+      "accounts": [
+        {
+          "name": "price_oracle",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  105,
+                  99,
+                  101,
+                  95,
+                  111,
+                  114,
+                  97,
+                  99,
+                  108,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "residential",
+          "type": "u64"
+        },
+        {
+          "name": "datacenter",
+          "type": "u64"
+        },
+        {
+          "name": "mobile",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "update_program_config",
+      "docs": [
+        "Initialize or update on-chain program configuration.",
+        "Requires multisig oracle to prevent single-point-of-control."
+      ],
+      "discriminator": [
+        214,
+        3,
+        187,
+        98,
+        170,
+        106,
+        33,
+        45
+      ],
+      "accounts": [
+        {
+          "name": "oracle",
+          "docs": [
+            "Program admin only. This used to be any signer, so anyone could set",
+            "`unstake_cooldown_seconds` to 1 and the fee and limit fields to anything."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "program_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "multisig_oracle",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  117,
+                  108,
+                  116,
+                  105,
+                  115,
+                  105,
+                  103,
+                  95,
+                  111,
+                  114,
+                  97,
+                  99,
+                  108,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "kyc_min_sol_lamports",
+          "type": "u64"
+        },
+        {
+          "name": "platform_fee_bps",
+          "type": "u16"
+        },
+        {
+          "name": "max_daily_spend_lamports",
+          "type": "u64"
+        },
+        {
+          "name": "max_session_bw_bytes",
+          "type": "u64"
+        },
+        {
+          "name": "unstake_cooldown_seconds",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "update_threshold",
+      "docs": [
+        "Update signature threshold"
+      ],
+      "discriminator": [
+        251,
+        36,
+        24,
+        179,
+        157,
+        31,
+        239,
+        234
+      ],
+      "accounts": [
+        {
+          "name": "multisig_oracle",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  117,
+                  108,
+                  116,
+                  105,
+                  115,
+                  105,
+                  103,
+                  95,
+                  111,
+                  114,
+                  97,
+                  99,
+                  108,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "program_state"
+        }
+      ],
+      "args": [
+        {
+          "name": "new_threshold",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "withdraw_from_vault",
+      "docs": [
+        "Withdraw SOL from the deposit vault to the bound hot treasury only.",
+        "Authority: vault.authority, vault.withdraw_authority, or program_state.admin."
+      ],
+      "discriminator": [
+        180,
+        34,
+        37,
+        46,
+        156,
+        0,
+        211,
+        238
+      ],
+      "accounts": [
+        {
+          "name": "deposit_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "hot_treasury",
+          "writable": true
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "write_admin_attestation",
+      "docs": [
+        "Write an admin attestation PDA for a wallet.  Only the program admin",
+        "(program_state.admin) can call this."
+      ],
+      "discriminator": [
+        132,
+        102,
+        113,
+        252,
+        233,
+        114,
+        74,
+        54
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "attestation",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  100,
+                  109,
+                  105,
+                  110,
+                  95,
+                  97,
+                  116,
+                  116,
+                  101,
+                  115,
+                  116,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "wallet"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "wallet",
+          "type": "pubkey"
+        },
+        {
+          "name": "role",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "write_kyc_attestation",
+      "docs": [
+        "Write (or overwrite) an on-chain KYC attestation for a user wallet.",
+        "",
+        "Only the oracle signer may call this.  The instruction is idempotent:",
+        "if an attestation already exists for the wallet it is updated in-place;",
+        "otherwise a new PDA is initialised (init_if_needed).",
+        "",
+        "trust_tier: 0=new, 1=verified, 2=premium",
+        "kyc_status: 0=none, 1=pending, 2=approved, 3=rejected"
+      ],
+      "discriminator": [
+        161,
+        124,
+        52,
+        217,
+        91,
+        246,
+        163,
+        116
+      ],
+      "accounts": [
+        {
+          "name": "oracle",
+          "docs": [
+            "Oracle/admin pays for the PDA rent on first creation. Bound to",
+            "program_state.admin so arbitrary signers cannot forge KYC (BC-05)."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "attestation",
+          "docs": [
+            "KYC attestation PDA.  Created on first call, updated on subsequent calls.",
+            "Seeds: [\"kyc_attestation\", wallet_pubkey]"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  107,
+                  121,
+                  99,
+                  95,
+                  97,
+                  116,
+                  116,
+                  101,
+                  115,
+                  116,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "wallet"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "program_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "wallet",
+          "type": "pubkey"
+        },
+        {
+          "name": "trust_tier",
+          "type": "u8"
+        },
+        {
+          "name": "kyc_status",
+          "type": "u8"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "AdminAttestation",
+      "discriminator": [
+        114,
+        104,
+        15,
+        150,
+        207,
+        144,
+        24,
+        201
+      ]
+    },
+    {
+      "name": "ChannelPDA",
+      "discriminator": [
+        92,
+        242,
+        107,
+        253,
+        109,
+        126,
+        247,
+        5
+      ]
+    },
+    {
+      "name": "DepositVault",
+      "discriminator": [
+        53,
+        212,
+        130,
+        255,
+        208,
+        18,
+        41,
+        34
+      ]
+    },
+    {
+      "name": "Dispute",
+      "discriminator": [
+        36,
+        49,
+        241,
+        67,
+        40,
+        36,
+        241,
+        74
+      ]
+    },
+    {
+      "name": "DisputeRecord",
+      "discriminator": [
+        198,
+        199,
+        79,
+        209,
+        12,
+        215,
+        34,
+        47
+      ]
+    },
+    {
+      "name": "EpochClaimReceipt",
+      "discriminator": [
+        94,
+        184,
+        8,
+        13,
+        84,
+        22,
+        145,
+        146
+      ]
+    },
+    {
+      "name": "EpochRewardPool",
+      "discriminator": [
+        120,
+        220,
+        120,
+        122,
+        103,
+        185,
+        167,
+        23
+      ]
+    },
+    {
+      "name": "Escrow",
+      "discriminator": [
+        31,
+        213,
+        123,
+        187,
+        186,
+        22,
+        218,
+        155
+      ]
+    },
+    {
+      "name": "GatewayRegistry",
+      "discriminator": [
+        207,
+        115,
+        197,
+        33,
+        28,
+        106,
+        182,
+        209
+      ]
+    },
+    {
+      "name": "GovernanceProposal",
+      "discriminator": [
+        53,
+        107,
+        240,
+        190,
+        43,
+        73,
+        65,
+        143
+      ]
+    },
+    {
+      "name": "GovernanceVote",
+      "discriminator": [
+        157,
+        104,
+        16,
+        111,
+        208,
+        31,
+        53,
+        132
+      ]
+    },
+    {
+      "name": "InsurancePool",
+      "discriminator": [
+        239,
+        152,
+        145,
+        201,
+        228,
+        155,
+        139,
+        140
+      ]
+    },
+    {
+      "name": "Jury",
+      "discriminator": [
+        141,
+        132,
+        198,
+        183,
+        237,
+        25,
+        238,
+        117
+      ]
+    },
+    {
+      "name": "JuryVotePDA",
+      "discriminator": [
+        131,
+        140,
+        130,
+        128,
+        177,
+        158,
+        87,
+        118
+      ]
+    },
+    {
+      "name": "KYCAttestation",
+      "discriminator": [
+        60,
+        167,
+        216,
+        47,
+        154,
+        111,
+        101,
+        0
+      ]
+    },
+    {
+      "name": "ListingCommitment",
+      "discriminator": [
+        66,
+        224,
+        217,
+        30,
+        175,
+        248,
+        216,
+        38
+      ]
+    },
+    {
+      "name": "MultiSigOracle",
+      "discriminator": [
+        13,
+        119,
+        70,
+        123,
+        241,
+        151,
+        90,
+        30
+      ]
+    },
+    {
+      "name": "OracleSignature",
+      "discriminator": [
+        255,
+        193,
+        146,
+        193,
+        5,
+        202,
+        11,
+        29
+      ]
+    },
+    {
+      "name": "PriceOracle",
+      "discriminator": [
+        57,
+        140,
+        120,
+        176,
+        191,
+        65,
+        52,
+        89
+      ]
+    },
+    {
+      "name": "ProgramConfig",
+      "discriminator": [
+        196,
+        210,
+        90,
+        231,
+        144,
+        149,
+        140,
+        63
+      ]
+    },
+    {
+      "name": "ProgramState",
+      "discriminator": [
+        77,
+        209,
+        137,
+        229,
+        149,
+        67,
+        167,
+        230
+      ]
+    },
+    {
+      "name": "ProviderRegistry",
+      "discriminator": [
+        27,
+        101,
+        68,
+        38,
+        206,
+        197,
+        61,
+        114
+      ]
+    },
+    {
+      "name": "ReviewAttestation",
+      "discriminator": [
+        124,
+        150,
+        166,
+        212,
+        85,
+        191,
+        58,
+        96
+      ]
+    },
+    {
+      "name": "SessionCommitment",
+      "discriminator": [
+        2,
+        224,
+        149,
+        2,
+        134,
+        63,
+        219,
+        29
+      ]
+    },
+    {
+      "name": "SessionEscrow",
+      "discriminator": [
+        251,
+        205,
+        39,
+        211,
+        38,
+        92,
+        234,
+        241
+      ]
+    },
+    {
+      "name": "StakeAccount",
+      "discriminator": [
+        80,
+        158,
+        67,
+        124,
+        50,
+        189,
+        192,
+        255
+      ]
+    },
+    {
+      "name": "UsageProofRecord",
+      "discriminator": [
+        80,
+        92,
+        172,
+        33,
+        205,
+        27,
+        47,
+        201
+      ]
+    },
+    {
+      "name": "ZKBatchPDA",
+      "discriminator": [
+        90,
+        13,
+        41,
+        237,
+        29,
+        29,
+        144,
+        79
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "AdminAttestationWritten",
+      "discriminator": [
+        83,
+        11,
+        176,
+        64,
+        94,
+        23,
+        94,
+        132
+      ]
+    },
+    {
+      "name": "BandwidthRewardClaimedEvent",
+      "discriminator": [
+        197,
+        70,
+        254,
+        249,
+        83,
+        118,
+        195,
+        7
+      ]
+    },
+    {
+      "name": "CircleRegisteredEvent",
+      "discriminator": [
+        2,
+        252,
+        134,
+        227,
+        151,
+        2,
+        178,
+        2
+      ]
+    },
+    {
+      "name": "CircleSettledEvent",
+      "discriminator": [
+        4,
+        124,
+        145,
+        199,
+        195,
+        242,
+        2,
+        204
+      ]
+    },
+    {
+      "name": "DepositVaultHotUpdated",
+      "discriminator": [
+        37,
+        162,
+        162,
+        119,
+        242,
+        211,
+        129,
+        196
+      ]
+    },
+    {
+      "name": "DepositVaultInitialized",
+      "discriminator": [
+        170,
+        254,
+        183,
+        167,
+        5,
+        253,
+        183,
+        165
+      ]
+    },
+    {
+      "name": "DepositVaultWithdrawn",
+      "discriminator": [
+        85,
+        69,
+        23,
+        209,
+        3,
+        83,
+        153,
+        93
+      ]
+    },
+    {
+      "name": "DisputeFinalized",
+      "discriminator": [
+        171,
+        117,
+        216,
+        12,
+        227,
+        254,
+        59,
+        184
+      ]
+    },
+    {
+      "name": "DisputeJuryVoteCast",
+      "discriminator": [
+        43,
+        240,
+        234,
+        76,
+        28,
+        205,
+        60,
+        212
+      ]
+    },
+    {
+      "name": "DisputeOpened",
+      "discriminator": [
+        239,
+        222,
+        102,
+        235,
+        193,
+        85,
+        1,
+        214
+      ]
+    },
+    {
+      "name": "DisputeRaised",
+      "discriminator": [
+        246,
+        167,
+        109,
+        37,
+        142,
+        45,
+        38,
+        176
+      ]
+    },
+    {
+      "name": "DisputeResolved",
+      "discriminator": [
+        121,
+        64,
+        249,
+        153,
+        139,
+        128,
+        236,
+        187
+      ]
+    },
+    {
+      "name": "EscrowClosed",
+      "discriminator": [
+        109,
+        20,
+        57,
+        51,
+        217,
+        118,
+        3,
+        173
+      ]
+    },
+    {
+      "name": "EscrowInitialized",
+      "discriminator": [
+        222,
+        186,
+        157,
+        47,
+        145,
+        142,
+        176,
+        248
+      ]
+    },
+    {
+      "name": "EscrowRefunded",
+      "discriminator": [
+        132,
+        209,
+        49,
+        109,
+        135,
+        138,
+        28,
+        81
+      ]
+    },
+    {
+      "name": "EscrowSettled",
+      "discriminator": [
+        97,
+        27,
+        150,
+        55,
+        203,
+        179,
+        173,
+        23
+      ]
+    },
+    {
+      "name": "GatewayDeregisteredEvent",
+      "discriminator": [
+        143,
+        149,
+        245,
+        134,
+        181,
+        254,
+        53,
+        85
+      ]
+    },
+    {
+      "name": "GatewayHeartbeatEvent",
+      "discriminator": [
+        18,
+        210,
+        145,
+        88,
+        90,
+        53,
+        219,
+        144
+      ]
+    },
+    {
+      "name": "GatewayRegisteredEvent",
+      "discriminator": [
+        170,
+        27,
+        221,
+        185,
+        89,
+        8,
+        106,
+        250
+      ]
+    },
+    {
+      "name": "GatewaySlashedEvent",
+      "discriminator": [
+        77,
+        185,
+        227,
+        227,
+        45,
+        137,
+        96,
+        127
+      ]
+    },
+    {
+      "name": "JuryVerdictExecuted",
+      "discriminator": [
+        123,
+        101,
+        217,
+        131,
+        76,
+        143,
+        184,
+        65
+      ]
+    },
+    {
+      "name": "JuryVoteCast",
+      "discriminator": [
+        6,
+        229,
+        155,
+        164,
+        92,
+        124,
+        61,
+        37
+      ]
+    },
+    {
+      "name": "KYCAttestationWritten",
+      "discriminator": [
+        211,
+        167,
+        162,
+        117,
+        227,
+        160,
+        199,
+        5
+      ]
+    },
+    {
+      "name": "ListingCommitmentDeactivated",
+      "discriminator": [
+        140,
+        68,
+        169,
+        79,
+        196,
+        77,
+        102,
+        34
+      ]
+    },
+    {
+      "name": "ListingCommitmentRegistered",
+      "discriminator": [
+        77,
+        219,
+        226,
+        137,
+        41,
+        79,
+        117,
+        199
+      ]
+    },
+    {
+      "name": "OracleSignerAdded",
+      "discriminator": [
+        112,
+        100,
+        127,
+        181,
+        100,
+        112,
+        146,
+        180
+      ]
+    },
+    {
+      "name": "OracleSignerRemoved",
+      "discriminator": [
+        29,
+        14,
+        154,
+        132,
+        64,
+        115,
+        224,
+        107
+      ]
+    },
+    {
+      "name": "PriceUpdated",
+      "discriminator": [
+        154,
+        72,
+        87,
+        150,
+        246,
+        230,
+        23,
+        217
+      ]
+    },
+    {
+      "name": "ProgramConfigUpdated",
+      "discriminator": [
+        146,
+        126,
+        196,
+        68,
+        2,
+        106,
+        144,
+        210
+      ]
+    },
+    {
+      "name": "ProgramPaused",
+      "discriminator": [
+        247,
+        9,
+        236,
+        38,
+        105,
+        35,
+        112,
+        115
+      ]
+    },
+    {
+      "name": "ProgramResumed",
+      "discriminator": [
+        95,
+        149,
+        57,
+        242,
+        73,
+        51,
+        119,
+        169
+      ]
+    },
+    {
+      "name": "ProposalCreated",
+      "discriminator": [
+        186,
+        8,
+        160,
+        108,
+        81,
+        13,
+        51,
+        206
+      ]
+    },
+    {
+      "name": "ProposalExecuted",
+      "discriminator": [
+        92,
+        213,
+        189,
+        201,
+        101,
+        83,
+        111,
+        83
+      ]
+    },
+    {
+      "name": "ProposalFinalized",
+      "discriminator": [
+        159,
+        104,
+        210,
+        220,
+        86,
+        209,
+        61,
+        51
+      ]
+    },
+    {
+      "name": "ProviderHeartbeatEvent",
+      "discriminator": [
+        175,
+        85,
+        23,
+        141,
+        158,
+        210,
+        221,
+        219
+      ]
+    },
+    {
+      "name": "ProviderRegisteredEvent",
+      "discriminator": [
+        183,
+        52,
+        58,
+        115,
+        168,
+        126,
+        127,
+        250
+      ]
+    },
+    {
+      "name": "ProviderSlashed",
+      "discriminator": [
+        2,
+        171,
+        201,
+        137,
+        189,
+        61,
+        50,
+        27
+      ]
+    },
+    {
+      "name": "ProviderStaked",
+      "discriminator": [
+        151,
+        129,
+        128,
+        209,
+        68,
+        84,
+        31,
+        248
+      ]
+    },
+    {
+      "name": "ProviderUnstaked",
+      "discriminator": [
+        118,
+        159,
+        47,
+        86,
+        193,
+        154,
+        153,
+        190
+      ]
+    },
+    {
+      "name": "ReviewAttested",
+      "discriminator": [
+        7,
+        146,
+        211,
+        226,
+        189,
+        60,
+        77,
+        141
+      ]
+    },
+    {
+      "name": "SessionCommitmentLocked",
+      "discriminator": [
+        143,
+        124,
+        144,
+        177,
+        222,
+        223,
+        123,
+        242
+      ]
+    },
+    {
+      "name": "SessionEscrowInitialized",
+      "discriminator": [
+        85,
+        15,
+        118,
+        144,
+        112,
+        124,
+        167,
+        103
+      ]
+    },
+    {
+      "name": "SessionEscrowSettled",
+      "discriminator": [
+        64,
+        106,
+        224,
+        157,
+        246,
+        192,
+        195,
+        151
+      ]
+    },
+    {
+      "name": "SessionSettledWithMutualReceipt",
+      "discriminator": [
+        192,
+        209,
+        20,
+        14,
+        62,
+        172,
+        138,
+        96
+      ]
+    },
+    {
+      "name": "SpendingEventLogged",
+      "discriminator": [
+        2,
+        88,
+        55,
+        246,
+        134,
+        214,
+        48,
+        100
+      ]
+    },
+    {
+      "name": "UsageProofSubmitted",
+      "discriminator": [
+        109,
+        44,
+        216,
+        169,
+        190,
+        22,
+        99,
+        69
+      ]
+    },
+    {
+      "name": "VoteCast",
+      "discriminator": [
+        39,
+        53,
+        195,
+        104,
+        188,
+        17,
+        225,
+        213
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidStatus",
+      "msg": "Invalid escrow status for this operation"
+    },
+    {
+      "code": 6001,
+      "name": "Expired",
+      "msg": "Escrow has expired"
+    },
+    {
+      "code": 6002,
+      "name": "InsufficientFunds",
+      "msg": "Insufficient funds"
+    },
+    {
+      "code": 6003,
+      "name": "Unauthorized",
+      "msg": "Unauthorized access"
+    },
+    {
+      "code": 6004,
+      "name": "DisputeAlreadyResolved",
+      "msg": "Dispute already resolved"
+    },
+    {
+      "code": 6005,
+      "name": "InvalidPercentage",
+      "msg": "Invalid percentage"
+    },
+    {
+      "code": 6006,
+      "name": "ProgramPaused",
+      "msg": "Program is paused"
+    },
+    {
+      "code": 6007,
+      "name": "InvalidOracleSignature",
+      "msg": "Invalid oracle signature"
+    },
+    {
+      "code": 6008,
+      "name": "InsufficientSignatures",
+      "msg": "Insufficient oracle signatures"
+    },
+    {
+      "code": 6009,
+      "name": "DuplicateSignature",
+      "msg": "Duplicate oracle signature"
+    },
+    {
+      "code": 6010,
+      "name": "InvalidJuror",
+      "msg": "Invalid juror"
+    },
+    {
+      "code": 6011,
+      "name": "AlreadyVoted",
+      "msg": "Jury already voted"
+    },
+    {
+      "code": 6012,
+      "name": "InvalidGatewayStatus",
+      "msg": "Invalid gateway status"
+    },
+    {
+      "code": 6013,
+      "name": "StreamEnded",
+      "msg": "Stream has ended"
+    },
+    {
+      "code": 6014,
+      "name": "NotExpired",
+      "msg": "Not expired yet"
+    },
+    {
+      "code": 6015,
+      "name": "EmergencyPauseUnauthorized",
+      "msg": "Emergency pause not authorized"
+    },
+    {
+      "code": 6016,
+      "name": "StalePriceData",
+      "msg": "Stale price data"
+    },
+    {
+      "code": 6017,
+      "name": "SlippageExceeded",
+      "msg": "Slippage tolerance exceeded"
+    },
+    {
+      "code": 6018,
+      "name": "MissingSignatureVerification",
+      "msg": "Missing signature verification instruction"
+    },
+    {
+      "code": 6019,
+      "name": "InvalidSignatureVerification",
+      "msg": "Invalid signature verification data"
+    },
+    {
+      "code": 6020,
+      "name": "ProposalNotPassed",
+      "msg": "Proposal not passed"
+    },
+    {
+      "code": 6021,
+      "name": "TimelockNotExpired",
+      "msg": "Timelock has not expired yet"
+    },
+    {
+      "code": 6022,
+      "name": "InvalidProposalPayload",
+      "msg": "Invalid proposal payload or hash mismatch"
+    },
+    {
+      "code": 6023,
+      "name": "SignerNotFound",
+      "msg": "Signer not found in the oracle signer list"
+    },
+    {
+      "code": 6024,
+      "name": "LockupPeriodActive",
+      "msg": "Staking lockup period is active"
+    },
+    {
+      "code": 6025,
+      "name": "InvalidVaultDestination",
+      "msg": "Withdraw destination must equal vault hot treasury"
+    },
+    {
+      "code": 6026,
+      "name": "InvalidHotTreasury",
+      "msg": "Deposit vault hot treasury cannot be default pubkey"
+    },
+    {
+      "code": 6027,
+      "name": "OnchainGroth16Disabled",
+      "msg": "On-chain Groth16 batch submit is disabled (build without onchain-groth16)"
+    },
+    {
+      "code": 6028,
+      "name": "Groth16VerifierNotReady",
+      "msg": "Groth16 on-chain verifier not ready — refusing to write ZKBatchPDA"
+    },
+    {
+      "code": 6029,
+      "name": "Groth16VerificationFailed",
+      "msg": "Groth16 proof verification failed"
+    },
+    {
+      "code": 6030,
+      "name": "Groth16VkHashMismatch",
+      "msg": "Groth16 verifying-key hash mismatch"
+    },
+    {
+      "code": 6031,
+      "name": "Groth16InvalidProofAccount",
+      "msg": "Groth16 proof account must be 256 bytes (A||B||C)"
+    },
+    {
+      "code": 6032,
+      "name": "CalculationOverflow",
+      "msg": "Arithmetic overflow or division by zero in payout calculation"
+    }
+  ],
+  "types": [
+    {
+      "name": "AdminAttestation",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin_wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "oracle",
+            "type": "pubkey"
+          },
+          {
+            "name": "role",
+            "type": "u8"
+          },
+          {
+            "name": "attested_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AdminAttestationWritten",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin_wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "role",
+            "type": "u8"
+          },
+          {
+            "name": "attested_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BandwidthRewardClaimedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "epoch_id",
+            "type": "u64"
+          },
+          {
+            "name": "provider",
+            "type": "pubkey"
+          },
+          {
+            "name": "bytes_verified",
+            "type": "u64"
+          },
+          {
+            "name": "reward_lamports",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ChannelPDA",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "session_id",
+            "type": {
+              "array": [
+                "u8",
+                16
+              ]
+            }
+          },
+          {
+            "name": "buyer",
+            "type": "pubkey"
+          },
+          {
+            "name": "provider",
+            "type": "pubkey"
+          },
+          {
+            "name": "deposit_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "spent_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "nonce",
+            "type": "u64"
+          },
+          {
+            "name": "opened_at",
+            "type": "i64"
+          },
+          {
+            "name": "expires_at",
+            "type": "i64"
+          },
+          {
+            "name": "is_closed",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CircleRegisteredEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "circle",
+            "type": "pubkey"
+          },
+          {
+            "name": "leader",
+            "type": "pubkey"
+          },
+          {
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "name": "treasury_share",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CircleSettledEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "escrow",
+            "type": "pubkey"
+          },
+          {
+            "name": "circle",
+            "type": "pubkey"
+          },
+          {
+            "name": "seller_payout",
+            "type": "u64"
+          },
+          {
+            "name": "buyer_refund",
+            "type": "u64"
+          },
+          {
+            "name": "bandwidth_used",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DepositVault",
+      "docs": [
+        "Platform deposit vault — holds inbound user SOL outside the hot EOA.",
+        "Users transfer SOL natively to this PDA; admin/oracle withdraws only to hot_treasury.",
+        "PDA seeds: [\"deposit_vault\"]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "withdraw_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "hot_treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "total_deposited",
+            "type": "u64"
+          },
+          {
+            "name": "total_withdrawn",
+            "type": "u64"
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "updated_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DepositVaultHotUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "old_hot",
+            "type": "pubkey"
+          },
+          {
+            "name": "new_hot",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DepositVaultInitialized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "hot_treasury",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DepositVaultWithdrawn",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "destination",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Dispute",
+      "docs": [
+        "Dispute Account - tracks disputes on escrows"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "escrow",
+            "type": "pubkey"
+          },
+          {
+            "name": "initiator",
+            "type": "pubkey"
+          },
+          {
+            "name": "is_buyer",
+            "type": "bool"
+          },
+          {
+            "name": "reason",
+            "type": "string"
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "DisputeStatus"
+              }
+            }
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "resolved_at",
+            "type": "i64"
+          },
+          {
+            "name": "resolution",
+            "type": "string"
+          },
+          {
+            "name": "buyer_payout",
+            "type": "u64"
+          },
+          {
+            "name": "seller_payout",
+            "type": "u64"
+          },
+          {
+            "name": "jury_address",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DisputeFinalized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "dispute_pda",
+            "type": "pubkey"
+          },
+          {
+            "name": "verdict_buyer",
+            "type": "bool"
+          },
+          {
+            "name": "yes_votes",
+            "type": "u8"
+          },
+          {
+            "name": "no_votes",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DisputeJuryVoteCast",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "dispute_pda",
+            "type": "pubkey"
+          },
+          {
+            "name": "juror",
+            "type": "pubkey"
+          },
+          {
+            "name": "vote_buyer",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DisputeOpened",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "dispute_pda",
+            "type": "pubkey"
+          },
+          {
+            "name": "escrow",
+            "type": "pubkey"
+          },
+          {
+            "name": "reason_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "slot_seed",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DisputeRaised",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "escrow",
+            "type": "pubkey"
+          },
+          {
+            "name": "dispute",
+            "type": "pubkey"
+          },
+          {
+            "name": "initiator",
+            "type": "pubkey"
+          },
+          {
+            "name": "reason",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DisputeRecord",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DisputeResolved",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "escrow",
+            "type": "pubkey"
+          },
+          {
+            "name": "dispute",
+            "type": "pubkey"
+          },
+          {
+            "name": "buyer_payout",
+            "type": "u64"
+          },
+          {
+            "name": "seller_payout",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DisputeStatus",
+      "docs": [
+        "Dispute status"
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Open"
+          },
+          {
+            "name": "Resolved"
+          },
+          {
+            "name": "Cancelled"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EpochClaimReceipt",
+      "docs": [
+        "One claim per provider per epoch. Created by `claim_bandwidth_rewards`; because it is an",
+        "`init` account, a second claim for the same epoch and provider fails.",
+        "PDA seeds: [\"epoch_claim\", epoch_id.to_le_bytes(), provider_wallet]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "epoch_id",
+            "type": "u64"
+          },
+          {
+            "name": "provider",
+            "type": "pubkey"
+          },
+          {
+            "name": "bytes_verified",
+            "type": "u64"
+          },
+          {
+            "name": "reward_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "claimed_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EpochRewardPool",
+      "docs": [
+        "EpochRewardPool — On-chain bandwidth mining emission pool (Track 4.1).",
+        "",
+        "PDA seeds: [\"epoch-rewards\", epoch_id.to_le_bytes()]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "epoch_id",
+            "type": "u64"
+          },
+          {
+            "name": "total_emission_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "remaining_emission_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "total_bandwidth_verified",
+            "type": "u64"
+          },
+          {
+            "name": "settled_providers_count",
+            "type": "u32"
+          },
+          {
+            "name": "is_finalized",
+            "type": "bool"
+          },
+          {
+            "name": "start_timestamp",
+            "type": "i64"
+          },
+          {
+            "name": "end_timestamp",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Escrow",
+      "docs": [
+        "The Escrow Account PDA (for SOL)"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "buyer",
+            "type": "pubkey"
+          },
+          {
+            "name": "seller",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "bandwidth_limit_gb",
+            "type": "u64"
+          },
+          {
+            "name": "bandwidth_used_gb",
+            "type": "u64"
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "EscrowStatus"
+              }
+            }
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "expires_at",
+            "type": "i64"
+          },
+          {
+            "name": "price_oracle",
+            "type": "pubkey"
+          },
+          {
+            "name": "price_timestamp",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EscrowClosed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "escrow",
+            "type": "pubkey"
+          },
+          {
+            "name": "buyer",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EscrowInitialized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "escrow",
+            "type": "pubkey"
+          },
+          {
+            "name": "buyer",
+            "type": "pubkey"
+          },
+          {
+            "name": "seller",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "limit_gb",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EscrowRefunded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "escrow",
+            "type": "pubkey"
+          },
+          {
+            "name": "buyer",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EscrowSettled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "escrow",
+            "type": "pubkey"
+          },
+          {
+            "name": "seller_payout",
+            "type": "u64"
+          },
+          {
+            "name": "buyer_refund",
+            "type": "u64"
+          },
+          {
+            "name": "bandwidth_used",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EscrowStatus",
+      "docs": [
+        "Escrow states"
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Pending"
+          },
+          {
+            "name": "Active"
+          },
+          {
+            "name": "Settled"
+          },
+          {
+            "name": "Refunded"
+          },
+          {
+            "name": "Disputed"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GatewayDeregisteredEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "gateway",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "stake_returned",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GatewayHeartbeatEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "gateway",
+            "type": "pubkey"
+          },
+          {
+            "name": "active_tunnels",
+            "type": "u32"
+          },
+          {
+            "name": "quality_score",
+            "type": "u8"
+          },
+          {
+            "name": "last_heartbeat",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GatewayRegisteredEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "gateway",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "endpoint",
+            "type": "string"
+          },
+          {
+            "name": "stake",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GatewayRegistry",
+      "docs": [
+        "GatewayRegistry — On-chain registration, staking, and health for edge gateways.",
+        "",
+        "PDA seeds: [\"gateway-registry\", gateway_pubkey.as_ref()]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "gateway",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "endpoint",
+            "type": "string"
+          },
+          {
+            "name": "stake_amount",
+            "type": "u64"
+          },
+          {
+            "name": "min_stake_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "quality_score",
+            "type": "u8"
+          },
+          {
+            "name": "active_tunnels",
+            "type": "u32"
+          },
+          {
+            "name": "is_active",
+            "type": "bool"
+          },
+          {
+            "name": "registered_at",
+            "type": "i64"
+          },
+          {
+            "name": "last_heartbeat",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GatewaySlashedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "gateway",
+            "type": "pubkey"
+          },
+          {
+            "name": "slashed_amount",
+            "type": "u64"
+          },
+          {
+            "name": "remaining_stake",
+            "type": "u64"
+          },
+          {
+            "name": "reason_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "GovernanceProposal",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "proposal_id",
+            "type": {
+              "array": [
+                "u8",
+                16
+              ]
+            }
+          },
+          {
+            "name": "proposer",
+            "type": "pubkey"
+          },
+          {
+            "name": "title_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "vote_yes",
+            "type": "u64"
+          },
+          {
+            "name": "vote_no",
+            "type": "u64"
+          },
+          {
+            "name": "status",
+            "type": "u8"
+          },
+          {
+            "name": "end_slot",
+            "type": "u64"
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GovernanceVote",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "proposal",
+            "type": "pubkey"
+          },
+          {
+            "name": "voter",
+            "type": "pubkey"
+          },
+          {
+            "name": "vote_yes",
+            "type": "bool"
+          },
+          {
+            "name": "voting_power",
+            "type": "u64"
+          },
+          {
+            "name": "voted_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "InsurancePool",
+      "docs": [
+        "Insurance Pool - Shared pool for provider protection"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "total_funds",
+            "type": "u64"
+          },
+          {
+            "name": "total_providers",
+            "type": "u32"
+          },
+          {
+            "name": "slash_percentage",
+            "type": "u8"
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Jury",
+      "docs": [
+        "Jury Account - Decentralized dispute resolution"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "escrow",
+            "type": "pubkey"
+          },
+          {
+            "name": "jurors",
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "votes_buyer",
+            "type": "u8"
+          },
+          {
+            "name": "votes_seller",
+            "type": "u8"
+          },
+          {
+            "name": "voted_jurors",
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "outcome",
+            "type": {
+              "defined": {
+                "name": "DisputeStatus"
+              }
+            }
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "resolved_at",
+            "type": "i64"
+          },
+          {
+            "name": "reward_per_juror",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "JuryVerdictExecuted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "jury",
+            "type": "pubkey"
+          },
+          {
+            "name": "escrow",
+            "type": "pubkey"
+          },
+          {
+            "name": "buyer_wins",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "JuryVoteCast",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "jury",
+            "type": "pubkey"
+          },
+          {
+            "name": "juror",
+            "type": "pubkey"
+          },
+          {
+            "name": "vote_for_buyer",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "JuryVotePDA",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "dispute",
+            "type": "pubkey"
+          },
+          {
+            "name": "juror",
+            "type": "pubkey"
+          },
+          {
+            "name": "vote_buyer",
+            "type": "bool"
+          },
+          {
+            "name": "voted_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "KYCAttestation",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "oracle",
+            "type": "pubkey"
+          },
+          {
+            "name": "trust_tier",
+            "type": "u8"
+          },
+          {
+            "name": "kyc_status",
+            "type": "u8"
+          },
+          {
+            "name": "attested_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "KYCAttestationWritten",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "oracle",
+            "type": "pubkey"
+          },
+          {
+            "name": "trust_tier",
+            "type": "u8"
+          },
+          {
+            "name": "kyc_status",
+            "type": "u8"
+          },
+          {
+            "name": "attested_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ListingCommitment",
+      "docs": [
+        "ListingCommitment — on-chain anchor of an off-chain Ed25519 listing offer hash.",
+        "",
+        "PDA seeds: [\"listing-commitment\", provider_pubkey, offer_hash]",
+        "",
+        "This is **not** a full on-chain catalog. Merchandising (title/media/search)",
+        "remains Postgres. The PDA only proves the offer hash was registered on-chain."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "provider",
+            "type": "pubkey"
+          },
+          {
+            "name": "offer_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "listing_id",
+            "type": {
+              "array": [
+                "u8",
+                16
+              ]
+            }
+          },
+          {
+            "name": "is_active",
+            "type": "bool"
+          },
+          {
+            "name": "registered_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ListingCommitmentDeactivated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "commitment",
+            "type": "pubkey"
+          },
+          {
+            "name": "provider",
+            "type": "pubkey"
+          },
+          {
+            "name": "offer_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ListingCommitmentRegistered",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "commitment",
+            "type": "pubkey"
+          },
+          {
+            "name": "provider",
+            "type": "pubkey"
+          },
+          {
+            "name": "offer_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "listing_id",
+            "type": {
+              "array": [
+                "u8",
+                16
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "MultiSigOracle",
+      "docs": [
+        "MultiSig Oracle Configuration"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "signers",
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "threshold",
+            "type": "u8"
+          },
+          {
+            "name": "nonce",
+            "type": "u64"
+          },
+          {
+            "name": "last_update",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OracleSignature",
+      "docs": [
+        "Oracle Signature Record - Prevents replay attacks"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "escrow",
+            "type": "pubkey"
+          },
+          {
+            "name": "signers",
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "nonce",
+            "type": "u64"
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OracleSignerAdded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "oracle",
+            "type": "pubkey"
+          },
+          {
+            "name": "signer",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OracleSignerRemoved",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "oracle",
+            "type": "pubkey"
+          },
+          {
+            "name": "signer",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PriceOracle",
+      "docs": [
+        "Dynamic Pricing Oracle - Stores current market rates"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "residential_price_per_gb",
+            "type": "u64"
+          },
+          {
+            "name": "datacenter_price_per_gb",
+            "type": "u64"
+          },
+          {
+            "name": "mobile_price_per_gb",
+            "type": "u64"
+          },
+          {
+            "name": "last_update",
+            "type": "i64"
+          },
+          {
+            "name": "update_interval",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PriceUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "oracle",
+            "type": "pubkey"
+          },
+          {
+            "name": "residential",
+            "type": "u64"
+          },
+          {
+            "name": "datacenter",
+            "type": "u64"
+          },
+          {
+            "name": "mobile",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProgramConfig",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "kyc_min_sol_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "platform_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "max_daily_spend_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "max_session_bw_bytes",
+            "type": "u64"
+          },
+          {
+            "name": "unstake_cooldown_seconds",
+            "type": "i64"
+          },
+          {
+            "name": "updated_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProgramConfigUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "kyc_min_sol_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "platform_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "updated_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProgramPaused",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "paused_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProgramResumed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "resumed_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProgramState",
+      "docs": [
+        "Program State - Contains emergency pause and configuration"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "pending_admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "paused",
+            "type": "bool"
+          },
+          {
+            "name": "paused_at",
+            "type": "i64"
+          },
+          {
+            "name": "min_oracle_signatures",
+            "type": "u8"
+          },
+          {
+            "name": "price_validity_seconds",
+            "type": "i64"
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "updated_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProposalCreated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "proposal_pda",
+            "type": "pubkey"
+          },
+          {
+            "name": "proposer",
+            "type": "pubkey"
+          },
+          {
+            "name": "title_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "end_slot",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProposalExecuted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "proposal_pda",
+            "type": "pubkey"
+          },
+          {
+            "name": "executed_by",
+            "type": "pubkey"
+          },
+          {
+            "name": "executed_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProposalFinalized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "proposal_pda",
+            "type": "pubkey"
+          },
+          {
+            "name": "status",
+            "type": "u8"
+          },
+          {
+            "name": "vote_yes",
+            "type": "u64"
+          },
+          {
+            "name": "vote_no",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProviderHeartbeatEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "registry",
+            "type": "pubkey"
+          },
+          {
+            "name": "provider",
+            "type": "pubkey"
+          },
+          {
+            "name": "quality_score",
+            "type": "u8"
+          },
+          {
+            "name": "last_heartbeat",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProviderRegisteredEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "registry",
+            "type": "pubkey"
+          },
+          {
+            "name": "provider",
+            "type": "pubkey"
+          },
+          {
+            "name": "endpoint",
+            "type": "string"
+          },
+          {
+            "name": "location",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProviderRegistry",
+      "docs": [
+        "Provider Registry - On-chain provider information"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "provider",
+            "type": "pubkey"
+          },
+          {
+            "name": "endpoint",
+            "type": "string"
+          },
+          {
+            "name": "location",
+            "type": "string"
+          },
+          {
+            "name": "stake_account",
+            "type": "pubkey"
+          },
+          {
+            "name": "quality_score",
+            "type": "u8"
+          },
+          {
+            "name": "total_bandwidth_served",
+            "type": "u64"
+          },
+          {
+            "name": "successful_sessions",
+            "type": "u32"
+          },
+          {
+            "name": "failed_sessions",
+            "type": "u32"
+          },
+          {
+            "name": "is_active",
+            "type": "bool"
+          },
+          {
+            "name": "registered_at",
+            "type": "i64"
+          },
+          {
+            "name": "last_heartbeat",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProviderSlashed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "provider",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "reason",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProviderStaked",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "provider",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "total_stake",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProviderUnstaked",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "provider",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "remaining_stake",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ReviewAttestation",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "order_escrow_pda",
+            "type": "pubkey"
+          },
+          {
+            "name": "reviewer",
+            "type": "pubkey"
+          },
+          {
+            "name": "rating_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "attested_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ReviewAttested",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "order_escrow_pda",
+            "type": "pubkey"
+          },
+          {
+            "name": "reviewer",
+            "type": "pubkey"
+          },
+          {
+            "name": "rating_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "attested_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SessionCommitment",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "session_id",
+            "type": {
+              "array": [
+                "u8",
+                16
+              ]
+            }
+          },
+          {
+            "name": "buyer_wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "seller_wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "bandwidth_limit_bytes",
+            "type": "u64"
+          },
+          {
+            "name": "price_per_gb_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "locked_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SessionCommitmentLocked",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "session_id",
+            "type": {
+              "array": [
+                "u8",
+                16
+              ]
+            }
+          },
+          {
+            "name": "buyer_wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "seller_wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "bandwidth_limit_bytes",
+            "type": "u64"
+          },
+          {
+            "name": "price_per_gb_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "locked_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SessionEscrow",
+      "docs": [
+        "Funded prepaid session escrow (Phase 1b).",
+        "Holds locked SOL for PAYG/gateway sessions; oracle settles pro-rata by bytes used.",
+        "PDA seeds: [\"session_escrow\", session_id (16 bytes UUID)]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "session_id",
+            "type": {
+              "array": [
+                "u8",
+                16
+              ]
+            }
+          },
+          {
+            "name": "buyer",
+            "type": "pubkey"
+          },
+          {
+            "name": "seller",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "bandwidth_limit_bytes",
+            "type": "u64"
+          },
+          {
+            "name": "bytes_used",
+            "type": "u64"
+          },
+          {
+            "name": "price_per_gb_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "EscrowStatus"
+              }
+            }
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "expires_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SessionEscrowInitialized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "session_escrow",
+            "type": "pubkey"
+          },
+          {
+            "name": "session_id",
+            "type": {
+              "array": [
+                "u8",
+                16
+              ]
+            }
+          },
+          {
+            "name": "buyer",
+            "type": "pubkey"
+          },
+          {
+            "name": "seller",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "bandwidth_limit_bytes",
+            "type": "u64"
+          },
+          {
+            "name": "expires_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SessionEscrowSettled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "session_escrow",
+            "type": "pubkey"
+          },
+          {
+            "name": "session_id",
+            "type": {
+              "array": [
+                "u8",
+                16
+              ]
+            }
+          },
+          {
+            "name": "seller_payout",
+            "type": "u64"
+          },
+          {
+            "name": "buyer_refund",
+            "type": "u64"
+          },
+          {
+            "name": "bytes_used",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SessionSettledWithMutualReceipt",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "escrow",
+            "type": "pubkey"
+          },
+          {
+            "name": "buyer",
+            "type": "pubkey"
+          },
+          {
+            "name": "seller",
+            "type": "pubkey"
+          },
+          {
+            "name": "seller_payout",
+            "type": "u64"
+          },
+          {
+            "name": "buyer_refund",
+            "type": "u64"
+          },
+          {
+            "name": "bytes_used",
+            "type": "u64"
+          },
+          {
+            "name": "sequence_num",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SpendingEventLogged",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "op_type",
+            "type": "u8"
+          },
+          {
+            "name": "logged_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StakeAccount",
+      "docs": [
+        "Stake Account - tracks provider's locked tokens for security"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "last_stake_time",
+            "type": "i64"
+          },
+          {
+            "name": "unstake_request_time",
+            "type": "i64"
+          },
+          {
+            "name": "is_slashed",
+            "type": "bool"
+          },
+          {
+            "name": "insurance_pool_contribution",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UsageProofRecord",
+      "docs": [
+        "UsageProofRecord - Immutable on-chain record of a bandwidth usage period.",
+        "",
+        "PDA seeds: [\"usage_proof\", escrow_pda, proof_index (u32 LE)]",
+        "",
+        "A new record is created for each batched usage window.  Records are",
+        "append-only — once created they are never modified.  The escrow settlement",
+        "instruction (`settle_escrow_multisig`) reads the sum of all records for an",
+        "escrow to determine the final proportional payout."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "escrow",
+            "type": "pubkey"
+          },
+          {
+            "name": "oracle",
+            "type": "pubkey"
+          },
+          {
+            "name": "proof_index",
+            "type": "u32"
+          },
+          {
+            "name": "total_bytes",
+            "type": "u64"
+          },
+          {
+            "name": "period_start",
+            "type": "i64"
+          },
+          {
+            "name": "period_end",
+            "type": "i64"
+          },
+          {
+            "name": "submitted_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UsageProofSubmitted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "escrow",
+            "type": "pubkey"
+          },
+          {
+            "name": "proof_record",
+            "type": "pubkey"
+          },
+          {
+            "name": "proof_index",
+            "type": "u32"
+          },
+          {
+            "name": "total_bytes",
+            "type": "u64"
+          },
+          {
+            "name": "period_start",
+            "type": "i64"
+          },
+          {
+            "name": "period_end",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VoteCast",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "proposal_pda",
+            "type": "pubkey"
+          },
+          {
+            "name": "voter",
+            "type": "pubkey"
+          },
+          {
+            "name": "vote_yes",
+            "type": "bool"
+          },
+          {
+            "name": "voting_power",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ZKBatchPDA",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "batch_root",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "session_count",
+            "type": "u32"
+          },
+          {
+            "name": "total_bytes",
+            "type": "u64"
+          },
+          {
+            "name": "period_start",
+            "type": "i64"
+          },
+          {
+            "name": "period_end",
+            "type": "i64"
+          },
+          {
+            "name": "submitted_at",
+            "type": "i64"
+          },
+          {
+            "name": "proof_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    }
+  ]
+}
