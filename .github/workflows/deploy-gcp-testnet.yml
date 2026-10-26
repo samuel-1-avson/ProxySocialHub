@@ -78,7 +78,7 @@ jobs:
 
           echo "🚀 Triggering remote deployment on $USER@$HOST..."
           ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 "$USER@$HOST" \
-            "cd /opt/proxyhubb && git fetch origin main && git reset --hard origin/main && bash scripts/gcp-ci-deploy.sh $DRY_RUN_INPUT --services \"$SERVICES_INPUT\""
+            "cd /opt/proxyhubb && sudo git fetch origin main && sudo git reset --hard origin/main && sudo bash scripts/gcp-ci-deploy.sh $DRY_RUN_INPUT --services \"$SERVICES_INPUT\""
 
       # ------------------------------------------------------------------------
       # Strategy 2: Google Cloud Service Account Authentication (Fallback)
@@ -103,7 +103,7 @@ jobs:
           set -euo pipefail
           echo "🚀 Triggering remote deployment via gcloud compute ssh..."
           gcloud compute ssh proxyhubb-testnet --zone=us-central1-a --project=gen-lang-client-0022105784 \
-            --command="cd /opt/proxyhubb && git fetch origin main && git reset --hard origin/main && bash scripts/gcp-ci-deploy.sh $DRY_RUN_INPUT --services \"$SERVICES_INPUT\""
+            --command="cd /opt/proxyhubb && sudo git fetch origin main && sudo git reset --hard origin/main && sudo bash scripts/gcp-ci-deploy.sh $DRY_RUN_INPUT --services \"$SERVICES_INPUT\""
 
       # ------------------------------------------------------------------------
       # Guidance notice if neither secret is provided yet
