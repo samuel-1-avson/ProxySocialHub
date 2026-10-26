@@ -42,14 +42,27 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      # The secrets context is not available in step `if:` conditionals -
+      # referencing it there made this workflow invalid at startup (every
+      # run failed in 0s). Detect credentials in a run step and gate the
+      # strategies on its outputs instead.
+      - name: Detect deploy credentials
+        id: creds
+        env:
+          SSH_KEY_1: ${{ secrets.GCP_SSH_PRIVATE_KEY }}
+          SSH_KEY_2: ${{ secrets.GCP_VM_SSH_KEY }}
+          SA_KEY: ${{ secrets.GCP_SA_KEY }}
+        run: |
+          if [ -n "$SSH_KEY_1" ] || [ -n "$SSH_KEY_2" ]; then echo "has_ssh=true" >> "$GITHUB_OUTPUT"; else echo "has_ssh=false" >> "$GITHUB_OUTPUT"; fi
+          if [ -n "$SA_KEY" ]; then echo "has_sa=true" >> "$GITHUB_OUTPUT"; else echo "has_sa=false" >> "$GITHUB_OUTPUT"; fi
+
       # ------------------------------------------------------------------------
       # Strategy 1: SSH Key Authentication (Recommended / Fast)
       # Uses GCP_SSH_PRIVATE_KEY or GCP_VM_SSH_KEY
       # ------------------------------------------------------------------------
       - name: Deploy via SSH Key
-        if: ${{ env.HAS_SSH_KEY == 'true' }}
+        if: ${{ steps.creds.outputs.has_ssh == 'true' }}
         env:
-          HAS_SSH_KEY: ${{ secrets.GCP_SSH_PRIVATE_KEY != '' || secrets.GCP_VM_SSH_KEY != '' }}
           SSH_KEY: ${{ secrets.GCP_SSH_PRIVATE_KEY || secrets.GCP_VM_SSH_KEY }}
           HOST: ${{ secrets.GCP_VM_HOST || '34.68.134.20' }}
           USER: ${{ secrets.GCP_VM_USER || 'samuelavson360' }}
@@ -72,17 +85,17 @@ jobs:
       # Uses GCP_SA_KEY
       # ------------------------------------------------------------------------
       - name: Authenticate to Google Cloud
-        if: ${{ env.HAS_SSH_KEY != 'true' && secrets.GCP_SA_KEY != '' }}
+        if: ${{ steps.creds.outputs.has_ssh != 'true' && steps.creds.outputs.has_sa == 'true' }}
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - name: Set up Cloud SDK
-        if: ${{ env.HAS_SSH_KEY != 'true' && secrets.GCP_SA_KEY != '' }}
+        if: ${{ steps.creds.outputs.has_ssh != 'true' && steps.creds.outputs.has_sa == 'true' }}
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Deploy via gcloud compute ssh
-        if: ${{ env.HAS_SSH_KEY != 'true' && secrets.GCP_SA_KEY != '' }}
+        if: ${{ steps.creds.outputs.has_ssh != 'true' && steps.creds.outputs.has_sa == 'true' }}
         env:
           SERVICES_INPUT: ${{ inputs.services || 'db-migrate control-api web docs' }}
           DRY_RUN_INPUT: ${{ inputs.dry_run && '--dry-run' || '' }}
@@ -96,7 +109,7 @@ jobs:
       # Guidance notice if neither secret is provided yet
       # ------------------------------------------------------------------------
       - name: Check Deployment Credentials
-        if: ${{ env.HAS_SSH_KEY != 'true' && secrets.GCP_SA_KEY == '' }}
+        if: ${{ steps.creds.outputs.has_ssh != 'true' && steps.creds.outputs.has_sa != 'true' }}
         run: |
           echo "⚠️ No GCP credentials configured in GitHub Secrets."
           echo "Please configure either 'GCP_SSH_PRIVATE_KEY' or 'GCP_SA_KEY' in GitHub Repository Settings."
