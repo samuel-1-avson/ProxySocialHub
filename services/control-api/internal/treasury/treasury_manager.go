@@ -847,5 +847,8 @@ func (tm *TreasuryManager) getTreasuryStatus(balance uint64, thresholds Treasury
 
 // RecordOutgoingTransfer records an outgoing transfer for velocity monitoring.
 func (tm *TreasuryManager) RecordOutgoingTransfer(ctx context.Context, amountSOL float64) error {
+	if tm == nil || tm.watchtower == nil {
+		return nil
+	}
 	return tm.watchtower.RecordOutflow(ctx, amountSOL)
 }

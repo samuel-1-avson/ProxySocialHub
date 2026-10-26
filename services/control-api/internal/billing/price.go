@@ -2,6 +2,7 @@ package billing
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"os"
 	"strconv"
@@ -167,14 +168,30 @@ func SOLToUSD(sol float64) float64 {
 
 const bytesPerGB = 1024 * 1024 * 1024
 
+// solPriceNow resolves the live SOL/USD price. It is a variable so tests
+// can simulate feed outages deterministically (same pattern as
+// globalSendSOL).
+var solPriceNow = GetSOLPriceUSD
+
+// ErrSOLPriceUnavailable marks a settlement that cannot be priced. It is
+// always retryable: metering data must be retained, never charged as 0.
+var ErrSOLPriceUnavailable = fmt.Errorf("billing: SOL price unavailable")
+
 // CostFromBytesUSD computes usage cost with lamports as money SoT (Sprint I / DB-02 lite).
 // costUSD remains float for display/limits; costSOL is derived from rounded lamports.
 func CostFromBytesUSD(totalBytes int64, pricePerGBUSD float64) (costLamports int64, costUSD, costSOL float64) {
+	return CostFromBytesUSDAtSOLPrice(totalBytes, pricePerGBUSD, GetSOLPriceUSD())
+}
+
+// CostFromBytesUSDAtSOLPrice is CostFromBytesUSD with an explicit SOL/USD
+// price (e.g. the consumption-time snapshot taken by the aggregator, P0-7).
+// A non-positive solPrice yields zero lamports with a positive costUSD —
+// callers must treat that combination as ErrSOLPriceUnavailable, not free.
+func CostFromBytesUSDAtSOLPrice(totalBytes int64, pricePerGBUSD, solPrice float64) (costLamports int64, costUSD, costSOL float64) {
 	if totalBytes <= 0 || pricePerGBUSD <= 0 {
 		return 0, 0, 0
 	}
 	costUSD = float64(totalBytes) / float64(bytesPerGB) * pricePerGBUSD
-	solPrice := GetSOLPriceUSD()
 	if solPrice <= 0 {
 		return 0, costUSD, 0
 	}

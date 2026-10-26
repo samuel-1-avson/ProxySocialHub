@@ -1,0 +1,16 @@
+# Throwaway build/test environment for the proxyhub Anchor program. Mirrors what
+# services/solana-programs/proxyhub/build-anchor-docker.ps1 installs, baked into an image
+# so builds and test runs can repeat without reinstalling.
+FROM rust:1.89-trixie
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl git pkg-config libssl-dev libudev-dev build-essential xz-utils bzip2 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+ARG NODE_VERSION=24.10.0
+RUN mkdir -p /opt/node && curl -fsSL https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz -o /tmp/node.tar.xz \
+    && tar -xJf /tmp/node.tar.xz -C /opt/node --strip-components=1 && rm /tmp/node.tar.xz
+ARG SOLANA_VERSION=v2.3.0
+RUN curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install | sh
+ENV PATH=/opt/node/bin:/root/.local/share/solana/install/active_release/bin:/usr/local/cargo/bin:$PATH
+ARG ANCHOR_VERSION=0.32.1
+RUN cargo install --git https://github.com/solana-foundation/anchor --tag v${ANCHOR_VERSION} anchor-cli --locked
+RUN npm install -g yarn && node --version && solana --version && anchor --version

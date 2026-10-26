@@ -21,17 +21,32 @@ func LamportsToSOL(lamports uint64) float64 {
 }
 
 // EffectiveBalanceLamports returns the custodial balance in lamports.
-// Prefers BalanceLamports when it matches BalanceSOL (or BalanceSOL is zero);
-// otherwise uses stored BalanceLamports as the dual-write SoT.
+// W-19 (P1): balance_lamports is the single authoritative stored balance.
+// The old heuristic derived lamports from the float balance_sol whenever
+// lamports was 0 - resurrecting legitimately drained wallets whenever a
+// stale float shadow survived. Legacy rows are repaired once at write
+// time (BeforeSave + migration 000159), never guessed at read time.
 func (w *Wallet) EffectiveBalanceLamports() int64 {
-	fromSOL := int64(SOLToLamports(w.BalanceSOL))
-	if w.BalanceLamports == fromSOL {
-		return w.BalanceLamports
-	}
-	if w.BalanceLamports == 0 {
-		return fromSOL
-	}
 	return w.BalanceLamports
+}
+
+// BalanceDriftLamports reports stored-lamports minus float-derived
+// lamports; reconciliation surfaces non-zero drift (W-19/W-18).
+func (w *Wallet) BalanceDriftLamports() int64 {
+	return w.BalanceLamports - int64(SOLToLamports(w.BalanceSOL))
+}
+
+// SyncLamportsFromSOLForLegacyRow repairs a pre-lamports row exactly
+// once at write time: lamports unset but SOL present. All other states
+// sync the float display FROM the authoritative lamports.
+func (w *Wallet) SyncLamportsFromSOLForLegacyRow() {
+	if w.BalanceLamports == 0 && w.BalanceSOL > 0 {
+		w.BalanceLamports = int64(SOLToLamports(w.BalanceSOL))
+		return
+	}
+	if w.BalanceLamports >= 0 {
+		w.BalanceSOL = LamportsToSOL(uint64(w.BalanceLamports))
+	}
 }
 
 // CreditLamports adds delta lamports and syncs BalanceSOL from BalanceLamports.

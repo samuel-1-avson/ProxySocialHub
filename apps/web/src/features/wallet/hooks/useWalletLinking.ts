@@ -3,7 +3,7 @@
 import { type Dispatch, type SetStateAction } from 'react';
 import type { useWallet as useSolanaWallet } from '@solana/wallet-adapter-react';
 import bs58 from 'bs58';
-import { linkWallet } from '@/lib/api';
+import { getLinkChallenge, linkWallet } from '@/lib/api';
 import { getErrorMessage } from '@/lib/utils';
 import type { QueryClient } from '@tanstack/react-query';
 import type { WalletResult } from '../types';
@@ -53,7 +53,9 @@ export function useWalletLinking(opts: {
     if (!publicKey || !userId || !signMessage) return;
     setProcessing(true);
     try {
-      const message = `Link Wallet ${publicKey.toBase58()} to ProxyHubb User ${userId}`;
+      // P0-4: sign the server-issued single-use challenge (binds user+wallet+nonce).
+      const challenge = await getLinkChallenge(publicKey.toBase58(), 'solana');
+      const message = challenge.message;
       const encodedMessage = new TextEncoder().encode(message);
       const sigBytes = await signMessage(encodedMessage);
       const signature = bs58.encode(sigBytes);
