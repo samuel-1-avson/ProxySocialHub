@@ -20,4 +20,4 @@ cluster = "localnet"
 wallet = '~/.config/solana/id.json'
 
 [scripts]
-test = "echo \"gateway-bond: cargo test --manifest-path programs/gateway-bond/Cargo.toml\""
+test = "echo \"gateway-bond: cargo test --manifest-path programs/gateway-bond/Cargo.toml -- --test-threads=1 (ProgramTest contexts interfere in parallel)\""
