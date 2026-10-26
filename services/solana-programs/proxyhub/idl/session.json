@@ -1,0 +1,1209 @@
+{
+  "address": "8TP21JyrghboxZqXMozx2sVzrDrNSZyN2hkf1D7dQGmb",
+  "metadata": {
+    "name": "session",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "ProxySocialHub Session and Gateway Registry Program"
+  },
+  "instructions": [
+    {
+      "name": "activate_session",
+      "docs": [
+        "Activate a session (gateway confirms routing is ready)"
+      ],
+      "discriminator": [
+        225,
+        216,
+        111,
+        21,
+        69,
+        235,
+        96,
+        66
+      ],
+      "accounts": [
+        {
+          "name": "gateway",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "session",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "session.buyer",
+                "account": "Session"
+              },
+              {
+                "kind": "account",
+                "path": "session.provider",
+                "account": "Session"
+              },
+              {
+                "kind": "account",
+                "path": "session.expires_at",
+                "account": "Session"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "complete_session",
+      "docs": [
+        "Complete session and settle escrow"
+      ],
+      "discriminator": [
+        3,
+        8,
+        154,
+        166,
+        198,
+        135,
+        76,
+        131
+      ],
+      "accounts": [
+        {
+          "name": "oracle",
+          "docs": [
+            "Oracle that finalizes the session (must equal config.oracle)"
+          ],
+          "signer": true
+        },
+        {
+          "name": "session",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "session.buyer",
+                "account": "Session"
+              },
+              {
+                "kind": "account",
+                "path": "session.provider",
+                "account": "Session"
+              },
+              {
+                "kind": "account",
+                "path": "session.expires_at",
+                "account": "Session"
+              }
+            ]
+          }
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "buyer",
+          "writable": true
+        },
+        {
+          "name": "provider",
+          "writable": true
+        },
+        {
+          "name": "gateway_node",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  116,
+                  101,
+                  119,
+                  97,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "gateway_node.operator",
+                "account": "GatewayNode"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "quality_score",
+          "type": "u8"
+        },
+        {
+          "name": "usage_proof_cid",
+          "type": {
+            "array": [
+              "u8",
+              46
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "create_session",
+      "docs": [
+        "Create a new session with escrow"
+      ],
+      "discriminator": [
+        242,
+        193,
+        143,
+        179,
+        150,
+        25,
+        122,
+        227
+      ],
+      "accounts": [
+        {
+          "name": "buyer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "provider"
+        },
+        {
+          "name": "gateway"
+        },
+        {
+          "name": "session",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "buyer"
+              },
+              {
+                "kind": "account",
+                "path": "provider"
+              },
+              {
+                "kind": "arg",
+                "path": "expires_at"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "bytes_limit",
+          "type": "u64"
+        },
+        {
+          "name": "rate_per_gb",
+          "type": "u64"
+        },
+        {
+          "name": "expires_at",
+          "type": "i64"
+        },
+        {
+          "name": "escrow_amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "deregister_gateway",
+      "docs": [
+        "Deregister gateway and return remaining stake"
+      ],
+      "discriminator": [
+        7,
+        177,
+        118,
+        160,
+        203,
+        67,
+        228,
+        241
+      ],
+      "accounts": [
+        {
+          "name": "operator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "gateway",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  116,
+                  101,
+                  119,
+                  97,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "gateway.operator",
+                "account": "GatewayNode"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "gateway_heartbeat",
+      "docs": [
+        "Gateway heartbeat (proves liveness)"
+      ],
+      "discriminator": [
+        149,
+        194,
+        12,
+        32,
+        222,
+        44,
+        89,
+        145
+      ],
+      "accounts": [
+        {
+          "name": "operator",
+          "signer": true
+        },
+        {
+          "name": "gateway",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  116,
+                  101,
+                  119,
+                  97,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "gateway.operator",
+                "account": "GatewayNode"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "latency_ms",
+          "type": "u32"
+        }
+      ]
+    },
+    {
+      "name": "initialize_config",
+      "docs": [
+        "Initialize program configuration (one-time)"
+      ],
+      "discriminator": [
+        208,
+        127,
+        21,
+        1,
+        194,
+        190,
+        196,
+        70
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "oracle",
+          "type": "pubkey"
+        },
+        {
+          "name": "treasury",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "register_gateway",
+      "docs": [
+        "Register a new gateway node (requires stake)"
+      ],
+      "discriminator": [
+        183,
+        184,
+        135,
+        228,
+        71,
+        191,
+        76,
+        222
+      ],
+      "accounts": [
+        {
+          "name": "operator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "gateway",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  116,
+                  101,
+                  119,
+                  97,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "operator"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "region",
+          "type": {
+            "array": [
+              "u8",
+              8
+            ]
+          }
+        },
+        {
+          "name": "endpoint",
+          "type": {
+            "array": [
+              "u8",
+              64
+            ]
+          }
+        },
+        {
+          "name": "stake_amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "report_usage",
+      "docs": [
+        "Report usage (called periodically by gateway/oracle)"
+      ],
+      "discriminator": [
+        65,
+        82,
+        222,
+        97,
+        7,
+        67,
+        132,
+        82
+      ],
+      "accounts": [
+        {
+          "name": "reporter",
+          "docs": [
+            "Reporter must be session gateway, session provider, or config oracle"
+          ],
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "session",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "session.buyer",
+                "account": "Session"
+              },
+              {
+                "kind": "account",
+                "path": "session.provider",
+                "account": "Session"
+              },
+              {
+                "kind": "account",
+                "path": "session.expires_at",
+                "account": "Session"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "bytes_delta",
+          "type": "u64"
+        },
+        {
+          "name": "requests_delta",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "slash_gateway",
+      "docs": [
+        "Slash a misbehaving gateway"
+      ],
+      "discriminator": [
+        200,
+        74,
+        209,
+        45,
+        103,
+        139,
+        156,
+        24
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "docs": [
+            "Admin/DAO that can slash (must equal config.admin)"
+          ],
+          "signer": true
+        },
+        {
+          "name": "gateway",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  116,
+                  101,
+                  119,
+                  97,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "gateway.operator",
+                "account": "GatewayNode"
+              }
+            ]
+          }
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "slash_percentage",
+          "type": "u8"
+        },
+        {
+          "name": "reason",
+          "type": "string"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Config",
+      "discriminator": [
+        155,
+        12,
+        170,
+        224,
+        30,
+        250,
+        204,
+        130
+      ]
+    },
+    {
+      "name": "GatewayNode",
+      "discriminator": [
+        76,
+        79,
+        107,
+        223,
+        71,
+        199,
+        142,
+        145
+      ]
+    },
+    {
+      "name": "Session",
+      "discriminator": [
+        243,
+        81,
+        72,
+        115,
+        214,
+        188,
+        72,
+        144
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "GatewayRegistered",
+      "discriminator": [
+        171,
+        121,
+        170,
+        61,
+        195,
+        155,
+        35,
+        98
+      ]
+    },
+    {
+      "name": "GatewaySlashed",
+      "discriminator": [
+        163,
+        240,
+        249,
+        251,
+        209,
+        77,
+        197,
+        142
+      ]
+    },
+    {
+      "name": "SessionActivated",
+      "discriminator": [
+        177,
+        34,
+        11,
+        127,
+        153,
+        93,
+        255,
+        34
+      ]
+    },
+    {
+      "name": "SessionCompleted",
+      "discriminator": [
+        191,
+        190,
+        106,
+        122,
+        152,
+        219,
+        165,
+        90
+      ]
+    },
+    {
+      "name": "SessionCreated",
+      "discriminator": [
+        107,
+        111,
+        254,
+        25,
+        21,
+        122,
+        220,
+        225
+      ]
+    },
+    {
+      "name": "UsageReported",
+      "discriminator": [
+        126,
+        184,
+        245,
+        114,
+        242,
+        54,
+        14,
+        99
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidStatus",
+      "msg": "Invalid session status for this operation"
+    },
+    {
+      "code": 6001,
+      "name": "SessionExpired",
+      "msg": "Session has expired"
+    },
+    {
+      "code": 6002,
+      "name": "InvalidQualityScore",
+      "msg": "Quality score must be 0-100"
+    }
+  ],
+  "types": [
+    {
+      "name": "Config",
+      "docs": [
+        "Program configuration — binds authorized oracle/admin/treasury"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "oracle",
+            "type": "pubkey"
+          },
+          {
+            "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GatewayNode",
+      "docs": [
+        "Gateway Node - community-operated proxy gateway"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "operator",
+            "type": "pubkey"
+          },
+          {
+            "name": "stake",
+            "type": "u64"
+          },
+          {
+            "name": "region",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "endpoint",
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          },
+          {
+            "name": "uptime_score",
+            "type": "u16"
+          },
+          {
+            "name": "latency_ms",
+            "type": "u32"
+          },
+          {
+            "name": "sessions_served",
+            "type": "u64"
+          },
+          {
+            "name": "bytes_routed",
+            "type": "u64"
+          },
+          {
+            "name": "is_active",
+            "type": "bool"
+          },
+          {
+            "name": "registered_at",
+            "type": "i64"
+          },
+          {
+            "name": "last_heartbeat",
+            "type": "i64"
+          },
+          {
+            "name": "slash_count",
+            "type": "u8"
+          },
+          {
+            "name": "slashed_amount",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GatewayRegistered",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "gateway",
+            "type": "pubkey"
+          },
+          {
+            "name": "operator",
+            "type": "pubkey"
+          },
+          {
+            "name": "stake",
+            "type": "u64"
+          },
+          {
+            "name": "region",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GatewaySlashed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "gateway",
+            "type": "pubkey"
+          },
+          {
+            "name": "slash_amount",
+            "type": "u64"
+          },
+          {
+            "name": "reason",
+            "type": "string"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Session",
+      "docs": [
+        "On-chain Session Account - tracks proxy sessions with full accountability"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "buyer",
+            "type": "pubkey"
+          },
+          {
+            "name": "provider",
+            "type": "pubkey"
+          },
+          {
+            "name": "gateway",
+            "type": "pubkey"
+          },
+          {
+            "name": "bytes_used",
+            "type": "u64"
+          },
+          {
+            "name": "bytes_limit",
+            "type": "u64"
+          },
+          {
+            "name": "requests_count",
+            "type": "u64"
+          },
+          {
+            "name": "escrow_amount",
+            "type": "u64"
+          },
+          {
+            "name": "rate_per_gb",
+            "type": "u64"
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "SessionStatus"
+              }
+            }
+          },
+          {
+            "name": "quality_score",
+            "type": "u8"
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "activated_at",
+            "type": "i64"
+          },
+          {
+            "name": "completed_at",
+            "type": "i64"
+          },
+          {
+            "name": "expires_at",
+            "type": "i64"
+          },
+          {
+            "name": "usage_proof_cid",
+            "type": {
+              "array": [
+                "u8",
+                46
+              ]
+            }
+          },
+          {
+            "name": "arweave_tx",
+            "type": {
+              "array": [
+                "u8",
+                43
+              ]
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SessionActivated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "session",
+            "type": "pubkey"
+          },
+          {
+            "name": "gateway",
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SessionCompleted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "session",
+            "type": "pubkey"
+          },
+          {
+            "name": "provider_payout",
+            "type": "u64"
+          },
+          {
+            "name": "buyer_refund",
+            "type": "u64"
+          },
+          {
+            "name": "quality_score",
+            "type": "u8"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SessionCreated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "session",
+            "type": "pubkey"
+          },
+          {
+            "name": "buyer",
+            "type": "pubkey"
+          },
+          {
+            "name": "provider",
+            "type": "pubkey"
+          },
+          {
+            "name": "gateway",
+            "type": "pubkey"
+          },
+          {
+            "name": "escrow_amount",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SessionStatus",
+      "docs": [
+        "Session status - tracks the lifecycle of a proxy session"
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Created"
+          },
+          {
+            "name": "Active"
+          },
+          {
+            "name": "Paused"
+          },
+          {
+            "name": "Completed"
+          },
+          {
+            "name": "Cancelled"
+          },
+          {
+            "name": "Disputed"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UsageReported",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "session",
+            "type": "pubkey"
+          },
+          {
+            "name": "bytes_used",
+            "type": "u64"
+          },
+          {
+            "name": "requests_count",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    }
+  ]
+}

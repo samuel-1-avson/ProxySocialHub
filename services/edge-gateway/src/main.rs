@@ -1440,6 +1440,9 @@ async fn proxy(
                                 node_id.clone(),
                                 peer_base_url,
                                 tunnel_state.config.gateway_shared_secret.clone(),
+                                &tunnel_state.shaper,
+                                username.clone(),
+                                bandwidth_cap,
                             )
                             .await
                         } else if let Some(control) = provider_control {

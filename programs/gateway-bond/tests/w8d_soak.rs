@@ -256,3 +256,191 @@ async fn w8d_bond_slash_ok_after_challenge_window() {
     );
     println!("W8D_BOND_SLASH_OK");
 }
+
+// BC-HIGH-04 regression: a partial slash that drops stake below
+// min_stake_lamports flips `bonded` to false in resolve_slash. The operator
+// must still be able to request_unbond and, after the unbonding window,
+// withdraw the remaining stake. Before the fix, request_unbond reverted
+// with NotBonded and the remaining SOL was trapped in the bond PDA.
+#[tokio::test]
+async fn p2_abi2_partial_slash_below_min_stake_can_still_unbond_and_withdraw() {
+    let pt = ProgramTest::new(
+        "proxy_gateway_bond",
+        PROGRAM_ID,
+        processor!(native_entry),
+    );
+    let mut ctx = pt.start_with_context().await;
+
+    let admin = ctx.payer.pubkey();
+    let operator = Keypair::new();
+    let accuser = Keypair::new();
+    let treasury = Keypair::new();
+    fund(&mut ctx, &operator.pubkey(), 5_000_000_000).await;
+    fund(&mut ctx, &accuser.pubkey(), 2_000_000_000).await;
+    fund(&mut ctx, &treasury.pubkey(), 1_000_000).await;
+
+    let (config, _) = config_pda();
+    let (bond, _) = bond_pda(&operator.pubkey());
+    let (challenge, _) = challenge_pda(&operator.pubkey());
+
+    // Min stake 1.5 SOL; bond 2 SOL; 50% slash leaves 1 SOL < min stake.
+    const HIGH_MIN_STAKE: u64 = 1_500_000_000;
+    send(
+        &mut ctx,
+        &[ix(
+            ixn::InitializeConfig {
+                accuser: accuser.pubkey(),
+                treasury: treasury.pubkey(),
+                challenge_window_secs: MIN_CHALLENGE_WINDOW_SECS,
+                unbonding_secs: MIN_CHALLENGE_WINDOW_SECS,
+                min_stake_lamports: HIGH_MIN_STAKE,
+                max_slash_bps: SLASH_BPS,
+            }
+            .data(),
+            accs::InitializeConfig {
+                config,
+                admin,
+                system_program: system_program::id(),
+            }
+            .to_account_metas(None),
+        )],
+        &[],
+    )
+    .await
+    .expect("initialize_config");
+
+    send(
+        &mut ctx,
+        &[ix(
+            ixn::SetDeployAllowed { allowed: true }.data(),
+            accs::AdminConfig { config, admin }.to_account_metas(None),
+        )],
+        &[],
+    )
+    .await
+    .expect("set_deploy_allowed");
+
+    send(
+        &mut ctx,
+        &[ix(
+            ixn::Bond { amount: BOND_AMOUNT }.data(),
+            accs::Bond {
+                bond,
+                config,
+                operator: operator.pubkey(),
+                system_program: system_program::id(),
+            }
+            .to_account_metas(None),
+        )],
+        &[&operator],
+    )
+    .await
+    .expect("bond");
+
+    let mut evidence = [0u8; 32];
+    evidence[0] = 9;
+    send(
+        &mut ctx,
+        &[ix(
+            ixn::Accuse {
+                evidence_hash: evidence,
+                slash_bps: SLASH_BPS,
+            }
+            .data(),
+            accs::Accuse {
+                operator: operator.pubkey(),
+                bond,
+                challenge,
+                config,
+                accuser: accuser.pubkey(),
+                system_program: system_program::id(),
+            }
+            .to_account_metas(None),
+        )],
+        &[&accuser],
+    )
+    .await
+    .expect("accuse");
+
+    let mut clock: Clock = ctx.banks_client.get_sysvar().await.unwrap();
+    clock.unix_timestamp = clock
+        .unix_timestamp
+        .saturating_add(MIN_CHALLENGE_WINDOW_SECS + 1);
+    ctx.set_sysvar(&clock);
+
+    send(
+        &mut ctx,
+        &[ix(
+            ixn::ResolveSlash {}.data(),
+            accs::ResolveSlash {
+                operator: operator.pubkey(),
+                bond,
+                challenge,
+                config,
+                admin,
+                treasury: treasury.pubkey(),
+                accuser_rent: accuser.pubkey(),
+            }
+            .to_account_metas(None),
+        )],
+        &[],
+    )
+    .await
+    .expect("resolve_slash after window");
+
+    // Remaining stake is 1 SOL, below the 1.5 SOL minimum, so `bonded` is
+    // now false. Exiting must still work.
+    send(
+        &mut ctx,
+        &[ix(
+            ixn::RequestUnbond {}.data(),
+            accs::RequestUnbond {
+                bond,
+                config,
+                operator: operator.pubkey(),
+            }
+            .to_account_metas(None),
+        )],
+        &[&operator],
+    )
+    .await
+    .expect("request_unbond after partial slash below min stake (BC-HIGH-04)");
+
+    let mut clock: Clock = ctx.banks_client.get_sysvar().await.unwrap();
+    clock.unix_timestamp = clock
+        .unix_timestamp
+        .saturating_add(MIN_CHALLENGE_WINDOW_SECS + 1);
+    ctx.set_sysvar(&clock);
+
+    let operator_before = lamports(&mut ctx, operator.pubkey()).await;
+    send(
+        &mut ctx,
+        &[ix(
+            ixn::WithdrawBond {}.data(),
+            accs::WithdrawBond {
+                bond,
+                config,
+                operator: operator.pubkey(),
+            }
+            .to_account_metas(None),
+        )],
+        &[&operator],
+    )
+    .await
+    .expect("withdraw_bond after unbonding window");
+
+    let operator_after = lamports(&mut ctx, operator.pubkey()).await;
+    let remaining_stake = BOND_AMOUNT / 2;
+    assert!(
+        operator_after >= operator_before + remaining_stake,
+        "operator must recover at least the unslashed stake: before={} after={}",
+        operator_before,
+        operator_after
+    );
+    assert_eq!(
+        lamports(&mut ctx, bond).await,
+        0,
+        "bond PDA must be closed by withdraw"
+    );
+    println!("P2_ABI2_PARTIAL_SLASH_UNBOND_OK");
+}

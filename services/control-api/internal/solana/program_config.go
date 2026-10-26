@@ -2,16 +2,18 @@
 //
 // Security-critical parameters (KYC min balance, platform fee, spending limits)
 // are stored in the ProgramConfig PDA so they cannot be changed by a single
-// compromised admin DB row.  Updates require the multisig oracle.
+// compromised admin DB row.  On chain, update_program_config binds its
+// signer to program_state.admin (P1-SC-2 hardening). This client is
+// read-only: it has no update sender, so control-api cannot change it.
 //
 // PDA seeds: ["program_config"]
 //
 // Account order for update_program_config:
-//   0  oracle          — Signer (must be in multisig_oracle.signers)
+//   0  oracle          — Signer (must equal program_state.admin)
 //   1  program_config  — init_if_needed PDA ["program_config"]
 //   2  system_program
-//   3  multisig_oracle — read-only (threshold check)
-//   4  program_state   — pause guard
+//   3  multisig_oracle — read-only
+//   4  program_state   — pause guard + admin binding
 package solana
 
 import (
@@ -33,6 +35,7 @@ type ProgramConfigData struct {
 	PlatformFeeBPS         uint16 // basis points; 1000 = 10%
 	MaxDailySpendLamports  uint64
 	MaxSessionBWBytes      uint64
+	UnstakeCooldownSeconds int64
 	UpdatedAt              int64
 }
 
@@ -72,13 +75,15 @@ func (c *OracleClient) GetProgramConfigPDA() (sol.PublicKey, uint8, error) {
 // ReadProgramConfig fetches the on-chain ProgramConfig, using an in-process
 // cache with 60-second TTL to avoid per-request RPC latency.
 //
-// Layout after 8-byte discriminator:
-//   [0:8]   kyc_min_sol_lamports (u64 LE)
-//   [8:10]  platform_fee_bps     (u16 LE)
+// Layout after 8-byte discriminator (verified against the committed IDL
+// ProgramConfig type during P2-ABI-1; 51 bytes total):
+//   [0:8]   kyc_min_sol_lamports     (u64 LE)
+//   [8:10]  platform_fee_bps         (u16 LE)
 //   [10:18] max_daily_spend_lamports (u64 LE)
-//   [18:26] max_session_bw_bytes (u64 LE)
-//   [26:34] updated_at           (i64 LE)
-//   [34]    bump                 (u8)
+//   [18:26] max_session_bw_bytes     (u64 LE)
+//   [26:34] unstake_cooldown_seconds (i64 LE)
+//   [34:42] updated_at               (i64 LE)
+//   [42]    bump                     (u8)
 func (c *OracleClient) ReadProgramConfig(ctx context.Context) (*ProgramConfigData, error) {
 	// Check cache.
 	programConfigCache.mu.RLock()
@@ -107,17 +112,9 @@ func (c *OracleClient) ReadProgramConfig(ctx context.Context) (*ProgramConfigDat
 	}
 
 	raw := accountInfo.Value.Data.GetBinary()
-	if len(raw) < 35 {
-		return nil, fmt.Errorf("ReadProgramConfig: data too short (%d bytes)", len(raw))
-	}
-
-	body := raw[8:]
-	cfg := &ProgramConfigData{
-		KYCMinSOLLamports:     binary.LittleEndian.Uint64(body[0:8]),
-		PlatformFeeBPS:        binary.LittleEndian.Uint16(body[8:10]),
-		MaxDailySpendLamports: binary.LittleEndian.Uint64(body[10:18]),
-		MaxSessionBWBytes:     binary.LittleEndian.Uint64(body[18:26]),
-		UpdatedAt:             int64(binary.LittleEndian.Uint64(body[26:34])),
+	cfg, err := decodeProgramConfigData(raw)
+	if err != nil {
+		return nil, fmt.Errorf("ReadProgramConfig: %w", err)
 	}
 
 	// Update cache.
@@ -127,6 +124,24 @@ func (c *OracleClient) ReadProgramConfig(ctx context.Context) (*ProgramConfigDat
 	programConfigCache.mu.Unlock()
 
 	return cfg, nil
+}
+
+// decodeProgramConfigData decodes raw ProgramConfig account data using the
+// layout documented on ReadProgramConfig. The previous inline decoder
+// stopped at byte 34 and reported unstake_cooldown_seconds as updated_at.
+func decodeProgramConfigData(raw []byte) (*ProgramConfigData, error) {
+	if len(raw) < 51 {
+		return nil, fmt.Errorf("data too short (%d bytes, need 51)", len(raw))
+	}
+	body := raw[8:]
+	return &ProgramConfigData{
+		KYCMinSOLLamports:      binary.LittleEndian.Uint64(body[0:8]),
+		PlatformFeeBPS:         binary.LittleEndian.Uint16(body[8:10]),
+		MaxDailySpendLamports:  binary.LittleEndian.Uint64(body[10:18]),
+		MaxSessionBWBytes:      binary.LittleEndian.Uint64(body[18:26]),
+		UnstakeCooldownSeconds: int64(binary.LittleEndian.Uint64(body[26:34])),
+		UpdatedAt:              int64(binary.LittleEndian.Uint64(body[34:42])),
+	}, nil
 }
 
 // InvalidateProgramConfigCache clears the in-process cache, forcing the next
