@@ -21,11 +21,18 @@ import (
 func withWithdrawSOLMocks(t *testing.T, hook func(context.Context, *solana.OracleClient, string, float64) (string, error)) {
 	t.Helper()
 	prevHook := sendSOLOnChainHook
+	prevConfirm := confirmWithdrawTxHook
 	prevOracle := solana.GetOracleClient()
 	sendSOLOnChainHook = hook
+	// P0-3: withdrawals confirm on-chain before reporting success; the mock
+	// environment confirms instantly (individual tests override).
+	confirmWithdrawTxHook = func(ctx context.Context, oracle *solana.OracleClient, txHash string) solana.TxConfirmState {
+		return solana.TxConfirmed
+	}
 	solana.SetOracleClientForTest(&solana.OracleClient{})
 	t.Cleanup(func() {
 		sendSOLOnChainHook = prevHook
+		confirmWithdrawTxHook = prevConfirm
 		solana.SetOracleClientForTest(prevOracle)
 	})
 }

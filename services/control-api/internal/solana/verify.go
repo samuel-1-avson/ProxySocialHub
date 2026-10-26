@@ -41,8 +41,40 @@ type TxMeta struct {
 	Fee               uint64      `json:"fee"`
 	PreBalances       []uint64    `json:"preBalances"`
 	PostBalances      []uint64    `json:"postBalances"`
-	InnerInstructions []struct{}  `json:"innerInstructions"`
+	InnerInstructions []TxInnerInstructions `json:"innerInstructions"`
 	LogMessages       []string    `json:"logMessages"`
+	LoadedAddresses   *TxLoadedAddresses `json:"loadedAddresses"`
+}
+
+// TxLoadedAddresses carries v0 address-lookup-table accounts. Balance
+// arrays are indexed: static keys, then loaded writable, then readonly.
+type TxLoadedAddresses struct {
+	Writable []string `json:"writable"`
+	Readonly []string `json:"readonly"`
+}
+
+type TxInnerInstructions struct {
+	Index        int               `json:"index"`
+	Instructions []TxInstruction   `json:"instructions"`
+}
+
+// TxInstruction is a jsonParsed instruction. Only System Program
+// transfers are interpreted for deposit proof (P0-6).
+type TxInstruction struct {
+	Program   string `json:"program"`
+	ProgramID string `json:"programId"`
+	Parsed    *TxParsedInstruction `json:"parsed"`
+}
+
+type TxParsedInstruction struct {
+	Type string `json:"type"`
+	Info TxTransferInfo `json:"info"`
+}
+
+type TxTransferInfo struct {
+	Source      string `json:"source"`
+	Destination string `json:"destination"`
+	Lamports    uint64 `json:"lamports"`
 }
 
 type TxDetail struct {
@@ -50,8 +82,87 @@ type TxDetail struct {
 	Signatures []string  `json:"signatures"`
 }
 
+// TxAccountKey is a jsonParsed account key. It also unmarshals the plain
+// string form returned by the legacy `json` encoding (Signer then stays
+// false; only index 0 — the fee payer — is a signer by construction).
+type TxAccountKey struct {
+	Pubkey   string `json:"pubkey"`
+	Signer   bool   `json:"signer"`
+	Writable bool   `json:"writable"`
+}
+
+func (k *TxAccountKey) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		k.Pubkey = s
+		return nil
+	}
+	type alias TxAccountKey
+	var obj alias
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return err
+	}
+	*k = TxAccountKey(obj)
+	return nil
+}
+
 type TxMessage struct {
-	AccountKeys []string `json:"accountKeys"`
+	AccountKeys  []TxAccountKey  `json:"accountKeys"`
+	Instructions []TxInstruction `json:"instructions"`
+}
+
+// AllAccountKeys returns every account key in balance-index order:
+// static message keys, then v0 loaded writable, then loaded readonly.
+func (tx *TransactionResult) AllAccountKeys() []string {
+	keys := make([]string, 0, len(tx.Transaction.Message.AccountKeys))
+	for _, k := range tx.Transaction.Message.AccountKeys {
+		keys = append(keys, k.Pubkey)
+	}
+	if tx.Meta != nil && tx.Meta.LoadedAddresses != nil {
+		keys = append(keys, tx.Meta.LoadedAddresses.Writable...)
+		keys = append(keys, tx.Meta.LoadedAddresses.Readonly...)
+	}
+	return keys
+}
+
+// SystemTransfer is one proven System Program lamport transfer leg.
+type SystemTransfer struct {
+	Source      string
+	Destination string
+	Lamports    uint64
+}
+
+// SystemTransfers extracts instruction-level transfer proof (top-level
+// and CPI inner instructions) from a jsonParsed transaction.
+func (tx *TransactionResult) SystemTransfers() []SystemTransfer {
+	var out []SystemTransfer
+	collect := func(ixs []TxInstruction) {
+		for _, ix := range ixs {
+			if ix.Parsed == nil || ix.Parsed.Type != "transfer" {
+				continue
+			}
+			if ix.Program != "system" && ix.ProgramID != "11111111111111111111111111111111" {
+				continue
+			}
+			info := ix.Parsed.Info
+			if info.Source == "" || info.Destination == "" || info.Lamports == 0 {
+				continue
+			}
+			out = append(out, SystemTransfer{Source: info.Source, Destination: info.Destination, Lamports: info.Lamports})
+		}
+	}
+	collect(tx.Transaction.Message.Instructions)
+	if tx.Meta != nil {
+		for _, inner := range tx.Meta.InnerInstructions {
+			collect(inner.Instructions)
+		}
+	}
+	return out
+}
+
+// HasParsedInstructions reports whether instruction-level proof is present.
+func (tx *TransactionResult) HasParsedInstructions() bool {
+	return len(tx.Transaction.Message.Instructions) > 0
 }
 
 type rpcRequest struct {
@@ -98,7 +209,7 @@ func VerifyTransaction(ctx context.Context, txHash string) (*TransactionResult, 
 		Params: []interface{}{
 			txHash,
 			map[string]interface{}{
-				"encoding":                       "json",
+				"encoding":                       "jsonParsed",
 				"commitment":                     commitment,
 				"maxSupportedTransactionVersion": 0,
 			},
@@ -192,49 +303,82 @@ func VerifyTransaction(ctx context.Context, txHash string) (*TransactionResult, 
 	return nil, errors.New("transaction not found")
 }
 
-// VerifyTransferAmount verifies the transfer amount to a specific recipient
+// VerifyTransferAmount keeps the legacy signature for the ops recredit
+// path (any source). Credit is proven at instruction level (P0-6).
 func VerifyTransferAmount(tx *TransactionResult, recipient string, expectedLamports uint64) (bool, float64, error) {
-	if tx.Meta == nil {
-		return false, 0, errors.New("transaction has no metadata")
+	lamports, err := VerifyDepositTransfers(tx, recipient, "")
+	if err != nil {
+		return false, 0, err
+	}
+	receivedSOL := float64(lamports) / 1e9
+	if expectedLamports > 0 && lamports < expectedLamports {
+		return false, receivedSOL, fmt.Errorf("received %.9f SOL, expected %.9f SOL", receivedSOL, float64(expectedLamports)/1e9)
+	}
+	return true, receivedSOL, nil
+}
+
+// VerifyDepositTransfers proves, at instruction level, the lamports a
+// recipient received via System Program transfers (integer lamports — no
+// float anywhere in the proof). Rules (P0-6, W-06):
+//   - instruction-level proof is mandatory; balance deltas alone never
+//     credit (they can come from rent refunds, fee rebates, self-moves);
+//   - when expectedSource != "", only legs sourced from it count
+//     (deposit handler passes the fee payer = linked wallet);
+//   - the recipient must not be the fee payer (a deposit destination
+//     paying its own fee is not a user deposit shape);
+//   - the recipient balance delta (bounds-checked across static + v0
+//     loaded keys) must cover credited - sent-by-recipient, so the
+//     instructed amount really arrived net of same-tx outflows.
+func VerifyDepositTransfers(tx *TransactionResult, recipient, expectedSource string) (uint64, error) {
+	if tx == nil || tx.Meta == nil {
+		return 0, errors.New("transaction has no metadata")
+	}
+	if !tx.HasParsedInstructions() {
+		return 0, errors.New("instruction-level proof unavailable (jsonParsed required)")
+	}
+	sender, err := GetTransactionSender(tx)
+	if err != nil {
+		return 0, err
+	}
+	if recipient == sender {
+		return 0, errors.New("recipient is the fee payer; not a deposit")
 	}
 
-	// Log all account keys for debugging
-	logging.Debug().
-		Str("recipient_expected", recipient).
-		Int("num_accounts", len(tx.Transaction.Message.AccountKeys)).
-		Strs("account_keys", tx.Transaction.Message.AccountKeys).
-		Msg("Checking transaction accounts for recipient")
+	var credited, sentByRecipient uint64
+	for _, tr := range tx.SystemTransfers() {
+		if tr.Destination == recipient && (expectedSource == "" || tr.Source == expectedSource) {
+			credited += tr.Lamports
+		}
+		if tr.Source == recipient {
+			sentByRecipient += tr.Lamports
+		}
+	}
+	if credited == 0 {
+		return 0, fmt.Errorf("no System Program transfer to recipient %s", recipient)
+	}
 
-	// Find recipient in account keys
+	keys := tx.AllAccountKeys()
 	recipientIndex := -1
-	for i, acc := range tx.Transaction.Message.AccountKeys {
-		if acc == recipient {
+	for i, k := range keys {
+		if k == recipient {
 			recipientIndex = i
 			break
 		}
 	}
-
 	if recipientIndex == -1 {
-		return false, 0, fmt.Errorf("recipient %s not found in transaction accounts: %v", recipient, tx.Transaction.Message.AccountKeys)
+		return 0, fmt.Errorf("recipient %s not found in transaction accounts", recipient)
 	}
-
-	// Calculate amount received by recipient
-	preBalance := tx.Meta.PreBalances[recipientIndex]
-	postBalance := tx.Meta.PostBalances[recipientIndex]
-
-	if postBalance <= preBalance {
-		return false, 0, errors.New("no tokens received by recipient")
+	if recipientIndex >= len(tx.Meta.PreBalances) || recipientIndex >= len(tx.Meta.PostBalances) {
+		return 0, errors.New("balance arrays do not cover recipient index (v0/ALT mismatch)")
 	}
-
-	receivedLamports := postBalance - preBalance
-	receivedSOL := float64(receivedLamports) / 1e9 // Convert lamports to SOL
-
-	// Check if amount matches (with small tolerance for rounding)
-	if expectedLamports > 0 && receivedLamports < expectedLamports {
-		return false, receivedSOL, fmt.Errorf("received %.9f SOL, expected %.9f SOL", receivedSOL, float64(expectedLamports)/1e9)
+	pre := tx.Meta.PreBalances[recipientIndex]
+	post := tx.Meta.PostBalances[recipientIndex]
+	var delta int64 = int64(post) - int64(pre)
+	net := int64(credited) - int64(sentByRecipient)
+	if delta < net {
+		return 0, fmt.Errorf("balance delta %d does not cover instructed net transfer %d", delta, net)
 	}
-
-	return true, receivedSOL, nil
+	return credited, nil
 }
 
 // GetTreasuryAddressFromDB returns the platform treasury address from database
@@ -242,12 +386,28 @@ func GetTreasuryAddressFromDB() string {
 	return db.GetSystemSetting("solana_treasury_address", "SOLANA_TREASURY_ADDRESS", os.Getenv("SOLANA_TREASURY_ADDRESS"))
 }
 
-// GetTransactionSender returns the sender (fee payer) of the transaction
-// In Solana, the first account key in the transaction message is the fee payer (sender)
+// GetTransactionSender returns the fee payer of the transaction. The fee
+// payer is the first account key and is always a signer; when the
+// jsonParsed signer flags are present the sender must agree with them.
 func GetTransactionSender(tx *TransactionResult) (string, error) {
-	if tx.Transaction.Message.AccountKeys == nil || len(tx.Transaction.Message.AccountKeys) == 0 {
+	keys := tx.Transaction.Message.AccountKeys
+	if len(keys) == 0 {
 		return "", errors.New("transaction has no account keys")
 	}
-	// The first account key is always the fee payer (sender)
-	return tx.Transaction.Message.AccountKeys[0], nil
+	feePayer := keys[0]
+	if feePayer.Pubkey == "" {
+		return "", errors.New("transaction fee payer is empty")
+	}
+	// If any signer flags were parsed, the fee payer must be one of them.
+	anySigner := false
+	for _, k := range keys {
+		if k.Signer {
+			anySigner = true
+			break
+		}
+	}
+	if anySigner && !feePayer.Signer {
+		return "", errors.New("fee payer is not a signer")
+	}
+	return feePayer.Pubkey, nil
 }

@@ -98,6 +98,7 @@ func SetupTestDB(t *testing.T) {
 			&models.Wallet{},
 			&models.WalletLedgerEntry{},
 			&models.LedgerAccount{},
+			&models.UsageMeteringClaim{},
 			&models.LedgerJournal{},
 			&models.LedgerJournalLine{},
 			&models.ProfilePrivate{},
@@ -147,6 +148,8 @@ func SetupTestDB(t *testing.T) {
 			&models.PassPurchase{},
 			&models.ProtocolParameter{},
 			&models.ProviderApplication{},
+			&models.WithdrawalPayout{},
+			&models.IdempotencyRecord{},
 		)
 		if err != nil {
 			t.Skipf("Skipping test: Failed to run migrations: %v", err)

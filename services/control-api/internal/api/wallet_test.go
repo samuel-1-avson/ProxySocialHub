@@ -652,9 +652,15 @@ func TestSpendingLimit_ExceedsWeekly(t *testing.T) {
 	testutil.SetupTestDB(t)
 	testutil.CleanupTestData(t, "users", "wallets", "spending_records")
 
-	_, wallet := createWalletTestUser(t)
+	user, wallet := createWalletTestUser(t)
+	// P0-5: every window must be configured and spend-time tier ceilings
+	// apply; use premium ceilings so the weekly window is what trips.
+	user.TrustTier = models.TrustTierPremium
+	db.DB.Save(&user)
 	wallet.LimitsEnabled = true
+	wallet.DailyLimit = 100.0
 	wallet.WeeklyLimit = 10.0
+	wallet.MonthlyLimit = 2000.0
 	db.DB.Save(&wallet)
 
 	// Record existing spending
