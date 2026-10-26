@@ -25,6 +25,25 @@ struct Claims {
     exp: usize,
 }
 
+/// DP-3: registry identity for a tunnel. Prefer the stable per-installation
+/// node id the provider announces in CAPABILITY (config.node_id, a UUID from
+/// `provider-node join`) so one user can run several nodes without them
+/// taking over each other's registry slot. Older clients announce none and
+/// keep the legacy single-node id `node_<user_id>`.
+fn resolve_node_id(user_id: &str, caps: &ProviderCapabilities) -> String {
+    let cand = caps.node_id.trim();
+    let valid = !cand.is_empty()
+        && cand.len() <= 128
+        && cand
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
+    if valid {
+        cand.to_string()
+    } else {
+        format!("node_{user_id}")
+    }
+}
+
 fn validate_tunnel_claims(claims: &Claims) -> Result<(), String> {
     if claims.role != "provider" {
         return Err(format!("unexpected role: {}", claims.role));
@@ -49,6 +68,10 @@ pub struct ProviderCapabilities {
     pub os: String,
     pub client_version: String,
     pub features: Vec<String>, // Optional features like "ipv6", "udp_relay", etc.
+    // DP-3: stable per-installation node id (provider-node config.node_id).
+    // Empty from older clients; the edge falls back to node_<user_id>.
+    #[serde(default)]
+    pub node_id: String,
     #[serde(default)]
     pub provider_run_id: String,
     #[serde(default)]
@@ -69,6 +92,7 @@ impl Default for ProviderCapabilities {
             os: "unknown".to_string(),
             client_version: "1.0.0".to_string(),
             features: vec![],
+            node_id: String::new(),
             provider_run_id: String::new(),
             provider_lease: String::new(),
         }
@@ -352,7 +376,7 @@ pub(crate) async fn handle_provider_mux_io<S>(
         }
     };
 
-    let node_id = format!("node_{}", user_id);
+    let node_id = resolve_node_id(&user_id, &caps);
     let ip_address = peer_addr.ip().to_string();
     let provider_leases_required = provider_leases_required();
     let lease_claims = if caps.provider_lease.trim().is_empty() {
@@ -399,7 +423,14 @@ pub(crate) async fn handle_provider_mux_io<S>(
 
     let assigned_limits = calculate_assigned_limits(&persisted_caps);
 
-    let mut node_info = match state.registry_store.load_node(&user_id).await {
+    // DP-3: persistence is keyed by node_id now (one user may run several
+    // nodes). Fall back to the legacy user_id key so pre-DP-3 records
+    // (incl. control_api_db_id) survive the migration.
+    let stored = match state.registry_store.load_node(&node_id).await {
+        Ok(Some(info)) => Ok(Some(info)),
+        _ => state.registry_store.load_node(&user_id).await,
+    };
+    let mut node_info = match stored {
         Ok(Some(mut info)) => {
             info.ip_address = ip_address.clone();
             info.node_id = node_id.clone();
@@ -491,7 +522,7 @@ pub(crate) async fn handle_provider_mux_io<S>(
         if let Err(err) = state.provider_directory.claim_with_info(&node_info).await {
             warn!(node_id = %node_id, error = %err, "Failed to claim provider directory ownership");
         }
-        if let Err(err) = state.registry_store.save_node(&user_id, &node_info).await {
+        if let Err(err) = state.registry_store.save_node(&node_id, &node_info).await {
             warn!(node_id = %node_id, error = %err, "Failed to persist node info to registry store");
         }
 
@@ -544,7 +575,7 @@ pub(crate) async fn handle_provider_mux_io<S>(
                 if let Some(info) = reg_state.registry.get_node_info(&reg_node_id) {
                     if let Err(err) = reg_state
                         .registry_store
-                        .save_node(&reg_user_id, &info)
+                        .save_node(&reg_node_id, &info)
                         .await
                     {
                         warn!(node_id = %reg_node_id, error = %err, "Failed to persist updated node info");
@@ -773,10 +804,10 @@ pub(crate) async fn handle_provider_mux_io<S>(
                                     if let Some(info) =
                                         state.registry.get_node_info(&heartbeat_msg.node_id)
                                     {
-                                        if let Some(user_id) = info.user_id.clone() {
+                                        if info.user_id.clone().is_some() {
                                             if let Err(err) = state
                                                 .registry_store
-                                                .save_node(&user_id, &info)
+                                                .save_node(&info.node_id, &info)
                                                 .await
                                             {
                                                 warn!(node_id = %heartbeat_msg.node_id, error = %err, "Failed to persist heartbeat-updated node info");
@@ -915,6 +946,39 @@ mod tests {
             exp: 0,
         };
         assert!(validate_tunnel_claims(&bad).is_err());
+    }
+
+    fn caps_with_node_id(node_id: &str) -> ProviderCapabilities {
+        ProviderCapabilities {
+            node_id: node_id.to_string(),
+            ..Default::default()
+        }
+    }
+
+    // DP-3: two nodes of one user must get distinct registry identities,
+    // and only sane announced ids are trusted as-is.
+    #[test]
+    fn resolve_node_id_prefers_announced_stable_id() {
+        let uuid = "5f2c0a4e-9c1b-4f2a-9d3e-1a2b3c4d5e6f";
+        assert_eq!(resolve_node_id("user-1", &caps_with_node_id(uuid)), uuid);
+        let other = "6a3d1b5f-0d2c-4a3b-8e4f-2b3c4d5e6f7a";
+        assert_ne!(
+            resolve_node_id("user-1", &caps_with_node_id(other)),
+            resolve_node_id("user-1", &caps_with_node_id(uuid)),
+            "two installations of one user must not share a registry slot"
+        );
+        assert_eq!(
+            resolve_node_id("user-1", &caps_with_node_id("")),
+            "node_user-1",
+            "old clients keep the legacy id"
+        );
+        for bad in ["has space", "slash/inside", "x".repeat(200).as_str()] {
+            assert_eq!(
+                resolve_node_id("user-1", &caps_with_node_id(bad)),
+                "node_user-1",
+                "unsane announced id {bad:?} must fall back"
+            );
+        }
     }
 
     #[tokio::test]
