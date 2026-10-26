@@ -57,8 +57,11 @@ func DefaultWAFConfig() WAFConfig {
 		EnableIPReputation: true,
 		EnableGeoBlocking:  false,
 		BlockedCountries:   []string{},
-		// Whitelist localhost and common Docker networks
-		WhitelistedIPs:     []string{"127.0.0.1", "::1", "172.16.0.0/12", "192.168.0.0/16", "10.0.0.0/8"},
+		// DP-5: loopback only. Blanket RFC1918 ranges meant any request
+		// arriving via a private-network peer (Docker bridge, cluster
+		// internal hop) skipped WAF checks entirely. Operators who need an
+		// internal bypass must list exact addresses in their own config.
+		WhitelistedIPs: []string{"127.0.0.1", "::1"},
 		BlacklistedIPs:     []string{},
 		ChallengeThreshold: 10,
 		BanThreshold:       3,
