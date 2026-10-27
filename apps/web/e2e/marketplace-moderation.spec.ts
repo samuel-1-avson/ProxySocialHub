@@ -43,7 +43,8 @@ test.describe('marketplace admin moderation', () => {
         await expect(page.getByText(pendingForumReportTitle)).toBeVisible({ timeout: 10000 });
 
         const row = page.getByTestId(`forum-report-${pendingForumReportId}`);
-        await row.getByRole('button', { name: /resolve/i }).click();
+        // Each report offers hide/lock/delete + resolve; "Resolve only" leaves the post alone.
+        await row.getByRole('button', { name: /^resolve only$/i }).click();
 
         await expect(page.getByText(/no reports in this queue/i)).toBeVisible({ timeout: 15000 });
     });
