@@ -35,9 +35,6 @@ func seedDueOutboxRows(t *testing.T, n int) map[uuid.UUID]bool {
 func prepareOutboxTable(t *testing.T) {
 	t.Helper()
 	testutil.SetupTestDB(t)
-	if err := db.DB.AutoMigrate(&models.CompensationOutbox{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
 	if err := db.DB.Exec("DELETE FROM compensation_outbox").Error; err != nil {
 		t.Fatalf("clear outbox: %v", err)
 	}

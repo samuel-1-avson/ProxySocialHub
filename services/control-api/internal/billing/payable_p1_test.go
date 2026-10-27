@@ -11,7 +11,7 @@ import (
 
 func seedPayableProvider(t *testing.T, balanceLamports, payableLamports int64, auto bool) *models.User {
 	t.Helper()
-	user := testutil.CreateTestUser(t, testutil.UniqueEmail("p1-payable"), "seller")
+	user := testutil.CreateTestUser(t, testutil.UniqueEmail("p1-payable"), "provider")
 	addr := "PayableWallet1111111111111111111111111111"
 	user.WalletAddress = &addr
 	if err := db.DB.Save(&user).Error; err != nil {
@@ -114,7 +114,7 @@ func TestCreditProviderWallet_P1_AutoPayoutOptIn(t *testing.T) {
 			defer tx.Rollback()
 			// +0.02 SOL earning -> payable 0.06 >= 0.05 threshold.
 			var err error
-			shouldQueue, _, err = creditProviderWallet(tx, &session, 1_000_000, 20_000_000, 0.02)
+			shouldQueue, _, err = creditProviderWallet(tx, &session, 1_000_000, 20_000_000, 0.02, session.ID.String()+":provider:test")
 			if err != nil {
 				t.Fatalf("creditProviderWallet: %v", err)
 			}

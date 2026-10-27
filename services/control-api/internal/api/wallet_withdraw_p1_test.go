@@ -124,7 +124,7 @@ func TestProcessPayout_P1_ValidationAndFourEyes(t *testing.T) {
 	testutil.SetupTestDB(t)
 	testutil.CleanupTestData(t, "users", "wallets", "wallet_ledger_entries", "idempotency_records")
 
-	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("p1-admin-provider"), "seller")
+	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("p1-admin-provider"), "provider")
 	admin := testutil.CreateTestUser(t, testutil.UniqueEmail("p1-admin"), "admin")
 
 	r := setupTestRouter()

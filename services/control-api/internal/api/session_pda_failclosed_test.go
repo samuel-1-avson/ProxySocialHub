@@ -94,7 +94,7 @@ func TestConfirmSessionEscrowFailClosedNoPDA(t *testing.T) {
 	t.Setenv("PROXYHUB_REQUIRE_SESSION_PDA", "true")
 	testutil.SetupTestDB(t)
 
-	userID := uuid.New()
+	userID := testutil.CreateTestUserID(t, "buyer")
 	sid := uuid.New()
 	sess := models.Session{
 		ID:     sid,

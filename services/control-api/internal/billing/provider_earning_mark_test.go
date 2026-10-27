@@ -37,9 +37,6 @@ func reloadEarning(t *testing.T, id uuid.UUID) models.ProviderEarning {
 // "pending", otherwise a claim would pay it again.
 func TestMarkProviderEarningPaid_FlipsOnlyPendingRows(t *testing.T) {
 	testutil.SetupTestDB(t)
-	if err := db.DB.AutoMigrate(&models.ProviderEarning{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
 
 	pending := seedEarning(t, "pending")
 	failed := seedEarning(t, "failed")

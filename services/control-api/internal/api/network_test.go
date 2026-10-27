@@ -68,6 +68,11 @@ func TestNetworkStatusAggregates(t *testing.T) {
 	if err := db.DB.Create(&unhealthy).Error; err != nil {
 		t.Fatalf("create unhealthy node: %v", err)
 	}
+	// Node.IsHealthy has gorm default:true, so Create leaves false out and the row
+	// comes back healthy; set it explicitly.
+	if err := db.DB.Model(&unhealthy).Update("is_healthy", false).Error; err != nil {
+		t.Fatalf("mark node unhealthy: %v", err)
+	}
 
 	r := setupTestRouter()
 	RegisterNetworkRoutes(r.Group("/"))
