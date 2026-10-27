@@ -88,7 +88,7 @@ jobs:
   # ==================== Backend (Go) ====================
   backend-test:
     needs: [secrets-gate, changes]
-    if: ${{ needs.changes.outputs.backend == 'true' }}
+    if: ${{ needs.changes.outputs.backend == 'true' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -229,7 +229,7 @@ jobs:
   # ==================== Frontend (Next.js) ====================
   frontend-check:
     needs: changes
-    if: ${{ needs.changes.outputs.frontend == 'true' }}
+    if: ${{ needs.changes.outputs.frontend == 'true' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -287,7 +287,7 @@ jobs:
   # ==================== Docs (Next.js / MDX) ====================
   docs-check:
     needs: changes
-    if: ${{ needs.changes.outputs.docs == 'true' }}
+    if: ${{ needs.changes.outputs.docs == 'true' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -314,7 +314,7 @@ jobs:
   # ==================== Edge Gateway (Rust) ====================
   edge-gateway-check:
     needs: changes
-    if: ${{ needs.changes.outputs.edge == 'true' }}
+    if: ${{ needs.changes.outputs.edge == 'true' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -572,7 +572,7 @@ jobs:
   # ==================== Provider Node (Rust) ====================
   provider-node-check:
     needs: changes
-    if: ${{ needs.changes.outputs.provider == 'true' }}
+    if: ${{ needs.changes.outputs.provider == 'true' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -781,6 +781,38 @@ jobs:
             test "$MOCHA_RC" -eq 0
             test "$SOAK_RC" -eq 0
           '
+
+    # The pinned toolchain makes this build reproducible (the same hashes on every run and
+    # on the independent A1 proof build), so publish exactly what it produced. The devnet
+    # upgrade deploys these bytes: download the artifact, check SHA256SUMS against
+    # docs/audits/P1-SC-6_IDL_CALLSITES.md section 7, then upgrade. Runs on failure too, so
+    # a red run still leaves whatever was built.
+    - name: Collect program artifacts
+      if: always()
+      run: |
+        set -euo pipefail
+        d=services/solana-programs/proxyhub
+        mkdir -p out
+        for f in target/deploy/proxyhub.so target/deploy/session.so idl/proxyhub.json; do
+          if [ -f "$d/$f" ]; then cp "$d/$f" out/; else echo "::warning::$d/$f was not produced"; fi
+        done
+        if [ -f "$d/target/idl/proxyhub.json" ] && [ -f "$d/idl/proxyhub.json" ] && ! cmp -s "$d/target/idl/proxyhub.json" "$d/idl/proxyhub.json"; then
+          echo "::warning::the IDL built from source differs from the committed idl/proxyhub.json"
+        fi
+        if compgen -G "out/*" > /dev/null; then
+          (cd out && sha256sum -- * > "$RUNNER_TEMP/SHA256SUMS")
+          cp "$RUNNER_TEMP/SHA256SUMS" out/SHA256SUMS
+          { echo '### Anchor build artifacts (SHA-256)'; echo '```'; cat out/SHA256SUMS; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+    - name: Upload program artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: proxyhub-programs-${{ github.sha }}
+        path: out/
+        if-no-files-found: warn
+        retention-days: 30
 
   # ==================== Docker Build Check ====================
   docker-build:
