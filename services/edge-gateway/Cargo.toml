@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 anyhow = "1.0"
-async-nats = "0.37"
+async-nats = "0.51"
 base64 = "0.22"
 bytes = "1.6"
 futures-util = "0.3"
