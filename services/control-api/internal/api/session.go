@@ -1190,10 +1190,19 @@ func createSessionFromListing(c *gin.Context) {
 	credUser, credPass := generateCredentials()
 
 	// --- Create session in DB ---
-	nodeID := node.ID
+	// sessions.node_id references the nodes mirror row, not provider_nodes.id (as in
+	// createSession); storing node.ID here failed the FK and every listing session 500ed.
+	sessionNodeID := marketplace.SessionNodeIDForProvider(&node)
+	if sessionNodeID == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "Provider node is not ready for sessions (missing nodes mirror)",
+			"code":  "provider_node_mirror_missing",
+		})
+		return
+	}
 	session := models.Session{
 		UserID:          consumerUUID,
-		NodeID:          &nodeID,
+		NodeID:          sessionNodeID,
 		ListingID:       &listingID,
 		Type:            sessionType,
 		Status:          models.SessionActive,
