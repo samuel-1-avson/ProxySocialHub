@@ -58,11 +58,7 @@ func TestMain(m *testing.M) {
 func TestMarkSettlementArtifactsSettledAdvancesSessionIntentLifecycle(t *testing.T) {
 	testutil.SetupTestDB(t)
 
-	if err := db.DB.AutoMigrate(&models.UsageReceipt{}, &models.SettlementManifest{}, &models.SessionIntentRecord{}); err != nil {
-		t.Fatalf("auto migrate settlement models: %v", err)
-	}
-
-	userID := uuid.New()
+	userID := testutil.CreateTestUserID(t, "buyer")
 	now := time.Now().UTC()
 	session := models.Session{
 		UserID:    userID,
@@ -186,7 +182,7 @@ func TestDebitBuyerWallet_InsufficientBalance(t *testing.T) {
 	}
 
 	err := db.DB.Transaction(func(tx *gorm.DB) error {
-		_, err := debitBuyerWallet(tx, &session, 1_000_000, 1_000_000_000, 1.0, 150.0)
+		_, err := debitBuyerWallet(tx, &session, 1_000_000, 1_000_000_000, 1.0, 150.0, "usage-settle:test-"+session.ID.String())
 		return err
 	})
 	if err == nil {
@@ -205,7 +201,7 @@ func TestCreditProviderWallet_Atomic(t *testing.T) {
 	testutil.SetupTestDB(t)
 	testutil.CleanupTestData(t, "users", "wallets", "wallet_ledger_entries", "sessions", "proxy_listings", "provider_scores")
 
-	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("billing-provider"), "seller")
+	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("billing-provider"), "provider")
 	buyer := testutil.CreateTestUser(t, testutil.UniqueEmail("billing-buyer"), "buyer")
 
 	listing := models.ProxyListing{
@@ -247,7 +243,7 @@ func TestCreditProviderWallet_Atomic(t *testing.T) {
 		var ok bool
 		txErr := db.DB.Transaction(func(tx *gorm.DB) error {
 			var txErr error
-			ok, _, txErr = creditProviderWallet(tx, &session, 1_000_000, 500_000_000, 0.5)
+			ok, _, txErr = creditProviderWallet(tx, &session, 1_000_000, 500_000_000, 0.5, session.ID.String()+":provider:test")
 			return txErr
 		})
 		return ok, txErr
@@ -334,7 +330,7 @@ func TestDebitBuyerWallet_Success(t *testing.T) {
 	costSOL := 1.25
 	costLamports := int64(models.SOLToLamports(costSOL))
 	if err := db.DB.Transaction(func(tx *gorm.DB) error {
-		_, err := debitBuyerWallet(tx, &session, 1_000_000, costLamports, costSOL, 250.0)
+		_, err := debitBuyerWallet(tx, &session, 1_000_000, costLamports, costSOL, 250.0, "usage-settle:test-"+session.ID.String())
 		return err
 	}); err != nil {
 		t.Fatalf("debitBuyerWallet: %v", err)
@@ -360,7 +356,7 @@ func TestCreditProviderWallet_ReturnsQueueWhenAtOrAboveThreshold(t *testing.T) {
 	testutil.SetupTestDB(t)
 	testutil.CleanupTestData(t, "users", "wallets", "wallet_ledger_entries", "sessions", "proxy_listings", "provider_scores")
 
-	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("billing-provider-threshold"), "seller")
+	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("billing-provider-threshold"), "provider")
 	buyer := testutil.CreateTestUser(t, testutil.UniqueEmail("billing-buyer-threshold"), "buyer")
 
 	listing := models.ProxyListing{
@@ -406,7 +402,7 @@ func TestCreditProviderWallet_ReturnsQueueWhenAtOrAboveThreshold(t *testing.T) {
 	var shouldQueue bool
 	if err := db.DB.Transaction(func(tx *gorm.DB) error {
 		var err error
-		shouldQueue, _, err = creditProviderWallet(tx, &session, 1_000_000, creditLamports, creditSOL)
+		shouldQueue, _, err = creditProviderWallet(tx, &session, 1_000_000, creditLamports, creditSOL, session.ID.String()+":provider:test")
 		return err
 	}); err != nil {
 		t.Fatalf("creditProviderWallet: %v", err)
@@ -456,7 +452,7 @@ func TestSettleSession_Success(t *testing.T) {
 		t.Fatalf("save buyer wallet: %v", err)
 	}
 
-	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("billing-settle-provider"), "seller")
+	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("billing-settle-provider"), "provider")
 	var providerWallet models.Wallet
 	if err := db.DB.Where("user_id = ?", provider.ID).First(&providerWallet).Error; err != nil {
 		t.Fatalf("provider wallet: %v", err)
@@ -526,9 +522,6 @@ func TestSettleSession_Success(t *testing.T) {
 
 func TestTriggerProviderPayout_EnqueuesRetryOnOnChainFailure(t *testing.T) {
 	testutil.SetupTestDB(t)
-	if err := db.DB.AutoMigrate(&models.PayoutRetryQueue{}); err != nil {
-		t.Fatalf("migrate payout_retry_queue: %v", err)
-	}
 	testutil.CleanupTestData(t, "payout_retry_queue", "users", "wallets", "wallet_ledger_entries")
 
 	withMockSOLTransfer(t, func(ctx context.Context, recipient string, amountSOL float64) error {
@@ -536,7 +529,7 @@ func TestTriggerProviderPayout_EnqueuesRetryOnOnChainFailure(t *testing.T) {
 	})
 
 	addr := "DevPayout11111111111111111111111111111111"
-	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("billing-payout-retry"), "seller")
+	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("billing-payout-retry"), "provider")
 	if err := db.DB.Model(&models.User{}).Where("id = ?", provider.ID).
 		Update("wallet_address", addr).Error; err != nil {
 		t.Fatalf("wallet_address: %v", err)
@@ -582,9 +575,6 @@ func TestTriggerProviderPayout_EnqueuesRetryOnOnChainFailure(t *testing.T) {
 
 func TestProcessPayoutRetries_AppliesExponentialBackoff(t *testing.T) {
 	testutil.SetupTestDB(t)
-	if err := db.DB.AutoMigrate(&models.PayoutRetryQueue{}); err != nil {
-		t.Fatalf("migrate payout_retry_queue: %v", err)
-	}
 	testutil.CleanupTestData(t, "payout_retry_queue")
 
 	withMockSOLTransfer(t, func(ctx context.Context, recipient string, amountSOL float64) error {
@@ -593,7 +583,7 @@ func TestProcessPayoutRetries_AppliesExponentialBackoff(t *testing.T) {
 
 	entry := models.PayoutRetryQueue{
 		ID:            uuid.New(),
-		ProviderID:    uuid.New(),
+		ProviderID:    testutil.CreateTestUserID(t, "provider"),
 		WalletAddress: "RetryWallet1111111111111111111111111111",
 		AmountSOL:     0.05,
 		AttemptCount:  1,
@@ -627,9 +617,6 @@ func TestProcessPayoutRetries_AppliesExponentialBackoff(t *testing.T) {
 
 func TestProcessPayoutRetries_MarksSucceededOnSuccess(t *testing.T) {
 	testutil.SetupTestDB(t)
-	if err := db.DB.AutoMigrate(&models.PayoutRetryQueue{}); err != nil {
-		t.Fatalf("migrate payout_retry_queue: %v", err)
-	}
 	testutil.CleanupTestData(t, "payout_retry_queue")
 
 	withMockSOLTransfer(t, func(ctx context.Context, recipient string, amountSOL float64) error {
@@ -638,7 +625,7 @@ func TestProcessPayoutRetries_MarksSucceededOnSuccess(t *testing.T) {
 
 	entry := models.PayoutRetryQueue{
 		ID:            uuid.New(),
-		ProviderID:    uuid.New(),
+		ProviderID:    testutil.CreateTestUserID(t, "provider"),
 		WalletAddress: "SuccessWallet111111111111111111111111111",
 		AmountSOL:     0.05,
 		AttemptCount:  0,
@@ -684,7 +671,7 @@ func TestSettleUsage_SkipsWhenCircuitBreakerOpen(t *testing.T) {
 		t.Fatalf("save buyer wallet: %v", err)
 	}
 
-	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("billing-cb-provider"), "seller")
+	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("billing-cb-provider"), "provider")
 	listing := models.ProxyListing{
 		SellerID:             provider.ID,
 		Title:                "CB listing",

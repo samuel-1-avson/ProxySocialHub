@@ -79,9 +79,6 @@ func TestStatusMetaNoMint(t *testing.T) {
 func ensureIncentiveTable(t *testing.T) {
 	t.Helper()
 	testutil.SetupTestDB(t)
-	if err := db.DB.AutoMigrate(&models.ProtocolIncentiveEvent{}); err != nil {
-		t.Fatalf("automigrate: %v", err)
-	}
 	testutil.CleanupTestData(t, "protocol_incentive_events")
 }
 

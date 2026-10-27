@@ -1,10 +1,17 @@
 package testutil
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
+	"io"
+	"log"
 	"net/url"
 	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -26,6 +33,7 @@ import (
 var (
 	testDBOnce sync.Once
 	testDB     *gorm.DB
+	testDBErr  error // schema could not be built: fail every test, never skip
 	mr         *miniredis.Miniredis
 )
 
@@ -57,9 +65,16 @@ func SetupTestRedis(t *testing.T) {
 	cache.Client = client
 }
 
-// SetupTestDB initializes a PostgreSQL test database connection.
-// Uses TEST_DATABASE_URL environment variable or defaults to a local test database.
-// The database is shared across tests but each test should clean up its own data.
+// SetupTestDB connects the package's tests to a PostgreSQL test database.
+//
+// Every test binary (one per package; `go test ./...` runs several at once)
+// gets its own database, recreated empty and built from migrations/*.up.sql the
+// way production builds it, so tests run against the real schema and one
+// package's CleanupTestData cannot delete rows another package is using.
+// Within a package the database is shared and each test cleans up its own data.
+//
+// Tests are skipped when no PostgreSQL server is reachable. When the server is
+// there but the schema cannot be built, every test fails.
 func SetupTestDB(t *testing.T) {
 	t.Helper()
 
@@ -70,12 +85,12 @@ func SetupTestDB(t *testing.T) {
 			return
 		}
 
-		if err := ensureTestDatabaseExists(dsn); err != nil {
+		dsn, err := recreatePackageDatabase(dsn)
+		if err != nil {
 			t.Skipf("Skipping test: Could not prepare test database: %v", err)
 			return
 		}
 
-		var err error
 		testDB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{
 			Logger: logger.Default.LogMode(logger.Error), // Log errors during tests
 		})
@@ -86,77 +101,39 @@ func SetupTestDB(t *testing.T) {
 			return
 		}
 
-		// Enable uuid-ossp extension
-		if err := testDB.Exec("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"").Error; err != nil {
-			t.Skipf("Skipping test: Failed to enable uuid-ossp extension: %v", err)
+		if err := buildProductionSchema(testDB); err != nil {
+			testDBErr = err
 			return
 		}
-
-		// Run migrations
-		err = testDB.AutoMigrate(
-			&models.User{},
-			&models.Wallet{},
-			&models.WalletLedgerEntry{},
-			&models.LedgerAccount{},
-			&models.UsageMeteringClaim{},
-			&models.WatcherCursor{},
-			&models.WatcherProcessedEvent{},
-			&models.LedgerJournal{},
-			&models.LedgerJournalLine{},
-			&models.ProfilePrivate{},
-			&models.Session{},
-			&models.Node{},
-			&models.TOTPBackupCode{},
-			&models.APIKey{},
-			&models.AuditLog{},
-			&models.PendingTransaction{},
-			&models.ForumCategory{},
-			&models.ForumThread{},
-			&models.ForumPost{},
-			&models.ForumVote{},
-			&models.Review{},
-			&models.Conversation{},
-			&models.Message{},
-			&models.Notification{},
-			&models.NotificationPreference{},
-			&models.FriendRequest{},
-			&models.Friendship{},
-			&models.ProxyListing{},
-			&models.CatalogProduct{},
-			&models.CatalogOffer{},
-			&models.Order{},
-			&models.EscrowReconciliationEvent{},
-			&models.FeedEvent{},
-			&models.ProviderNode{},
-			&models.UptimeCheck{},
-			&models.UseCase{},
-			&models.UserPreference{},
-			&models.MarketAgent{},
-			&models.AgentInstance{},
-			&models.AgentJob{},
-			&models.UserFlag{},
-			&models.SecurityAnomaly{},
-			&models.SpendingRecord{},
-			&models.UserSubscription{},
-			&models.LinkedWallet{},
-			&models.ProviderScore{},
-			&models.ProviderToken{},
-			&models.ProviderNodeRegistration{},
-			&models.ExtensionDevice{},
-			&models.ExtensionPairCode{},
-			&models.ExplorerNode{},
-			&models.MessageReaction{},
-			&models.MapNodeLink{},
-			&models.PassPurchase{},
-			&models.ProtocolParameter{},
-			&models.ProviderApplication{},
-			&models.WithdrawalPayout{},
-			&models.IdempotencyRecord{},
-		)
-		if err != nil {
-			t.Skipf("Skipping test: Failed to run migrations: %v", err)
-			return
-		}
+		// profiles.id references auth.users(id). Supabase GoTrue owns that table in
+		// production and the API writes the row itself when it creates a user
+		// (api/auth.go, api/wallet.go); tests insert profiles directly, so add it here.
+		_ = testDB.Callback().Create().After("gorm:before_create").Before("gorm:create").Register("proxyhubb:auth_users_row", func(tx *gorm.DB) {
+			if tx.Statement.Schema == nil || tx.Statement.Schema.Table != "profiles" || tx.Statement.Schema.PrioritizedPrimaryField == nil {
+				return
+			}
+			ensure := func(rv reflect.Value) {
+				id, zero := tx.Statement.Schema.PrioritizedPrimaryField.ValueOf(tx.Statement.Context, rv)
+				if zero {
+					return
+				}
+				conn := tx.Session(&gorm.Session{NewDB: true})
+				if res := conn.Exec(`INSERT INTO auth.users (id) VALUES (?) ON CONFLICT (id) DO NOTHING`, id); res.Error == nil && res.RowsAffected == 1 {
+					// handle_new_user (000001) just added a stub profile for the new auth row.
+					// The insert in progress is the real profile, as in api/auth.go, which
+					// upserts over the stub.
+					conn.Exec(`DELETE FROM profiles WHERE id = ?`, id)
+				}
+			}
+			switch rv := tx.Statement.ReflectValue; rv.Kind() {
+			case reflect.Slice, reflect.Array:
+				for i := 0; i < rv.Len(); i++ {
+					ensure(reflect.Indirect(rv.Index(i)))
+				}
+			case reflect.Struct:
+				ensure(rv)
+			}
+		})
 		_ = testDB.Callback().Create().Before("gorm:create").Register("proxyhubb:default_provider_node_ip", func(tx *gorm.DB) {
 			node, ok := tx.Statement.Dest.(*models.ProviderNode)
 			if !ok || node == nil || node.IPAddress != "" {
@@ -164,23 +141,31 @@ func SetupTestDB(t *testing.T) {
 			}
 			node.IPAddress = "10.0.0.5"
 		})
-		_ = testDB.Exec(`
+		if err := testDB.Exec(`
 			INSERT INTO ledger_accounts (code, name, account_type, created_at) VALUES
 			('1000', 'treasury_cash', 'asset', NOW()),
 			('2100', 'user_wallet_liability', 'liability', NOW()),
 			('2200', 'escrow_liability', 'liability', NOW()),
 			('4000', 'platform_revenue', 'income', NOW())
 			ON CONFLICT (code) DO NOTHING
-		`).Error
+		`).Error; err != nil {
+			testDBErr = fmt.Errorf("seed ledger_accounts: %w", err)
+		}
 	})
 
+	if testDBErr != nil {
+		t.Fatalf("test database schema: %v", testDBErr)
+	}
 	if testDB == nil {
 		t.Skip("Skipping test: Test database not available")
 		return
 	}
 
-	// Set the global DB for the api package to use
-	db.DB = testDB
+	// Set the global DB for the api package to use. Write it only when it
+	// changes: goroutines started by an earlier test may still be reading it.
+	if db.DB != testDB {
+		db.DB = testDB
+	}
 }
 
 func resolveTestDatabaseDSN() string {
@@ -323,33 +308,121 @@ func joinDSNTokens(tokens []string) string {
 	return joined
 }
 
-func ensureTestDatabaseExists(dsn string) error {
-	adminDSN, testDBName, err := buildAdminConnection(dsn)
+// recreatePackageDatabase derives this package's database from the configured
+// one (see packageDatabaseName), drops any copy a previous run left behind,
+// creates it empty and returns its DSN.
+func recreatePackageDatabase(dsn string) (string, error) {
+	adminDSN, baseName, err := buildAdminConnection(dsn)
 	if err != nil {
-		return err
+		return "", err
+	}
+	name := packageDatabaseName(baseName)
+	if !strings.Contains(name, "test") {
+		return "", fmt.Errorf("refusing to recreate %q: test database names must contain \"test\"", name)
 	}
 
 	adminDB, err := sql.Open("postgres", adminDSN)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer adminDB.Close()
 
 	if err := adminDB.Ping(); err != nil {
-		return err
+		return "", err
+	}
+	// packageDatabaseName yields only [a-z0-9_], so double quotes are enough.
+	if _, err := adminDB.Exec(`DROP DATABASE IF EXISTS "` + name + `" WITH (FORCE)`); err != nil {
+		return "", fmt.Errorf("drop %s: %w", name, err)
+	}
+	if _, err := adminDB.Exec(`CREATE DATABASE "` + name + `"`); err != nil {
+		return "", fmt.Errorf("create %s: %w", name, err)
 	}
 
-	var exists int
-	if err := adminDB.QueryRow("SELECT 1 FROM pg_database WHERE datname = $1", testDBName).Scan(&exists); err == sql.ErrNoRows {
-		if _, createErr := adminDB.Exec(`CREATE DATABASE "` + testDBName + `"`); createErr != nil {
-			return createErr
+	rewritten, ok := rewriteDatabaseName(dsn, name, name)
+	if !ok {
+		return "", fmt.Errorf("cannot point the test DSN at %s", name)
+	}
+	return rewritten, nil
+}
+
+// packageDatabaseName appends the package's directory, relative to the
+// control-api module and without the internal/ prefix, to base as a lower-case
+// identifier: proxyhubb_test_api for internal/api.
+func packageDatabaseName(base string) string {
+	suffix := "tests"
+	if wd, err := os.Getwd(); err == nil {
+		suffix = filepath.Base(wd)
+		if root, ok := findUp(wd, "go.mod"); ok {
+			if rel, err := filepath.Rel(root, wd); err == nil {
+				suffix = strings.TrimPrefix(filepath.ToSlash(rel), "internal/")
+			}
 		}
-		return nil
-	} else if err != nil {
+	}
+	name := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '_':
+			return r
+		case r >= 'A' && r <= 'Z':
+			return r + ('a' - 'A')
+		default:
+			return '_'
+		}
+	}, base+"_"+suffix)
+	// PostgreSQL truncates identifiers to 63 bytes; keep long names distinct.
+	if len(name) > 63 {
+		sum := sha256.Sum256([]byte(name))
+		name = name[:54] + "_" + hex.EncodeToString(sum[:4])
+	}
+	return name
+}
+
+// findUp returns the first directory at or above dir that contains rel.
+func findUp(dir, rel string) (string, bool) {
+	for {
+		if _, err := os.Stat(filepath.Join(dir, rel)); err == nil {
+			return dir, true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", false
+		}
+		dir = parent
+	}
+}
+
+// buildProductionSchema creates the schema the way production does: the
+// extensions and Supabase auth stub the postgres container installs at init,
+// then every migrations/*.up.sql through db.RunMigrations.
+func buildProductionSchema(gdb *gorm.DB) error {
+	authStub := filepath.Join("infra", "postgres", "init", "00_auth_schema.sql")
+	wd, err := os.Getwd()
+	if err != nil {
 		return err
 	}
+	root, ok := findUp(wd, authStub)
+	if !ok {
+		return fmt.Errorf("repository root (with %s) not found above %s", authStub, wd)
+	}
 
-	return nil
+	for _, ext := range []string{"pgcrypto", "uuid-ossp"} {
+		if err := gdb.Exec(`CREATE EXTENSION IF NOT EXISTS "` + ext + `"`).Error; err != nil {
+			return fmt.Errorf("extension %s: %w", ext, err)
+		}
+	}
+	stub, err := os.ReadFile(filepath.Join(root, authStub))
+	if err != nil {
+		return err
+	}
+	if err := gdb.Exec(string(stub)).Error; err != nil {
+		return fmt.Errorf("%s: %w", authStub, err)
+	}
+
+	// RunMigrations works on db.DB and logs a line per file.
+	db.DB = gdb
+	prev := log.Writer()
+	log.SetOutput(io.Discard)
+	defer log.SetOutput(prev)
+	return db.RunMigrations(filepath.Join(root, "migrations"))
 }
 
 func buildAdminConnection(dsn string) (string, string, error) {
@@ -412,12 +485,17 @@ func CleanupTestData(t *testing.T, tables ...string) {
 		if db.DB == nil {
 			return
 		}
-		// Disable FK checks to allow deleting in any order
-		db.DB.Exec("SET session_replication_role = 'replica';")
 		for _, table := range tables {
-			db.DB.Exec(fmt.Sprintf("DELETE FROM %s WHERE 1=1", resolveCleanupTable(table)))
+			// Disable FK checks to allow deleting in any order. SET LOCAL keeps that
+			// inside this transaction; a plain SET would stay on whichever pooled
+			// connection happened to run it.
+			_ = db.DB.Transaction(func(tx *gorm.DB) error {
+				if err := tx.Exec("SET LOCAL session_replication_role = 'replica'").Error; err != nil {
+					return err
+				}
+				return tx.Exec(fmt.Sprintf("DELETE FROM %s WHERE 1=1", resolveCleanupTable(table))).Error
+			})
 		}
-		db.DB.Exec("SET session_replication_role = 'origin';")
 	})
 }
 
@@ -446,6 +524,88 @@ func CreateTestUser(t *testing.T, email, role string) *models.User {
 	db.DB.Create(wallet)
 
 	return user
+}
+
+// CreateTestUserID creates a user with the given role and returns its ID, for
+// fixtures that only need a row the profiles / auth.users foreign keys accept.
+func CreateTestUserID(t *testing.T, role string) uuid.UUID {
+	t.Helper()
+	return CreateTestUser(t, UniqueEmail("fixture-"+role), role).ID
+}
+
+// CreateTestWalletID creates a user and returns the ID of the wallet
+// CreateTestUser gives it, for fixtures that reference wallets(id).
+func CreateTestWalletID(t *testing.T) uuid.UUID {
+	t.Helper()
+	user := CreateTestUser(t, UniqueEmail("fixture-wallet"), "buyer")
+	var wallet models.Wallet
+	if err := db.DB.Where("user_id = ?", user.ID).First(&wallet).Error; err != nil {
+		t.Fatalf("load test wallet: %v", err)
+	}
+	return wallet.ID
+}
+
+// CreateTestNodeMirror creates the nodes row that mirrors a provider node and
+// returns its ID. sessions.node_id references nodes(id), not provider_nodes(id);
+// production links the two through nodes.provider_node_id
+// (marketplace.SessionNodeIDForProvider).
+func CreateTestNodeMirror(t *testing.T, pn *models.ProviderNode) uuid.UUID {
+	t.Helper()
+	mirror := models.Node{
+		ID:             uuid.New(),
+		UserID:         pn.UserID,
+		ProviderUserID: pn.UserID,
+		ProviderNodeID: &pn.ID,
+		GatewayNodeID:  pn.GatewayNodeID,
+		IPAddress:      pn.IPAddress,
+		Port:           pn.Port,
+		IsHealthy:      pn.IsHealthy,
+	}
+	if err := db.DB.Create(&mirror).Error; err != nil {
+		t.Fatalf("create node mirror: %v", err)
+	}
+	return mirror.ID
+}
+
+// CreateTestProviderNode creates a healthy, online provider node with spare
+// capacity for owner and its nodes mirror, which is what session and order
+// creation select. It returns the node and the mirror ID (sessions.node_id).
+func CreateTestProviderNode(t *testing.T, ownerID uuid.UUID) (*models.ProviderNode, uuid.UUID) {
+	t.Helper()
+	now := time.Now()
+	pn := &models.ProviderNode{
+		ID:             uuid.New(),
+		UserID:         ownerID,
+		Name:           "test-node",
+		Status:         models.NodeOnline,
+		IsHealthy:      true,
+		IPAddress:      "10.0.0.5",
+		Port:           1080,
+		MaxConnections: 100,
+		GatewayNodeID:  "node_" + ownerID.String(),
+		LastSeenAt:     &now,
+	}
+	if err := db.DB.Create(pn).Error; err != nil {
+		t.Fatalf("create provider node: %v", err)
+	}
+	return pn, CreateTestNodeMirror(t, pn)
+}
+
+// CreateTestListing creates an active proxy listing for seller and returns it.
+func CreateTestListing(t *testing.T, sellerID uuid.UUID) *models.ProxyListing {
+	t.Helper()
+	listing := &models.ProxyListing{
+		SellerID:             sellerID,
+		Title:                "test listing",
+		PricePerGB:           1,
+		AvailableBandwidthGB: 10,
+		MaxConcurrency:       1,
+		Status:               models.ListingStatusActive,
+	}
+	if err := db.DB.Create(listing).Error; err != nil {
+		t.Fatalf("create test listing: %v", err)
+	}
+	return listing
 }
 
 // UniqueEmail generates a unique email for testing to avoid conflicts.

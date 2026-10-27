@@ -29,6 +29,7 @@ func authMiddlewareMock(userID string, role string) gin.HandlerFunc {
 		c.Set("userID", userID)
 
 		c.Set("role", role)
+		c.Set("userRole", role) // the key the real auth middleware sets (middleware/supabase.go)
 		c.Next()
 	}
 }

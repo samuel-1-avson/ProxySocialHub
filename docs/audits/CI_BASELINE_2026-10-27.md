@@ -56,8 +56,9 @@ while a background goroutine started by earlier product code still reads it:
 `testutil.SetupTestRedis` vs `api.PublishFeedEvent`, and `solana.SetOracleClientForTest`
 vs `treasury.oracleClient`. Test isolation; they would not occur if the globals were only set at startup.
 
-One fixture bug was fixed here: `TestCountActiveListingSessions_IgnoresDisabledAndExpired`
-inserted sessions with an empty `Config`, which is invalid for the `jsonb` column.
+#57 also gave `TestCountActiveListingSessions_IgnoresDisabledAndExpired` a valid `jsonb` `Config`;
+that was correct but did not make it pass: it failed earlier, on the shared-database foreign
+key described above (see the update at the end).
 
 ## Rust
 
@@ -75,3 +76,29 @@ inserted sessions with an empty `Config`, which is invalid for the `jsonb` colum
 Until then CI is red for pre-existing reasons and the Go result cannot be used as a signal
 about a change. The most useful thing the current run gives is the list of failing tests,
 which a run of `go test ./... -count=1` in the same environment reproduces.
+
+## Update: what the Go failures turned out to be
+
+The harness, not the code under test, was the first problem. `SetupTestDB` built the schema
+with `AutoMigrate` over a hand-kept model list, and every package shared one database while
+`go test ./...` ran them in parallel. Building the schema from `migrations/*.up.sql` instead
+(as production does, one database per package) exposed what that had hidden:
+
+- **Model/migration drift.** 21 tables and 18 columns that the API's models use were never
+  created by any migration; they existed only while the API ran `AutoMigrate`. A read-only
+  check of gcp-testnet (all 157 migrations applied) confirmed none of them exist there, so
+  audit logging, provider scores, uptime checks, session metrics, reviews and more fail in
+  production today. Migration 000166 adds them; five fields that map to columns under other
+  names got `column:` tags instead.
+- **Production bugs** on the migrated schema: the GDPR purge aborted on a `listings` table that
+  no migration creates; the provider-payout wallet lookup filtered on a `deleted_at` column
+  `linked_wallets` does not have; listing sessions and on-chain activation wrote
+  `provider_nodes.id` into `sessions.node_id` (an FK to `nodes`); provider token registrations
+  could never be stored (FK to the wrong table, 000167); `usage_proofs.status` was too short
+  for `settling_confidential` (000168); a session's second settlement collided on per-session
+  ledger and spending references; listing SLA enrichment compared `uuid = text`; a first-time
+  notification opt-out was silently stored as opt-in (GORM default tags).
+- **Stale tests**: fixtures with missing parent rows, roles the schema rejects (`seller`),
+  tests that relied on another package's rows, and assertions on old messages and codes.
+- **The two data races** were real (globals swapped while request goroutines read them) and
+  are fixed in the code, not suppressed.
