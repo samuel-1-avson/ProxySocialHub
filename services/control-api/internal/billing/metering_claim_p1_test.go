@@ -85,7 +85,7 @@ func TestSettleSession_P1_InsufficientFundsNotBreaker(t *testing.T) {
 	if err := db.DB.Save(&buyerWallet).Error; err != nil {
 		t.Fatal(err)
 	}
-	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("billing-p1-provider"), "seller")
+	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("billing-p1-provider"), "provider")
 	listing := models.ProxyListing{SellerID: provider.ID, Title: "P1", PricePerGB: 0.50, AvailableBandwidthGB: 100, Status: "active"}
 	if err := db.DB.Create(&listing).Error; err != nil {
 		t.Fatal(err)
@@ -140,7 +140,7 @@ func TestSettleSession_P1_TwiceSettlesWithUniqueJournalRefs(t *testing.T) {
 	if err := db.DB.Save(&buyerWallet).Error; err != nil {
 		t.Fatal(err)
 	}
-	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("billing-p1-twice-provider"), "seller")
+	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("billing-p1-twice-provider"), "provider")
 	listing := models.ProxyListing{SellerID: provider.ID, Title: "P1 twice", PricePerGB: 0.50, AvailableBandwidthGB: 100, Status: "active"}
 	if err := db.DB.Create(&listing).Error; err != nil {
 		t.Fatal(err)

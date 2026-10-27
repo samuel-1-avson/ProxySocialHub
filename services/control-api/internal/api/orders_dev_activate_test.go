@@ -42,6 +42,7 @@ func TestActivateDevOrder_ActivatesSessionAndRedis(t *testing.T) {
 	if err := db.DB.Create(&providerNode).Error; err != nil {
 		t.Fatalf("create provider node: %v", err)
 	}
+	mirrorID := testutil.CreateTestNodeMirror(t, &providerNode)
 
 	listing := models.ProxyListing{
 		SellerID:             provider.ID,
@@ -61,7 +62,7 @@ func TestActivateDevOrder_ActivatesSessionAndRedis(t *testing.T) {
 	session := models.Session{
 		ID:              sessionID,
 		UserID:          buyer.ID,
-		NodeID:          &nodeID,
+		NodeID:          &mirrorID,
 		ListingID:       &listing.ID,
 		Type:            models.SessionRotating,
 		Status:          models.SessionDisabled,

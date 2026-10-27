@@ -80,8 +80,8 @@ func TestEnqueueEscrowSettleCreatesPendingRow(t *testing.T) {
 	testutil.SetupTestDB(t)
 	order := &models.Order{
 		ID:              uuid.New(),
-		BuyerID:         uuid.New(),
-		SellerID:        uuid.New(),
+		BuyerID:         testutil.CreateTestUserID(t, "buyer"),
+		SellerID:        testutil.CreateTestUserID(t, "provider"),
 		ListingID:       uuid.New(),
 		BandwidthGB:     1,
 		PricePerGB:      1,

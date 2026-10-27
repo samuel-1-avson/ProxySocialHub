@@ -91,8 +91,8 @@ func (a *SessionActivator) upsertBlockchainStateCache(event EscrowEvent) {
 
 // globalProgramID returns the configured Solana program ID string.
 func globalProgramID() string {
-	if globalOracleClient != nil {
-		return globalOracleClient.programID.String()
+	if c := globalOracleClient.Load(); c != nil {
+		return c.programID.String()
 	}
 	return ""
 }
@@ -322,11 +322,13 @@ func (a *SessionActivator) createSessionForOrder(order *models.Order, seller *mo
 		log.Printf("[SessionActivator] Applying 20%% bandwidth bonus for Premium NFT")
 	}
 
+	// sessions.node_id references the nodes mirror row, not provider_nodes.id (the
+	// purchase flow does the same); nil when the provider node has no mirror yet.
 	// Create session
 	session := models.Session{
 		ID:             uuid.New(),
 		UserID:         order.BuyerID,
-		NodeID:         &node.ID,
+		NodeID:         marketplace.SessionNodeIDForProvider(&node),
 		ListingID:      &order.ListingID,
 		Type:           models.SessionRotating,
 		Status:         models.SessionActive,

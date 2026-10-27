@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -166,9 +167,6 @@ func TestTransferP2P_ConcurrentTransfers(t *testing.T) {
 // recipient is paid twice (ledger credit plus an on-chain transfer).
 func TestTransferP2P_LinkedWalletsDoNotSendOnChain(t *testing.T) {
 	testutil.SetupTestDB(t)
-	if err := db.DB.AutoMigrate(&models.CompensationOutbox{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
 	testutil.CleanupTestData(t, "compensation_outbox", "users", "wallets", "wallet_ledger_entries", "spending_records")
 
 	sharedSender := "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuGui4Q5G"
@@ -346,7 +344,9 @@ func TestWithdrawSOL_SpendingLimitExceeded(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for spending limit, got %d body %s", w.Code, w.Body.String())
+	// withdrawSOL answers a SpendingLimitError with 403 and the limit details (wallet.go),
+	// as it has since the limits were added.
+	if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), `"limit_type":"daily"`) {
+		t.Fatalf("expected 403 with the daily limit for a spending-limit refusal, got %d body %s", w.Code, w.Body.String())
 	}
 }

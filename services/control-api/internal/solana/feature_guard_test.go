@@ -12,10 +12,10 @@ import (
 )
 
 func TestGetGovernanceExecutionCapabilityReportOracleUnavailable(t *testing.T) {
-	originalOracle := globalOracleClient
-	globalOracleClient = nil
+	originalOracle := globalOracleClient.Load()
+	globalOracleClient.Store(nil)
 	t.Cleanup(func() {
-		globalOracleClient = originalOracle
+		globalOracleClient.Store(originalOracle)
 	})
 
 	report := GetGovernanceExecutionCapabilityReport(context.Background())
@@ -38,7 +38,7 @@ func TestGetGovernanceExecutionCapabilityReportOracleUnavailable(t *testing.T) {
 }
 
 func TestGetGovernanceExecutionCapabilityReportReadyWithCompiledFallbackWithoutIDLCached(t *testing.T) {
-	originalOracle := globalOracleClient
+	originalOracle := globalOracleClient.Load()
 	originalRedis := redisClient.Client
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -61,14 +61,14 @@ func TestGetGovernanceExecutionCapabilityReportReadyWithCompiledFallbackWithoutI
 	defer server.Close()
 
 	rpcClient := rpc.New(server.URL)
-	globalOracleClient = &OracleClient{
+	globalOracleClient.Store(&OracleClient{
 		programID:  sol.PublicKey{1},
 		rpcClients: []*rpc.Client{rpcClient},
-	}
+	})
 	redisClient.Client = nil
 
 	t.Cleanup(func() {
-		globalOracleClient = originalOracle
+		globalOracleClient.Store(originalOracle)
 		redisClient.Client = originalRedis
 	})
 

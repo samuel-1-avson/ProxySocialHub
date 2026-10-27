@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -20,16 +21,20 @@ func TestGetCategories(t *testing.T) {
 	// Create test categories
 	cat1 := models.ForumCategory{
 		Name:      "General",
-		Slug:      "general",
+		Slug:      "test-general", // migrations seed "general", "support", ...
 		SortOrder: 1,
 	}
 	cat2 := models.ForumCategory{
 		Name:      "Support",
-		Slug:      "support",
+		Slug:      "test-support",
 		SortOrder: 2,
 	}
-	db.DB.Create(&cat1)
-	db.DB.Create(&cat2)
+	if err := db.DB.Create(&cat1).Error; err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+	if err := db.DB.Create(&cat2).Error; err != nil {
+		t.Fatalf("create category: %v", err)
+	}
 
 	r := setupTestRouter()
 	r.GET("/forum/categories", getCategories)
@@ -47,8 +52,14 @@ func TestGetCategories(t *testing.T) {
 	json.Unmarshal(w.Body.Bytes(), &response)
 
 	cats := response["categories"].([]interface{})
-	if len(cats) != 2 {
-		t.Errorf("Expected 2 categories, got %d", len(cats))
+	slugs := map[string]bool{}
+	for _, c := range cats {
+		if m, ok := c.(map[string]interface{}); ok {
+			slugs[fmt.Sprint(m["slug"])] = true
+		}
+	}
+	if !slugs["test-general"] || !slugs["test-support"] {
+		t.Errorf("Expected the two created categories among %d returned, got slugs %v", len(cats), slugs)
 	}
 }
 
