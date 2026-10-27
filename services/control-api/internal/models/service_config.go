@@ -25,7 +25,7 @@ type ServiceConfiguration struct {
 
 	// Protocols Offered
 	EnableHTTP      bool `gorm:"default:true" json:"enable_http"`
-	EnableHTTPS     bool `gorm:"default:true" json:"enable_https"`
+	EnableHTTPS     bool `gorm:"column:enable_https;default:true" json:"enable_https"`
 	EnableSOCKS5    bool `gorm:"default:false" json:"enable_socks5"`
 	EnableSSHTunnel bool `gorm:"default:false" json:"enable_ssh_tunnel"`
 
@@ -70,7 +70,7 @@ type ServiceConfiguration struct {
 
 	// Pricing Multipliers
 	PriceMultiplierHTTP     float64 `gorm:"default:1.0" json:"price_multiplier_http"`
-	PriceMultiplierHTTPS    float64 `gorm:"default:1.0" json:"price_multiplier_https"`
+	PriceMultiplierHTTPS    float64 `gorm:"column:price_multiplier_https;default:1.0" json:"price_multiplier_https"`
 	PriceMultiplierSOCKS5   float64 `gorm:"default:1.2" json:"price_multiplier_socks5"`
 	PriceMultiplierSSH      float64 `gorm:"default:1.5" json:"price_multiplier_ssh"`
 	PriceMultiplierPriority float64 `gorm:"default:1.5" json:"price_multiplier_priority"`
