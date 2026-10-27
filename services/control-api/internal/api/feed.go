@@ -185,6 +185,12 @@ func getTrendingListings(c *gin.Context) {
 
 // PublishFeedEvent broadcasts and caches a feed event
 func PublishFeedEvent(event models.FeedEvent) {
+	publishFeedEvent(redisClient.Client, event)
+}
+
+// publishFeedEvent is PublishFeedEvent with the Redis client chosen by the
+// caller, for goroutines that must not read the package-level client later.
+func publishFeedEvent(rc redisClient.RedisClient, event models.FeedEvent) {
 	// 1. WebSocket Broadcast
 	BroadcastToAll(string(event.EventType), event)
 
@@ -196,10 +202,10 @@ func PublishFeedEvent(event models.FeedEvent) {
 	data, _ := json.Marshal(event)
 
 	// LPUSH + LTRIM
-	if redisClient.Client != nil {
+	if rc != nil {
 		ctx := context.Background()
-		redisClient.Client.LPush(ctx, key, data)
-		redisClient.Client.LTrim(ctx, key, 0, 99) // Keep last 100
+		rc.LPush(ctx, key, data)
+		rc.LTrim(ctx, key, 0, 99) // Keep last 100
 	}
 }
 
