@@ -212,6 +212,29 @@ export async function stubPurchaseApis(
 
 
 
+        // BuyListingModal confirms the (mocked) escrow before polling the order; without
+        // this the request fell through to the dev server proxy and the buy showed
+        // "Request failed".
+        if (method === 'POST' && path === `/v1/orders/${e2eOrderId}/confirm-escrow`) {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    order: {
+                        id: e2eOrderId,
+                        listing_id: listingId,
+                        buyer_id: 'buyer-e2e',
+                        status: 'active',
+                        bandwidth_gb: 1,
+                        total_price: verifiedMapPoint.price_per_gb,
+                    },
+                    escrow_pda: 'EscrowPdaE2E111111111111111111111111111111111',
+                    on_chain_status: 'Active',
+                }),
+            });
+            return;
+        }
+
         await route.continue();
 
     });
