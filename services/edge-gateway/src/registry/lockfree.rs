@@ -102,6 +102,9 @@ impl NodeEntry {
     }
 }
 
+/// Per-shard (country and/or connection type) node lists, best score first.
+type ShardSnapshots = HashMap<String, Vec<(String, Control)>>;
+
 /// Lock-free node registry backed by DashMap.
 ///
 /// DashMap shards its internal HashMap across multiple RwLocks (default 16
@@ -117,7 +120,7 @@ pub struct LockFreeNodeRegistry {
     /// Pre-sorted (score desc) list of (node_id, Control). Rebuilt when dirty.
     top_nodes: Arc<std::sync::RwLock<Vec<(String, Control)>>>,
     /// Shard-specific pre-sorted snapshots keyed by country and/or connection type.
-    shard_nodes: Arc<std::sync::RwLock<HashMap<String, Vec<(String, Control)>>>>,
+    shard_nodes: Arc<std::sync::RwLock<ShardSnapshots>>,
     /// Set on registry mutations; cleared by the score-refresh background task.
     snapshot_dirty: AtomicBool,
     /// Monotonic counter for reconnect-safe session generations.
@@ -161,7 +164,7 @@ impl LockFreeNodeRegistry {
             })
             .collect();
         // Sort descending by score — best node first.
-        scored.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+        scored.sort_unstable_by_key(|a| std::cmp::Reverse(a.0));
         let snapshot: Vec<(String, Control)> = scored
             .iter()
             .map(|(_, id, ctrl, _)| (id.clone(), ctrl.clone()))

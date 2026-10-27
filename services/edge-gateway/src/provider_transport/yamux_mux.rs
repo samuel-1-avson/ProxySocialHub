@@ -16,7 +16,7 @@ pub struct YamuxMux {
 
 impl YamuxMux {
     pub fn normalize_max_lanes(max_lanes: usize) -> usize {
-        max_lanes.max(1).min(MAX_YAMUX_LANES)
+        max_lanes.clamp(1, MAX_YAMUX_LANES)
     }
 
     pub fn new(control: Control, max_lanes: usize) -> Self {

@@ -641,15 +641,11 @@ async fn proxy(
             });
         }
 
-        let avg_latency = if latency_count > 0 {
-            (latency_sum / latency_count) as u32
-        } else {
-            0
-        };
+        let avg_latency = latency_sum.checked_div(latency_count).unwrap_or(0) as u32;
 
         // Top countries by node count
         let mut country_vec: Vec<_> = country_counts.into_iter().collect();
-        country_vec.sort_by(|a, b| b.1.cmp(&a.1));
+        country_vec.sort_by_key(|a| std::cmp::Reverse(a.1));
         let top_countries: Vec<String> = country_vec.into_iter().take(5).map(|(c, _)| c).collect();
 
         let status = NetworkStatus {
@@ -758,7 +754,7 @@ async fn proxy(
             if let Some(ref digest) = profile.ja3 {
                 state.fingerprint_db.observe_ja3(digest, true);
             }
-            if let Some(ref ja4) = conn_tls.as_ref().and_then(|fp| fp.ja4.as_ref()) {
+            if let Some(ja4) = conn_tls.as_ref().and_then(|fp| fp.ja4.as_ref()) {
                 state.fingerprint_db.observe_ja4(ja4, true);
             }
             warn!(
@@ -1323,7 +1319,7 @@ async fn proxy(
                 let dest_host = policy::target_host_from_endpoint(&addr);
                 let dest_port: i64 = addr
                     .split(':')
-                    .last()
+                    .next_back()
                     .and_then(|p| p.parse().ok())
                     .unwrap_or(443);
 
@@ -1658,6 +1654,7 @@ async fn shutdown_signal() {
 }
 
 /// Bridge client connection to selected provider (local yamux).
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn bridge_to_provider(
     upgraded: hyper::upgrade::Upgraded,
     addr: String,
@@ -1806,6 +1803,7 @@ async fn try_open_provider_stream(
 
 /// Bridge an established provider stream to the client socket (shaping,
 /// zerocopy bridge, revalidation, usage finalize/report). Consumes `upgraded`.
+#[allow(clippy::too_many_arguments)]
 async fn bridge_established(
     upgraded: hyper::upgrade::Upgraded,
     stream: yamux::Stream,
@@ -2026,6 +2024,7 @@ async fn bridge_established(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn bridge_to_provider_inner(
     upgraded: hyper::upgrade::Upgraded,
     addr: String,
@@ -2077,6 +2076,7 @@ async fn bridge_to_provider_inner(
 /// been established, so a dead primary no longer kills the CONNECT.
 const MAX_FAILOVER_ALTERNATES: usize = 2;
 
+#[allow(clippy::too_many_arguments)]
 async fn bridge_to_provider_with_failover(
     upgraded: hyper::upgrade::Upgraded,
     addr: String,

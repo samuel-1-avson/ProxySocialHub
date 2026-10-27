@@ -131,7 +131,7 @@ impl NodeInfo {
         };
 
         // P1-A6: Priority bonus from assigned limits
-        score += self.assigned_limits.priority as u32;
+        score += self.assigned_limits.priority;
 
         // P1-A6: Bandwidth capacity bonus
         let bw_score = (self.capabilities.downlink_speed_kbps / 1000).min(100);
