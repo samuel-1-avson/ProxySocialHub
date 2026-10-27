@@ -156,7 +156,6 @@ pub(crate) async fn ensure_session_intent_may_activate(
     sync_session_intent_lifecycle(state, session, "active", provider_node_id, target_host).await
 }
 
-
 pub(crate) async fn sync_session_intent_usage(
     state: Arc<AppState>,
     session: &crate::auth::SessionData,

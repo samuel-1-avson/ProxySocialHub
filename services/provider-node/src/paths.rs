@@ -36,7 +36,10 @@ pub fn config_file_candidates() -> Vec<PathBuf> {
     if let Some(dir) = dirs::config_dir() {
         out.push(dir.join("proxyhubb").join("provider.toml"));
     }
-    let xdg = home_dir().join(".config").join("proxyhubb").join("provider.toml");
+    let xdg = home_dir()
+        .join(".config")
+        .join("proxyhubb")
+        .join("provider.toml");
     if !out.iter().any(|p| p == &xdg) {
         out.push(xdg);
     }
