@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	sol "github.com/gagliardetto/solana-go"
@@ -1336,8 +1337,10 @@ func (c *OracleClient) GetTransaction(ctx context.Context, signature string) (*r
 	return tx, nil
 }
 
-// Global oracle client instance
-var globalOracleClient *OracleClient
+// Global oracle client instance. Atomic because it is swapped (RegisterOracleClient,
+// SetOracleClientForTest) while goroutines started by earlier requests, such as the
+// withdrawal liquidity top-up, may still be reading it.
+var globalOracleClient atomic.Pointer[OracleClient]
 
 // InitOracleClient initializes the global oracle client
 func InitOracleClient(cfg Config) error {
@@ -1345,24 +1348,24 @@ func InitOracleClient(cfg Config) error {
 	if err != nil {
 		return err
 	}
-	globalOracleClient = client
+	globalOracleClient.Store(client)
 	return nil
 }
 
 // GetOracleClient returns the global oracle client instance
 func GetOracleClient() *OracleClient {
-	return globalOracleClient
+	return globalOracleClient.Load()
 }
 
 // SetOracleClientForTest installs a stub oracle for integration tests.
 func SetOracleClientForTest(c *OracleClient) {
-	globalOracleClient = c
+	globalOracleClient.Store(c)
 }
 
 // RegisterOracleClient installs the production oracle (velocity guard, billing hooks, etc.)
 // for all handlers that call GetOracleClient / GetOracle.
 func RegisterOracleClient(c *OracleClient) {
-	globalOracleClient = c
+	globalOracleClient.Store(c)
 	oracleClient = c
 }
 
