@@ -175,6 +175,8 @@ jobs:
         go test ./internal/api/ -count=1 -run 'TestGetMapLinks|TestMapTopology|TestParseMapLinksBBox'
 
     - name: Wallet production closure (Go)
+      # Keep going after an earlier red step so one run lists every failing test.
+      if: ${{ !cancelled() }}
       env:
         TEST_DATABASE_URL: "postgres://proxyhubb:proxyhubb@localhost:5432/proxyhubb_test?sslmode=disable"
         REDIS_URL: "redis://localhost:6379"
@@ -188,6 +190,8 @@ jobs:
         go test ./internal/api/... -count=1 -run 'Wallet|Withdrawal|Whitelist|Cooldown|Crypto|GDPR|Treasury'
 
     - name: Wallet and billing coverage report
+      # Keep going after an earlier red step so one run lists every failing test.
+      if: ${{ !cancelled() }}
       env:
         TEST_DATABASE_URL: "postgres://proxyhubb:proxyhubb@localhost:5432/proxyhubb_test?sslmode=disable"
         REDIS_URL: "redis://localhost:6379"
@@ -206,6 +210,8 @@ jobs:
         go tool cover -func=billing.cover | tail -1
 
     - name: Test with coverage
+      # Keep going after an earlier red step so one run lists every failing test.
+      if: ${{ !cancelled() }}
       env:
         TEST_DATABASE_URL: "postgres://proxyhubb:proxyhubb@localhost:5432/proxyhubb_test?sslmode=disable"
         REDIS_URL: "redis://localhost:6379"
