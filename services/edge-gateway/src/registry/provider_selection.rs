@@ -23,6 +23,7 @@ pub enum ProviderTarget {
 }
 
 /// Select the best provider route for a buyer CONNECT (local control or peer forward).
+#[allow(clippy::too_many_arguments)]
 pub async fn select_provider_route(
     state: Arc<AppState>,
     session_id: &str,
@@ -52,6 +53,7 @@ pub async fn select_provider_route(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn select_provider_route_inner(
     state: Arc<AppState>,
     session_id: &str,
@@ -253,6 +255,7 @@ async fn pinned_node_available(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn select_provider_node_id(
     state: Arc<AppState>,
     session_id: &str,

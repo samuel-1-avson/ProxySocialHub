@@ -55,12 +55,18 @@ wait_container_healthy proxyhubb-control-api-1
 
 echo "Minting dev provider credentials..."
 mkdir -p config/docker
+# -write-toml: the provider container mounts config/docker/provider.toml. Without
+# it the tool writes the operator's own ~/.config/proxyhubb/provider.toml, and a
+# fresh checkout (CI) has no docker config, so provider-node runs on defaults and
+# refuses the dev gateway cert (the generated file sets tls_skip_verify).
 (
   cd services/control-api
   go run ./cmd/provider_dev_token \
     -ensure-profile \
     -generate-signing-key \
-    -api-url http://localhost:18080 \
+    -api-url http://control-api:8080 \
+    -gateway edge-gateway:3128 \
+    -write-toml "$ROOT/config/docker/provider.toml" \
     -output-json "$TOKEN_JSON"
 )
 
@@ -72,6 +78,19 @@ cat >"$COMPOSE_ENV" <<EOF
 PROXYHUB_API_KEY=${API_KEY}
 PROXYHUB_PROVIDER_SIGNING_KEY=${SIGN_KEY}
 EOF
+
+# The gateway's provider QUIC listener needs certs/server.{crt,key} (mounted at
+# /app/certs). certs/ is gitignored, so a fresh checkout has none: make a
+# throwaway self-signed pair for this dev stack. Readable by the container user.
+if [[ ! -s certs/server.crt || ! -s certs/server.key ]]; then
+  echo "No certs/server.{crt,key}; generating a self-signed dev certificate..."
+  mkdir -p certs
+  openssl req -x509 -nodes -newkey rsa:2048 -days 30 \
+    -keyout certs/server.key -out certs/server.crt \
+    -subj "/CN=edge-gateway" \
+    -addext "subjectAltName=DNS:edge-gateway,DNS:localhost,IP:127.0.0.1" 2>/dev/null
+  chmod 644 certs/server.crt certs/server.key
+fi
 
 echo "Building and starting edge-gateway + provider-node..."
 docker compose "${COMPOSE_PROVIDER[@]}" build edge-gateway provider-node

@@ -107,9 +107,10 @@ impl<S: AsyncRead + Unpin> AsyncRead for ShapedStream<S> {
                 let n = buf.filled().len() - before;
                 if n > 0 {
                     // Weight the bucket by bytes read
-                    if let Err(_) = self
+                    if self
                         .limiter
                         .check_key_n(&self.key, NonZeroU32::new(n as u32).unwrap())
+                        .is_err()
                     {
                         // If we exceeded, we still return the data but we've "overdrawn"
                         // The next poll will yield.
