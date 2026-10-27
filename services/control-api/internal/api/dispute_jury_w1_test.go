@@ -11,13 +11,9 @@ import (
 
 func TestLoadOrderForJurySettlement_UsesOrderIDAsDisputeID(t *testing.T) {
 	testutil.SetupTestDB(t)
-	buyer := uuid.New()
-	seller := uuid.New()
+	buyer := testutil.CreateTestUserID(t, "buyer")
+	seller := testutil.CreateTestUserID(t, "provider")
 	orderID := uuid.New()
-	if err := db.DB.Exec(`INSERT INTO users (id, role, created_at, updated_at) VALUES (?, 'buyer', NOW(), NOW()), (?, 'seller', NOW(), NOW())`, buyer, seller).Error; err != nil {
-		// users table shape varies — create minimal order without FK if needed
-		t.Logf("users insert skipped/failed: %v", err)
-	}
 	order := models.Order{
 		ID:          orderID,
 		BuyerID:     buyer,

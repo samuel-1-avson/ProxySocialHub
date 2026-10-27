@@ -16,7 +16,7 @@ func TestEvaluateEscrowCustodialGate_OrderWithPDASkips(t *testing.T) {
 	sessionID := uuid.New()
 	session := &models.Session{
 		ID:     sessionID,
-		UserID: uuid.New(),
+		UserID: testutil.CreateTestUserID(t, "buyer"),
 		Type:   models.SessionUniversal,
 		Status: models.SessionActive,
 		Config: "{}",
@@ -24,11 +24,12 @@ func TestEvaluateEscrowCustodialGate_OrderWithPDASkips(t *testing.T) {
 	if err := db.DB.Create(session).Error; err != nil {
 		t.Fatalf("session: %v", err)
 	}
+	sellerID := testutil.CreateTestUserID(t, "provider")
 	order := models.Order{
 		ID:            uuid.New(),
 		BuyerID:       session.UserID,
-		SellerID:      uuid.New(),
-		ListingID:     uuid.New(),
+		SellerID:      sellerID,
+		ListingID:     testutil.CreateTestListing(t, sellerID).ID,
 		BandwidthGB:   1,
 		PricePerGB:    1,
 		TotalPrice:    1,
@@ -54,7 +55,7 @@ func TestEvaluateEscrowCustodialGate_MarketplaceOrderMissingPDARefuses(t *testin
 	sessionID := uuid.New()
 	session := &models.Session{
 		ID:     sessionID,
-		UserID: uuid.New(),
+		UserID: testutil.CreateTestUserID(t, "buyer"),
 		Type:   models.SessionUniversal,
 		Status: models.SessionActive,
 		Config: "{}",
@@ -62,11 +63,12 @@ func TestEvaluateEscrowCustodialGate_MarketplaceOrderMissingPDARefuses(t *testin
 	if err := db.DB.Create(session).Error; err != nil {
 		t.Fatalf("session: %v", err)
 	}
+	sellerID := testutil.CreateTestUserID(t, "provider")
 	order := models.Order{
 		ID:          uuid.New(),
 		BuyerID:     session.UserID,
-		SellerID:    uuid.New(),
-		ListingID:   uuid.New(),
+		SellerID:    sellerID,
+		ListingID:   testutil.CreateTestListing(t, sellerID).ID,
 		BandwidthGB: 1,
 		PricePerGB:  1,
 		TotalPrice:  1,
