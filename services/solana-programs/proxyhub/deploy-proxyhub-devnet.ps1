@@ -52,6 +52,15 @@ if ($authority -ne $walletPubkey) {
     throw "Wallet $walletPubkey is not the upgrade authority ($authority). Aborting before spending anything."
 }
 
+# The upgrade fails if the new binary does not fit in the program data account, and by then
+# the buffer has been paid for. Check first, and print the exact command that fixes it.
+$headroom = 10240
+if ($null -ne $show.dataLen -and [int64]$show.dataLen -lt $soSize) {
+    $extendBy = $soSize + $headroom - [int64]$show.dataLen
+    throw ("Program data account holds $($show.dataLen) bytes but the build is $soSize. Extend it first (about 1 SOL of rent), then re-run:`n" +
+           "  solana program extend $expectedProgramId $extendBy --url $Cluster --keypair $Wallet")
+}
+
 $balanceOut = (& solana balance --url $Cluster --keypair $Wallet) | Select-Object -Last 1
 $balance = [double](("$balanceOut" -replace '[^\d\.]', ''))
 Write-Host "Deploy wallet balance: $balance SOL ($Cluster)"
@@ -93,12 +102,30 @@ Write-Host "== Verify =="
 & solana program show $expectedProgramId --url $Cluster
 $dumpPath = Join-Path $workspace "target\deploy\dumped-proxyhub.so"
 & solana program dump $expectedProgramId $dumpPath --url $Cluster | Out-Host
-$dumpHash = (Get-FileHash $dumpPath -Algorithm SHA256).Hash.ToLower()
-Write-Host "Deployed sha256: $dumpHash"
+# The program data account is usually larger than the binary (it was extended, or deployed
+# with --max-len) and `solana program dump` writes the whole area, zero padding included. So
+# hash the first $soSize bytes and require everything after them to be zero, instead of
+# hashing the whole dump (which would never equal the .so hash and would fail a good upgrade).
+$dumped = [System.IO.File]::ReadAllBytes($dumpPath)
+if ($dumped.Length -lt $soSize) {
+    throw "Dumped program is $($dumped.Length) bytes, shorter than the built binary ($soSize). Investigate before proceeding."
+}
+$prefix = New-Object byte[] $soSize
+[Array]::Copy($dumped, $prefix, $soSize)
+$sha = [System.Security.Cryptography.SHA256]::Create()
+$dumpHash = ([BitConverter]::ToString($sha.ComputeHash($prefix)) -replace '-', '').ToLower()
+$tailNonZero = $false
+for ($i = $soSize; $i -lt $dumped.Length; $i++) {
+    if ($dumped[$i] -ne 0) { $tailNonZero = $true; break }
+}
+Write-Host "Deployed sha256 (first $soSize bytes of $($dumped.Length)): $dumpHash"
 if ($dumpHash -ne $soHash) {
     throw "Deployed binary hash $dumpHash does not match built binary $soHash. Investigate before proceeding."
 }
-Write-Host "Deployed binary matches the built artifact."
+if ($tailNonZero) {
+    throw "Hash matches, but bytes after offset $soSize in the program data account are not all zero. Investigate before proceeding."
+}
+Write-Host "Deployed binary matches the built artifact (padding after it is zeros)."
 
 Write-Host ""
 Write-Host "Upgrade complete. Remaining checklist (docs/audits/P1-SC-6_IDL_CALLSITES.md):"
