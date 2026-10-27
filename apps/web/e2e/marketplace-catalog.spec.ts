@@ -15,6 +15,33 @@ import {
 
 const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:4011';
 
+/** Opens the create-product dialog. The first click can land before the page has
+ * hydrated and do nothing, so retry until the form is on screen. */
+async function openCreateProductForm(page: import('@playwright/test').Page) {
+    await expect(async () => {
+        await page.getByTestId('catalog-create-product').click();
+        await expect(page.getByTestId('catalog-form-title')).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 45_000 });
+}
+
+/** Clicks a dialog button once it is visible and enabled. On a cold dev server the
+ * page keeps reflowing and Playwright's "stable" check can wait out the whole test
+ * (seen in CI and locally), so dispatch the click React listens for instead. */
+async function clickWhenEnabled(page: import('@playwright/test').Page, testId: string) {
+    const button = page.getByTestId(testId);
+    await expect(button).toBeVisible({ timeout: 15_000 });
+    await expect(button).toBeEnabled({ timeout: 15_000 });
+    await button.dispatchEvent('click');
+}
+
+async function waitForManagePage(page: import('@playwright/test').Page) {
+    await page
+        .waitForResponse((res) => res.url().includes('/v1/auth/me') && res.ok(), { timeout: 60_000 })
+        .catch(() => undefined);
+    await page.getByText(/^Loading\.\.\.$/).waitFor({ state: 'hidden', timeout: 60_000 }).catch(() => undefined);
+    await expect(page.getByTestId('catalog-manage')).toBeVisible({ timeout: 30_000 });
+}
+
 test.describe('marketplace catalog manage', () => {
     test.setTimeout(120_000);
 
@@ -26,15 +53,10 @@ test.describe('marketplace catalog manage', () => {
             waitUntil: 'domcontentloaded',
             timeout: 90_000,
         });
-        await page
-            .waitForResponse((res) => res.url().includes('/v1/auth/me') && res.ok(), { timeout: 60_000 })
-            .catch(() => undefined);
-        await page.getByText(/^Loading\.\.\.$/).waitFor({ state: 'hidden', timeout: 60_000 }).catch(() => undefined);
-
-        await expect(page.getByTestId('catalog-manage')).toBeVisible({ timeout: 30_000 });
-        await page.getByTestId('catalog-create-product').click();
+        await waitForManagePage(page);
+        await openCreateProductForm(page);
         await page.getByTestId('catalog-form-title').fill(newCatalogTitle);
-        await page.getByTestId('catalog-form-submit').click();
+        await clickWhenEnabled(page, 'catalog-form-submit');
 
         await expect(page.getByTestId('catalog-products-list').getByText(newCatalogTitle)).toBeVisible({
             timeout: 15_000,
@@ -49,11 +71,10 @@ test.describe('marketplace catalog manage', () => {
             waitUntil: 'domcontentloaded',
             timeout: 90_000,
         });
-        await expect(page.getByTestId('catalog-manage')).toBeVisible({ timeout: 30_000 });
-
-        await page.getByTestId('catalog-create-product').click();
+        await waitForManagePage(page);
+        await openCreateProductForm(page);
         await page.getByTestId('catalog-form-title').fill(newCatalogTitle);
-        await page.getByTestId('catalog-form-submit').click();
+        await clickWhenEnabled(page, 'catalog-form-submit');
         await expect(page.getByTestId('catalog-products-list').getByText(newCatalogTitle)).toBeVisible({
             timeout: 15_000,
         });
@@ -63,7 +84,7 @@ test.describe('marketplace catalog manage', () => {
         await expect(select).toBeVisible({ timeout: 15_000 });
         await expect(select.locator('option').nth(1)).toContainText(supplyListingTitle);
         await select.selectOption({ index: 1 });
-        await page.getByTestId('catalog-link-listing-submit').click();
+        await clickWhenEnabled(page, 'catalog-link-listing-submit');
 
         await expect(page.getByTestId('catalog-product-offers')).toBeVisible({ timeout: 15_000 });
         await expect(page.getByTestId('catalog-product-offers')).toContainText(supplyListingTitle);
