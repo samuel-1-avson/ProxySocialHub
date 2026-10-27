@@ -111,28 +111,30 @@ func refreshSession(c *gin.Context) {
 	var req refreshRequest
 	_ = c.ShouldBindJSON(&req)
 
-	rawRefreshToken := strings.TrimSpace(req.RefreshToken)
-	if rawRefreshToken == "" {
-		if cookieValue, err := c.Cookie(refreshTokenStorageKey); err == nil {
-			rawRefreshToken = strings.TrimSpace(cookieValue)
-		}
-	}
-
-	if rawRefreshToken == "" {
+	candidates := refreshTokenCandidates(req.RefreshToken, c.Request.Cookies())
+	if len(candidates) == 0 {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "refresh token required"})
 		return
 	}
 
-	refreshHash := hashRefreshToken(rawRefreshToken)
+	// Use the first candidate the database knows. Only tokens it issued are accepted, so
+	// trying more than one does not widen what a caller can do.
 	var current models.RefreshTokenFamily
-	if err := db.DB.Where("token_hash = ?", refreshHash).First(&current).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid refresh token"})
+	found := false
+	for _, raw := range candidates {
+		err := db.DB.Where("token_hash = ?", hashRefreshToken(raw)).First(&current).Error
+		if err == nil {
+			found = true
+			break
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			log.Printf("[AUTH] Refresh token lookup failed: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to refresh session"})
 			return
 		}
-
-		log.Printf("[AUTH] Refresh token lookup failed: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to refresh session"})
+	}
+	if !found {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid refresh token"})
 		return
 	}
 
@@ -219,6 +221,34 @@ func refreshSession(c *gin.Context) {
 	})
 }
 
+// refreshTokenCandidates lists the refresh tokens a request carries, best first: the JSON
+// body token, then every refresh cookie, without duplicates or blanks.
+//
+// Taking the body token alone (or only the first cookie) signed users out right after they
+// signed in. The web app sends a refresh token from localStorage in the body once, to migrate
+// old sessions; when it was stale it won over the valid HttpOnly cookie in the same request and
+// the client then discarded the session. And a legacy cookie with the same name can sit next to
+// the current one: browsers send the older cookie first and Request.Cookie returns the first
+// match, so the current token was never read and every refresh failed.
+func refreshTokenCandidates(bodyToken string, cookies []*http.Cookie) []string {
+	var out []string
+	seen := map[string]bool{}
+	add := func(raw string) {
+		raw = strings.TrimSpace(raw)
+		if raw != "" && !seen[raw] {
+			seen[raw] = true
+			out = append(out, raw)
+		}
+	}
+	add(bodyToken)
+	for _, ck := range cookies {
+		if ck.Name == refreshTokenStorageKey {
+			add(ck.Value)
+		}
+	}
+	return out
+}
+
 func refreshTokenStorageReady() bool {
 	return db.DB != nil && db.DB.Migrator().HasTable(&models.RefreshTokenFamily{})
 }
@@ -270,14 +300,11 @@ func applyAuthSessionCookies(c *gin.Context, session authSessionResponse) {
 }
 
 func logoutSession(c *gin.Context) {
-	if cookieValue, err := c.Cookie(refreshTokenStorageKey); err == nil {
-		raw := strings.TrimSpace(cookieValue)
-		if raw != "" {
-			refreshHash := hashRefreshToken(raw)
-			var current models.RefreshTokenFamily
-			if err := db.DB.Where("token_hash = ?", refreshHash).First(&current).Error; err == nil {
-				revokeRefreshTokenFamily(current.FamilyID)
-			}
+	// Revoke every session this browser presents, not only the first cookie of that name.
+	for _, raw := range refreshTokenCandidates("", c.Request.Cookies()) {
+		var current models.RefreshTokenFamily
+		if err := db.DB.Where("token_hash = ?", hashRefreshToken(raw)).First(&current).Error; err == nil {
+			revokeRefreshTokenFamily(current.FamilyID)
 		}
 	}
 	clearAuthCookies(c)
