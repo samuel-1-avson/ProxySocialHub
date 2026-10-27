@@ -493,8 +493,7 @@ pub mod blocklist {
                 return true;
             }
 
-            if pattern_lower.starts_with("*.") {
-                let suffix = &pattern_lower[2..];
+            if let Some(suffix) = pattern_lower.strip_prefix("*.") {
                 return super::host_matches_domain_rule(domain, suffix);
             }
 

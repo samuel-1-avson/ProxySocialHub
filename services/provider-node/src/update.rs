@@ -135,18 +135,6 @@ pub async fn run(check_only: bool, yes: bool) -> Result<()> {
     Ok(())
 }
 
-pub fn print_check(info: &UpdateInfo) {
-    if info.already_latest {
-        println!("provider-node v{} — up to date", info.current);
-    } else {
-        println!(
-            "provider-node v{} — update available: v{} ({})",
-            info.current, info.latest, info.tag
-        );
-        println!("Run: provider-node update");
-    }
-}
-
 fn update_api_base() -> String {
     if let Ok(v) = std::env::var("PROXYHUB_API_URL") {
         let t = v.trim().trim_end_matches('/').to_string();

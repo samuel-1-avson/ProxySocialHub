@@ -159,6 +159,7 @@ pub async fn handle_internal_forward(
 }
 
 /// Open a CONNECT tunnel to the owner pod (peer edge or tunnel tier) and bridge the buyer stream.
+#[allow(clippy::too_many_arguments)]
 pub async fn bridge_via_peer(
     upgraded: hyper::upgrade::Upgraded,
     dest_addr: String,

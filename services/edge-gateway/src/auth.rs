@@ -2,7 +2,7 @@ pub mod provider_lease;
 pub mod session_intent;
 
 mod redis_keys {
-    /// Pre-sized Redis keys (one allocation, no `format!` macro).
+    //! Pre-sized Redis keys (one allocation, no `format!` macro).
 
     pub fn session(username: &str) -> String {
         let mut key = String::with_capacity(8 + username.len());
@@ -280,6 +280,7 @@ fn encode_capability_token(tok: &CapabilityTokenWire) -> Option<String> {
     ))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn canonical_session_capability_bytes(
     session_id: &str,
     offer_hash: &str,
@@ -990,10 +991,10 @@ impl SessionData {
             return false;
         }
 
-        if self.is_session_capability() {
-            if self.capability_expires_at <= 0 || now.timestamp() > self.capability_expires_at {
-                return false;
-            }
+        if self.is_session_capability()
+            && (self.capability_expires_at <= 0 || now.timestamp() > self.capability_expires_at)
+        {
+            return false;
         }
 
         if let Some(expires_at) = self.expires_at {
