@@ -21,4 +21,16 @@ ignore = [
   "RUSTSEC-2026-0185",
   "RUSTSEC-2026-0098",
   "RUSTSEC-2026-0049",
+  # legacy-zk only: these reach the lockfile through solana-client 2.3 (rustls 0.21 and
+  # webpki via tokio-tungstenite 0.20; zstd 0.13 via the account decoder). solana-client
+  # is an optional dependency of the deprecated legacy-zk feature, which no image builds
+  # (Dockerfile: otel/quic only). solana-client 3.x drops the rustls 0.21 group but still
+  # pins zstd 0.13. Remove these when legacy-zk is retired.
+  "RUSTSEC-2026-0346", # rustls 0.21
+  "RUSTSEC-2026-0349", # rustls 0.21
+  "RUSTSEC-2026-0381", # webpki-roots 0.24 / 0.25
+  "RUSTSEC-2026-0382", # rustls-webpki 0.101
+  "RUSTSEC-2026-0391", # zstd 0.13
+  "RUSTSEC-2026-0398", # zstd-safe 7
+  "RUSTSEC-2026-0403", # zstd-safe 7
 ]
