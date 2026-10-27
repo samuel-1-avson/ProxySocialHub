@@ -109,27 +109,30 @@ func (n *Notification) CreateDeduped(db *gorm.DB) error {
 type NotificationPreference struct {
 	UserID uuid.UUID `gorm:"type:uuid;primary_key" json:"user_id"`
 
-	// Channel preferences by category
-	SocialInApp bool `gorm:"default:true" json:"social_in_app"`
-	SocialEmail bool `gorm:"default:true" json:"social_email"`
-	SocialPush  bool `gorm:"default:false" json:"social_push"`
+	// Channel preferences by category. No gorm default tags: GORM leaves a zero value
+	// (false, 0) out of an INSERT when the field has one, so the column default (true)
+	// replaced an explicit opt-out on a user's first save. DefaultPreferences sets
+	// every field; the columns keep their database defaults.
+	SocialInApp bool `json:"social_in_app"`
+	SocialEmail bool `json:"social_email"`
+	SocialPush  bool `json:"social_push"`
 
-	BusinessInApp bool `gorm:"default:true" json:"business_in_app"`
-	BusinessEmail bool `gorm:"default:true" json:"business_email"`
-	BusinessPush  bool `gorm:"default:true" json:"business_push"`
+	BusinessInApp bool `json:"business_in_app"`
+	BusinessEmail bool `json:"business_email"`
+	BusinessPush  bool `json:"business_push"`
 
-	CommunityInApp bool `gorm:"default:true" json:"community_in_app"`
-	CommunityEmail bool `gorm:"default:true" json:"community_email"`
-	CommunityPush  bool `gorm:"default:false" json:"community_push"`
+	CommunityInApp bool `json:"community_in_app"`
+	CommunityEmail bool `json:"community_email"`
+	CommunityPush  bool `json:"community_push"`
 
-	SystemInApp bool `gorm:"default:true" json:"system_in_app"`
-	SystemEmail bool `gorm:"default:true" json:"system_email"`
-	SystemPush  bool `gorm:"default:true" json:"system_push"`
+	SystemInApp bool `json:"system_in_app"`
+	SystemEmail bool `json:"system_email"`
+	SystemPush  bool `json:"system_push"`
 
 	// Digest settings
 	EmailDigestFrequency string `gorm:"size:20;default:'immediate'" json:"email_digest_frequency"`
 	DigestDay            string `gorm:"size:10;default:'monday'" json:"digest_day"`
-	DigestHour           int    `gorm:"default:9" json:"digest_hour"`
+	DigestHour           int    `json:"digest_hour"`
 
 	UpdatedAt time.Time `json:"updated_at"`
 }

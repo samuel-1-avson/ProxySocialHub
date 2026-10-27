@@ -72,7 +72,9 @@ type ExplorerNode struct {
 	UptimePercent    float64   `gorm:"type:numeric(5,2)" json:"uptime_percent"`
 	TotalBandwidth   uint64    `json:"total_bandwidth_bytes"`
 	ActiveSessions   int       `json:"active_sessions"`
-	ProviderUserID   string    `gorm:"type:varchar(128);index" json:"provider_user_id,omitempty"`
+	// uuid column; default:null stores NULL for unowned nodes, which would
+	// otherwise insert "" and fail (invalid input syntax for type uuid).
+	ProviderUserID   string    `gorm:"type:uuid;index;default:null" json:"provider_user_id,omitempty"`
 	ProviderUsername string    `gorm:"type:varchar(255)" json:"provider_username,omitempty"`
 	LastHeartbeat    time.Time `json:"last_heartbeat"`
 	Version          string    `gorm:"type:varchar(50)" json:"version,omitempty"`

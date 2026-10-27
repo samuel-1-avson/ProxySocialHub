@@ -8,6 +8,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
+	redisClient "github.com/proxyhubb/control-api/internal/redis"
 )
 
 // publishNewListingFeedEvent records and broadcasts a marketplace listing launch.
@@ -38,10 +39,13 @@ func publishNewListingFeedEvent(sellerID uuid.UUID, published domain.ListingEnti
 		return
 	}
 
+	// Take the shared handles now: the goroutine can outlive the request (in tests,
+	// the test that started it, while the next test swaps the Redis client).
+	gdb, rc := db.DB, redisClient.Client
 	go func(eventID uuid.UUID) {
 		var fullEvent models.FeedEvent
-		if err := db.DB.Preload("Actor").First(&fullEvent, "id = ?", eventID).Error; err == nil {
-			PublishFeedEvent(fullEvent)
+		if err := gdb.Preload("Actor").First(&fullEvent, "id = ?", eventID).Error; err == nil {
+			publishFeedEvent(rc, fullEvent)
 		}
 	}(feedEvent.ID)
 }

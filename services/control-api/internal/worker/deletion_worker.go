@@ -117,8 +117,12 @@ func purgeUserAccount(userID uuid.UUID, email string) error {
 			return err
 		}
 
-		tx.Exec("DELETE FROM proxy_listings WHERE seller_id = ?", userID)
-		tx.Exec("DELETE FROM listings WHERE seller_id = ?", userID)
+		// A failed statement aborts the whole transaction in PostgreSQL, so check it like
+		// the rest. (A second DELETE from a legacy "listings" table that no migration
+		// creates used to abort every purge here.)
+		if err := tx.Exec("DELETE FROM proxy_listings WHERE seller_id = ?", userID).Error; err != nil {
+			return err
+		}
 
 		if err := tx.Where("id = ?", userID).Delete(&models.User{}).Error; err != nil {
 			return err

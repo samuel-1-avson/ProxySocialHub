@@ -27,7 +27,7 @@ type SessionConfiguration struct {
 
 	// Rotation Settings
 	RotationType     string `gorm:"type:varchar(20);default:'none'" json:"rotation_type"` // "none", "per-request", "time-based"
-	RotationInterval int    `gorm:"default:60" json:"rotation_interval_seconds"`
+	RotationInterval int    `gorm:"column:rotation_interval_seconds;default:60" json:"rotation_interval_seconds"`
 	StickyTarget     string `gorm:"type:varchar(255)" json:"sticky_target"` // Target domain for sticky
 
 	// Quality Preferences
@@ -81,7 +81,7 @@ type RoutingProfile struct {
 
 	// Auto-Features
 	AutoRotation     bool `gorm:"default:false" json:"auto_rotation"`
-	RotationInterval int  `gorm:"default:300" json:"rotation_interval_seconds"`
+	RotationInterval int  `gorm:"column:rotation_interval_seconds;default:300" json:"rotation_interval_seconds"`
 	AutoFailover     bool `gorm:"default:true" json:"auto_failover"`
 	MaxRetries       int  `gorm:"default:3" json:"max_retries"`
 

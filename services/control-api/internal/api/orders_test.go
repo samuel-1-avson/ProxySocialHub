@@ -49,8 +49,13 @@ func TestCreateOrder_Success(t *testing.T) {
 		Status:               models.ListingStatusActive,
 	}
 	db.DB.Create(&listing)
+	testutil.CreateTestProviderNode(t, provider.ID) // the node the order is served from
 
-	// 3. Fund Buyer Wallet ($100) - Already created by CreateTestUser
+	// 3. Buyer wallet is created and funded by CreateTestUser
+	var buyerBefore models.Wallet
+	if err := db.DB.First(&buyerBefore, "user_id = ?", buyer.ID).Error; err != nil {
+		t.Fatalf("load buyer wallet: %v", err)
+	}
 	// Set Seller Wallet to 0 for clear calculations
 	db.DB.Model(&models.Wallet{}).Where("user_id = ?", provider.ID).Update("balance_sol", 0)
 
@@ -81,8 +86,8 @@ func TestCreateOrder_Success(t *testing.T) {
 	// 7a. Marketplace create does not debit custodial balance; funds move via on-chain escrow.
 	var updatedWallet models.Wallet
 	db.DB.First(&updatedWallet, "user_id = ?", buyer.ID)
-	if updatedWallet.BalanceSOL != 100.0 {
-		t.Errorf("Expected buyer balance to remain 100.0 before escrow settlement, got %f", updatedWallet.BalanceSOL)
+	if updatedWallet.BalanceSOL != buyerBefore.BalanceSOL {
+		t.Errorf("Expected buyer balance to stay %f before escrow settlement, got %f", buyerBefore.BalanceSOL, updatedWallet.BalanceSOL)
 	}
 
 	// 7b. Seller Wallet is credited after usage proof settlement.
@@ -269,6 +274,7 @@ func TestCreateOrder_RequiresLinkedSolanaWallet(t *testing.T) {
 		Status:               models.ListingStatusActive,
 	}
 	db.DB.Create(&listing)
+	testutil.CreateTestProviderNode(t, provider.ID) // the node the order is served from
 
 	// Custodial balance is irrelevant for marketplace create — only linked wallet matters.
 	db.DB.Model(&models.Wallet{}).Where("user_id = ?", buyer.ID).Update("balance_sol", 0.0)
@@ -323,6 +329,7 @@ func TestCreateOrder_SucceedsWithZeroCustodialBalance(t *testing.T) {
 		Status:               models.ListingStatusActive,
 	}
 	db.DB.Create(&listing)
+	testutil.CreateTestProviderNode(t, provider.ID) // the node the order is served from
 	db.DB.Model(&models.Wallet{}).Where("user_id = ?", buyer.ID).Update("balance_sol", 0.0)
 
 	r := setupTestRouter()
