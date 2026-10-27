@@ -2,7 +2,6 @@
 
 use crate::config::{Config, ProviderTransport};
 use crate::proxy::handler::ProxyHandler;
-use crate::stats::Collector;
 
 use anyhow::{Context, Result};
 use base64::Engine;
@@ -40,7 +39,6 @@ pub struct CapabilityInfo {
 
 pub struct TunnelClient {
     config: Config,
-    stats: Collector,
     provider_run_id: String,
     ctrl: Option<Control>,
     incoming_rx: Option<tokio::sync::mpsc::Receiver<yamux::Stream>>,
@@ -50,10 +48,9 @@ pub struct TunnelClient {
 }
 
 impl TunnelClient {
-    pub fn new(cfg: &Config, stats: Collector, provider_run_id: String) -> Self {
+    pub fn new(cfg: &Config, provider_run_id: String) -> Self {
         Self {
             config: cfg.clone(),
-            stats,
             provider_run_id,
             ctrl: None,
             incoming_rx: None,
