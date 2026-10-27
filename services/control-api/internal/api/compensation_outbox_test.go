@@ -12,9 +12,6 @@ import (
 
 func TestEnqueueAndApplyWithdrawalCompensation(t *testing.T) {
 	testutil.SetupTestDB(t)
-	if err := db.DB.AutoMigrate(&models.CompensationOutbox{}, &models.SpendingRecord{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
 	testutil.CleanupTestData(t, "compensation_outbox", "wallet_ledger_entries", "spending_records", "users", "wallets")
 
 	user := testutil.CreateTestUser(t, testutil.UniqueEmail("comp-wd"), "buyer")
@@ -96,9 +93,6 @@ func TestEnqueueAndApplyWithdrawalCompensation(t *testing.T) {
 
 func TestApplyP2PCompensation(t *testing.T) {
 	testutil.SetupTestDB(t)
-	if err := db.DB.AutoMigrate(&models.CompensationOutbox{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
 	testutil.CleanupTestData(t, "compensation_outbox", "wallet_ledger_entries", "users", "wallets")
 
 	sender := testutil.CreateTestUser(t, testutil.UniqueEmail("comp-p2p-s"), "buyer")
@@ -173,9 +167,6 @@ func TestApplyP2PCompensation(t *testing.T) {
 // treasury. They must now be drained without moving any funds.
 func TestLegacyP2PSettleRowSendsNothing(t *testing.T) {
 	testutil.SetupTestDB(t)
-	if err := db.DB.AutoMigrate(&models.CompensationOutbox{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
 	testutil.CleanupTestData(t, "compensation_outbox", "users", "wallets")
 
 	sender := testutil.CreateTestUser(t, testutil.UniqueEmail("settle-s"), "buyer")

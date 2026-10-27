@@ -13,14 +13,15 @@ import (
 func seedStaleReleasing(t *testing.T, withPDA bool) (models.EscrowTransaction, models.Order) {
 	t.Helper()
 	buyer := testutil.CreateTestUser(t, testutil.UniqueEmail("reaper-buyer"), "buyer")
-	seller := testutil.CreateTestUser(t, testutil.UniqueEmail("reaper-seller"), "seller")
+	seller := testutil.CreateTestUser(t, testutil.UniqueEmail("reaper-seller"), "provider")
 	listing := models.ProxyListing{SellerID: seller.ID, Title: "reaper", PricePerGB: 1, AvailableBandwidthGB: 10, Status: "active"}
 	if err := db.DB.Create(&listing).Error; err != nil {
 		t.Fatal(err)
 	}
 	order := models.Order{ID: uuid.New(), BuyerID: buyer.ID, SellerID: seller.ID, ListingID: listing.ID, BandwidthGB: 1, PricePerGB: 1, TotalPrice: 1, Status: models.OrderStatusActive}
 	if withPDA {
-		order.EscrowPDA = "EscrowPDA111111111111111111111111111111111"
+		// One PDA per order: idx_orders_live_escrow_pda (000155) forbids two live orders on one.
+		order.EscrowPDA = "EscrowPDA" + order.ID.String()
 		order.SellerWallet = "SellerWal111111111111111111111111111111111"
 		order.BuyerWallet = "BuyerWall111111111111111111111111111111111"
 	}

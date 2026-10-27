@@ -36,7 +36,7 @@ func TestAgentMarketplace(t *testing.T) {
 	user := models.User{
 		ID:        uid,
 		Email:     "test@agent.com",
-		Role:      "user",
+		Role:      "buyer",
 		TrustTier: models.TrustTierNew,
 	}
 	if err := db.DB.Create(&user).Error; err != nil {
@@ -105,7 +105,7 @@ func TestAgentMarketplace(t *testing.T) {
 	assert.Equal(t, http.StatusAccepted, w.Code)
 	var response map[string]interface{}
 	json.Unmarshal(w.Body.Bytes(), &response)
-	assert.Equal(t, "Job queued", response["message"])
+	assert.Equal(t, "Job queued for autonomous execution", response["message"])
 }
 
 func TestAgentRouteAuthPolicy_PublicBrowseProtectedActions(t *testing.T) {

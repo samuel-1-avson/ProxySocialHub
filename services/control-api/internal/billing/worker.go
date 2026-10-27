@@ -274,16 +274,23 @@ func settleSession(sessionID string, totalBytes int64, redisKey string) error {
 	}
 	costLamports, costUSD, costSOL := computeSessionCostLamportsAtPrice(&session, totalBytes, solPrice)
 
+	// W-29: money refs are per settlement EVENT (claim), never the bare session id:
+	// spending_records, wallet ledger entries and ledger journals each have a unique
+	// index on their reference, so a session's second settle collided. Wallet refs keep
+	// the session id as prefix: sessionCreditedToProviderWallet (BE-CRIT-02) matches it.
+	buyerRef := session.ID.String() + ":usage:" + claim.ID.String()
+	providerRef := session.ID.String() + ":provider:" + claim.ID.String()
+
 	// queuePayoutAfterCommit is set inside the tx and consumed after commit (FW-02).
 	var queuePayoutAfterCommit uuid.UUID
 
 	if err := db.DB.Transaction(func(tx *gorm.DB) error {
-		buyerWallet, err := debitBuyerWallet(tx, &session, totalBytes, costLamports, costSOL, costUSD)
+		buyerWallet, err := debitBuyerWallet(tx, &session, totalBytes, costLamports, costSOL, costUSD, buyerRef)
 		if err != nil {
 			return err
 		}
 
-		shouldQueue, providerWalletID, err := creditProviderWallet(tx, &session, totalBytes, costLamports, costSOL)
+		shouldQueue, providerWalletID, err := creditProviderWallet(tx, &session, totalBytes, costLamports, costSOL, providerRef)
 		if err != nil {
 			return err
 		}
@@ -297,8 +304,6 @@ func settleSession(sessionID string, totalBytes int64, redisKey string) error {
 			providerCredit = buyerDebit // full amount to provider in current model
 		}
 		desc := fmt.Sprintf("Usage settle %s", session.ID.String())
-		// W-29: journal refs are namespaced per settlement EVENT (claim),
-		// never the bare session id - (external_ref, entry_type) is unique.
 		journalRef := "usage-settle:" + claim.ID.String()
 		if err := models.PostUsageJournal(tx, buyerWallet, providerWalletID, buyerDebit, providerCredit, 0, journalRef, desc); err != nil {
 			return err
@@ -601,7 +606,9 @@ func sessionSOLPrice(sessionID string) float64 {
 // debitBuyerWallet checks spending limits, deducts costLamports from the buyer's locked
 // wallet, records spending, and writes the debit ledger entry — all within tx.
 // Returns buyer wallet ID for PostUsageJournal (journal lines skipped here).
-func debitBuyerWallet(tx *gorm.DB, session *models.Session, totalBytes int64, costLamports int64, costSOL, costUSD float64) (uuid.UUID, error) {
+// settleRef identifies this settlement (one per metering claim) in spending_records
+// and the wallet ledger.
+func debitBuyerWallet(tx *gorm.DB, session *models.Session, totalBytes int64, costLamports int64, costSOL, costUSD float64, settleRef string) (uuid.UUID, error) {
 	var wallet models.Wallet
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 		Where("user_id = ?", session.UserID).First(&wallet).Error; err != nil {
@@ -632,13 +639,15 @@ func debitBuyerWallet(tx *gorm.DB, session *models.Session, totalBytes int64, co
 		return uuid.Nil, fmt.Errorf("%w: session %s", models.ErrInsufficientBalance, session.ID)
 	}
 
-	if err := wallet.RecordSpending(tx, costSOL, models.SpendingUsage, session.ID.String()); err != nil {
-		logging.Error(err).Str("session_id", session.ID.String()).Msg("Failed to record spending, continuing")
+	if err := wallet.RecordSpending(tx, costSOL, models.SpendingUsage, settleRef); err != nil {
+		// A failed INSERT aborts the transaction in PostgreSQL; nothing after it can run.
+		logging.Error(err).Str("session_id", session.ID.String()).Msg("Failed to record spending")
+		return uuid.Nil, err
 	}
 
 	solPriceUSD := GetSOLPriceUSD()
 	desc := fmt.Sprintf("Usage: %d bytes / $%.4f USD / %.6f SOL (@$%.2f/SOL)", totalBytes, costUSD, costSOL, solPriceUSD)
-	if err := models.DebitWalletLockedLamports(tx, &wallet, costLamports, models.TransactionUsage, session.ID.String(), desc, models.LedgerOpts{JournalKind: "skip"}); err != nil {
+	if err := models.DebitWalletLockedLamports(tx, &wallet, costLamports, models.TransactionUsage, settleRef, desc, models.LedgerOpts{JournalKind: "skip"}); err != nil {
 		return uuid.Nil, err
 	}
 	return wallet.ID, nil
@@ -651,7 +660,8 @@ func debitBuyerWallet(tx *gorm.DB, session *models.Session, totalBytes int64, co
 // Provider resolution order:
 //  1. session.Listing.SellerID  — marketplace sessions (from-listing path)
 //  2. node.ProviderUserID       — quick-start / instant sessions (node assigned, no listing)
-func creditProviderWallet(tx *gorm.DB, session *models.Session, totalBytes int64, costLamports int64, costSOL float64) (bool, uuid.UUID, error) {
+// ref is the ledger reference for this settlement ("<session>:provider:<claim>").
+func creditProviderWallet(tx *gorm.DB, session *models.Session, totalBytes int64, costLamports int64, costSOL float64, ref string) (bool, uuid.UUID, error) {
 	var providerID uuid.UUID
 
 	if session.Listing != nil && session.Listing.SellerID != uuid.Nil {
@@ -679,7 +689,6 @@ func creditProviderWallet(tx *gorm.DB, session *models.Session, totalBytes int64
 		return false, uuid.Nil, fmt.Errorf("billing: failed to lock/create provider wallet for %s: %w", providerID, err)
 	}
 
-	ref := session.ID.String() + ":provider"
 	desc := fmt.Sprintf("Bandwidth earnings: %d bytes / %.6f SOL", totalBytes, costSOL)
 	if err := models.CreditWalletLockedLamports(tx, &providerWallet, costLamports, models.LedgerKindProviderEarning, ref, desc, models.LedgerOpts{JournalKind: "skip"}); err != nil {
 		return false, uuid.Nil, fmt.Errorf("billing: failed to credit provider wallet for %s: %w", providerID, err)
@@ -869,7 +878,7 @@ func resolveProviderWallet(providerID uuid.UUID) (string, error) {
 	// 1. Primary verified linked wallet (N-07)
 	var linked models.LinkedWallet
 	err := db.DB.Where(
-		"user_id = ? AND chain = 'solana' AND is_primary = true AND verified = true AND deleted_at IS NULL",
+		"user_id = ? AND chain = 'solana' AND is_primary = true AND verified = true", // linked_wallets has no soft delete
 		providerID,
 	).First(&linked).Error
 	if err == nil {

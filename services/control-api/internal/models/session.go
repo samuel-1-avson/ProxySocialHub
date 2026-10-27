@@ -38,7 +38,9 @@ type Session struct {
 	TxHash          string        `gorm:"size:255" json:"tx_hash,omitempty"`
 	CredentialsUser string        `gorm:"type:varchar(255)" json:"credentials_user"`
 	CredentialsPass string        `gorm:"type:varchar(255)" json:"credentials_pass"`
-	Config          string        `gorm:"type:jsonb" json:"config"`
+	// default:null: an unset config is stored as NULL. "" is not valid jsonb, and three
+	// creators (indexer, on-chain activator, session repository) leave it unset.
+	Config          string        `gorm:"type:jsonb;default:null" json:"config"`
 	BandwidthLimit  int64         `gorm:"default:0" json:"bandwidth_limit"` // in bytes, 0 = unlimited
 	StartTime       time.Time     `json:"start_time"`
 	EndTime         time.Time     `json:"end_time"`
