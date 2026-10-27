@@ -110,7 +110,10 @@ impl IpReputationStore {
         }
     }
 
-    fn get_or_create(&self, ip: IpAddr) -> dashmap::mapref::one::RefMut<IpAddr, ReputationEntry> {
+    fn get_or_create(
+        &self,
+        ip: IpAddr,
+    ) -> dashmap::mapref::one::RefMut<'_, IpAddr, ReputationEntry> {
         self.entries.entry(ip).or_insert_with(ReputationEntry::new)
     }
 
