@@ -370,6 +370,11 @@ jobs:
         cargo test --bin edge-gateway writes_http_503_and_closes -- --nocapture
       # Tracker: services/edge-gateway/docs/REMAINING_PHASES.md (P3)
 
+    # The `blockchain` feature compiles proto/blockchain.proto (tonic-build), which needs
+    # protoc; the runner image does not ship it.
+    - name: Install protoc
+      run: sudo apt-get update -qq && sudo apt-get install -y -qq protobuf-compiler
+
     - name: Check optional feature bundles compile
       run: cargo check --features legacy-zk,blockchain,pricing,ml,otel
 
