@@ -396,11 +396,13 @@ func recordProviderEarning(session models.Session, bandwidthUsedBytes int64, pri
 }
 
 // sessionCreditedToProviderWallet reports whether billing.settleSession has already
-// credited the provider's wallet for this session (ledger reference "<session>:provider").
+// credited the provider's wallet for this session: ledger reference "<session>:provider"
+// (before W-29) or "<session>:provider:<claim>" (one per settlement since).
 func sessionCreditedToProviderWallet(sessionID uuid.UUID) bool {
 	var n int64
 	db.DB.Model(&models.WalletLedgerEntry{}).
-		Where("reference_id = ? AND type = ?", sessionID.String()+":provider", "provider_earning").
+		Where("(reference_id = ? OR reference_id LIKE ?) AND type = ?",
+			sessionID.String()+":provider", sessionID.String()+":provider:%", "provider_earning").
 		Count(&n)
 	return n > 0
 }
