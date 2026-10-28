@@ -19,6 +19,10 @@ const MIN_POLL_INTERVAL: Duration = Duration::from_secs(1);
 const EXPIRY_SLACK: Duration = Duration::from_secs(15);
 /// Consecutive network failures tolerated while polling (a flaky connection is normal).
 const MAX_CONSECUTIVE_POLL_ERRORS: u32 = 6;
+/// Consecutive 5xx answers tolerated while polling. The server redeems an approval inside one
+/// transaction, so a failed attempt consumes nothing and the next poll can still succeed (a
+/// redeploy or a database hiccup are the usual causes). About a minute at the default interval.
+const MAX_CONSECUTIVE_SERVER_ERRORS: u32 = 12;
 
 /// What a successful pairing hands back.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,6 +54,12 @@ struct PollBody {
     node_id: Option<String>,
     #[serde(default)]
     error: Option<String>,
+    /// Which part of redeeming an approval failed, and the database error class, when the
+    /// server says (see `redeemProviderPairing`). Only ever present on a 5xx.
+    #[serde(default)]
+    step: Option<String>,
+    #[serde(default)]
+    sqlstate: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -65,6 +75,8 @@ enum PollOutcome {
     Expired,
     /// The key was already handed out (an earlier response never reached us).
     Redeemed,
+    /// The server failed (5xx). Says nothing about the approval, so the caller retries.
+    ServerError(String),
     Rejected(String),
 }
 
@@ -262,6 +274,7 @@ async fn poll_until_done(
 ) -> Result<Granted> {
     let mut interval = Duration::from_secs(started.interval).max(floor);
     let mut consecutive_errors = 0u32;
+    let mut consecutive_server_errors = 0u32;
 
     loop {
         if Instant::now() >= deadline {
@@ -299,7 +312,20 @@ async fn poll_until_done(
         };
         consecutive_errors = 0;
 
-        match parse_poll(code, &text) {
+        let outcome = parse_poll(code, &text);
+        if !matches!(outcome, PollOutcome::ServerError(_)) {
+            consecutive_server_errors = 0;
+        }
+        match outcome {
+            PollOutcome::ServerError(why) => {
+                consecutive_server_errors += 1;
+                if consecutive_server_errors >= MAX_CONSECUTIVE_SERVER_ERRORS {
+                    bail!(
+                        "pairing failed: the server could not finish it after \
+                         {consecutive_server_errors} tries ({why}). Run `provider-node pair` again."
+                    );
+                }
+            }
             PollOutcome::Pending { interval: server } => {
                 if let Some(s) = server {
                     interval = Duration::from_secs(s).max(floor);
@@ -321,7 +347,33 @@ async fn poll_until_done(
     }
 }
 
+/// What to show for a 5xx: the server's message, and the failing step and database error class
+/// when it sent them. A gateway error page (not JSON) just reports the HTTP status.
+fn describe_server_error(http_status: u16, body: &str) -> String {
+    let Ok(b) = serde_json::from_str::<PollBody>(body) else {
+        return format!("the server answered HTTP {http_status}");
+    };
+    let mut msg = b
+        .error
+        .filter(|e| !e.trim().is_empty())
+        .unwrap_or_else(|| format!("the server answered HTTP {http_status}"));
+    let mut detail = Vec::new();
+    if let Some(step) = b.step.filter(|s| !s.is_empty()) {
+        detail.push(format!("step: {step}"));
+    }
+    if let Some(state) = b.sqlstate.filter(|s| !s.is_empty()) {
+        detail.push(format!("database error {state}"));
+    }
+    if !detail.is_empty() {
+        msg = format!("{msg}; {}", detail.join(", "));
+    }
+    msg
+}
+
 fn parse_poll(http_status: u16, body: &str) -> PollOutcome {
+    if http_status >= 500 {
+        return PollOutcome::ServerError(describe_server_error(http_status, body));
+    }
     let Ok(b) = serde_json::from_str::<PollBody>(body) else {
         return PollOutcome::Rejected(format!("unexpected response (HTTP {http_status})"));
     };
@@ -442,11 +494,30 @@ mod tests {
             parse_poll(400, r#"{"status":"invalid","error":"unknown device_code"}"#),
             PollOutcome::Rejected("unknown device_code".into())
         );
-        assert!(matches!(
-            parse_poll(502, "<html>bad gateway</html>"),
-            PollOutcome::Rejected(_)
-        ));
         assert!(matches!(parse_poll(200, ""), PollOutcome::Rejected(_)));
+    }
+
+    #[test]
+    fn a_5xx_is_a_server_error_not_a_rejection() {
+        // A gateway error page and a JSON error body are both the server failing, which says
+        // nothing about the approval, so neither may end the pairing.
+        assert_eq!(
+            parse_poll(502, "<html>bad gateway</html>"),
+            PollOutcome::ServerError("the server answered HTTP 502".into())
+        );
+        assert_eq!(
+            parse_poll(500, r#"{"error":"failed to complete pairing"}"#),
+            PollOutcome::ServerError("failed to complete pairing".into())
+        );
+        assert_eq!(
+            parse_poll(
+                500,
+                r#"{"error":"failed to complete pairing","step":"registration","sqlstate":"23503"}"#
+            ),
+            PollOutcome::ServerError(
+                "failed to complete pairing; step: registration, database error 23503".into()
+            )
+        );
     }
 
     #[test]
@@ -627,6 +698,95 @@ mod tests {
         .unwrap_err();
         assert!(err.to_string().contains("denied"), "{err}");
         assert_eq!(*polls.lock().unwrap(), 2, "must stop at the denial");
+    }
+
+    const REDEEM_FAILED: &str =
+        r#"{"error":"failed to complete pairing","step":"registration","sqlstate":"23503"}"#;
+
+    #[tokio::test]
+    async fn a_server_error_does_not_burn_the_approval() {
+        // The first two polls hit a failing server (a redeploy, a database hiccup); the third
+        // succeeds. Before, the first 5xx ended the pairing even though nothing was consumed.
+        let (base, polls) = mock_control_api(
+            start_json(),
+            vec![
+                (500, REDEEM_FAILED),
+                (502, "<html>bad gateway</html>"),
+                (
+                    200,
+                    r#"{"status":"approved","api_key":"the-key","node_id":"the-node"}"#,
+                ),
+            ],
+        )
+        .await;
+        let client = test_client();
+        let started = start(&client, &base, None).await.unwrap();
+        let got = poll_until_done(
+            &client,
+            &base,
+            &started,
+            Instant::now() + Duration::from_secs(10),
+            Duration::ZERO,
+        )
+        .await
+        .unwrap();
+        assert_eq!(got.node_id, "the-node");
+        assert_eq!(*polls.lock().unwrap(), 3);
+    }
+
+    #[tokio::test]
+    async fn a_server_that_keeps_failing_ends_the_pairing_and_names_the_step() {
+        let (base, polls) = mock_control_api(
+            start_json(),
+            vec![(500, REDEEM_FAILED); MAX_CONSECUTIVE_SERVER_ERRORS as usize + 3],
+        )
+        .await;
+        let client = test_client();
+        let started = start(&client, &base, None).await.unwrap();
+        let err = poll_until_done(
+            &client,
+            &base,
+            &started,
+            Instant::now() + Duration::from_secs(10),
+            Duration::ZERO,
+        )
+        .await
+        .unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("step: registration"), "{msg}");
+        assert!(msg.contains("23503"), "{msg}");
+        assert_eq!(
+            *polls.lock().unwrap(),
+            MAX_CONSECUTIVE_SERVER_ERRORS,
+            "must retry, but not forever"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_server_error_count_restarts_after_a_good_answer() {
+        // MAX-1 failures, a pending answer, then MAX-1 more failures, then approval: the run of
+        // consecutive failures never reaches the limit, so it must still succeed.
+        let n = MAX_CONSECUTIVE_SERVER_ERRORS as usize - 1;
+        let mut script: Vec<(u16, &'static str)> = vec![(500, REDEEM_FAILED); n];
+        script.push((200, r#"{"status":"pending"}"#));
+        script.extend(vec![(500, REDEEM_FAILED); n]);
+        script.push((
+            200,
+            r#"{"status":"approved","api_key":"the-key","node_id":"the-node"}"#,
+        ));
+        let (base, _) = mock_control_api(start_json(), script).await;
+        let client = test_client();
+        let started = start(&client, &base, None).await.unwrap();
+        let got = poll_until_done(
+            &client,
+            &base,
+            &started,
+            Instant::now() + Duration::from_secs(30),
+            Duration::ZERO,
+        )
+        .await
+        .unwrap();
+        assert_eq!(got.api_key, "the-key");
     }
 
     #[tokio::test]
