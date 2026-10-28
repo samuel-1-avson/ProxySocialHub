@@ -32,6 +32,7 @@ provider-node pair
 The command prints a link and a short code such as `BCDF-GHJK` and opens the link in your browser. Sign in if asked, check that the **device name and system** shown match this computer and that the code matches, then choose **Approve this computer**. The command finishes on its own, writes `provider.toml`, and tells you to run `provider-node start`.
 
 - The code works **once** and expires after **10 minutes**. If it lapses, run `pair` again.
+- If the server hits an error while finishing the pairing, `pair` keeps trying for about a minute. If it still cannot, it stops and prints what failed, for example `failed to complete pairing; step: registration, database error 23503`. Nothing is created when that happens, so it is safe to run `pair` again. If it repeats, send that line to support.
 - Approving creates a node for the device and a provider token named `Paired: <device name>`. The token **does not expire**, so an unattended node never drops offline because a key lapsed. Revoke it any time under [Tokens](https://proxyhubb.com/dashboard/provider/tokens) and the device is cut off.
 - Only approve a code **you** just started on a computer **you** own. A code someone else gives you would connect their computer to your account.
 - `pair` refuses to run if a `provider.toml` already exists (so you never approve something that then fails to save). Use `--force` to replace it, or `--config <path>` to write elsewhere.
@@ -161,5 +162,6 @@ If the dashboard shows unsigned usage / “Fix proof”, ensure `provider_signin
 | Accidental second node | Use wizard config / `--node-id`; don’t re-`join` blindly |
 | Unsigned usage | Align `provider_signing_key` with registered key |
 | Connected to wrong port | Providers use **3128**, buyers use **8090** |
+| `pair` ends with `failed to complete pairing` | The server could not finish creating the node. Nothing was created; run `pair` again, and send the `step:` and `database error` part of the message to support if it repeats |
 
 Next: [Provider nodes](/docs/provider/nodes) — heartbeats, lease, listings.
