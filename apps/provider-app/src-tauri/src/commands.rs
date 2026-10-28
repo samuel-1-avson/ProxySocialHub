@@ -40,18 +40,26 @@ const SUPERVISE_INTERVAL: Duration = Duration::from_secs(5);
 pub const APP_DIR_ENV: &str = "PROXYHUB_APP_DIR";
 
 /// Where settings live: `PROXYHUB_APP_DIR` if set and non-empty, otherwise the app's own
-/// config directory.
-fn settings_dir_from(pinned: Option<std::ffi::OsString>, default: PathBuf) -> PathBuf {
+/// config directory. The default is only asked for when nothing is pinned, because resolving
+/// it can fail (an unusual profile, a redirected environment) and a pinned folder must not
+/// depend on it.
+fn settings_dir_from(
+    pinned: Option<std::ffi::OsString>,
+    default: impl FnOnce() -> Result<PathBuf, String>,
+) -> Result<PathBuf, String> {
     match pinned.filter(|p| !p.is_empty()) {
-        Some(dir) => PathBuf::from(dir),
-        None => default,
+        Some(dir) => Ok(PathBuf::from(dir)),
+        None => default(),
     }
 }
 
 /// Build the core for this install.
 pub fn build_core(app: &AppHandle) -> Result<Core, String> {
-    let default = app.path().app_config_dir().map_err(|e| e.to_string())?;
-    let dir = settings_dir_from(std::env::var_os(APP_DIR_ENV), default);
+    let dir = settings_dir_from(std::env::var_os(APP_DIR_ENV), || {
+        app.path()
+            .app_config_dir()
+            .map_err(|e| format!("could not find a place to keep the app's settings: {e}"))
+    })?;
     Ok(AppCore::new(Sidecar::new(locate_sidecar()?), dir))
 }
 
@@ -193,17 +201,29 @@ mod tests {
     use std::ffi::OsString;
 
     #[test]
-    fn the_settings_folder_can_be_pinned_and_an_empty_pin_is_ignored() {
-        let default = PathBuf::from("/real/profile/com.proxyhubb.provider");
+    fn a_pinned_settings_folder_never_consults_the_default() {
+        let must_not_run = || -> Result<PathBuf, String> {
+            panic!("the default must not be resolved when a folder is pinned")
+        };
         assert_eq!(
-            settings_dir_from(Some(OsString::from("/scratch/app")), default.clone()),
-            PathBuf::from("/scratch/app")
+            settings_dir_from(Some(OsString::from("/scratch/app")), must_not_run),
+            Ok(PathBuf::from("/scratch/app"))
         );
+    }
+
+    #[test]
+    fn an_empty_or_missing_pin_falls_back_to_the_default_and_its_failure_is_reported() {
+        let default = || Ok(PathBuf::from("/real/profile/com.proxyhubb.provider"));
+        for pin in [None, Some(OsString::new())] {
+            assert_eq!(
+                settings_dir_from(pin, default),
+                Ok(PathBuf::from("/real/profile/com.proxyhubb.provider"))
+            );
+        }
         assert_eq!(
-            settings_dir_from(Some(OsString::new()), default.clone()),
-            default
+            settings_dir_from(None, || Err("unknown path".to_string())),
+            Err("unknown path".to_string())
         );
-        assert_eq!(settings_dir_from(None, default.clone()), default);
     }
 
     /// The window is granted `core:default` and nothing else: no shell, filesystem or
