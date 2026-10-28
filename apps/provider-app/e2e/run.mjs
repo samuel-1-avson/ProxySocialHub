@@ -72,7 +72,19 @@ function pidAlive(pid) {
 
 function appRunning() {
   const r = spawnSync('tasklist', ['/FI', 'IMAGENAME eq proxyhubb-provider-app.exe', '/NH'], { encoding: 'utf8' });
-  return /proxyhubb-provider-app\.exe/i.test(r.stdout ?? '');
+  return /proxyhubb-provider-app/i.test(r.stdout ?? '');
+}
+
+// Asks Windows about the "ProxyHubb Provider" window: 'visible', 'hidden' (exists, not shown) or 'none'.
+function windowState(pid) {
+  const r = spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', join(here, 'window-state.ps1'), '-ProcessId', String(pid)], { encoding: 'utf8' });
+  return (r.stdout ?? '').trim() || 'none';
+}
+const windowVisible = (pid) => windowState(pid) === 'visible';
+
+function appInstanceCount() {
+  const r = spawnSync('tasklist', ['/FI', 'IMAGENAME eq proxyhubb-provider-app.exe', '/NH'], { encoding: 'utf8' });
+  return (r.stdout ?? '').split(String.fromCharCode(10)).filter((l) => /proxyhubb-provider-app/i.test(l)).length;
 }
 
 function anyProviderNode() {
@@ -113,7 +125,7 @@ async function connect() {
 
 // ── one isolated app instance ────────────────────────────────────────────────
 
-async function launch(label) {
+async function launch(label, args = []) {
   const work = join(OUT, 'work', label);
   rmSync(work, { recursive: true, force: true });
   for (const d of ['app', 'state', 'webview2']) mkdirSync(join(work, d), { recursive: true });
@@ -130,7 +142,7 @@ async function launch(label) {
     PROXYHUB_GATEWAY_ADDR: '127.0.0.1:3128', // nothing listens: the node will sit in "connecting"
   };
   const logFd = openSync(join(work, 'app.log'), 'a');
-  const child = spawn(APP_EXE, [], { env, stdio: ['ignore', logFd, logFd], windowsHide: false });
+  const child = spawn(APP_EXE, args, { env, stdio: ['ignore', logFd, logFd], windowsHide: false });
   const page = await connect();
   const files = {
     config: join(work, 'provider.toml'),
@@ -149,7 +161,7 @@ async function launch(label) {
     await until(async () => !appRunning() && !(await portInUse(CDP_PORT)), 'the previous app to exit', 20000, 500);
     try { closeSync(logFd); } catch {}
   };
-  return { child, page, files, readPid, settings, stop, work };
+  return { child, page, files, readPid, settings, stop, work, env };
 }
 
 // ── owner side: the dashboard's two calls ────────────────────────────────────
@@ -170,6 +182,7 @@ async function happyPath() {
   try {
     await until(async () => (await page.text()).includes('Before you start sharing'), 'the consent screen');
     check('first launch shows the consent screen', true);
+    check('the window is visible on a normal launch', windowVisible(app.child.pid));
     check('nothing is recorded before they agree', app.settings() === null);
     check('the continue button is off until the box is ticked', (await page.buttonState('I understand, continue')) === 'disabled');
     await page.shot('01-consent');
@@ -227,6 +240,7 @@ async function happyPath() {
     spawnSync('powershell', ['-NoProfile', '-Command', `(Get-Process -Id ${app.child.pid}).CloseMainWindow() | Out-Null`]);
     await sleep(2500);
     check('closing the window leaves the app running (in the tray)', pidAlive(app.child.pid));
+    check('and the window is no longer visible', windowState(app.child.pid) === 'hidden', windowState(app.child.pid));
     check('and the node keeps running', pidAlive(app.readPid()));
   } finally {
     await app.stop();
@@ -285,6 +299,26 @@ async function cancelPath() {
   }
 }
 
+async function hiddenAndSingleInstance() {
+  console.log(''); console.log('— Scenario 4: start hidden (as at sign-in), then a second launch');
+  const app = await launch('hidden', ['--hidden']);
+  try {
+    await sleep(3000);
+    check('--hidden starts the app with its window hidden, not shown', pidAlive(app.child.pid) && windowState(app.child.pid) === 'hidden', windowState(app.child.pid));
+    check('--hidden shows nothing and records nothing', app.settings() === null);
+
+    // A second launch must not start another copy; it brings the first one forward.
+    const second = spawn(APP_EXE, [], { env: app.env, stdio: 'ignore' });
+    await until(() => !pidAlive(second.pid), 'the second launch to exit', 15000, 300);
+    check('a second launch exits instead of starting another copy', true);
+    check('exactly one app instance is running', appInstanceCount() === 1, `${appInstanceCount()} running`);
+    await until(() => windowVisible(app.child.pid), 'the first window to be brought forward', 8000, 300);
+    check('the second launch brings the first window forward', true);
+  } finally {
+    await app.stop();
+  }
+}
+
 // ── main ─────────────────────────────────────────────────────────────────────
 
 mkdirSync(OUT, { recursive: true });
@@ -296,6 +330,7 @@ try {
   await happyPath();
   await deniedPath();
   await cancelPath();
+  await hiddenAndSingleInstance();
   failed = results.some((r) => !r.ok);
 } catch (e) {
   console.log(`\nFAIL  ${e.message}`);
