@@ -7,7 +7,8 @@
 //! The raw `api_key` comes back exactly once, in the poll that sees the approval.
 
 use anyhow::{anyhow, bail, Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use std::io::Write;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -67,21 +68,125 @@ enum PollOutcome {
     Rejected(String),
 }
 
+/// Why a pairing ended without credentials, when the reason is one a caller acts on (the
+/// `--json` mode maps these to distinct events). The messages are what people read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PairFailure {
+    Denied,
+    Expired,
+}
+
+impl std::fmt::Display for PairFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PairFailure::Denied => write!(
+                f,
+                "The request was denied in the dashboard. Nothing was changed on this computer."
+            ),
+            PairFailure::Expired => write!(
+                f,
+                "The code expired before it was approved. Run `provider-node pair` again."
+            ),
+        }
+    }
+}
+
+impl std::error::Error for PairFailure {}
+
+/// One line of `pair --json` output. Exactly one terminal event (`approved`, `denied`,
+/// `expired` or `error`) is written, and `approved` only after `provider.toml` is on disk.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(tag = "event", rename_all = "snake_case")]
+pub enum Event {
+    /// The code to show the person, and the link where they approve it.
+    Code {
+        user_code: String,
+        link: String,
+        expires_in: u64,
+    },
+    Approved {
+        node_id: String,
+        config_path: String,
+    },
+    Denied,
+    Expired,
+    Error {
+        message: String,
+    },
+}
+
+/// Write one event as a single JSON line and flush, so a reader on a pipe sees it at once.
+pub fn emit(out: &mut impl Write, event: &Event) -> std::io::Result<()> {
+    let line = serde_json::to_string(event).map_err(std::io::Error::other)?;
+    writeln!(out, "{line}")?;
+    out.flush()
+}
+
+/// The terminal event for a pairing that did not succeed.
+pub fn failure_event(err: &anyhow::Error) -> Event {
+    match err.downcast_ref::<PairFailure>() {
+        Some(PairFailure::Denied) => Event::Denied,
+        Some(PairFailure::Expired) => Event::Expired,
+        None => Event::Error {
+            message: format!("{err:#}"),
+        },
+    }
+}
+
+fn http_client() -> Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .user_agent(format!("provider-node/{}", env!("CARGO_PKG_VERSION")))
+        .build()
+        .context("failed to build HTTP client")
+}
+
+fn link_for(started: &StartResponse) -> String {
+    started
+        .verification_uri_complete
+        .clone()
+        .unwrap_or_else(|| started.verification_uri.clone())
+}
+
 /// Run the whole flow: start, show the code, wait for the owner to approve it.
 pub async fn run(
     api_url: &str,
     device_name: Option<String>,
     open_browser: bool,
 ) -> Result<Granted> {
-    let client = reqwest::Client::builder()
-        .timeout(REQUEST_TIMEOUT)
-        .user_agent(format!("provider-node/{}", env!("CARGO_PKG_VERSION")))
-        .build()
-        .context("failed to build HTTP client")?;
+    let client = http_client()?;
     let base = api_url.trim_end_matches('/');
 
     let started = start(&client, base, device_name).await?;
     announce(&started, open_browser);
+
+    let deadline = Instant::now() + Duration::from_secs(started.expires_in) + EXPIRY_SLACK;
+    tokio::select! {
+        granted = poll_until_done(&client, base, &started, deadline, MIN_POLL_INTERVAL) => granted,
+        _ = tokio::signal::ctrl_c() => bail!("Cancelled. Nothing was changed on this computer."),
+    }
+}
+
+/// The same flow for a program driving this one (the desktop app): the code is written to
+/// `out` as an event instead of printed, no browser is opened, and nothing else touches stdout.
+/// The caller writes the terminal event, because only it knows whether the config was saved.
+pub async fn run_json(
+    api_url: &str,
+    device_name: Option<String>,
+    out: &mut impl Write,
+) -> Result<Granted> {
+    let client = http_client()?;
+    let base = api_url.trim_end_matches('/');
+
+    let started = start(&client, base, device_name).await?;
+    emit(
+        out,
+        &Event::Code {
+            user_code: started.user_code.clone(),
+            link: link_for(&started),
+            expires_in: started.expires_in,
+        },
+    )?;
 
     let deadline = Instant::now() + Duration::from_secs(started.expires_in) + EXPIRY_SLACK;
     tokio::select! {
@@ -126,10 +231,7 @@ async fn start(
 }
 
 fn announce(started: &StartResponse, open_browser: bool) {
-    let link = started
-        .verification_uri_complete
-        .clone()
-        .unwrap_or_else(|| started.verification_uri.clone());
+    let link = link_for(started);
     println!();
     println!("  To connect this computer, approve it in your ProxyHubb dashboard:");
     println!();
@@ -163,7 +265,7 @@ async fn poll_until_done(
 
     loop {
         if Instant::now() >= deadline {
-            bail!("The code expired before it was approved. Run `provider-node pair` again.");
+            return Err(PairFailure::Expired.into());
         }
         tokio::time::sleep(interval).await;
 
@@ -208,12 +310,8 @@ async fn poll_until_done(
                 interval = Duration::from_secs(server.unwrap_or(0)).max(interval);
             }
             PollOutcome::Approved(granted) => return Ok(granted),
-            PollOutcome::Denied => bail!(
-                "The request was denied in the dashboard. Nothing was changed on this computer."
-            ),
-            PollOutcome::Expired => {
-                bail!("The code expired before it was approved. Run `provider-node pair` again.")
-            }
+            PollOutcome::Denied => return Err(PairFailure::Denied.into()),
+            PollOutcome::Expired => return Err(PairFailure::Expired.into()),
             PollOutcome::Redeemed => bail!(
                 "This pairing was already completed, but its key never reached this computer. \
                  Run `provider-node pair` again (you can remove the unused node in the dashboard)."
@@ -589,5 +687,122 @@ mod tests {
         .await
         .unwrap_err();
         assert!(err.to_string().contains("lost connection"), "{err}");
+    }
+
+    // ── `--json`: the contract the desktop app reads ─────────────────────────
+
+    fn lines(buf: &[u8]) -> Vec<serde_json::Value> {
+        String::from_utf8_lossy(buf)
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap_or_else(|e| panic!("not JSON: {l:?}: {e}")))
+            .collect()
+    }
+
+    #[test]
+    fn every_event_is_one_json_line_with_a_stable_shape() {
+        let cases: Vec<(Event, serde_json::Value)> = vec![
+            (
+                Event::Code {
+                    user_code: "BCDF-GHJK".into(),
+                    link: "https://x.test/pair?code=BCDF-GHJK".into(),
+                    expires_in: 600,
+                },
+                serde_json::json!({"event":"code","user_code":"BCDF-GHJK","link":"https://x.test/pair?code=BCDF-GHJK","expires_in":600}),
+            ),
+            (
+                Event::Approved {
+                    node_id: "n".into(),
+                    config_path: "C:\\p\\provider.toml".into(),
+                },
+                serde_json::json!({"event":"approved","node_id":"n","config_path":"C:\\p\\provider.toml"}),
+            ),
+            (Event::Denied, serde_json::json!({"event":"denied"})),
+            (Event::Expired, serde_json::json!({"event":"expired"})),
+            (
+                Event::Error {
+                    message: "m".into(),
+                },
+                serde_json::json!({"event":"error","message":"m"}),
+            ),
+        ];
+        for (event, want) in cases {
+            let mut buf = Vec::new();
+            emit(&mut buf, &event).unwrap();
+            let text = String::from_utf8(buf).unwrap();
+            assert!(
+                text.ends_with('\n') && !text[..text.len() - 1].contains('\n'),
+                "{text:?}"
+            );
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(&text).unwrap(),
+                want
+            );
+        }
+    }
+
+    #[test]
+    fn a_failed_pairing_maps_to_exactly_one_terminal_event() {
+        let denied: anyhow::Error = PairFailure::Denied.into();
+        let expired: anyhow::Error = PairFailure::Expired.into();
+        assert_eq!(failure_event(&denied), Event::Denied);
+        assert_eq!(failure_event(&expired), Event::Expired);
+        // Anything else keeps its whole explanation, including the cause chain.
+        let other = anyhow!("socket closed").context("lost connection while waiting for approval");
+        match failure_event(&other) {
+            Event::Error { message } => {
+                assert!(message.contains("lost connection"), "{message}");
+                assert!(message.contains("socket closed"), "{message}");
+            }
+            e => panic!("{e:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn run_json_writes_only_the_code_event_and_returns_the_grant() {
+        let (base, _) = mock_control_api(
+            start_json(),
+            vec![(
+                200,
+                r#"{"status":"approved","api_key":"the-key","node_id":"the-node"}"#,
+            )],
+        )
+        .await;
+        let mut out = Vec::new();
+        let got = run_json(&base, Some("My PC".into()), &mut out)
+            .await
+            .unwrap();
+        assert_eq!(
+            got,
+            Granted {
+                api_key: "the-key".into(),
+                node_id: "the-node".into()
+            }
+        );
+        let events = lines(&out);
+        assert_eq!(events.len(), 1, "only the code event: {events:?}");
+        assert_eq!(events[0]["event"], "code");
+        assert_eq!(events[0]["user_code"], "BCDF-GHJK");
+        // The complete link (code filled in) is what the person is sent to.
+        assert_eq!(events[0]["link"], "https://x.test/pair?code=BCDF-GHJK");
+        assert_eq!(events[0]["expires_in"], 600);
+        // The secret never appears in the stream.
+        assert!(!String::from_utf8_lossy(&out).contains("the-key"));
+    }
+
+    #[tokio::test]
+    async fn run_json_reports_a_denial_as_a_typed_failure() {
+        let (base, _) = mock_control_api(start_json(), vec![(403, r#"{"status":"denied"}"#)]).await;
+        let mut out = Vec::new();
+        let err = run_json(&base, None, &mut out).await.unwrap_err();
+        assert_eq!(
+            err.downcast_ref::<PairFailure>(),
+            Some(&PairFailure::Denied)
+        );
+        assert_eq!(
+            lines(&out).len(),
+            1,
+            "the code event only; the caller writes the terminal one"
+        );
+        assert_eq!(failure_event(&err), Event::Denied);
     }
 }
