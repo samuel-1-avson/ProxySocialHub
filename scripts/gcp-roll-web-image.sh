@@ -1,16 +1,28 @@
 #!/usr/bin/env bash
-# Roll one immutable frontend image, retaining the existing runtime environment.
+# Roll one verified frontend image, retaining the production runtime settings.
 set -euo pipefail
 PROJECT_DIR="${PROJECT_DIR:-/opt/proxyhubb}"
-: "${WEB_IMAGE:?Set the published frontend image}"
+: "${IMAGE_ARCHIVE:?Set the built frontend image archive}"
 : "${EXPECTED_REVISION:?Set the source commit SHA}"
-[[ "$WEB_IMAGE" =~ ^ghcr\.io/[a-zA-Z0-9_.-]+/web:[a-zA-Z0-9_.-]+$ ]] || exit 2
 [[ "$EXPECTED_REVISION" =~ ^[a-f0-9]{40}$ ]] || exit 2
+expected_archive="/tmp/proxyhubb-web-${EXPECTED_REVISION}.tar"
+[[ "$IMAGE_ARCHIVE" == "$expected_archive" && -s "$IMAGE_ARCHIVE" ]] || exit 2
 cd "$PROJECT_DIR"
 compose=(docker compose -f docker-compose.yml -f docker-compose.testnet.yml -f docker-compose.gcp-testnet.yml -f docker-compose.gcp-images.yml)
 old_container=$("${compose[@]}" ps -q web)
+[[ -n "$old_container" ]]
 old_image=$(docker inspect "$old_container" --format '{{.Image}}')
+[[ -n "$old_image" ]]
 override=$(mktemp /tmp/proxyhubb-web-image.XXXXXX.yml)
+cleanup() { rm -f "$override" "$IMAGE_ARCHIVE" "/tmp/proxyhubb-web-${EXPECTED_REVISION}.sh"; }
+trap cleanup EXIT
+docker load --input "$IMAGE_ARCHIVE"
+new_image=$(docker image ls --filter "label=org.opencontainers.image.revision=$EXPECTED_REVISION" --format '{{.Repository}}:{{.Tag}}' | grep -E '^ghcr\.io/.+/web:[A-Za-z0-9_.-]+$' | head -n 1)
+[[ -n "$new_image" ]]
+actual_revision=$(docker inspect "$new_image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')
+[[ "$actual_revision" == "$EXPECTED_REVISION" ]]
+local_image="proxyhubb-production/web:$EXPECTED_REVISION"
+docker tag "$new_image" "$local_image"
 write_override() {
   printf 'services:\n  web:\n    image: "%s"\n    pull_policy: never\n' "$1" > "$override"
 }
@@ -21,11 +33,7 @@ rollback() {
   "${compose[@]}" -f "$override" up -d --no-deps --no-build --force-recreate web
   exit 1
 }
-trap 'rm -f "$override"' EXIT
-docker pull "$WEB_IMAGE"
-actual_revision=$(docker inspect "$WEB_IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')
-[[ "$actual_revision" == "$EXPECTED_REVISION" ]]
-write_override "$WEB_IMAGE"
+write_override "$local_image"
 trap rollback ERR
 "${compose[@]}" -f "$override" up -d --no-deps --no-build --force-recreate web
 healthy=false
@@ -41,4 +49,4 @@ code=$(curl --max-time 20 -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:30
 public_code=$(curl --max-time 30 -sS -o /dev/null -w '%{http_code}' "https://proxyhubb.com/app?release=$EXPECTED_REVISION")
 [[ "$public_code" =~ ^(200|302|303|307|308)$ ]]
 trap - ERR
-printf 'Frontend live: image=%s revision=%s workspace_http=%s public_http=%s rollback_image=%s\n' "$WEB_IMAGE" "$actual_revision" "$code" "$public_code" "$old_image"
+printf 'Frontend live: revision=%s workspace_http=%s public_http=%s rollback_image=%s\n' "$actual_revision" "$code" "$public_code" "$old_image"
