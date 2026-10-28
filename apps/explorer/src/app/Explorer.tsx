@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import type { PublicResource } from "../lib/public-data";
 type Data = Record<string, unknown>;
@@ -246,15 +247,29 @@ function appHref(path: string) {
   return `https://proxyhubb.com${path}`;
 }
 function Search() {
+  const router = useRouter();
   const [term, setTerm] = useState("");
   const [type, setType] = useState("transactions");
+  useEffect(() => {
+    const sync = () => {
+      const query = new URL(window.location.href).searchParams;
+      const requested = query.get("type");
+      setType(requested && ["transactions", "blocks", "nodes", "wallets", "contracts"].includes(requested) ? requested : "transactions");
+      setTerm((query.get("q") || "").slice(0, 160));
+    };
+    sync();
+    window.addEventListener("popstate", sync);
+    return () => window.removeEventListener("popstate", sync);
+  }, []);
   return (
     <form
       className="explorer-search"
+      role="search"
+      aria-label="Public records"
       onSubmit={(event) => {
         event.preventDefault();
         if (term.trim())
-          window.location.assign(`/${type}/${encodeURIComponent(term.trim())}`);
+          router.push(`/${type}/${encodeURIComponent(term.trim())}`);
       }}
     >
       <label className="sr-only" htmlFor="public-search">
@@ -1066,7 +1081,7 @@ export function Explorer({ path = [] }: { path?: string[] }) {
   const root = path[0] || "";
   const id = path[1];
   const isTreasury = root === "governance" && id === "treasury";
-  const isProtocol = root === "about" && id === "protocol";
+  const isProtocol = root === "about" && !id;
   const active = ["nodes"].includes(root)
     ? "nodes"
     : ["transactions", "blocks", "search", "wallets", "contracts"].includes(
@@ -1117,6 +1132,7 @@ export function Explorer({ path = [] }: { path?: string[] }) {
         <div className="explorer-tools">
           <span className="explorer-environment">Public evidence</span>
           <Theme />
+          <a href="https://docs.proxyhubb.com/docs">Docs ↗</a>
           <a href={appHref("/app")}>Open workspace ↗</a>
         </div>
       </header>
@@ -1182,7 +1198,8 @@ export function Explorer({ path = [] }: { path?: string[] }) {
           )}
         </div>
         <footer className="explorer-footer">
-          <span>Public network records · refreshed every minute</span>
+          <span>Public network records · refresh attempted every minute</span>
+          <Link href="/about">About the network</Link>
           <a href={appHref("/help")}>Help & operating environment ↗</a>
           <span>No wallet connection required.</span>
         </footer>
