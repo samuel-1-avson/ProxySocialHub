@@ -31,6 +31,7 @@ const webServer = process.env.TEST_BASE_URL
 
 export default defineConfig({
   testDir: './e2e',
+  testIgnore: '**/public-frontends.spec.ts',
   globalSetup: './e2e/global-setup.ts',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,

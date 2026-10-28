@@ -1,11 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AtSign, Check, Copy, Key, Loader2, ShieldCheck, Trash2 } from "lucide-react";
-import { motion } from "framer-motion";
-import { GlassCard } from "@/components/ui/glass-card";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import { Check, Copy } from "lucide-react";
+import { ConfirmDialog } from "@/components/patterns/ConfirmDialog";
+import { DataError, EmptyState, Loading } from "@/components/workspace/Patterns";
 import { createAPIKey, listAPIKeys, revokeAPIKey, type APIKey } from "@/lib/services/security";
 
 export function ApiKeysPanel() {
@@ -16,15 +14,15 @@ export function ApiKeysPanel() {
     const [copiedKey, setCopiedKey] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [creating, setCreating] = useState(false);
+    const [revokeId, setRevokeId] = useState<string | null>(null);
+    const [revoking, setRevoking] = useState(false);
 
     const loadKeys = useCallback(async () => {
         setLoading(true);
         setError(null);
         try {
-            const keys = await listAPIKeys();
-            setApiKeys(keys);
+            setApiKeys(await listAPIKeys());
         } catch (err) {
-            console.error("Failed to load API keys", err);
             setError(err instanceof Error ? err.message : "Failed to load API keys");
         } finally {
             setLoading(false);
@@ -32,7 +30,7 @@ export function ApiKeysPanel() {
     }, []);
 
     useEffect(() => {
-        loadKeys();
+        void loadKeys();
     }, [loadKeys]);
 
     const handleCreateKey = async () => {
@@ -42,11 +40,9 @@ export function ApiKeysPanel() {
         try {
             const res = await createAPIKey(newKeyName.trim());
             const plaintext = res.api_key?.key;
-            if (!plaintext) {
-                throw new Error("API did not return a one-time key secret");
-            }
+            if (!plaintext) throw new Error("API did not return a one-time key secret");
             setCreatedKey(plaintext);
-            setApiKeys([
+            setApiKeys((current) => [
                 {
                     id: res.api_key.id,
                     name: res.api_key.name,
@@ -56,170 +52,137 @@ export function ApiKeysPanel() {
                     created_at: res.api_key.created_at,
                     expires_at: res.api_key.expires_at,
                 },
-                ...apiKeys,
+                ...current,
             ]);
             setNewKeyName("");
         } catch (err) {
-            console.error("Failed to create key", err);
             setError(err instanceof Error ? err.message : "Failed to create API key");
         } finally {
             setCreating(false);
         }
     };
 
-    const handleRevokeKey = async (id: string) => {
+    const handleRevokeKey = async () => {
+        if (!revokeId || revoking) return;
+        setRevoking(true);
         setError(null);
         try {
-            await revokeAPIKey(id);
-            setApiKeys(apiKeys.filter((k) => k.id !== id));
+            await revokeAPIKey(revokeId);
+            setApiKeys((current) => current.filter((key) => key.id !== revokeId));
+            setRevokeId(null);
         } catch (err) {
-            console.error("Failed to revoke key", err);
             setError(err instanceof Error ? err.message : "Failed to revoke API key");
+        } finally {
+            setRevoking(false);
         }
     };
 
-    if (loading) {
-        return (
-            <div className="flex items-center justify-center min-h-[40vh]">
-                <Loader2 className="w-8 h-8 animate-spin text-primary" />
-            </div>
-        );
-    }
+    const revokeTarget = apiKeys.find((key) => key.id === revokeId);
+
+    if (loading) return <Loading label="Loading API keys…" />;
 
     return (
-        <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500">
-            <div>
-                <h2 className="text-2xl font-black font-mono uppercase tracking-tighter flex items-center gap-2">
-                    <Key size={22} className="text-primary" />
-                    API keys
-                </h2>
-                <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest mt-1 opacity-60">
-                    Tokens for agents and bulk/automation APIs (`pk_…`)
+        <div className="grid gap-6">
+            <section className="ui-surface">
+                <div className="ui-section-heading">
+                    <h2>API keys</h2>
+                    <span className="ui-note">{apiKeys.length} of 10 active</span>
+                </div>
+                <p className="ui-note">
+                    These pk_ keys authenticate bulk and partner requests with the X-API-Key header.
+                    Provider node credentials are created from Nodes, not here. A new secret is shown once.
                 </p>
-            </div>
-
-            <GlassCard className="p-0 border-white/10 overflow-hidden">
-                <div className="px-8 py-6 border-b border-white/5 bg-white/2 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-400">
-                            <Key size={20} />
-                        </div>
-                        <h3 className="font-black font-sans italic uppercase text-sm tracking-tight">
-                            Identity session tokens
-                        </h3>
-                    </div>
-                    <div className="text-[10px] font-mono text-emerald-500/60 uppercase tracking-widest hidden md:block">
-                        Active keys: {apiKeys.length} / 10
-                    </div>
-                </div>
-
-                <div className="p-10 space-y-8">
-                    <p className="text-[11px] font-mono text-muted-foreground uppercase leading-relaxed max-w-2xl">
-                        Use these `pk_` keys with `X-API-Key` for bulk/partner automation.
-                        Provider node CLI uses <span className="text-primary">Provider → API tokens</span>, not this page.
-                    </p>
-
-                    {error ? (
-                        <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-xs font-mono text-rose-300">
-                            {error}
-                        </div>
-                    ) : null}
-
-                    <div className="flex gap-4 p-4 rounded-2xl bg-black/40 border border-white/5">
-                        <Input
+                {error ? <DataError error={new Error(error)} retry={() => void loadKeys()} /> : null}
+                <form
+                    className="ui-actions"
+                    onSubmit={(event) => {
+                        event.preventDefault();
+                        void handleCreateKey();
+                    }}
+                >
+                    <label className="ui-field" style={{ flex: 1 }}>
+                        Key name
+                        <input
+                            className="ui-input"
                             value={newKeyName}
-                            onChange={(e) => setNewKeyName(e.target.value)}
-                            placeholder="NAME YOUR TOKEN (e.g. EDGE_NODE_01)"
-                            className="h-12 bg-transparent border-none font-mono text-xs uppercase focus:ring-0"
+                            onChange={(event) => setNewKeyName(event.target.value)}
+                            placeholder="Billing integration"
+                            maxLength={80}
                         />
-                        <Button
-                            onClick={() => void handleCreateKey()}
-                            disabled={!newKeyName.trim() || creating}
-                            className="h-12 px-8 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black font-mono text-[10px] uppercase tracking-widest"
-                        >
-                            {creating ? "Generating…" : "Generate token"}
-                        </Button>
-                    </div>
-
-                    {createdKey && (
-                        <motion.div
-                            initial={{ height: 0, opacity: 0 }}
-                            animate={{ height: "auto", opacity: 1 }}
-                            className="p-6 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 space-y-4"
-                        >
-                            <div className="flex items-center justify-between">
-                                <p className="text-[10px] font-black font-mono text-emerald-400 uppercase tracking-widest flex items-center gap-2">
-                                    <ShieldCheck size={14} /> Critical security key generated
-                                </p>
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        navigator.clipboard.writeText(createdKey);
+                    </label>
+                    <button className="ui-button" type="submit" disabled={!newKeyName.trim() || creating}>
+                        {creating ? "Creating…" : "Create key"}
+                    </button>
+                </form>
+                {createdKey ? (
+                    <div className="ui-attention" role="status">
+                        <h3>Copy this secret now</h3>
+                        <p>This is the only time the full key is shown. Store it outside the browser before leaving this page.</p>
+                        <code style={{ overflowWrap: "anywhere" }}>{createdKey}</code>
+                        <div className="ui-actions">
+                            <button
+                                type="button"
+                                className="ui-button secondary small"
+                                onClick={() => {
+                                    void navigator.clipboard.writeText(createdKey).then(() => {
                                         setCopiedKey(true);
-                                        setTimeout(() => setCopiedKey(false), 2000);
-                                    }}
-                                    className="text-emerald-400 hover:text-emerald-300 flex items-center gap-2 text-[10px] font-mono"
-                                >
-                                    {copiedKey ? <Check size={14} /> : <Copy size={14} />}{" "}
-                                    {copiedKey ? "COPIED" : "COPY KEY"}
-                                </button>
-                            </div>
-                            <div className="p-4 bg-black/60 rounded-xl font-mono text-sm text-emerald-500 break-all border border-emerald-500/20">
-                                {createdKey}
-                            </div>
-                            <p className="text-[9px] font-mono text-emerald-500/60 uppercase">
-                                Warning: This key will never be shown again. Store it in a secure vault immediately.
-                            </p>
-                            <Button
-                                variant="ghost"
-                                className="text-[9px] text-white/40 hover:text-white uppercase font-mono"
-                                onClick={() => setCreatedKey(null)}
+                                        window.setTimeout(() => setCopiedKey(false), 2000);
+                                    });
+                                }}
                             >
-                                Dismiss
-                            </Button>
-                        </motion.div>
-                    )}
-
-                    <div className="space-y-4">
-                        {apiKeys.map((key) => (
-                            <div
-                                key={key.id}
-                                className="flex items-center justify-between p-5 bg-white/2 border border-white/5 rounded-2xl hover:border-white/10 transition-all"
-                            >
-                                <div className="flex items-center gap-6">
-                                    <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-white/40">
-                                        <AtSign size={18} />
-                                    </div>
-                                    <div>
-                                        <p className="font-black font-mono text-xs uppercase tracking-tight text-white/80">
-                                            {key.name}
-                                        </p>
-                                        <p className="text-[9px] font-mono text-muted-foreground mt-1 uppercase opacity-60">
-                                            Prefix: {key.prefix} • Last used:{" "}
-                                            {key.last_used_at
-                                                ? new Date(key.last_used_at).toLocaleDateString()
-                                                : "NEVER"}
-                                        </p>
-                                    </div>
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={() => handleRevokeKey(key.id)}
-                                    className="p-3 text-rose-500/40 hover:text-rose-500 hover:bg-rose-500/10 rounded-xl transition-all"
-                                    aria-label={`Revoke ${key.name}`}
-                                >
-                                    <Trash2 size={16} />
-                                </button>
-                            </div>
-                        ))}
-                        {apiKeys.length === 0 && (
-                            <div className="py-12 text-center border-2 border-dashed border-white/5 rounded-3xl opacity-20">
-                                <p className="text-[10px] font-mono uppercase tracking-widest">No active identity tokens</p>
-                            </div>
-                        )}
+                                {copiedKey ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+                                {copiedKey ? "Copied" : "Copy secret"}
+                            </button>
+                            <button type="button" className="ui-button ghost" onClick={() => setCreatedKey(null)}>
+                                I have stored it
+                            </button>
+                        </div>
                     </div>
+                ) : null}
+            </section>
+
+            {apiKeys.length === 0 ? (
+                <EmptyState title="No API keys" description="Create a key when an integration needs its own credential. The secret is shown only at creation." />
+            ) : (
+                <div className="ui-table-wrap" role="region" aria-label="API keys" tabIndex={0}>
+                    <table className="ui-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Prefix</th>
+                                <th>Last used</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {apiKeys.map((key) => (
+                                <tr key={key.id}>
+                                    <td>{key.name}</td>
+                                    <td>{key.prefix}</td>
+                                    <td>{key.last_used_at ? new Date(key.last_used_at).toLocaleDateString() : "Not used"}</td>
+                                    <td>
+                                        <button type="button" className="ui-button secondary small" onClick={() => setRevokeId(key.id)}>
+                                            Revoke
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
                 </div>
-            </GlassCard>
+            )}
+
+            <ConfirmDialog
+                open={revokeId != null}
+                onOpenChange={(open) => { if (!open && !revoking) setRevokeId(null); }}
+                title="Revoke this API key?"
+                description={revokeTarget ? `${revokeTarget.name} (${revokeTarget.prefix}) will stop working immediately. This does not delete past requests.` : "This key will stop working immediately."}
+                confirmLabel="Revoke key"
+                destructive
+                loading={revoking}
+                error={error ?? undefined}
+                onConfirm={handleRevokeKey}
+            />
         </div>
     );
 }

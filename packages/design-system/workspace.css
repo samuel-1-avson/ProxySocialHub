@@ -1016,6 +1016,105 @@
     font-size: 11px;
   }
 }
+.ui-button.block {
+  width: 100%;
+}
+.market-map {
+  display: grid;
+  grid-template-columns: minmax(0, 1.8fr) minmax(260px, 0.75fr);
+  gap: 20px;
+  align-items: start;
+}
+.market-map-stage {
+  position: relative;
+  min-height: 520px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--secondary);
+}
+.market-map-canvas {
+  height: 520px;
+  min-height: 520px;
+}
+.market-map-float {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  gap: 8px;
+}
+.market-map-float.center {
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+.market-map-float.end {
+  top: 16px;
+  right: 16px;
+}
+.market-map-side {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.market-kv {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0;
+}
+.market-kv div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+}
+.market-kv dt {
+  color: var(--muted-foreground);
+}
+.market-kv dd {
+  margin: 0;
+  text-align: right;
+}
+.market-choice-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  max-height: 280px;
+  overflow: auto;
+}
+.market-choice-list button {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  border-radius: 8px;
+  padding: 8px 12px;
+  min-height: 44px;
+}
+.market-choice-list button.active,
+.market-choice-list button[aria-current="true"] {
+  border-color: var(--primary);
+  background: var(--secondary);
+}
+.market-choice-list button span {
+  display: block;
+}
+.market-choice-list button small {
+  color: var(--muted-foreground);
+}
+@media (max-width: 1100px) {
+  .market-map {
+    grid-template-columns: 1fr;
+  }
+  .market-map-float.center {
+    left: 16px;
+    right: 16px;
+    transform: none;
+    flex-wrap: wrap;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .workspace-shell * {
     scroll-behavior: auto;

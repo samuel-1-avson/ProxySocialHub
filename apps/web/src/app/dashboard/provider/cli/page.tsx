@@ -2,10 +2,9 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { GlassCard } from '@/components/ui/glass-card';
 import {
-    FileCode, Download, Copy, CheckCircle2, Terminal, Monitor,
-    Apple, Server, Loader2, AlertCircle, ExternalLink, Link2, Github, Activity
+    Download, Copy, CheckCircle2, Terminal, Monitor,
+    Apple, Server, Github, Activity
 } from 'lucide-react';
 import Link from 'next/link';
 import {
@@ -21,6 +20,13 @@ import {
     getProviderEndpoints,
 } from '@/lib/provider-config';
 import { useToast } from '@/stores';
+import {
+    PageHeading,
+    Loading,
+    DataError,
+    EmptyState,
+    Status,
+} from '@/components/workspace/Patterns';
 
 const PLATFORMS = [
     { id: 'linux', label: 'Linux', icon: Terminal, archs: ['amd64', 'arm64'] },
@@ -102,7 +108,7 @@ export default function CLIPage() {
     const exe = selectedPlatform === 'windows' ? 'provider-node.exe' : 'provider-node';
     const cfg = configFlag(selectedPlatform);
 
-    const { data, isLoading, error } = useQuery({
+    const { data, isLoading, error, refetch } = useQuery({
         queryKey: ['cli-downloads'],
         queryFn: getCLIDownloads,
         staleTime: 5 * 60_000,
@@ -113,6 +119,7 @@ export default function CLIPage() {
         isLoading: nodesLoading,
         refetch: refetchNodes,
         dataUpdatedAt,
+        error: nodesError,
     } = useQuery({
         queryKey: ['provider-nodes-cli-console'],
         queryFn: getProviderNodes,
@@ -212,56 +219,42 @@ metrics_port = 9090`;
         : [];
 
     return (
-        <div className="space-y-6 animate-in fade-in duration-500 pb-20">
-            <div className="flex flex-col gap-2 border-b border-border pb-6">
-                <div className="flex items-center gap-2 text-primary font-mono text-xs font-bold uppercase tracking-widest">
-                    <FileCode size={14} />
-                    Provider Tools
-                </div>
-                <h1 className="text-3xl font-bold font-mono uppercase tracking-tight">Provider Node CLI</h1>
-                <p className="text-muted-foreground font-mono text-xs max-w-2xl">
-                    Download <strong className="text-foreground">provider-node</strong> for your OS.
-                    Default config: <code className="text-primary">{configPath}</code>.
-                    {' '}API: <code className="text-primary">{endpoints.controlApiUrl}</code>
-                    {' · '}Gateway: <code className="text-primary">{endpoints.gatewayTunnelAddr}</code>.
-                </p>
-                <div className="flex flex-wrap gap-2 pt-1">
-                    <Link
-                        href="/dashboard/provider/setup"
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 text-primary border border-primary/20 font-mono text-[10px] font-bold uppercase"
-                    >
-                        <Link2 size={12} /> Setup wizard first
-                    </Link>
-                    <Link
-                        href="/dashboard/provider/nodes"
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-foreground font-mono text-[10px] font-bold uppercase hover:bg-surface-hover"
-                    >
-                        My nodes
-                    </Link>
-                    <Link
-                        href="/dashboard/provider/tokens"
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-foreground font-mono text-[10px] font-bold uppercase hover:bg-surface-hover"
-                    >
-                        API tokens
-                    </Link>
-                    <a
-                        href={releasesUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-foreground font-mono text-[10px] font-bold uppercase hover:bg-surface-hover"
-                    >
-                        <Github size={12} /> GitHub Releases
-                    </a>
-                </div>
-            </div>
+        <div className="ui-page">
+            <PageHeading
+                eyebrow="Provider tools"
+                title="Provider node CLI"
+                description={`Download provider-node for your OS. Default config is ${configPath}. API: ${endpoints.controlApiUrl}. Gateway: ${endpoints.gatewayTunnelAddr}.`}
+                actions={
+                    <>
+                        <Link href="/dashboard/provider/setup" className="ui-button">
+                            Setup wizard first
+                        </Link>
+                        <Link href="/dashboard/provider/nodes" className="ui-button secondary">
+                            My nodes
+                        </Link>
+                        <Link href="/dashboard/provider/tokens" className="ui-button secondary">
+                            API tokens
+                        </Link>
+                        <a
+                            href={releasesUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="ui-button secondary"
+                        >
+                            <Github size={14} aria-hidden="true" /> GitHub Releases
+                        </a>
+                    </>
+                }
+            />
 
-            <GlassCard hoverEffect={false}>
-                <h2 className="text-sm font-bold font-mono mb-4 flex items-center gap-2">
-                    <Download size={14} className="text-primary" />
-                    Download CLI {version !== '…' && <span className="text-primary/60">v{version}</span>}
-                </h2>
+            <section className="ui-surface">
+                <div className="ui-section-heading">
+                    <h2>
+                        Download CLI {version !== '…' && <span className="text-muted-foreground">v{version}</span>}
+                    </h2>
+                </div>
 
-                <div className="flex flex-wrap gap-2 mb-5">
+                <div className="ui-tabs" role="tablist" aria-label="Operating system">
                     {PLATFORMS.map((p) => {
                         const Icon = p.icon;
                         const available = p.archs.some((a) => platformHasBuild(data?.downloads, p.id, a));
@@ -269,33 +262,29 @@ metrics_port = 9090`;
                             <button
                                 key={p.id}
                                 type="button"
+                                role="tab"
+                                aria-selected={selectedPlatform === p.id}
                                 disabled={!available && !isLoading}
                                 onClick={() => {
                                     setSelectedPlatform(p.id);
                                     const arch = p.archs.find((a) => platformHasBuild(data?.downloads, p.id, a)) ?? p.archs[0];
                                     setSelectedArch(arch);
                                 }}
-                                className={`flex items-center gap-2 px-4 py-2 rounded-xl font-mono text-xs font-bold uppercase transition-colors ${
-                                    selectedPlatform === p.id
-                                        ? 'bg-primary text-primary-foreground'
-                                        : available
-                                        ? 'border border-border text-foreground hover:bg-surface-hover'
-                                        : 'border border-border bg-muted text-muted-foreground cursor-not-allowed opacity-60'
-                                }`}
+                                className={selectedPlatform === p.id ? 'active' : ''}
                                 title={available ? undefined : 'No build published for this OS yet'}
                             >
-                                <Icon size={13} />
-                                {p.label}
-                                {!available && !isLoading && (
-                                    <span className="text-[9px] opacity-60 normal-case font-normal">unavailable</span>
-                                )}
+                                <span className="ui-inline-icon">
+                                    <Icon size={14} aria-hidden="true" />
+                                    {p.label}
+                                    {!available && !isLoading && ' (unavailable)'}
+                                </span>
                             </button>
                         );
                     })}
                 </div>
 
                 {platformConfig.archs.length > 1 && (
-                    <div className="flex gap-2 mb-5">
+                    <div className="ui-actions ui-section-space">
                         {platformConfig.archs.map((a) => {
                             const available = platformHasBuild(data?.downloads, selectedPlatform, a);
                             return (
@@ -304,13 +293,7 @@ metrics_port = 9090`;
                                     type="button"
                                     disabled={!available}
                                     onClick={() => setSelectedArch(a)}
-                                    className={`px-3 py-1.5 rounded-lg font-mono text-xs transition-colors ${
-                                        selectedArch === a
-                                            ? 'bg-primary/15 border border-primary/30 text-foreground font-bold'
-                                            : available
-                                            ? 'border border-border text-foreground hover:bg-surface-hover'
-                                            : 'border border-border bg-muted text-muted-foreground cursor-not-allowed opacity-60'
-                                    }`}
+                                    className={`ui-button small ${selectedArch === a ? '' : 'secondary'}`}
                                 >
                                     {a}
                                 </button>
@@ -320,23 +303,19 @@ metrics_port = 9090`;
                 )}
 
                 {isLoading ? (
-                    <div className="flex items-center gap-3 py-6">
-                        <Loader2 className="animate-spin text-primary" size={20} />
-                        <span className="font-mono text-sm text-muted-foreground">Loading downloads…</span>
-                    </div>
+                    <Loading label="Loading available CLI downloads…" />
                 ) : error ? (
-                    <div className="flex items-center gap-3 py-4 text-red-400">
-                        <AlertCircle size={16} />
-                        <span className="font-mono text-sm">Failed to load downloads.</span>
-                    </div>
+                    <DataError error={error} retry={() => void refetch()} />
                 ) : downloadInfo ? (
-                    <div className="space-y-4">
-                        <div className="flex items-center justify-between gap-4 bg-muted rounded-xl px-4 py-3">
-                            <div className="flex items-center gap-3">
-                                <Server size={16} className="text-primary" />
+                    <div className="ui-page ui-section-space">
+                        <div className="ui-row">
+                            <div className="ui-row-identity">
+                                <span className="ui-region">
+                                    <Server size={16} aria-hidden="true" />
+                                </span>
                                 <div>
-                                    <p className="text-sm font-mono font-bold">{downloadInfo.filename}</p>
-                                    <p className="text-[10px] font-mono text-muted-foreground">
+                                    <h3>{downloadInfo.filename}</h3>
+                                    <p>
                                         {(downloadInfo.file_size / 1024 / 1024).toFixed(1)} MB · v{downloadInfo.version} · {packageType}
                                     </p>
                                 </div>
@@ -345,41 +324,41 @@ metrics_port = 9090`;
                                 href={getCLIDownloadUrl(selectedPlatform, selectedArch, downloadInfo.version, packageType)}
                                 download={downloadInfo.filename}
                                 onClick={handleDownloadClick}
-                                className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-xl font-mono text-xs font-bold uppercase hover:bg-primary/90 transition-colors"
+                                className="ui-button"
                             >
-                                <Download size={12} />
+                                <Download size={14} aria-hidden="true" />
                                 Download
                             </a>
                         </div>
 
                         {checksum && (
-                            <div className="space-y-2">
-                                <p className="text-[10px] font-mono uppercase text-muted-foreground mb-1.5">SHA256 Checksum</p>
-                                <div className="flex items-center gap-2 bg-muted border border-border rounded-xl px-4 py-2.5 font-mono text-xs">
-                                    <span className="font-mono text-foreground flex-1 break-all select-all">{checksum}</span>
+                            <div>
+                                <p className="ui-note">SHA256 checksum</p>
+                                <div className="ui-credential-field">
+                                    <code className="break-all select-all">{checksum}</code>
                                     <button
                                         type="button"
                                         onClick={() => copy(checksum, 'checksum')}
-                                        className="shrink-0 text-muted-foreground hover:text-foreground"
+                                        className="ui-button ghost small"
                                         aria-label="Copy SHA256 checksum"
                                     >
                                         {copied === 'checksum'
-                                            ? <CheckCircle2 size={12} className="text-emerald-400" />
-                                            : <Copy size={12} />}
+                                            ? <CheckCircle2 size={14} aria-hidden="true" />
+                                            : <Copy size={14} aria-hidden="true" />}
+                                        {copied === 'checksum' ? 'Copied' : 'Copy'}
                                     </button>
                                 </div>
                                 <CodeBlock
                                     code={verifyChecksumCmd}
-                                    id="verify-checksum"
                                     copied={copied === 'verify-checksum'}
                                     onCopy={() => copy(verifyChecksumCmd, 'verify-checksum')}
                                 />
                             </div>
                         )}
 
-                        <p className="text-[10px] font-mono text-muted-foreground">
+                        <p className="ui-note">
                             Prefer a zip with launcher?{' '}
-                            <a href={releasesUrl} target="_blank" rel="noopener noreferrer" className="text-primary underline-offset-2 hover:underline">
+                            <a href={releasesUrl} target="_blank" rel="noopener noreferrer" className="ui-link">
                                 GitHub Releases (provider-v*)
                             </a>
                             {selectedPlatform === 'windows' && ' includes Launch-Provider-Console.cmd'}
@@ -387,211 +366,205 @@ metrics_port = 9090`;
                         </p>
                     </div>
                 ) : (
-                    <div className="py-4 text-center space-y-3">
-                        <p className="text-muted-foreground font-mono text-sm">
-                            No in-app build for {selectedPlatform}/{selectedArch} on this environment yet.
-                        </p>
+                    <EmptyState
+                        title="No in-app build for this platform yet"
+                        description={`There is no in-app build for ${selectedPlatform}/${selectedArch} on this environment yet. Download a published release from GitHub instead.`}
+                    />
+                )}
+                {!isLoading && !error && !downloadInfo && (
+                    <div className="ui-actions">
                         <a
                             href={releasesUrl}
                             target="_blank"
                             rel="noopener noreferrer"
                             onClick={() => setDownloadStarted(true)}
-                            className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-xl font-mono text-xs font-bold uppercase"
+                            className="ui-button"
                         >
-                            <Github size={12} />
+                            <Github size={14} aria-hidden="true" />
                             Download from GitHub Releases
                         </a>
                     </div>
                 )}
-            </GlassCard>
+            </section>
 
             {(downloadStarted || downloadInfo) && (
-                <GlassCard hoverEffect={false}>
+                <section className="ui-surface">
                     <div id="cli-next-steps" className="scroll-mt-24">
-                        <h2 className="text-sm font-bold font-mono mb-2 flex items-center gap-2">
-                            {downloadStarted ? (
-                                <CheckCircle2 size={14} className="text-emerald-400" />
-                            ) : (
-                                <Terminal size={14} className="text-primary" />
-                            )}
-                            {downloadStarted ? 'Download started — open your console' : 'Open the interactive console'}
-                        </h2>
-                        <p className="text-[11px] font-mono text-muted-foreground mb-3">
+                        <div className="ui-section-heading">
+                            <h2>
+                                {downloadStarted ? 'Download started — open your console' : 'Open the interactive console'}
+                            </h2>
+                        </div>
+                        <p className="ui-note">
                             The binary is a console app, not a silent installer. Running it with no arguments keeps a window open
                             with a menu (dashboard, doctor, start). Already installed? Run{' '}
-                            <code className="text-foreground">provider-node update</code> to replace the binary in place —
+                            <code>provider-node update</code> to replace the binary in place —
                             no need to delete the old download first.
                         </p>
                         <CodeBlock
                             code={openConsoleCmd}
-                            id="open-console"
                             copied={copied === 'open-console'}
                             onCopy={() => copy(openConsoleCmd, 'open-console')}
                         />
                     </div>
-                </GlassCard>
+                </section>
             )}
 
-            <GlassCard hoverEffect={false}>
-                <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-                    <h2 className="text-sm font-bold font-mono flex items-center gap-2">
-                        <Activity size={14} className="text-primary" />
+            <section className="ui-surface">
+                <div className="ui-section-heading">
+                    <h2 className="ui-inline-icon">
+                        <Activity size={16} aria-hidden="true" />
                         Operator console
                     </h2>
                     <button
                         type="button"
                         onClick={() => refetchNodes()}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border font-mono text-[10px] font-bold uppercase text-foreground hover:bg-surface-hover"
+                        className="ui-button secondary small"
                     >
                         Refresh
                     </button>
                 </div>
-                <p className="text-[11px] font-mono text-muted-foreground mb-4">
+                <p className="ui-note">
                     Live view of your provider nodes from Control API. After the daemon heartbeats, status should flip online here.
                 </p>
                 {nodesLoading && !nodesData ? (
-                    <div className="flex items-center gap-3 py-6">
-                        <Loader2 className="animate-spin text-primary" size={18} />
-                        <span className="font-mono text-xs text-muted-foreground">Loading nodes…</span>
-                    </div>
+                    <Loading label="Loading your provider nodes…" />
+                ) : nodesError && !nodesData ? (
+                    <DataError error={nodesError} retry={() => void refetchNodes()} />
                 ) : nodes.length === 0 ? (
-                    <div className="rounded-xl border border-dashed border-border px-4 py-6 text-center space-y-2">
-                        <p className="font-mono text-sm text-muted-foreground">No provider nodes yet.</p>
-                        <p className="font-mono text-[10px] text-muted-foreground">
-                            Finish Setup wizard, start the daemon from the console menu, then refresh.
-                        </p>
-                        <Link href="/dashboard/provider/setup" className="inline-flex text-primary font-mono text-[10px] uppercase font-bold">
-                            Open setup wizard →
-                        </Link>
-                    </div>
+                    <EmptyState
+                        title="No provider nodes yet"
+                        description="Finish the Setup wizard, start the daemon from the console menu, then refresh this list."
+                        href="/dashboard/provider/setup"
+                        action="Open setup wizard"
+                    />
                 ) : (
-                    <div className="space-y-3">
-                        <p className="font-mono text-[10px] text-muted-foreground">
+                    <div>
+                        <p className="ui-note">
                             {onlineCount}/{nodes.length} online
                             {dataUpdatedAt ? ` · updated ${new Date(dataUpdatedAt).toLocaleTimeString()}` : ''}
                         </p>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            {nodes.map((node) => {
-                                const online = /online|active|healthy/i.test(node.status);
-                                return (
-                                    <div key={node.id} className="rounded-xl bg-muted border border-border px-4 py-3 space-y-1">
-                                        <div className="flex items-center justify-between gap-2">
-                                            <p className="font-mono text-xs font-bold truncate">{node.name || node.id}</p>
-                                            <span className={`font-mono text-[10px] uppercase font-bold ${online ? 'text-emerald-400' : 'text-amber-400'}`}>
-                                                {node.status}
-                                            </span>
-                                        </div>
-                                        <p className="font-mono text-[10px] text-muted-foreground truncate">
-                                            {node.country || '—'} · {node.connection_type || 'node'} · {node.latency_ms != null ? `${node.latency_ms}ms` : 'latency n/a'}
-                                        </p>
-                                    </div>
-                                );
-                            })}
+                        <div className="ui-table-wrap ui-section-space" role="region" aria-label="Provider nodes" tabIndex={0}>
+                            <table className="ui-table">
+                                <thead>
+                                    <tr>
+                                        <th>Node</th>
+                                        <th>Location</th>
+                                        <th>Type</th>
+                                        <th>Latency</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {nodes.map((node) => {
+                                        const online = /online|active|healthy/i.test(node.status);
+                                        return (
+                                            <tr key={node.id}>
+                                                <td>{node.name || node.id}</td>
+                                                <td>{node.country || '—'}</td>
+                                                <td>{node.connection_type || 'node'}</td>
+                                                <td>{node.latency_ms != null ? `${node.latency_ms}ms` : 'latency n/a'}</td>
+                                                <td>
+                                                    <Status tone={online ? 'good' : 'warning'}>
+                                                        {node.status}
+                                                    </Status>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 )}
-            </GlassCard>
+            </section>
 
             {downloadInfo && (
-                <GlassCard hoverEffect={false}>
-                    <h2 className="text-sm font-bold font-mono mb-2 flex items-center gap-2">
-                        <Terminal size={14} className="text-primary" />
-                        Quick Start
-                    </h2>
-                    <p className="text-[11px] font-mono text-amber-400/90 mb-3">
-                        Prefer <Link href="/dashboard/provider/setup" className="underline text-primary">Setup</Link>
-                        {' '}→ download config → <code className="text-foreground">start</code>.
-                        Running <code className="text-foreground">register</code> after the wizard creates a second orphan node.
+                <section className="ui-surface">
+                    <div className="ui-section-heading">
+                        <h2>Quick start</h2>
+                    </div>
+                    <p className="ui-note">
+                        Prefer <Link href="/dashboard/provider/setup" className="ui-link">Setup</Link>
+                        {' '}→ download config → <code>start</code>.
+                        Running <code>register</code> after the wizard creates a second orphan node.
                     </p>
                     <CodeBlock
                         code={installCmd}
-                        id="install"
                         copied={copied === 'install'}
                         onCopy={() => copy(installCmd, 'install')}
                     />
-                    <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="ui-step-list ui-section-space">
                         {steps.map((s) => (
-                            <div key={s.step} className="flex items-start gap-3 bg-muted rounded-xl p-3">
-                                <div className="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center font-mono text-xs font-black shrink-0">
-                                    {s.step}
-                                </div>
-                                <div className="min-w-0">
-                                    <p className="text-xs font-bold font-mono">{s.label}</p>
-                                    <p className="text-[10px] text-muted-foreground font-mono break-all">{s.desc}</p>
-                                </div>
+                            <div key={s.step}>
+                                <div className="ui-step-number">{s.step}</div>
+                                <h3>{s.label}</h3>
+                                <p>{s.desc}</p>
                             </div>
                         ))}
                     </div>
-                    <div className="mt-5 pt-4 border-t border-border/60 space-y-2">
-                        <p className="text-[10px] font-mono font-bold uppercase text-muted-foreground">
-                            CLI-only path (new node — skip if you used Setup)
-                        </p>
-                        <p className="text-[10px] font-mono text-muted-foreground">
+                    <div className="ui-section-space">
+                        <h3>CLI-only path (new node — skip if you used Setup)</h3>
+                        <p className="ui-note">
                             Create a token under{' '}
-                            <Link href="/dashboard/provider/tokens" className="text-primary underline">API tokens</Link>
+                            <Link href="/dashboard/provider/tokens" className="ui-link">API tokens</Link>
                             , then:
                         </p>
                         <CodeBlock
                             code={registerOnlyCmd}
-                            id="register-only"
                             copied={copied === 'register-only'}
                             onCopy={() => copy(registerOnlyCmd, 'register-only')}
                         />
                     </div>
-                </GlassCard>
+                </section>
             )}
 
-            <GlassCard hoverEffect={false}>
-                <h2 className="text-sm font-bold font-mono mb-4 flex items-center gap-2">
-                    <Terminal size={14} className="text-primary" />
-                    Local Dev Sequence
-                </h2>
-                <p className="text-xs text-muted-foreground font-mono mb-3">
+            <section className="ui-surface">
+                <div className="ui-section-heading">
+                    <h2>Local dev sequence</h2>
+                </div>
+                <p className="ui-note">
                     Local stack only (Control API :18080, Gateway :3128). Production uses the URLs above.
                 </p>
                 <CodeBlock
                     code={localWorkspaceCmd}
-                    id="local-sequence"
                     copied={copied === 'local-sequence'}
                     onCopy={() => copy(localWorkspaceCmd, 'local-sequence')}
                 />
-            </GlassCard>
+            </section>
 
-            <GlassCard hoverEffect={false}>
-                <h2 className="text-sm font-bold font-mono mb-4 flex items-center gap-2">
-                    <FileCode size={14} className="text-primary" />
-                    Config Template
-                </h2>
-                <p className="text-xs text-muted-foreground font-mono mb-3">
-                    Save as <code className="text-primary">provider.toml</code> at{' '}
-                    <code className="text-primary">{configPath}</code>. Prefer My nodes → Connect for a filled file.
+            <section className="ui-surface">
+                <div className="ui-section-heading">
+                    <h2>Config template</h2>
+                </div>
+                <p className="ui-note">
+                    Save as <code>provider.toml</code> at{' '}
+                    <code>{configPath}</code>. Prefer My nodes → Connect for a filled file.
                 </p>
-                <div className="mb-3 rounded-lg border border-border bg-muted px-3 py-2 space-y-1.5">
-                    <p className="text-[11px] font-mono text-foreground">Auth split:</p>
-                    <p className="text-[11px] font-mono text-muted-foreground">
-                        <code className="text-primary">api_key</code> — long-lived provider token from dashboard.
+                <div className="ui-note">
+                    <p>Auth split:</p>
+                    <p>
+                        <code>api_key</code> — long-lived provider token from dashboard.
                     </p>
-                    <p className="text-[11px] font-mono text-muted-foreground">
-                        <code className="text-primary">jwt_token</code> — leave empty (auto-refreshed from api_key).
+                    <p>
+                        <code>jwt_token</code> — leave empty (auto-refreshed from api_key).
                     </p>
-                    <p className="text-[11px] font-mono text-muted-foreground">
-                        <code className="text-primary">provider_signing_key</code> — heartbeat hotkey. If your profile wallet is linked, prefer signing with that wallet rather than a random browser key.
+                    <p>
+                        <code>provider_signing_key</code> — heartbeat hotkey. If your profile wallet is linked, prefer signing with that wallet rather than a random browser key.
                     </p>
                 </div>
                 <CodeBlock
                     code={configTemplate}
-                    id="config"
                     copied={copied === 'config'}
                     onCopy={() => copy(configTemplate, 'config')}
                 />
-            </GlassCard>
+            </section>
 
-            <GlassCard hoverEffect={false}>
-                <h2 className="text-sm font-bold font-mono mb-4 flex items-center gap-2">
-                    <Terminal size={14} className="text-primary" />
-                    Common Commands
-                </h2>
-                <div className="space-y-2">
+            <section className="ui-surface">
+                <div className="ui-section-heading">
+                    <h2>Common commands</h2>
+                </div>
+                <div>
                     {[
                         { cmd: `${exe}`, desc: 'Interactive console menu (no args)' },
                         { cmd: `${exe} doctor ${cfg}`, desc: 'Pre-flight checks' },
@@ -603,36 +576,37 @@ metrics_port = 9090`;
                         { cmd: `${exe} register --api-url ${endpoints.controlApiUrl} --api-key <PROVIDER_TOKEN>`, desc: 'CLI-only: creates a NEW node (skip after wizard)' },
                         { cmd: `proxyhubb-cli join --api-url ${endpoints.controlApiUrl} --key <TOKEN> --gateway ${endpoints.gatewayTunnelAddr}`, desc: 'Onboarding wrapper' },
                     ].map(({ cmd, desc }) => (
-                        <div key={cmd} className="flex items-center justify-between gap-4 px-4 py-2.5 rounded-xl hover:bg-surface-hover transition-colors group">
-                            <div className="flex items-center gap-3 min-w-0">
-                                <code className="text-xs font-mono text-primary truncate">{cmd}</code>
+                        <div key={cmd} className="ui-row">
+                            <div>
+                                <h3><code className="ui-truncate-id" title={cmd}>{cmd}</code></h3>
+                                <p>{desc}</p>
                             </div>
-                            <p className="text-xs text-muted-foreground font-mono shrink-0 hidden sm:block max-w-[40%] text-right">{desc}</p>
                             <button
                                 type="button"
                                 onClick={() => copy(cmd, cmd)}
-                                className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
+                                className="ui-button ghost small"
                             >
-                                {copied === cmd ? <CheckCircle2 size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                                {copied === cmd
+                                    ? <CheckCircle2 size={14} aria-hidden="true" />
+                                    : <Copy size={14} aria-hidden="true" />}
+                                {copied === cmd ? 'Copied' : 'Copy'}
                             </button>
                         </div>
                     ))}
                 </div>
-            </GlassCard>
+            </section>
 
-            <div className="flex gap-3">
+            <div className="ui-actions">
                 <Link
                     href="/dashboard/provider/setup"
-                    className="flex items-center gap-2 px-4 py-2 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 rounded-xl font-mono text-xs transition-colors"
+                    className="ui-button"
                 >
-                    <ExternalLink size={12} />
                     Setup wizard
                 </Link>
                 <Link
                     href="/dashboard/provider/tokens"
-                    className="flex items-center gap-2 px-4 py-2 border border-border text-foreground hover:bg-surface-hover rounded-xl font-mono text-xs transition-colors"
+                    className="ui-button secondary"
                 >
-                    <ExternalLink size={12} />
                     API tokens
                 </Link>
             </div>
@@ -641,22 +615,22 @@ metrics_port = 9090`;
 }
 
 function CodeBlock({
-    code, id, copied, onCopy,
+    code, copied, onCopy,
 }: {
     code: string;
-    id: string;
     copied: boolean;
     onCopy: () => void;
 }) {
     return (
-        <div className="relative bg-zinc-900 rounded-xl p-4 font-mono text-xs">
-            <pre className="text-zinc-100 whitespace-pre-wrap break-all pr-8">{code}</pre>
+        <div className="relative">
+            <pre className="ui-code pr-16">{code}</pre>
             <button
                 type="button"
                 onClick={onCopy}
-                className="absolute top-3 right-3 text-zinc-400 hover:text-zinc-100 transition-colors"
+                className="ui-button ghost small absolute top-3 right-3"
             >
-                {copied ? <CheckCircle2 size={14} className="text-emerald-400" /> : <Copy size={14} />}
+                {copied ? <CheckCircle2 size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+                {copied ? 'Copied' : 'Copy'}
             </button>
         </div>
     );
