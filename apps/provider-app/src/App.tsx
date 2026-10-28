@@ -39,7 +39,7 @@ function Screens({ ipc }: { ipc: Ipc }) {
         screen = <Pairing ipc={ipc} app={app} state={state} />;
         break;
       case 'connecting':
-        screen = <Connecting state={state} />;
+        screen = <Connecting ipc={ipc} app={app} state={state} />;
         break;
       case 'sharing':
         screen = <Sharing ipc={ipc} app={app} state={state} />;
