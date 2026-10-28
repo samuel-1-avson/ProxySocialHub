@@ -99,7 +99,7 @@ export function WhitepaperViewer() {
               PROXYHUBB
             </Link>
             <span style={{ fontSize: '0.75rem', padding: '3px 8px', borderRadius: '6px', background: 'rgba(16, 185, 129, 0.15)', color: '#34d399', border: '1px solid rgba(16, 185, 129, 0.3)', fontWeight: 600 }}>
-              WHITEPAPER v2.0
+              ARCHITECTURE DRAFT
             </span>
           </div>
 
@@ -133,11 +133,30 @@ export function WhitepaperViewer() {
                 boxShadow: '0 4px 14px rgba(16, 185, 129, 0.25)',
               }}
             >
-              ⚡ Live DePIN Portal
+              Protocol overview
             </Link>
           </div>
         </div>
       </header>
+
+      <aside
+        role="note"
+        style={{
+          maxWidth: '1352px',
+          margin: '20px auto 0',
+          padding: '14px 18px',
+          border: '1px solid rgba(245, 158, 11, 0.35)',
+          borderRadius: '10px',
+          background: 'rgba(245, 158, 11, 0.08)',
+          color: '#fcd34d',
+          fontSize: '0.9rem',
+          lineHeight: 1.6,
+        }}
+      >
+        Draft architecture only. ZK proofs, state channels, mining rewards, staking, and
+        decentralized routing described below are proposals; they are not represented as
+        enabled or independently verified product features. ProxyHubb currently runs on Solana Devnet.
+      </aside>
 
       {/* Main Layout: Sidebar + Paper */}
       <div style={{ maxWidth: '1400px', margin: '0 auto', display: 'flex', gap: '48px', padding: '40px 24px' }}>

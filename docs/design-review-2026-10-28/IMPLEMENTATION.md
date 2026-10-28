@@ -66,13 +66,21 @@ Browser purchase/extension checks use local API and extension fixtures. No real 
 
 Captured buyer and seller screenshots in `build-screenshots/` come from the actual source application with test API data. Development diagnostics visible in those captures are not part of the production UI.
 
-## Remaining migration work
+## Migration status after buyer, seller, and Explorer follow-up
 
-1. Redesign the deeper seller setup/configuration, offer creation/editing, payout operations, wallet and settings screens in place. Their existing controls are preserved and reachable from the new hierarchy.
-2. Complete connection lifecycle actions and recovery around pending payment/provisioning, session termination/rotation and dispute/settlement. Retire duplicate legacy pages only after their controls and recovery states have an equivalent destination.
-3. Extend Explorer with the regional map, node comparison/rankings, richer measurement periods/health history and governance execution evidence. These legacy capabilities have not all been moved into the separate app. Do not remove the legacy Explorer until this coverage is complete.
-4. Complete the remaining feature and route dispositions in `FEATURE-COVERAGE.csv` and `route-disposition-v2.csv`, including public landing/onboarding and secondary community/support screens. Existing speculative legacy finance/DePIN surfaces still require the audit's credibility cleanup before any broader release.
-5. Run live backend/devnet and real extension checks, cross-browser and keyboard/screen-reader checks, and a final mobile pass on populated long records. Then deploy the explorer separately, configure reciprocal origins, and activate validated redirects.
+The original remaining-work list below has been superseded by the buyer and seller implementation reports and the current Explorer/support-route pass. The former list is retained in Git history; do not treat it as the current plan.
+
+| Plan area | Frontend status | Remaining boundary |
+|---|---|---|
+| Buyer wallet, account settings, payment recovery, connections, session lifecycle, usage and billing | Implemented in `IMPLEMENTATION-BUYER-JOURNEY.md` | Live settlement acceptance remains unverified |
+| Seller nodes, credentials, offer publication/editing, and earnings/payout controls | Implemented in `IMPLEMENTATION-SELLER-WORKFLOWS.md` | Real node installation, payout, and production provider acceptance remain unverified |
+| Standalone Explorer regional node view, comparison, measured rankings, time windows, health history, and proposal execution evidence | Added in the current frontend pass | Data remains source-dependent; standalone hosting, domain/DNS, and live API validation remain open |
+| Forum, inbox, referrals, help, and compatibility routes | Canonical destinations and merge redirects are implemented in this pass; friend management remains available for existing links | A real support-submission destination is not configured; the contact page says so |
+| Landing/onboarding and product claims | Corrected stale ProxyHub branding and unsupported settlement claims; `/onboarding` now merges into the workspace overview; architecture whitepaper is labeled as a draft | Review onboarding against the live identity/wallet prerequisites |
+
+Remaining frontend migration includes catalog product editing and advanced provider operations that are intentionally outside the core workspace navigation. Existing API, moderation, pooling, and account-data tools remain reachable; their redesigns are not represented as complete here. Landing, support, Explorer, and canonical forum routes were reviewed in the local production builds; production rendering remains pending the web-only rollout.
+
+Release validation still requires live backend/devnet and real extension checks, cross-browser and keyboard/screen-reader checks, and a mobile pass on populated long records. The separate Explorer also needs its own deployment, reciprocal origins, DNS, and validated redirects. These release dependencies are distinct from frontend source completion.
 
 ## Local review
 

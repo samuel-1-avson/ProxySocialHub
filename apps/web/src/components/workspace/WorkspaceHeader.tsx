@@ -48,7 +48,7 @@ export function WorkspaceHeader() {
     ...WORKSPACE_DESTINATIONS[mode],
     { label: "Settings", href: "/app/settings" },
     { label: "Wallet", href: "/app/wallet" },
-    { label: "Inbox", href: "/community/messages" },
+    { label: "Inbox", href: "/messages" },
     { label: "Help & support", href: "/help" },
   ];
   return (
@@ -73,7 +73,7 @@ export function WorkspaceHeader() {
             <Wallet size={16} aria-hidden="true" />
             Wallet
           </Link>
-          <Link className="workspace-inbox-link" href="/community/messages">
+          <Link className="workspace-inbox-link" href="/messages">
             <Inbox size={17} aria-hidden="true" />
             <span>Inbox</span>
           </Link>
@@ -141,7 +141,7 @@ export function WorkspaceHeader() {
             Wallet & balances
           </Link>
           <Link
-            href="/community/messages"
+            href="/messages"
             onClick={() => setAccountOpen(false)}
           >
             <Inbox size={17} />

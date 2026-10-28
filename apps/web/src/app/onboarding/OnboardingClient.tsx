@@ -104,7 +104,7 @@ function OnboardingPageInner() {
           {step.id === "welcome" ? (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                ProxyHub is a marketplace for residential and datacenter proxy access. Buyers
+                ProxyHubb is a marketplace for proxy access. Buyers
                 purchase bandwidth; providers earn by sharing capacity.
               </p>
               <div className="grid gap-3">
