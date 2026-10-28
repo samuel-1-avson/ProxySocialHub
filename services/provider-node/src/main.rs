@@ -640,10 +640,7 @@ async fn main() -> anyhow::Result<()> {
                     }
                 }
             }
-            if let Some(parent) = config_path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::write(&config_path, contents)?;
+            config::write_private(&config_path, &contents)?;
             println!("Installed provider.toml → {}", config_path.display());
             println!("Next: provider-node start");
         }

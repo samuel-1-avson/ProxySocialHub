@@ -180,11 +180,8 @@ impl Config {
     }
 
     pub fn save(&self, path: &std::path::Path) -> anyhow::Result<()> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
         let body = toml::to_string_pretty(self)?;
-        std::fs::write(path, body)?;
+        write_private(path, &body)?;
         Ok(())
     }
 
@@ -292,6 +289,139 @@ mod duration_secs {
     {
         let secs = u64::deserialize(deserializer)?;
         Ok(Duration::from_secs(secs))
+    }
+}
+
+/// Writes a file that holds credentials so that only its owner can read it.
+///
+/// On Unix the file is created 0600, or tightened to 0600 before any new contents go in if it
+/// already existed with looser permissions, and directories created for it are 0700. Without
+/// this the umask decides, and the usual 022 leaves the provider token and signing key readable
+/// by every local user. A directory that already exists is left as it is. On Windows the file
+/// inherits the ACL of its folder, which under `%APPDATA%` is private to the user.
+pub fn write_private(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
+    use std::io::Write;
+
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        create_private_dirs(parent)?;
+    }
+    #[cfg(unix)]
+    let mut file = {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?;
+        // `mode` only applies when the file is created, so tighten one that already existed.
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        file
+    };
+    #[cfg(not(unix))]
+    let mut file = std::fs::File::create(path)?;
+    file.write_all(contents.as_bytes())
+}
+
+#[cfg(unix)]
+fn create_private_dirs(dir: &std::path::Path) -> std::io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(dir)
+}
+
+#[cfg(not(unix))]
+fn create_private_dirs(dir: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir)
+}
+
+#[cfg(test)]
+mod private_file_tests {
+    use super::{write_private, Config};
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    /// A fresh scratch directory that does not exist yet, so a test can see what gets created.
+    fn scratch(label: &str) -> PathBuf {
+        static N: AtomicU32 = AtomicU32::new(0);
+        std::env::temp_dir().join(format!(
+            "phub-private-{label}-{}-{}",
+            std::process::id(),
+            N.fetch_add(1, Ordering::SeqCst)
+        ))
+    }
+
+    #[test]
+    fn contents_replace_the_old_file_completely() {
+        let dir = scratch("replace");
+        let path = dir.join("provider.toml");
+        write_private(&path, "a much longer first version").unwrap();
+        write_private(&path, "short").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "short");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn config_save_creates_missing_directories() {
+        let dir = scratch("save");
+        let path = dir.join("nested").join("provider.toml");
+        Config::default().save(&path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("control_api_url"), "{text}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    fn mode(path: &std::path::Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_new_file_and_the_directory_made_for_it_are_owner_only() {
+        let dir = scratch("new");
+        let path = dir.join("provider.toml");
+        write_private(&path, "api_key = \"secret\"").unwrap();
+        assert_eq!(mode(&path), 0o600, "file");
+        assert_eq!(mode(&dir), 0o700, "directory created for it");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_existing_world_readable_file_is_tightened_before_the_secret_goes_in() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch("tighten");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("provider.toml");
+        std::fs::write(&path, "old").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        write_private(&path, "api_key = \"secret\"").unwrap();
+        assert_eq!(mode(&path), 0o600);
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "api_key = \"secret\""
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_that_already_exists_is_left_as_it_is() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch("keepdir");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        write_private(&dir.join("provider.toml"), "x").unwrap();
+        assert_eq!(
+            mode(&dir),
+            0o755,
+            "must not chmod a directory it did not create"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 
