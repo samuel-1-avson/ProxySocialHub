@@ -32,3 +32,45 @@ export function explorerRedirects(configured) {
     permanent: false,
   }));
 }
+
+/**
+ * Resolve one public Explorer path to the standalone origin.
+ * Returns null when the origin is unset or the path stays on the main app.
+ * @param {string | undefined} configured
+ * @param {string} pathname
+ * @param {string} [search]
+ */
+export function matchExplorerRedirect(configured, pathname, search = '') {
+  let rules;
+  try {
+    rules = explorerRedirects(configured);
+  } catch {
+    return null;
+  }
+  const pathParts = pathname.split('/').filter(Boolean);
+  for (const rule of rules) {
+    const sourceParts = rule.source.split('/').filter(Boolean);
+    if (sourceParts.length !== pathParts.length) continue;
+    const params = {};
+    let matched = true;
+    for (let index = 0; index < sourceParts.length; index += 1) {
+      const token = sourceParts[index];
+      if (token.startsWith(':')) params[token.slice(1)] = pathParts[index];
+      else if (token !== pathParts[index]) {
+        matched = false;
+        break;
+      }
+    }
+    if (!matched) continue;
+    const destination = new URL(rule.destination);
+    destination.pathname = destination.pathname.replace(/:([A-Za-z0-9_]+)/g, (_, name) =>
+      encodeURIComponent(params[name] ?? ''),
+    );
+    const incoming = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
+    incoming.forEach((value, key) => {
+      if (!destination.searchParams.has(key)) destination.searchParams.append(key, value);
+    });
+    return destination.toString();
+  }
+  return null;
+}

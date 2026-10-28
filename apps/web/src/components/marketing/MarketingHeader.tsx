@@ -3,13 +3,8 @@
 import Link from "next/link";
 import { ModeToggle } from "@/components/ModeToggle";
 import { useAuth } from "@/lib/auth";
+import { explorerHref } from "@/lib/navigation/workspace";
 import { ROUTES } from "@/lib/navigation/routes";
-
-const LINKS = [
-  { href: ROUTES.marketplace, label: "Marketplace" },
-  { href: ROUTES.explorer, label: "Explorer" },
-  { href: ROUTES.docs, label: "Docs", external: true },
-] as const;
 
 /**
  * Minimal marketing chrome — Quiet Infrastructure.
@@ -31,13 +26,17 @@ export function MarketingHeader() {
         </Link>
 
         <nav className="hidden items-center gap-6 md:flex" aria-label="Primary">
-          {LINKS.map((item) =>
-            "external" in item && item.external ? (
+          {[
+            { href: ROUTES.marketplace, label: "Marketplace", external: false },
+            { href: explorerHref(), label: "Explorer", external: true, blank: false },
+            { href: ROUTES.docs, label: "Docs", external: true, blank: true },
+          ].map((item) =>
+            item.external ? (
               <a
                 key={item.href}
                 href={item.href}
-                target="_blank"
-                rel="noreferrer"
+                target={item.blank ? "_blank" : undefined}
+                rel={item.blank ? "noreferrer" : undefined}
                 className="text-sm text-muted-foreground transition-colors hover:text-foreground"
               >
                 {item.label}
