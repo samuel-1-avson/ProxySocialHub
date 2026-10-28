@@ -217,6 +217,7 @@ Tailwind (plain CSS tokens; the design system is in flux and not on main).
 | Branching | Stack on #65 + #66 | The app needs both; PR opens after they merge |
 | Secrets | Stay in `provider.toml` for v1 | See "Not yet specified"; same exposure as the CLI today |
 | Updates | None in v1 | An unsigned self-updater is a supply-chain risk; needs signing + key custody first |
+| Test isolation | Three explicit overrides: `PROXYHUB_CONFIG`, `PROXYHUB_STATE_DIR` (node), `PROXYHUB_APP_DIR` (app) | Windows folder APIs ignore a redirected `%APPDATA%`, and redirecting `USERPROFILE` broke WebView2; a real node config exists on this machine, so tests must be pinned, never redirected |
 
 Confirmed in the planning gate (2026-10-28): the five defaults (location, sidecar, React + Vite,
 Windows first, no auto-update) and, by question: Quit stops sharing; the draft consent text is
@@ -258,9 +259,9 @@ no earnings view in v1, E2E by driving the real window over WebView2 remote debu
 | Phase | Status |
 | --- | --- |
 | 0 Spike | **Done.** Window + tray + sidecar run (read back over the DevTools protocol). The NSIS installer built on the third attempt (5.5 MB, not installed); the first two failed downloading the NSIS tooling from GitHub, so CI needs a retry around that step. |
-| 1 provider-node interface | **Done.** `pair --json` (1.1) and `status --json --local` with the tunnel state, pinned by contract tests (1.2). 51 provider-node tests. |
-| 2 App core | **Done.** settings, state, node driver, engine, commands: 49 tests, clippy `-D warnings` and fmt clean. The consent gate and the stale-pairing guard were proven by mutation. |
-| 3 UI | not started |
-| 4 Tray and lifecycle | 4.1 and 4.2 are written and their logic tested, but the real window has not been exercised yet (close-to-tray, single instance, `--hidden`, Quit, the autostart toggle): verified in Phase 5. |
-| 5 End to end | not started |
-| 6 Packaging, CI, docs | not started |
+| 1 provider-node interface | **Done.** `pair --json`, `status --json --local` with the tunnel state (pinned by contract tests), and the `PROXYHUB_CONFIG` / `PROXYHUB_STATE_DIR` overrides. 55 provider-node tests. |
+| 2 App core | **Done.** settings, state, node driver, engine, commands: 52 tests, clippy `-D warnings` and fmt clean. The consent gate, the stale-pairing guard and the UI/backend consent-version pin were each proven by mutation. |
+| 3 UI | **Done.** Consent, Connect, Pairing, Connecting, Sharing, Paused, Problem; 10 Vitest tests; every screen reviewed in light and dark; mock excluded from the production bundle; no inline styles (CSP). |
+| 4 Tray and lifecycle | **Partly verified on the real window:** close hides to the tray and the app and node keep running. **Not yet verified:** tray menu clicks (Open / Pause / Resume / Quit), Quit stopping the node and the next launch resuming, a second launch focusing the first, `--hidden`, and the Start-at-sign-in toggle (deliberately never clicked, since it writes the real startup key). The tray is not drivable over the DevTools protocol; these need a manual pass or UI Automation. |
+| 5 End to end | **Done for the main paths.** `apps/provider-app/e2e/run.mjs`: 3 scenarios, 30 checks against the packaged app, its bundled node, the real pairing handlers and a real database (first run through pause/resume/close-to-tray; denied; cancelled). The run found two real bugs (a startup panic when the settings folder cannot be resolved, and no Pause on the Connecting screen), both fixed. It is a manual, Windows-only run (needs Docker for the handlers); it is not in CI. |
+| 6 Packaging, CI, docs | **Not started.** Sidecar build script and NSIS per-user config exist; still to do: a `windows-latest` CI job (with a retry around the NSIS download), a docs page, `cli.mdx` pointer, and wiring the installer into the release workflow once signing works. |
