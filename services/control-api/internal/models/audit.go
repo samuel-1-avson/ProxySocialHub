@@ -51,6 +51,9 @@ const (
 	AuditNodeRegistered   AuditEventType = "provider.node_registered"
 	AuditNodeUpdated      AuditEventType = "provider.node_updated"
 	AuditNodeDeregistered AuditEventType = "provider.node_deregistered"
+	AuditPairingApproved  AuditEventType = "provider.pairing_approved"
+	AuditPairingDenied    AuditEventType = "provider.pairing_denied"
+	AuditPairingRedeemed  AuditEventType = "provider.pairing_redeemed"
 	AuditListingCreated   AuditEventType = "provider.listing_created"
 	AuditListingUpdated   AuditEventType = "provider.listing_updated"
 

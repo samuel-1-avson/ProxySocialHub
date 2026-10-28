@@ -40,6 +40,10 @@ func TestProviderTokenPathAllowed(t *testing.T) {
 		{http.MethodPost, "/v1/sessions"},
 		{http.MethodPost, "/v1/provider/claim/confirm"},
 		{http.MethodPost, "/v1/provider/tokens"},
+		// A leaked node token must not be able to approve new devices: that would let it
+		// mint further provider tokens, which POST /v1/provider/tokens already denies.
+		{http.MethodGet, "/v1/provider/pair/lookup"},
+		{http.MethodPost, "/v1/provider/pair/decision"},
 		{http.MethodGet, "/v1/provider/earnings"},
 		{http.MethodPost, "/v1/provider/earnings/summary"},
 		{http.MethodPost, "/v1/cli/download"},
