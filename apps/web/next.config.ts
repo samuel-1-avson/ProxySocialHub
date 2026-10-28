@@ -90,11 +90,6 @@ const nextConfig: NextConfig = {
         permanent: true,
       },
       {
-        source: '/messages',
-        destination: '/community/messages',
-        permanent: true,
-      },
-      {
         source: '/notifications',
         destination: '/dashboard/settings/notifications',
         permanent: true,
@@ -106,12 +101,107 @@ const nextConfig: NextConfig = {
       },
       {
         source: '/forum',
-        destination: '/community/forum',
+        destination: '/help/forum',
+        permanent: true,
+      },
+      {
+        source: '/forum/popular',
+        destination: '/help/forum?sort=popular',
+        permanent: true,
+      },
+      {
+        source: '/forum/recent',
+        destination: '/help/forum?sort=recent',
+        permanent: true,
+      },
+      {
+        source: '/forum/unanswered',
+        destination: '/help/forum?filter=unanswered',
+        permanent: true,
+      },
+      {
+        source: '/forum/my-posts',
+        destination: '/help/forum?filter=mine',
         permanent: true,
       },
       {
         source: '/forum/:path*',
-        destination: '/community/forum/:path*',
+        destination: '/help/forum/:path*',
+        permanent: true,
+      },
+      {
+        source: '/community/forum/popular',
+        destination: '/help/forum?sort=popular',
+        permanent: true,
+      },
+      {
+        source: '/community/forum/recent',
+        destination: '/help/forum?sort=recent',
+        permanent: true,
+      },
+      {
+        source: '/community/forum/unanswered',
+        destination: '/help/forum?filter=unanswered',
+        permanent: true,
+      },
+      {
+        source: '/community/forum/my-posts',
+        destination: '/help/forum?filter=mine',
+        permanent: true,
+      },
+      {
+        source: '/community/forum/category/:slug',
+        destination: '/help/forum/category/:slug',
+        permanent: true,
+      },
+      {
+        source: '/community/forum/thread/:id',
+        destination: '/help/forum/thread/:id',
+        permanent: true,
+      },
+      {
+        source: '/community/forum/new',
+        destination: '/help/forum/new',
+        permanent: true,
+      },
+      {
+        source: '/community/forum',
+        destination: '/help/forum',
+        permanent: true,
+      },
+      {
+        source: '/community/forum/:path*',
+        destination: '/help/forum/:path*',
+        permanent: true,
+      },
+      {
+        source: '/community/messages',
+        destination: '/messages',
+        permanent: true,
+      },
+      {
+        source: '/community/referrals',
+        destination: '/app/settings?tab=referrals',
+        permanent: true,
+      },
+      {
+        source: '/community/feed',
+        destination: '/help/community/archive/feed',
+        permanent: true,
+      },
+      {
+        source: '/community/beta',
+        destination: '/help/community/archive/beta',
+        permanent: true,
+      },
+      {
+        source: '/contact',
+        destination: '/help/contact',
+        permanent: true,
+      },
+      {
+        source: '/guidelines',
+        destination: '/help/guidelines',
         permanent: true,
       },
       {
@@ -136,8 +226,8 @@ const nextConfig: NextConfig = {
       },
       {
         source: '/friends',
-        destination: '/community/feed?suggestions=people',
-        permanent: false,
+        destination: '/community/friends',
+        permanent: true,
       },
       {
         source: '/dashboard/settings',
@@ -156,12 +246,12 @@ const nextConfig: NextConfig = {
       },
       {
         source: '/dashboard/feed',
-        destination: '/community/feed',
+        destination: '/help/community/archive/feed',
         permanent: true,
       },
       {
         source: '/dashboard/messages',
-        destination: '/community/messages',
+        destination: '/messages',
         permanent: true,
       },
       {
@@ -172,6 +262,16 @@ const nextConfig: NextConfig = {
       {
         source: '/settings',
         destination: '/dashboard/settings/identity',
+        permanent: true,
+      },
+      {
+        source: '/settings/referrals',
+        destination: '/app/settings?tab=referrals',
+        permanent: true,
+      },
+      {
+        source: '/onboarding',
+        destination: '/app',
         permanent: true,
       },
       {

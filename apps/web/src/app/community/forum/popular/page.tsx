@@ -37,7 +37,7 @@ export default function ForumPopularPage() {
             {/* Header */}
             <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-4">
-                    <Link href="/community/forum">
+                    <Link href="/help/forum">
                         <Button variant="ghost" size="icon">
                             <ArrowLeft className="w-5 h-5" />
                         </Button>
@@ -49,7 +49,7 @@ export default function ForumPopularPage() {
                         </p>
                     </div>
                 </div>
-                <Link href="/community/forum/new">
+                <Link href="/help/forum/new">
                     <Button>
                         <MessageSquare className="w-4 h-4 mr-2" />
                         New Thread
@@ -76,7 +76,7 @@ export default function ForumPopularPage() {
                     <p className="text-muted-foreground mb-4">
                         Be the first to start a discussion!
                     </p>
-                    <Link href="/community/forum/new">
+                    <Link href="/help/forum/new">
                         <Button>Create Thread</Button>
                     </Link>
                 </Card>
@@ -107,7 +107,7 @@ export default function ForumPopularPage() {
                                 {/* Content */}
                                 <div className="flex-1 min-w-0">
                                     <Link
-                                        href={`/community/forum/thread/${thread.id}`}
+                                        href={`/help/forum/thread/${thread.id}`}
                                         className="text-lg font-semibold hover:text-primary transition-colors line-clamp-1"
                                     >
                                         {thread.title}

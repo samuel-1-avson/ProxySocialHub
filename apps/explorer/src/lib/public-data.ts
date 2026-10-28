@@ -3,6 +3,7 @@ export const publicResources = [
   "health",
   "trust",
   "nodes",
+  "node-geo",
   "node",
   "transactions",
   "transaction",
@@ -11,8 +12,11 @@ export const publicResources = [
   "wallet",
   "contract",
   "analytics",
+  "health-history",
+  "leaderboard",
   "proposals",
   "proposal",
+  "proposal-execution",
   "treasury",
 ] as const;
 export type PublicResource = (typeof publicResources)[number];
@@ -60,6 +64,7 @@ const node = [
   "is_active",
   "is_validator",
   "uptime_percent",
+  "latency_ms",
   "active_sessions",
   "bandwidth_gb",
   "last_heartbeat",
@@ -90,9 +95,27 @@ const proposal = [
   "votes_abstain",
   "total_votes",
   "quorum",
+  "onchain_pda",
+  "created_at",
+  "updated_at",
 ];
 const list = (value: unknown, keys: string[]) =>
   Array.isArray(value) ? value.map((item) => pick(item, keys)) : [];
+const numberMap = (value: unknown) =>
+  Object.fromEntries(
+    Object.entries(asRecord(value))
+      .filter(
+        ([key, item]) =>
+          key.length <= 80 && typeof item === "number" && Number.isFinite(item),
+      )
+      .slice(0, 100),
+  );
+const allowedPeriod = (value: string | null) =>
+  ["1h", "24h", "7d", "30d"].includes(value || "") ? value! : "24h";
+const roundedMapPoint = (value: unknown) =>
+  typeof value === "number" && Number.isFinite(value)
+    ? Math.round(value / 5) * 5
+    : undefined;
 
 /** A public-only allowlist; private DTO fields never cross this boundary. */
 export function projectPublicData(
@@ -102,7 +125,8 @@ export function projectPublicData(
   const data = asRecord(value);
   switch (resource) {
     case "metrics":
-      return pick(data, [
+      return {
+        ...pick(data, [
         "chain",
         "total_transactions",
         "total_volume",
@@ -116,7 +140,10 @@ export function projectPublicData(
         "last_updated",
         "data_source",
         "time_series_available",
-      ]);
+        "metrics_aggregator_enabled",
+        ]),
+        region_distribution: numberMap(data.region_distribution),
+      };
     case "health":
       return pick(data, [
         "status",
@@ -145,6 +172,28 @@ export function projectPublicData(
       return {
         ...pick(data, ["total", "active", "page", "page_size"]),
         nodes: list(data.nodes, node),
+      };
+    case "node-geo":
+      return {
+        total: typeof data.total === "number" ? data.total : undefined,
+        nodes: Array.isArray(data.nodes)
+          ? data.nodes.slice(0, 5_000).map((item) => {
+              const point = pick(item, [
+                "node_id",
+                "is_active",
+                "is_validator",
+                "uptime_percent",
+                "country",
+                "region",
+                "geo_source",
+              ]);
+              const lat = roundedMapPoint(asRecord(item).lat);
+              const lon = roundedMapPoint(asRecord(item).lon);
+              if (lat !== undefined) point.lat = lat;
+              if (lon !== undefined) point.lon = lon;
+              return point;
+            })
+          : [],
       };
     case "node":
       return pick(data, node);
@@ -198,10 +247,51 @@ export function projectPublicData(
           ].map((key) => [key, list(data[key], ["timestamp", "value"])]),
         ),
       };
+    case "health-history":
+      return {
+        ...pick(data, ["uptime_percent", "metrics_available", "message"]),
+        history: list(data.history, ["timestamp", "status", "active_nodes"]),
+        events: list(data.events, ["timestamp", "status", "subsystem", "message"]),
+      };
+    case "leaderboard":
+      return {
+        ...pick(data, [
+          "category",
+          "period",
+          "data_source",
+          "period_applied",
+          "note",
+        ]),
+        entries: list(data.entries, [
+          "rank",
+          "node_id",
+          "name",
+          "region",
+          "country",
+          "uptime_percent",
+          "bandwidth_gb",
+          "active_sessions",
+          "quality_score",
+          "is_validator",
+        ]),
+      };
     case "proposals":
       return { proposals: list(data.proposals, proposal) };
     case "proposal":
       return pick(data.proposal ?? data, proposal);
+    case "proposal-execution":
+      return {
+        ...pick(data, ["proposal_id"]),
+        treasury_transactions: list(data.treasury_transactions, [
+          "id",
+          "status",
+          "amount",
+          "currency",
+          "tx_hash",
+          "created_at",
+          "executed_at",
+        ]),
+      };
     case "treasury": {
       const treasury = asRecord(data.treasury);
       const balanceUnavailable =
@@ -246,7 +336,7 @@ export function publicResourcePath(
 ): string {
   const id = params.get("id")?.trim() || "";
   if (
-    ["node", "transaction", "block", "wallet", "contract", "proposal"].includes(
+    ["node", "transaction", "block", "wallet", "contract", "proposal", "proposal-execution"].includes(
       resource,
     ) &&
     (!id || id.length > 160 || !/^[a-zA-Z0-9_-]+$/.test(id))
@@ -256,11 +346,18 @@ export function publicResourcePath(
     1_000_000,
     Math.max(1, Math.floor(Number(params.get("page"))) || 1),
   );
+  const allowedLeaderboardCategory = ["uptime", "bandwidth", "sessions"].includes(
+    params.get("category") || "",
+  )
+    ? params.get("category")!
+    : "uptime";
+  const period = allowedPeriod(params.get("period"));
   const endpoints: Record<PublicResource, string> = {
     metrics: "/v1/explorer/metrics",
     health: "/v1/explorer/network/health",
     trust: "/v1/explorer/decentralization/status",
-    nodes: `/v1/explorer/nodes?page=${page}&page_size=20&active=false`,
+    nodes: `/v1/explorer/nodes?page=${page}&page_size=100&active=false`,
+    "node-geo": "/v1/explorer/nodes/geo?active=false",
     node: `/v1/explorer/nodes/${encodeURIComponent(id)}`,
     transactions: `/v1/explorer/transactions?page=${page}&page_size=20`,
     transaction: `/v1/explorer/transactions/${encodeURIComponent(id)}`,
@@ -268,9 +365,12 @@ export function publicResourcePath(
     block: `/v1/explorer/blocks/${encodeURIComponent(id)}`,
     wallet: `/v1/explorer/wallets/${encodeURIComponent(id)}`,
     contract: `/v1/explorer/contracts/${encodeURIComponent(id)}`,
-    analytics: "/v1/explorer/analytics?period=24h",
+    analytics: `/v1/explorer/analytics?period=${period}`,
+    "health-history": `/v1/explorer/health/history?period=${period}`,
+    leaderboard: `/v1/explorer/leaderboard?category=${allowedLeaderboardCategory}&period=${period}`,
     proposals: "/v1/governance/proposals",
     proposal: `/v1/governance/proposals/${encodeURIComponent(id)}`,
+    "proposal-execution": `/v1/governance/proposals/${encodeURIComponent(id)}/treasury-transactions`,
     treasury: "/v1/treasury/public",
   };
   return endpoints[resource];

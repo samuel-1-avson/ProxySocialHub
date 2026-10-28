@@ -1,11 +1,12 @@
 import { StaticInfoPage } from "@/components/StaticInfoPage";
+import { ROUTES } from "@/lib/navigation/routes";
 
 export default function ContactPage() {
     return (
         <StaticInfoPage
             eyebrow="Support"
             title="Contact ProxyHubb"
-            summary="Use this page as the public support entry point for marketplace, wallet, provider, account, and network issues."
+            summary="Find the right details to prepare for a support request. A direct support submission destination has not been configured yet."
             sections={[
                 {
                     title: "Marketplace and sessions",
@@ -19,6 +20,10 @@ export default function ContactPage() {
                     title: "Security and wallet",
                     body: "For wallet, account, or security issues, avoid sending secrets. Share only identifiers, timestamps, and relevant transaction references.",
                 },
+            ]}
+            links={[
+                { href: "https://docs.proxyhubb.com", label: "Open technical documentation" },
+                { href: ROUTES.help, label: "Back to Help Center", secondary: true },
             ]}
         />
     );

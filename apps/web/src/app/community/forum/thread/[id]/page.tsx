@@ -235,7 +235,7 @@ function ThreadPageContent() {
         return (
             <div className="text-center py-20">
                 <h1 className="text-2xl font-bold font-mono">Thread not found</h1>
-                <Link href="/community/forum" className="text-primary hover:underline mt-4 inline-block">
+                <Link href="/help/forum" className="text-primary hover:underline mt-4 inline-block">
                     Back to Forum
                 </Link>
             </div>
@@ -248,7 +248,7 @@ function ThreadPageContent() {
         <div className="max-w-4xl mx-auto space-y-6 pb-20">
             {/* Back Link */}
             <Link
-                href="/community/forum"
+                href="/help/forum"
                 className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors font-mono text-sm"
             >
                 <ArrowLeft className="w-4 h-4" />
@@ -285,7 +285,7 @@ function ThreadPageContent() {
                     <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-2">
                             <Link
-                                href={`/community/forum/category/${thread.category?.slug}`}
+                                href={`/help/forum/category/${thread.category?.slug}`}
                                 className="text-xs font-mono text-primary hover:underline"
                             >
                                 {thread.category?.name}
