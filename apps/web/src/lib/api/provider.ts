@@ -272,6 +272,49 @@ export async function rotateProviderToken(tokenId: string): Promise<CreateTokenR
     return apiPost<CreateTokenResponse>(`/v1/provider/tokens/${tokenId}/rotate`, {});
 }
 
+// ============ Device Pairing API ============
+// A provider node asks for a short code (`provider-node pair`); the owner approves it here.
+
+/** What the device told us about itself when it asked to be paired. */
+export interface PairingRequestInfo {
+    user_code: string;
+    device_name: string;
+    platform: string;
+    arch: string;
+    client_version: string;
+    created_at: string;
+    expires_at: string;
+}
+
+/** Look up a pending pairing request by the code shown on the device. 404 if unknown, expired or already decided. */
+export async function lookupProviderPairing(code: string): Promise<PairingRequestInfo> {
+    return apiGet<PairingRequestInfo>('/v1/provider/pair/lookup', { code });
+}
+
+/** Approve or deny a pairing request. Approving lets that device run as a node on this account. */
+export async function decideProviderPairing(
+    code: string,
+    decision: 'approve' | 'deny',
+): Promise<{ status: 'approved' | 'denied' }> {
+    return apiPost<{ status: 'approved' | 'denied' }>('/v1/provider/pair/decision', { code, decision });
+}
+
+/** Letters a pairing code can contain (no vowels or look-alikes); mirrors control-api. */
+const PAIRING_CODE_ALPHABET = 'BCDFGHJKLMNPQRSTVWXZ';
+
+/**
+ * Normalize what a person typed or a link carried (any case, with or without the dash or
+ * spaces) to `BCDF-GHJK`. Returns null if it cannot be a pairing code.
+ */
+export function normalizePairingCode(input: string | null | undefined): string | null {
+    const raw = (input ?? '').toUpperCase().replace(/[\s-]/g, '');
+    if (raw.length !== 8) return null;
+    for (const ch of raw) {
+        if (!PAIRING_CODE_ALPHABET.includes(ch)) return null;
+    }
+    return `${raw.slice(0, 4)}-${raw.slice(4)}`;
+}
+
 // ============ Provider Application & KYC API ============
 
 /**
