@@ -2,12 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ExternalLink, Landmark, Loader2 } from "lucide-react";
 import {
     getProposalTreasuryTransactions,
     type TreasuryTransaction,
 } from "@/lib/services/governance";
-import { GlassCard } from "@/components/ui/glass-card";
+import { Loading, Status } from "@/components/workspace/Patterns";
 
 const EXPLORER_TX_BASE =
     process.env.NEXT_PUBLIC_SOLANA_EXPLORER_TX_URL ??
@@ -40,19 +39,14 @@ export function ProposalTreasuryAudit({ proposalId, showWhenEmpty }: Props) {
     }, [proposalId]);
 
     if (rows === null) {
-        return (
-            <GlassCard className="!p-6 flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-muted-foreground/40">
-                <Loader2 className="animate-spin" size={16} />
-                Loading treasury audit…
-            </GlassCard>
-        );
+        return <Loading label="Loading treasury audit…" />;
     }
 
     if (error) {
         return (
-            <GlassCard className="!p-6 text-[10px] font-black uppercase tracking-widest text-rose-400/80">
+            <p className="text-sm" role="alert">
                 {error}
-            </GlassCard>
+            </p>
         );
     }
 
@@ -61,49 +55,38 @@ export function ProposalTreasuryAudit({ proposalId, showWhenEmpty }: Props) {
     }
 
     return (
-        <GlassCard className="!p-6 space-y-4 border-white/10">
-            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground/50">
-                <Landmark size={14} className="text-primary" />
-                Treasury audit trail
-            </div>
+        <section className="ui-surface space-y-4">
+            <h2>Treasury audit trail</h2>
             {rows.length === 0 ? (
-                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/30">
-                    No treasury_transactions rows linked to this proposal yet.
-                </p>
+                <p className="ui-note">No treasury_transactions rows linked to this proposal yet.</p>
             ) : (
                 <ul className="space-y-3">
                     {rows.map((tx) => (
-                        <li
-                            key={tx.id}
-                            className="rounded-xl border border-white/5 bg-white/[0.02] p-4 space-y-2"
-                        >
-                            <div className="flex justify-between gap-4 text-[10px] font-black uppercase tracking-widest">
-                                <span className="text-foreground/80">
+                        <li key={tx.id} className="border-b border-border pb-3 space-y-1">
+                            <div className="flex justify-between gap-4 text-sm">
+                                <span>
                                     {tx.amount} {tx.currency}
                                 </span>
-                                <span className="text-muted-foreground/40">{tx.status}</span>
+                                <Status tone="neutral">{tx.status}</Status>
                             </div>
-                            <p className="text-[10px] text-muted-foreground/50 break-all">
-                                → {tx.recipient}
-                            </p>
+                            <p className="text-sm text-muted-foreground break-all">→ {tx.recipient}</p>
                             {tx.description ? (
-                                <p className="text-[10px] text-muted-foreground/40">{tx.description}</p>
+                                <p className="text-sm text-muted-foreground">{tx.description}</p>
                             ) : null}
                             {tx.tx_hash ? (
                                 <Link
                                     href={`${EXPLORER_TX_BASE}${tx.tx_hash}?cluster=devnet`}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-primary hover:underline"
+                                    className="ui-link text-sm"
                                 >
                                     View on-chain tx
-                                    <ExternalLink size={12} />
                                 </Link>
                             ) : null}
                         </li>
                     ))}
                 </ul>
             )}
-        </GlassCard>
+        </section>
     );
 }

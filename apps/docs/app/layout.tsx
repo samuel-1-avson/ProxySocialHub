@@ -46,19 +46,18 @@ export const viewport = {
   width: 'device-width',
   initialScale: 1,
   themeColor: [
-    { media: '(prefers-color-scheme: dark)', color: '#070b09' },
-    { media: '(prefers-color-scheme: light)', color: '#f3f6f4' },
+    { media: '(prefers-color-scheme: dark)', color: '#15191f' },
+    { media: '(prefers-color-scheme: light)', color: '#f4f4f9' },
   ],
 };
 
-const themeBoot = `(function(){try{var t=localStorage.getItem('phub-docs-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();`;
+const themeBoot = `(function(){var t='system';try{var s=localStorage.getItem('phub-docs-theme');if(s==='light'||s==='dark')t=s;}catch(e){}var d=t==='dark'||(t==='system'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.classList.toggle('dark',d);document.documentElement.setAttribute('data-theme',d?'dark':'light');})();`;
 
 export default function Layout({ children }: { children: ReactNode }) {
   return (
     <html
       lang="en"
       className={`${sans.className} ${sans.variable} ${mono.variable}`}
-      data-theme="dark"
       suppressHydrationWarning
     >
       <head>

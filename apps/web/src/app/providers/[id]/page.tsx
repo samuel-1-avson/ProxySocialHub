@@ -77,14 +77,12 @@ export default function ProviderProfilePage() {
     if (!profile) return null;
 
     // Use actual data from the profile
-    const totalBandwidth = profile.total_bandwidth_sold > 0 
-        ? `${(profile.total_bandwidth_sold / 1024).toFixed(1)} TB` 
+    const totalBandwidth = profile.total_bandwidth_sold > 0
+        ? `${(profile.total_bandwidth_sold / 1024).toFixed(1)} TB`
         : "0 GB";
-    // Public profile does not yet expose measured uptime — show unavailable, not a fake %.
-    const avgUptime = "—";
-    const reputationScore = Math.round(profile.avg_rating * 20) || 0; // Convert 0-5 to 0-100
-    const providerSince = profile.created_at ? new Date(profile.created_at).toLocaleDateString(undefined, { month: 'short', year: 'numeric' }) : "Joined recently";
-    const location = profile.location || "Global";
+    const reportedRating = Number.isFinite(profile.avg_rating) ? profile.avg_rating.toFixed(1) : "Not reported";
+    const providerSince = profile.created_at ? new Date(profile.created_at).toLocaleDateString(undefined, { month: 'short', year: 'numeric' }) : "Join date not reported";
+    const location = profile.location || "Location not reported";
 
     return (
         <div className="container mx-auto px-4 py-12 max-w-6xl">
@@ -94,7 +92,7 @@ export default function ProviderProfilePage() {
             </Link>
 
             {/* Profile Overview Card */}
-            <div className="glass-card p-8 mb-8 relative overflow-hidden">
+            <div className="ui-surface">
                 <div className="absolute top-0 right-0 w-64 h-64 bg-purple-500/5 blur-3xl rounded-full -translate-y-1/2 translate-x-1/4" />
                 
                 <div className="relative z-10 flex flex-col md:flex-row gap-8 items-start">
@@ -108,9 +106,9 @@ export default function ProviderProfilePage() {
                     
                     <div className="flex-1">
                         <div className="flex flex-wrap items-center gap-3 mb-2">
-                            <h1 className="text-3xl font-black font-sans tracking-tight">{profile.display_name || `Provider ${id.slice(0, 8)}`}</h1>
+                            <h1 className="text-3xl font-semibold tracking-tight">{profile.display_name || `Provider ${id.slice(0, 8)}`}</h1>
                             {profile.verified && (
-                                <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 text-[10px] font-black uppercase border border-emerald-500/20">
+                                <div className="ui-status good">
                                     <CheckCircle2 size={10} /> Verified
                                 </div>
                             )}
@@ -123,10 +121,10 @@ export default function ProviderProfilePage() {
                         </div>
 
                         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                            <ProfileStat label="Reputation" value={`${reputationScore}/100`} sub="Node Trust Score" color="purple" />
-                            <ProfileStat label="Total Shared" value={totalBandwidth} sub="Lifetime Traffic" color="blue" />
-                            <ProfileStat label="Avg. Uptime" value={avgUptime} sub={avgUptime === "—" ? "Unavailable" : "Last 30 Days"} color="emerald" />
-                            <ProfileStat label="SLA Tier" value={profile.trust_tier || "Standard"} sub="Guaranteed Quality" color="amber" />
+                            <ProfileStat label="Reported rating" value={reportedRating} detail="Average from reported reviews" />
+                            <ProfileStat label="Bandwidth sold" value={totalBandwidth} detail="Reported lifetime traffic" />
+                            <ProfileStat label="Uptime" value="Not reported" detail="This profile does not include a measured uptime" />
+                            <ProfileStat label="Trust tier" value={profile.trust_tier || "Not reported"} detail="Reported account tier" />
                         </div>
                     </div>
 
@@ -139,12 +137,7 @@ export default function ProviderProfilePage() {
                             className="w-full justify-center"
                         />
                         <FollowFeedHint />
-                        <button
-                            type="button"
-                            className="px-6 py-3 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl transition-all shadow-[0_0_20px_rgba(147,51,234,0.3)]"
-                        >
-                            Contact Provider
-                        </button>
+                        <p className="ui-note">A direct message destination is not configured on this profile.</p>
                     </div>
                 </div>
             </div>
@@ -164,10 +157,9 @@ export default function ProviderProfilePage() {
                         <NodeMiniCard key={listing.id} listing={listing} />
                     ))}
                     {listings.length === 0 && (
-                        <div className="col-span-full py-20 text-center glass-card border-dashed">
-                            <AlertCircle className="mx-auto h-12 w-12 text-muted-foreground/30 mb-4" />
-                            <h3 className="text-lg font-bold mb-1">No Public Nodes</h3>
-                            <p className="text-sm text-muted-foreground">This provider is currently running private infrastructure.</p>
+                        <div className="ui-empty">
+                            <h3>No public listings</h3>
+                            <p>This profile did not return any public listings.</p>
                         </div>
                     )}
                 </div>
@@ -176,19 +168,12 @@ export default function ProviderProfilePage() {
     );
 }
 
-function ProfileStat({ label, value, sub, color }: { label: string, value: string, sub: string, color: string }) {
-    const colors: any = {
-        purple: "text-purple-400 bg-purple-500/10 border-purple-500/20",
-        blue: "text-blue-400 bg-blue-500/10 border-blue-500/20",
-        emerald: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
-        amber: "text-amber-400 bg-amber-500/10 border-amber-500/20",
-    };
-
+function ProfileStat({ label, value, detail }: { label: string; value: string; detail: string }) {
     return (
-        <div className="p-4 rounded-2xl bg-white/5 border border-white/5 flex flex-col">
-            <span className="text-[10px] font-black uppercase text-muted-foreground tracking-widest mb-1">{label}</span>
-            <span className="text-xl font-black font-sans mb-0.5">{value}</span>
-            <span className="text-[10px] font-medium text-muted-foreground/60">{sub}</span>
+        <div>
+            <div className="ui-stat-label">{label}</div>
+            <div className="ui-stat-value">{value}</div>
+            <div className="ui-stat-detail">{detail}</div>
         </div>
     );
 }
@@ -197,7 +182,7 @@ function NodeMiniCard({ listing }: { listing: Listing }) {
     return (
         <motion.div 
             whileHover={{ y: -4 }}
-            className="glass-card p-6 flex flex-col h-full group transition-all hover:bg-white/5"
+            className="ui-surface flex flex-col h-full"
         >
             <div className="flex justify-between items-start mb-4">
                 <div className="p-2.5 rounded-xl bg-purple-500/10 text-purple-400 group-hover:bg-purple-500/20 transition-colors">
@@ -211,27 +196,24 @@ function NodeMiniCard({ listing }: { listing: Listing }) {
 
             <div className="grid grid-cols-2 gap-4 mb-6">
                 <div className="space-y-1">
-                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Quality</span>
+                    <span className="ui-stat-label">Quality</span>
                     <div className="flex items-center gap-1.5">
-                        <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-                            <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${listing.quality_score || 95}%` }} />
-                        </div>
-                        <span className="text-xs font-bold">{(listing.quality_score || 95).toFixed(0)}</span>
+                        <span className="text-sm">{listing.quality_score != null ? listing.quality_score.toFixed(0) : "Not reported"}</span>
                     </div>
                 </div>
                 <div className="space-y-1">
-                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Latency</span>
+                    <span className="ui-stat-label">Latency</span>
                     <div className="text-xs font-bold flex items-center gap-1">
                         <Activity size={12} className="text-blue-400" />
-                        {listing.avg_latency_ms || 45}ms
+                        {listing.avg_latency_ms != null && listing.avg_latency_ms > 0 ? `${listing.avg_latency_ms} ms` : "Not reported"}
                     </div>
                 </div>
             </div>
 
             <div className="mt-auto pt-4 border-t border-white/5 flex items-center justify-between">
                 <div className="flex flex-col">
-                    <span className="text-[10px] font-bold text-muted-foreground uppercase">Rate</span>
-                    <span className="text-sm font-black text-emerald-400">${(listing.price_per_gb || 0.05).toFixed(4)}<span className="text-[10px] text-muted-foreground">/GB</span></span>
+                    <span className="ui-stat-label">Rate</span>
+                    <span className="text-sm">{listing.price_per_gb != null ? `$${listing.price_per_gb.toFixed(4)}/GB` : "Not reported"}</span>
                 </div>
                 <Link href={`/marketplace/${listing.id}`} className="p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors text-muted-foreground hover:text-foreground">
                     <ExternalLink size={16} />

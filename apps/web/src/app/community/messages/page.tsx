@@ -16,16 +16,11 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { useRealtime, WS_MESSAGE_TYPES } from "@/lib/websocket";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
-    Send,
-    Inbox,
-    Search,
-    MoreVertical,
-    Loader2,
-    ArrowRight,
-    Plus,
-    X,
-    Users,
-} from "lucide-react";
+    PageHeading,
+    Loading,
+    EmptyState,
+} from "@/components/workspace/Patterns";
+import { Send, Loader2 } from "lucide-react";
 
 function MessagesContent() {
     const { user } = useAuth();
@@ -36,6 +31,7 @@ function MessagesContent() {
     const [newMessage, setNewMessage] = useState("");
     const [loading, setLoading] = useState(true);
     const [sending, setSending] = useState(false);
+    const [sendError, setSendError] = useState("");
     const [searchQuery, setSearchQuery] = useState("");
     const [composing, setComposing] = useState(false);
     const [friends, setFriends] = useState<Friendship[]>([]);
@@ -156,6 +152,7 @@ function MessagesContent() {
         if (!selectedConv || !newMessage.trim()) return;
 
         setSending(true);
+        setSendError("");
         try {
             const message = await sendMessage(selectedConv.id, newMessage.trim());
             setMessages([...messages, message]);
@@ -163,6 +160,7 @@ function MessagesContent() {
             messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
         } catch (err) {
             console.error(err);
+            setSendError(err instanceof Error ? err.message : "Failed to send message");
         } finally {
             setSending(false);
         }
@@ -190,316 +188,274 @@ function MessagesContent() {
     }, [conversations, searchQuery]);
 
     return (
-        <div className="card-retro p-0 bg-card overflow-hidden h-[calc(100vh-8rem)] flex shadow-xl relative">
-            {/* Conversations List */}
-            <div className="w-80 border-r border-border flex flex-col bg-secondary/10">
-                <div className="p-4 border-b border-border flex items-center justify-between bg-card">
-                    <h2 className="text-sm font-bold font-mono uppercase tracking-tight">Messages</h2>
-                    <div className="flex items-center gap-2">
-                        <span
-                            className={`h-2 w-2 rounded-full ${isConnected ? "bg-emerald-500" : "bg-muted-foreground/40"}`}
-                            title={isConnected ? "Realtime connected" : "Realtime reconnecting"}
-                        />
+        <div className="ui-page min-w-0">
+            <PageHeading
+                eyebrow="Community"
+                title="Messages"
+                description="Message friends and sellers. Conversations stay on this account."
+                actions={
+                    <button type="button" onClick={() => void openCompose()} className="ui-button">
+                        New message
+                    </button>
+                }
+            />
+
+            <p className="ui-note">
+                {isConnected ? "Realtime connected." : "Realtime reconnecting."}
+            </p>
+
+            {composing ? (
+                <section className="ui-surface min-w-0" aria-label="New message">
+                    <div className="ui-section-heading">
+                        <h2>New message</h2>
                         <button
                             type="button"
-                            onClick={() => void openCompose()}
-                            className="p-2 rounded-sm hover:bg-secondary text-muted-foreground hover:text-primary transition-colors"
-                            title="New message"
-                            aria-label="New message"
+                            onClick={() => setComposing(false)}
+                            className="ui-button ghost small"
+                            aria-label="Close"
                         >
-                            <Plus size={16} />
+                            Close
                         </button>
                     </div>
-                </div>
+                    {composeError ? (
+                        <p className="text-sm text-foreground mb-3" role="alert">
+                            {composeError}
+                        </p>
+                    ) : null}
+                    {friendsLoading ? (
+                        <Loading label="Loading friends…" />
+                    ) : friends.length === 0 ? (
+                        <EmptyState
+                            title="No friends yet"
+                            description="Add connections, or message a seller from a listing."
+                            href={ROUTES.communityFriends}
+                            action="Open friends"
+                        />
+                    ) : (
+                        <ul className="space-y-1">
+                            {friends.map((f) => {
+                                const friend = f.friend;
+                                const id = friend?.id || f.friend_id;
+                                const label = friend?.display_name || friend?.username || id.slice(0, 8);
+                                return (
+                                    <li key={f.id}>
+                                        <button
+                                            type="button"
+                                            disabled={!!startingId}
+                                            onClick={() => void handleStartWithFriend(id)}
+                                            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-[8px] text-left min-w-0 disabled:opacity-50 hover:bg-secondary"
+                                        >
+                                            <span className="ui-region">
+                                                {(label[0] || "?").toUpperCase()}
+                                            </span>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="text-sm font-medium truncate">{label}</div>
+                                                {friend?.username ? (
+                                                    <div className="text-sm text-muted-foreground truncate">
+                                                        @{friend.username}
+                                                    </div>
+                                                ) : null}
+                                            </div>
+                                            {startingId === id ? (
+                                                <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+                                            ) : null}
+                                        </button>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    )}
+                    {friends.length === 0 && !friendsLoading ? (
+                        <Link href={ROUTES.marketplace} className="ui-link text-sm mt-3 inline-block">
+                            Browse marketplace
+                        </Link>
+                    ) : null}
+                </section>
+            ) : null}
 
-                <div className="p-3 border-b border-border bg-card/50">
-                    <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={12} />
+            <div className="flex flex-col lg:flex-row gap-4 min-w-0">
+                <section className="ui-surface w-full lg:max-w-xs min-w-0 lg:shrink-0">
+                    <label className="ui-field">
+                        Search conversations
                         <input
                             type="text"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             placeholder="Search conversations…"
-                            className="w-full bg-background border border-border rounded-sm py-2 pl-9 pr-4 text-xs font-mono focus:border-primary outline-none transition-all placeholder:text-muted-foreground/50"
+                            className="ui-input w-full"
                         />
-                    </div>
-                </div>
+                    </label>
 
-                <div className="flex-1 overflow-y-auto">
-                    {loading ? (
-                        <div className="flex items-center justify-center py-12">
-                            <Loader2 className="animate-spin text-primary" size={24} />
-                        </div>
-                    ) : filteredConversations.length === 0 ? (
-                        <div className="p-8 text-center" style={{ color: "var(--muted-foreground)" }}>
-                            <Inbox className="mx-auto mb-3 text-muted-foreground/40" size={28} />
-                            <p className="mb-2 font-mono text-xs uppercase">No conversations</p>
-                            <p className="text-[10px] font-mono text-muted-foreground mb-4">
-                                Message a friend or inquire on a marketplace listing.
-                            </p>
-                            <div className="flex flex-col gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => void openCompose()}
-                                    className="px-3 py-2 rounded-sm bg-primary/15 border border-primary/30 text-[10px] font-black uppercase tracking-widest text-primary hover:bg-primary/25"
-                                >
-                                    Message a friend
-                                </button>
-                                <Link
-                                    href={ROUTES.marketplace}
-                                    className="px-3 py-2 rounded-sm border border-border text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:text-foreground"
-                                >
-                                    Browse marketplace
-                                </Link>
-                            </div>
-                        </div>
-                    ) : (
-                        filteredConversations.map((conv) => (
-                            <button
-                                key={conv.id}
-                                type="button"
-                                className={`w-full p-4 flex items-center gap-3 transition-all border-b border-border/50 text-left group ${
-                                    selectedConv?.id === conv.id
-                                        ? "bg-primary/5 border-l-2 border-l-primary"
-                                        : "hover:bg-secondary/30 border-l-2 border-l-transparent"
-                                }`}
-                                onClick={() => setSelectedConv(conv)}
-                            >
-                                <div className="w-10 h-10 rounded-sm bg-secondary border border-border flex items-center justify-center text-sm font-bold font-mono text-muted-foreground shrink-0 overflow-hidden">
-                                    {conv.other_participant?.avatar_url ? (
-                                        // eslint-disable-next-line @next/next/no-img-element
-                                        <img
-                                            src={conv.other_participant.avatar_url}
-                                            alt=""
-                                            className="w-full h-full object-cover"
-                                        />
-                                    ) : (
-                                        <span>
-                                            {(
-                                                conv.other_participant?.display_name?.[0] ||
-                                                conv.other_participant?.username?.[0] ||
-                                                "?"
-                                            ).toUpperCase()}
-                                        </span>
-                                    )}
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                    <div className="flex items-center justify-between mb-1">
-                                        <span
-                                            className={`text-xs font-bold font-mono truncate ${
-                                                selectedConv?.id === conv.id ? "text-primary" : "text-foreground"
-                                            }`}
-                                        >
-                                            @{conv.other_participant?.username || "unknown"}
-                                        </span>
-                                        <span className="text-[10px] font-mono text-muted-foreground uppercase opacity-50">
-                                            {new Date(conv.last_message_at).toLocaleDateString([], {
-                                                month: "short",
-                                                day: "numeric",
-                                            })}
-                                        </span>
-                                    </div>
-                                    <p className="text-[10px] font-mono text-muted-foreground truncate opacity-70">
-                                        {conv.last_message?.content || "No messages yet"}
-                                    </p>
-                                </div>
-                                {conv.unread_count && conv.unread_count > 0 ? (
-                                    <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-                                ) : null}
-                            </button>
-                        ))
-                    )}
-                </div>
-            </div>
-
-            {/* Chat Area */}
-            <div className="flex-1 flex flex-col bg-background">
-                {selectedConv ? (
-                    <>
-                        <div className="p-4 border-b border-border flex items-center justify-between bg-card">
-                            <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-sm bg-secondary border border-border flex items-center justify-center text-xs font-bold font-mono text-muted-foreground">
-                                    {(
-                                        selectedConv.other_participant?.display_name?.[0] ||
-                                        selectedConv.other_participant?.username?.[0] ||
-                                        "?"
-                                    ).toUpperCase()}
-                                </div>
-                                <div>
-                                    <div className="font-bold font-mono text-sm leading-none">
-                                        {selectedConv.other_participant?.display_name ||
-                                            selectedConv.other_participant?.username}
-                                    </div>
-                                    <Link
-                                        href={`/profile/${
-                                            selectedConv.other_participant?.username ||
-                                            selectedConv.other_participant?.id
-                                        }`}
-                                        className="text-[10px] font-mono font-bold text-primary uppercase hover:underline flex items-center gap-1 mt-0.5"
+                    <div className="mt-4 max-h-[28rem] overflow-y-auto min-w-0">
+                        {loading ? (
+                            <Loading label="Loading conversations…" />
+                        ) : filteredConversations.length === 0 ? (
+                            <div className="py-6 space-y-3">
+                                <p className="text-sm text-muted-foreground">No conversations</p>
+                                <p className="ui-note">
+                                    Message a friend or inquire on a marketplace listing.
+                                </p>
+                                <div className="flex flex-col gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => void openCompose()}
+                                        className="ui-button w-full"
                                     >
-                                        View profile <ArrowRight size={8} />
+                                        Message a friend
+                                    </button>
+                                    <Link href={ROUTES.marketplace} className="ui-button secondary w-full">
+                                        Browse marketplace
                                     </Link>
                                 </div>
                             </div>
-                            <button
-                                type="button"
-                                className="p-2 rounded-sm hover:bg-secondary text-muted-foreground transition-colors"
-                                aria-label="Conversation options"
-                            >
-                                <MoreVertical size={16} />
-                            </button>
-                        </div>
-
-                        <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-[radial-gradient(#222_1px,transparent_1px)] [background-size:20px_20px]">
-                            {messages.map((msg) => (
-                                <div
-                                    key={msg.id}
-                                    className={`flex ${msg.sender_id === user?.id ? "justify-end" : "justify-start"}`}
-                                >
-                                    <div
-                                        className={`max-w-[70%] p-4 rounded-sm border shadow-sm ${
-                                            msg.sender_id === user?.id
-                                                ? "bg-primary/10 border-primary/20 text-foreground"
-                                                : "bg-card border-border text-foreground"
-                                        }`}
-                                    >
-                                        <p className="font-mono text-xs leading-relaxed">{msg.content}</p>
-                                        <span className="text-[9px] mt-2 block font-mono font-bold opacity-40 uppercase">
-                                            {new Date(msg.created_at).toLocaleTimeString([], {
-                                                hour: "2-digit",
-                                                minute: "2-digit",
-                                            })}
-                                        </span>
-                                    </div>
-                                </div>
-                            ))}
-                            <div ref={messagesEndRef} />
-                        </div>
-
-                        <div className="p-4 border-t border-border bg-card">
-                            <div className="flex gap-2">
-                                <input
-                                    type="text"
-                                    value={newMessage}
-                                    onChange={(e) => setNewMessage(e.target.value)}
-                                    onKeyDown={handleKeyPress}
-                                    placeholder="Write a message…"
-                                    className="flex-1 bg-secondary/20 border border-border rounded-sm px-4 py-3 text-sm font-mono focus:border-primary outline-none transition-all placeholder:text-muted-foreground/50"
-                                    disabled={sending}
-                                />
+                        ) : (
+                            filteredConversations.map((conv) => (
                                 <button
+                                    key={conv.id}
                                     type="button"
-                                    onClick={() => void handleSend()}
-                                    disabled={sending || !newMessage.trim()}
-                                    className="px-6 rounded-sm bg-primary text-primary-foreground font-bold font-mono hover:bg-primary/90 disabled:opacity-50 transition-colors uppercase text-xs"
+                                    className={`w-full p-3 flex items-center gap-3 text-left min-w-0 border-b border-border ${
+                                        selectedConv?.id === conv.id ? "bg-secondary" : ""
+                                    }`}
+                                    onClick={() => setSelectedConv(conv)}
                                 >
-                                    <Send size={16} />
+                                    <span className="ui-region overflow-hidden">
+                                        {conv.other_participant?.avatar_url ? (
+                                            // eslint-disable-next-line @next/next/no-img-element
+                                            <img
+                                                src={conv.other_participant.avatar_url}
+                                                alt=""
+                                                className="w-full h-full object-cover"
+                                            />
+                                        ) : (
+                                            (
+                                                conv.other_participant?.display_name?.[0] ||
+                                                conv.other_participant?.username?.[0] ||
+                                                "?"
+                                            ).toUpperCase()
+                                        )}
+                                    </span>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center justify-between gap-2 mb-1">
+                                            <span className="text-sm font-medium truncate">
+                                                @{conv.other_participant?.username || "unknown"}
+                                            </span>
+                                            <span className="text-sm text-muted-foreground shrink-0">
+                                                {new Date(conv.last_message_at).toLocaleDateString([], {
+                                                    month: "short",
+                                                    day: "numeric",
+                                                })}
+                                            </span>
+                                        </div>
+                                        <p className="text-sm text-muted-foreground truncate">
+                                            {conv.last_message?.content || "No messages yet"}
+                                        </p>
+                                    </div>
+                                    {conv.unread_count && conv.unread_count > 0 ? (
+                                        <span className="ui-status good">Unread</span>
+                                    ) : null}
                                 </button>
-                            </div>
-                        </div>
-                    </>
-                ) : (
-                    <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center">
-                        <Inbox className="text-muted-foreground/30" size={48} />
-                        <p className="font-mono text-xs uppercase text-muted-foreground">Select a conversation</p>
-                        <button
-                            type="button"
-                            onClick={() => void openCompose()}
-                            className="px-4 py-2 rounded-sm bg-primary/15 border border-primary/30 text-[10px] font-black uppercase tracking-widest text-primary"
-                        >
-                            Start a message
-                        </button>
+                            ))
+                        )}
                     </div>
-                )}
-            </div>
+                </section>
 
-            {composing ? (
-                <div className="absolute inset-0 z-20 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-                    <div className="w-full max-w-md rounded-xl border border-border bg-card shadow-2xl overflow-hidden">
-                        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-                            <div className="flex items-center gap-2">
-                                <Users size={14} className="text-primary" />
-                                <h3 className="text-xs font-black uppercase tracking-widest">New message</h3>
+                <section className="ui-surface flex-1 min-w-0 flex flex-col">
+                    {selectedConv ? (
+                        <>
+                            <div className="pb-4 border-b border-border min-w-0">
+                                <h2 className="text-[18px] font-semibold leading-tight">
+                                    {selectedConv.other_participant?.display_name ||
+                                        selectedConv.other_participant?.username}
+                                </h2>
+                                <Link
+                                    href={`/profile/${
+                                        selectedConv.other_participant?.username ||
+                                        selectedConv.other_participant?.id
+                                    }`}
+                                    className="ui-link text-sm"
+                                >
+                                    View profile
+                                </Link>
                             </div>
+
+                            <div className="flex-1 overflow-y-auto py-4 space-y-4 min-h-[16rem] min-w-0">
+                                {messages.map((msg) => (
+                                    <div
+                                        key={msg.id}
+                                        className={`flex ${msg.sender_id === user?.id ? "justify-end" : "justify-start"}`}
+                                    >
+                                        <div
+                                            className={`max-w-full sm:max-w-[70%] p-4 rounded-[8px] min-w-0 ${
+                                                msg.sender_id === user?.id
+                                                    ? "bg-secondary text-foreground"
+                                                    : "bg-card border border-border text-foreground"
+                                            }`}
+                                        >
+                                            <p className="text-sm leading-relaxed break-words">{msg.content}</p>
+                                            <span className="text-sm text-muted-foreground mt-2 block">
+                                                {new Date(msg.created_at).toLocaleTimeString([], {
+                                                    hour: "2-digit",
+                                                    minute: "2-digit",
+                                                })}
+                                            </span>
+                                        </div>
+                                    </div>
+                                ))}
+                                <div ref={messagesEndRef} />
+                            </div>
+
+                            <form
+                                className="pt-4 border-t border-border min-w-0"
+                                onSubmit={(e) => {
+                                    e.preventDefault();
+                                    void handleSend();
+                                }}
+                            >
+                                <label className="ui-field">
+                                    Message
+                                    <textarea
+                                        value={newMessage}
+                                        onChange={(e) => setNewMessage(e.target.value)}
+                                        onKeyDown={handleKeyPress}
+                                        placeholder="Write a message…"
+                                        rows={3}
+                                        className="ui-input w-full"
+                                        disabled={sending}
+                                    />
+                                </label>
+                                {sendError ? (
+                                    <p className="text-sm mt-2" role="alert">
+                                        {sendError}
+                                    </p>
+                                ) : null}
+                                <button
+                                    type="submit"
+                                    disabled={sending || !newMessage.trim()}
+                                    className="ui-button mt-3 w-full sm:w-auto"
+                                >
+                                    {sending ? (
+                                        <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+                                    ) : (
+                                        <Send size={16} aria-hidden="true" />
+                                    )}
+                                    Send
+                                </button>
+                            </form>
+                        </>
+                    ) : (
+                        <div className="flex-1 flex flex-col items-center justify-center gap-4 py-8 text-center">
+                            <p className="text-sm text-muted-foreground">Select a conversation</p>
                             <button
                                 type="button"
-                                onClick={() => setComposing(false)}
-                                className="p-1.5 rounded-sm hover:bg-secondary text-muted-foreground"
-                                aria-label="Close"
+                                onClick={() => void openCompose()}
+                                className="ui-button"
                             >
-                                <X size={14} />
+                                Start a message
                             </button>
                         </div>
-                        <div className="p-4 max-h-80 overflow-y-auto">
-                            {composeError ? (
-                                <p className="mb-3 text-[11px] text-rose-400 font-mono">{composeError}</p>
-                            ) : null}
-                            {friendsLoading ? (
-                                <div className="flex justify-center py-10">
-                                    <Loader2 className="animate-spin text-primary" size={22} />
-                                </div>
-                            ) : friends.length === 0 ? (
-                                <div className="text-center py-6 space-y-3">
-                                    <p className="text-xs text-muted-foreground font-mono">
-                                        No friends yet. Add connections, or message a seller from a listing.
-                                    </p>
-                                    <div className="flex flex-col gap-2">
-                                        <Link
-                                            href={ROUTES.communityFriends}
-                                            className="px-3 py-2 rounded-sm border border-border text-[10px] font-black uppercase tracking-widest hover:bg-secondary"
-                                            onClick={() => setComposing(false)}
-                                        >
-                                            Open friends
-                                        </Link>
-                                        <Link
-                                            href={ROUTES.marketplace}
-                                            className="px-3 py-2 rounded-sm border border-primary/30 text-[10px] font-black uppercase tracking-widest text-primary hover:bg-primary/10"
-                                            onClick={() => setComposing(false)}
-                                        >
-                                            Browse marketplace
-                                        </Link>
-                                    </div>
-                                </div>
-                            ) : (
-                                <ul className="space-y-1">
-                                    {friends.map((f) => {
-                                        const friend = f.friend;
-                                        const id = friend?.id || f.friend_id;
-                                        const label = friend?.display_name || friend?.username || id.slice(0, 8);
-                                        return (
-                                            <li key={f.id}>
-                                                <button
-                                                    type="button"
-                                                    disabled={!!startingId}
-                                                    onClick={() => void handleStartWithFriend(id)}
-                                                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-secondary/60 text-left disabled:opacity-50"
-                                                >
-                                                    <div className="w-8 h-8 rounded-sm bg-secondary border border-border flex items-center justify-center text-[10px] font-bold font-mono">
-                                                        {(label[0] || "?").toUpperCase()}
-                                                    </div>
-                                                    <div className="flex-1 min-w-0">
-                                                        <div className="text-xs font-bold truncate">{label}</div>
-                                                        {friend?.username ? (
-                                                            <div className="text-[10px] text-muted-foreground font-mono truncate">
-                                                                @{friend.username}
-                                                            </div>
-                                                        ) : null}
-                                                    </div>
-                                                    {startingId === id ? (
-                                                        <Loader2 size={14} className="animate-spin text-primary" />
-                                                    ) : (
-                                                        <Inbox size={14} className="text-muted-foreground" />
-                                                    )}
-                                                </button>
-                                            </li>
-                                        );
-                                    })}
-                                </ul>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            ) : null}
+                    )}
+                </section>
+            </div>
         </div>
     );
 }

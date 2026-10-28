@@ -13,7 +13,7 @@ import {
 } from 'react';
 import { NAV, SEARCH_INDEX, navGroupActive, type NavItem } from '@/lib/nav';
 
-type Theme = 'dark' | 'light';
+type Theme = 'system' | 'dark' | 'light';
 
 type SearchDoc = {
   href: string;
@@ -24,22 +24,56 @@ type SearchDoc = {
 };
 
 function useTheme(): [Theme, (t: Theme) => void] {
-  const [theme, setThemeState] = useState<Theme>('dark');
+  const [theme, setThemeState] = useState<Theme>('system');
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem('phub-docs-theme') as Theme | null;
-    const next = stored === 'light' || stored === 'dark' ? stored : 'dark';
-    setThemeState(next);
-    document.documentElement.setAttribute('data-theme', next);
+    try {
+      const stored = window.localStorage.getItem('phub-docs-theme');
+      if (stored === 'light' || stored === 'dark') setThemeState(stored);
+    } catch { /* Appearance remains usable when storage is unavailable. */ }
+    setReady(true);
+    const sync = (event: StorageEvent) => {
+      if (event.key === 'phub-docs-theme') {
+        setThemeState(event.newValue === 'light' || event.newValue === 'dark' ? event.newValue : 'system');
+      }
+    };
+    window.addEventListener('storage', sync);
+    return () => window.removeEventListener('storage', sync);
   }, []);
+
+  useEffect(() => {
+    if (!ready) return;
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const apply = () => {
+      const dark = theme === 'dark' || (theme === 'system' && media.matches);
+      document.documentElement.classList.toggle('dark', dark);
+      document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+    };
+    apply();
+    media.addEventListener('change', apply);
+    return () => media.removeEventListener('change', apply);
+  }, [theme, ready]);
 
   const setTheme = useCallback((t: Theme) => {
     setThemeState(t);
-    document.documentElement.setAttribute('data-theme', t);
-    window.localStorage.setItem('phub-docs-theme', t);
+    try { window.localStorage.setItem('phub-docs-theme', t); } catch { /* Optional persistence. */ }
   }, []);
 
   return [theme, setTheme];
+}
+
+function ThemeControl({ theme, onChange }: { theme: Theme; onChange: (theme: Theme) => void }) {
+  return (
+    <label className="theme-control">
+      <span className="sr-only">Color theme</span>
+      <select aria-label="Color theme" value={theme} onChange={(event) => onChange(event.target.value as Theme)}>
+        <option value="system">System</option>
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+      </select>
+    </label>
+  );
 }
 
 const RECENT_KEY = 'phub-docs-recent';
@@ -133,6 +167,7 @@ function SearchPalette({
 }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const [q, setQ] = useState('');
   const [active, setActive] = useState(0);
   const [corpus, setCorpus] = useState<SearchDoc[] | null>(null);
@@ -219,6 +254,7 @@ function SearchPalette({
     }
     return out;
   }, [results, q, recent]);
+  const orderedHits = useMemo(() => rows.flatMap((row) => row.kind === 'hit' ? [row.hit] : []), [rows]);
 
   useEffect(() => {
     setActive(0);
@@ -226,10 +262,14 @@ function SearchPalette({
 
   useEffect(() => {
     if (!open) return;
+    const previousFocus = document.activeElement as HTMLElement | null;
     setQ('');
     setActive(0);
     const t = window.setTimeout(() => inputRef.current?.focus(), 20);
-    return () => window.clearTimeout(t);
+    return () => {
+      window.clearTimeout(t);
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
   }, [open]);
 
   const go = useCallback(
@@ -250,11 +290,21 @@ function SearchPalette({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Tab') {
+        const controls = dialogRef.current?.querySelectorAll<HTMLElement>('button:not([tabindex="-1"]), input, a[href], select, [tabindex="0"]');
+        if (controls?.length) {
+          const first = controls[0];
+          const last = controls[controls.length - 1];
+          if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+          else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+        }
+      }
       if (e.key === 'Escape') {
         e.preventDefault();
         onClose();
         return;
       }
+      if (e.target !== inputRef.current) return;
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         setActive((i) => Math.min(i + 1, Math.max(results.length - 1, 0)));
@@ -263,22 +313,22 @@ function SearchPalette({
         e.preventDefault();
         setActive((i) => Math.max(i - 1, 0));
       }
-      if (e.key === 'Enter' && results[active]) {
+      if (e.key === 'Enter' && orderedHits[active]) {
         e.preventDefault();
-        go(results[active]);
+        go(orderedHits[active]);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose, results, active, go]);
+  }, [open, onClose, results, orderedHits, active, go]);
 
   if (!open) return null;
 
   const needle = q.trim();
 
   return (
-    <div className="search-overlay" role="dialog" aria-modal="true" aria-label="Search docs">
-      <button type="button" className="search-backdrop" aria-label="Close search" onClick={onClose} />
+    <div ref={dialogRef} className="search-overlay" role="dialog" aria-modal="true" aria-label="Search docs">
+      <button type="button" tabIndex={-1} className="search-backdrop" aria-label="Close search" onClick={onClose} />
       <div className="search-panel">
         <label htmlFor={listId + '-q'} className="sr-only">
           Search documentation
@@ -287,6 +337,8 @@ function SearchPalette({
           ref={inputRef}
           id={listId + '-q'}
           className="search-input"
+          role="combobox"
+          aria-expanded="true"
           placeholder="Search docs…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -332,6 +384,7 @@ function SearchPalette({
         <p className="search-hint">
           <kbd>↑</kbd>
           <kbd>↓</kbd> move · <kbd>Enter</kbd> open · <kbd>Esc</kbd> close
+          <button type="button" className="search-close" onClick={onClose}>Close search</button>
         </p>
       </div>
     </div>
@@ -350,7 +403,6 @@ function NavSection({
   onToggle: () => void;
 }) {
   const active = navGroupActive(item, current);
-  const code = item.code ?? '••';
 
   if (!item.children?.length) {
     return (
@@ -360,9 +412,6 @@ function NavSection({
           className={`nav-link top${current === item.href ? ' active' : ''}`}
           aria-current={current === item.href ? 'page' : undefined}
         >
-          <span className="nav-code" aria-hidden="true">
-            {code}
-          </span>
           <span>{item.label}</span>
         </Link>
       </div>
@@ -374,18 +423,15 @@ function NavSection({
       <button
         type="button"
         className="nav-group-btn"
-        aria-expanded={open || active}
+        aria-expanded={open}
         onClick={onToggle}
       >
-        <span className="nav-code" aria-hidden="true">
-          {code}
-        </span>
         <span className="nav-group-label">{item.label}</span>
         <span className="nav-chevron" aria-hidden="true">
-          {(open || active) ? '−' : '+'}
+          {open ? '−' : '+'}
         </span>
       </button>
-      {(open || active) && (
+      {open && (
         <div className="nav-children">
           {item.children.map((child) => (
             <Link
@@ -416,10 +462,18 @@ export function DocsShell({
   const [navOpen, setNavOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+  const sidebarRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     setNavOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 900px)');
+    const closeOnDesktop = () => { if (!media.matches) setNavOpen(false); };
+    media.addEventListener('change', closeOnDesktop);
+    return () => media.removeEventListener('change', closeOnDesktop);
+  }, []);
 
   useEffect(() => {
     const next: Record<string, boolean> = {};
@@ -451,6 +505,28 @@ export function DocsShell({
 
   useEffect(() => {
     document.body.classList.toggle('nav-lock', navOpen || searchOpen);
+    return () => document.body.classList.remove('nav-lock');
+  }, [navOpen, searchOpen]);
+
+  useEffect(() => {
+    if (!navOpen || searchOpen) return;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    sidebarRef.current?.querySelector<HTMLElement>('a, button, select')?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); setNavOpen(false); }
+      if (event.key !== 'Tab') return;
+      const controls = sidebarRef.current?.querySelectorAll<HTMLElement>('a, button, select');
+      if (!controls?.length) return;
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
   }, [navOpen, searchOpen]);
 
   return (
@@ -485,10 +561,15 @@ export function DocsShell({
       ) : null}
 
       <aside
+        ref={sidebarRef}
         id="docs-sidebar"
         className={`sidebar${navOpen ? ' open' : ''}`}
         aria-label="Docs navigation"
+        role={navOpen ? 'dialog' : undefined}
+        aria-modal={navOpen && !searchOpen ? true : undefined}
+        inert={searchOpen}
       >
+        <button type="button" className="docs-nav-close" onClick={() => setNavOpen(false)}>Close navigation</button>
         <div className="brand-block">
           <Link href="/docs" className="brand">
             <span className="brand-mark" aria-hidden="true">
@@ -499,7 +580,7 @@ export function DocsShell({
               <span className="brand-sub">Docs</span>
             </span>
           </Link>
-          <p className="brand-tag">Control plane manual</p>
+          <p className="brand-tag">Guides & API reference</p>
         </div>
 
         <div className="sidebar-tools">
@@ -507,24 +588,17 @@ export function DocsShell({
             <span>Search</span>
             <kbd>/</kbd>
           </button>
-          <button
-            type="button"
-            className="theme-toggle"
-            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-            aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-          >
-            {theme === 'dark' ? 'Light' : 'Dark'}
-          </button>
+          <ThemeControl theme={theme} onChange={setTheme} />
         </div>
 
         <div className="topbar">
           <a href="https://proxyhubb.com" target="_blank" rel="noopener noreferrer">
-            App
+            Workspace
           </a>
-          <a href="https://api.proxyhubb.com" target="_blank" rel="noopener noreferrer">
-            API
+          <a href="https://explorer.proxyhubb.com" target="_blank" rel="noopener noreferrer">
+            Explorer
           </a>
-          <a href="/docs/changelog">Changelog</a>
+          <Link href="/docs/api">API reference</Link>
         </div>
 
         <nav aria-label="Documentation" className="nav-rail">
@@ -545,7 +619,7 @@ export function DocsShell({
         </nav>
       </aside>
 
-      <main id="doc-main" className="main" tabIndex={-1}>
+      <main id="doc-main" className="main" tabIndex={-1} inert={navOpen || searchOpen}>
         {children}
       </main>
 
@@ -558,14 +632,7 @@ export function DocsShell({
         >
           Search
         </button>
-        <button
-          type="button"
-          className="dock-btn"
-          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-          aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-        >
-          {theme === 'dark' ? 'Light' : 'Dark'}
-        </button>
+        <ThemeControl theme={theme} onChange={setTheme} />
         <a
           className="dock-btn"
           href="https://proxyhubb.com"

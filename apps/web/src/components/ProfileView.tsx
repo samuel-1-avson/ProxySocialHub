@@ -4,46 +4,37 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
-import { getProfile, followUser, unfollowUser, blockUser, getUserReviews, type UserPublicProfile, type Review } from "@/lib/api/profile";
+import {
+    getProfile,
+    followUser,
+    unfollowUser,
+    blockUser,
+    getUserReviews,
+    type UserPublicProfile,
+    type Review,
+} from "@/lib/api/profile";
 import { getUserBadges, type UserBadge } from "@/lib/api/badges";
 import { accountTierLabel, identityStatusLabel } from "@/lib/account-tier";
 import { getListings, type Listing } from "@/lib/api/marketplace";
 import { socialProfileUrl } from "@/lib/utils";
-
+import { ConfirmDialog } from "@/components/patterns/ConfirmDialog";
+import {
+    PageHeading,
+    Loading,
+    EmptyState,
+    Stat,
+} from "@/components/workspace/Patterns";
 import {
     Star,
-    MapPin,
     ShieldCheck,
     UserCheck,
-    MessageCircle,
-    Edit3,
-    Heart,
     Users,
-    Activity,
     ExternalLink,
-    Calendar,
-    ChevronRight,
-    ArrowRight,
-    Loader2,
     Twitter,
     Github,
     Linkedin,
-    MoreVertical,
-    Ban,
-    Briefcase,
-    Hexagon,
-    Target,
-    Fingerprint,
-    Cpu,
-    Globe,
-    Terminal,
-    Zap,
-    History,
-    Key,
-    Award,
+    Loader2,
 } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
-import { GlassCard } from "@/components/ui/glass-card";
 
 interface ProfileViewProps {
     username?: string;
@@ -65,7 +56,10 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
     const [isFollowing, setIsFollowing] = useState(false);
     const [activeTab, setActiveTab] = useState<"listings" | "reviews">("reviews");
     const [followLoading, setFollowLoading] = useState(false);
-    const [showMenu, setShowMenu] = useState(false);
+    const [followError, setFollowError] = useState("");
+    const [blockOpen, setBlockOpen] = useState(false);
+    const [blockLoading, setBlockLoading] = useState(false);
+    const [blockError, setBlockError] = useState("");
 
     const isOwnProfile =
         targetUsername === "me" ||
@@ -89,7 +83,11 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                 }
 
                 try {
-                    const listingData = await getListings({ seller_id: userData.id, limit: 8, sort_by: 'newest' });
+                    const listingData = await getListings({
+                        seller_id: userData.id,
+                        limit: 8,
+                        sort_by: "newest",
+                    });
                     setListings(listingData.listings || []);
                 } catch {
                     setListings([]);
@@ -114,18 +112,19 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
     const handleFollow = async () => {
         if (!profile || !isAuthenticated) return;
         setFollowLoading(true);
+        setFollowError("");
         try {
             if (isFollowing) {
                 await unfollowUser(profile.id);
                 setIsFollowing(false);
-                setProfile(p => p ? { ...p, followers_count: p.followers_count - 1 } : null);
+                setProfile((p) => (p ? { ...p, followers_count: p.followers_count - 1 } : null));
             } else {
                 await followUser(profile.id);
                 setIsFollowing(true);
-                setProfile(p => p ? { ...p, followers_count: p.followers_count + 1 } : null);
+                setProfile((p) => (p ? { ...p, followers_count: p.followers_count + 1 } : null));
             }
-        } catch {
-            // Revert
+        } catch (err) {
+            setFollowError(err instanceof Error ? err.message : "Could not update follow status.");
         } finally {
             setFollowLoading(false);
         }
@@ -133,483 +132,369 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
 
     const handleBlock = async () => {
         if (!profile || !isAuthenticated) return;
-        if (!confirm("Block this user? They will be removed from your follows.")) return;
+        setBlockLoading(true);
+        setBlockError("");
         try {
             await blockUser(profile.id);
-            router.push('/');
-        } catch (err) {
-            alert("Could not block this user.");
+            setBlockOpen(false);
+            router.push("/");
+        } catch {
+            setBlockError("Could not block this user.");
+        } finally {
+            setBlockLoading(false);
         }
-    }
+    };
 
     if (loading) {
-        return (
-            <div className="flex flex-col items-center justify-center py-60 gap-8">
-                <div className="relative">
-                    <motion.div
-                        animate={{ rotate: 360 }}
-                        transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                        className="w-20 h-20 border-t-2 border-primary rounded-full"
-                    />
-                    <div className="absolute inset-0 flex items-center justify-center">
-                        <Fingerprint className="text-primary/40" size={32} />
-                    </div>
-                </div>
-                <p className="font-black text-[10px] uppercase tracking-[0.6em] text-muted-foreground animate-pulse">Loading profile...</p>
-            </div>
-        );
+        return <Loading label="Loading profile…" />;
     }
 
     if (error || !profile) {
         return (
-            <div className="max-w-xl mx-auto py-40 text-center space-y-10">
-                <div className="w-24 h-24 rounded-[2rem] bg-rose-500/10 border border-rose-500/20 flex items-center justify-center mx-auto text-rose-500 shadow-2xl">
-                    <Zap size={40} className="animate-pulse" />
-                </div>
-                <div className="space-y-4">
-                    <h2 className="text-4xl font-black uppercase tracking-tighter text-foreground">Profile not found</h2>
-                    <p className="text-[11px] font-black uppercase text-muted-foreground tracking-widest leading-relaxed">
-                        {error || "No account with this username."}
-                    </p>
-                </div>
-                <Link href="/marketplace" className="inline-flex items-center gap-4 px-10 py-5 bg-white text-black font-black text-[11px] uppercase tracking-widest rounded-2xl hover:bg-white/90 transition-all active:scale-95 shadow-2xl">
-                    Browse marketplace
-                </Link>
+            <div className="ui-page">
+                <EmptyState
+                    title="Profile not found"
+                    description={error || "No account with this username."}
+                    href="/marketplace"
+                    action="Browse marketplace"
+                />
             </div>
         );
     }
 
-    const containerVariants = {
-        hidden: { opacity: 0 },
-        show: { opacity: 1, transition: { staggerChildren: 0.1 } }
-    };
-
-    const itemVariants = {
-        hidden: { opacity: 0, y: 20 },
-        show: { opacity: 1, y: 0 }
-    };
+    const showListingsTab =
+        profile.role === "provider" || profile.role === "both" || listings.length > 0;
 
     return (
-        <motion.div
-            variants={containerVariants}
-            initial="hidden"
-            animate="show"
-            className="max-w-6xl mx-auto space-y-12 pb-40 font-mono"
-        >
-            {/* Immersive Tactical Header */}
-            <motion.div variants={itemVariants} className="group relative">
-                <div className="absolute -inset-4 bg-primary/5 blur-[100px] opacity-20 pointer-events-none" />
-                <GlassCard className="!p-0 border-border bg-card overflow-hidden rounded-[3rem] shadow-2xl relative">
-                    {/* Cover Area with Mesh Grid and Geo Pulse */}
-                    <div className="h-64 bg-zinc-900 dark:bg-black/60 relative overflow-hidden">
-                        {/* Dynamic SVG Mesh Grid */}
-                        <svg className="absolute inset-0 w-full h-full opacity-[0.15]" xmlns="http://www.w3.org/2000/svg">
-                            <defs>
-                                <pattern id="meshGrid" width="40" height="40" patternUnits="userSpaceOnUse">
-                                    <path d="M 40 0 L 0 0 0 40" fill="none" stroke="white" strokeWidth="0.5" />
-                                </pattern>
-                                <radialGradient id="meshGlow" cx="50%" cy="50%" r="50%">
-                                    <stop offset="0%" stopColor="rgba(16,185,129,0.2)" />
-                                    <stop offset="100%" stopColor="transparent" />
-                                </radialGradient>
-                            </defs>
-                            <rect width="100%" height="100%" fill="url(#meshGrid)" />
-                            <motion.circle
-                                cx="20%" cy="30%" r="150" fill="url(#meshGlow)"
-                                animate={{ opacity: [0.1, 0.3, 0.1], scale: [1, 1.2, 1] }}
-                                transition={{ duration: 8, repeat: Infinity }}
-                            />
-                        </svg>
-                        
-                        <div className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-black via-black/60 to-transparent" />
-
-                        {/* Top Protocol Status - Tactically Enhanced */}
-                        <div className="absolute top-10 inset-x-12 flex justify-between items-start pointer-events-none">
-                            <div className="space-y-2">
-                                <div className="text-[9px] font-black uppercase tracking-[0.4em] text-white/70">Location</div>
-                                <div className="text-[11px] font-bold tracking-widest text-emerald-400 flex items-center gap-2">
-                                    <MapPin size={12} /> {profile.location || "Not listed"}
-                                </div>
-                            </div>
-                            <div className="text-right space-y-2">
-                                <div className="text-[9px] font-black uppercase tracking-[0.4em] text-white/70">Account tier</div>
-                                <div className="space-y-1">
-                                    <div className="text-[11px] font-bold tracking-widest text-emerald-400 flex items-center gap-2 justify-end">
-                                        {accountTierLabel(profile.trust_tier)}
-                                    </div>
-                                    <div className="text-[9px] font-black tracking-[0.2em] text-white/80 uppercase">
-                                        Identity:{" "}
-                                        <span className={profile.verified ? "text-emerald-400 inline-flex items-center gap-1" : "text-white/50"}>
-                                            {identityStatusLabel(profile.verified)}
-                                            {profile.verified ? <ShieldCheck size={12} /> : null}
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="px-12 pb-12 relative flex flex-col md:flex-row gap-12 items-end -mt-16">
-                        {/* Avatar HUD */}
-                        <div className="relative group/avatar">
-                            <motion.div 
-                                animate={{ opacity: [0.1, 0.3, 0.1], scale: [0.95, 1.05, 0.95] }}
-                                transition={{ duration: 4, repeat: Infinity }}
-                                className="absolute -inset-4 bg-emerald-500/20 rounded-[3rem] blur-2xl" 
-                            />
-                            <div className="w-48 h-48 rounded-[2.5rem] bg-black border-[6px] border-border p-1.5 relative z-10 shadow-2xl overflow-hidden shadow-black/80 transition-transform duration-500 group-hover/avatar:scale-105">
-                                {profile.avatar_url ? (
-                                    <img src={profile.avatar_url} alt="" className="w-full h-full object-cover rounded-[2rem]" />
+        <div className="ui-page">
+            <PageHeading
+                eyebrow={profile.location || "Location not listed"}
+                title={profile.display_name || profile.username}
+                description={`${accountTierLabel(profile.trust_tier)} · Identity: ${identityStatusLabel(profile.verified)}`}
+                actions={
+                    isOwnProfile ? (
+                        <Link href="/dashboard/settings/identity" className="ui-button">
+                            Edit profile
+                        </Link>
+                    ) : (
+                        <div className="flex flex-wrap gap-2">
+                            <button
+                                type="button"
+                                onClick={() => void handleFollow()}
+                                disabled={followLoading}
+                                className={`ui-button ${isFollowing ? "secondary" : ""}`}
+                            >
+                                {followLoading ? (
+                                    <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+                                ) : isFollowing ? (
+                                    <UserCheck size={16} aria-hidden="true" />
                                 ) : (
-                                    <div className="w-full h-full bg-gradient-to-br from-white/10 to-white/5 rounded-[2rem] flex items-center justify-center text-6xl font-black text-white italic tracking-tighter shadow-inner">
-                                        {(profile.display_name?.[0] || profile.username?.[0] || "?").toUpperCase()}
-                                    </div>
+                                    <Users size={16} aria-hidden="true" />
                                 )}
-                                {profile.is_online ? (
-                                <div className="absolute bottom-6 right-6 w-7 h-7 rounded-xl bg-emerald-500 border-4 border-black shadow-[0_0_20px_rgba(16,185,129,0.8)] flex items-center justify-center">
-                                    <Activity size={12} className="text-black" />
-                                </div>
-                                ) : (
-                                <div className="absolute bottom-6 right-6 w-7 h-7 rounded-xl bg-zinc-600 border-4 border-black flex items-center justify-center">
-                                    <Activity size={12} className="text-black/70" />
-                                </div>
-                                )}
-                            </div>
+                                {isFollowing ? "Following" : "Follow"}
+                            </button>
+                            <Link href={`/messages?to=${profile.id}`} className="ui-button secondary">
+                                Message
+                            </Link>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setBlockError("");
+                                    setBlockOpen(true);
+                                }}
+                                className="ui-button secondary"
+                            >
+                                Block
+                            </button>
                         </div>
+                    )
+                }
+            />
 
-                        {/* Identity & Social Hub */}
-                        <div className="flex-1 space-y-6 pb-2">
-                            <div className="space-y-4">
-                                <div className="flex items-center gap-6">
-                                    <h1 className="text-6xl font-black uppercase tracking-tighter text-foreground drop-shadow-2xl">
-                                        {profile.display_name || profile.username}
-                                    </h1>
-                                    {profile.verified && (
-                                        <motion.div 
-                                            animate={{ boxShadow: ["0 0 10px rgba(16,185,129,0)", "0 0 25px rgba(16,185,129,0.4)", "0 0 10px rgba(16,185,129,0)"] }}
-                                            transition={{ duration: 3, repeat: Infinity }}
-                                            className="p-3 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400"
-                                        >
-                                            <ShieldCheck size={24} />
-                                        </motion.div>
-                                    )}
-                                </div>
-                                <div className="flex flex-wrap items-center gap-6">
-                                    <div className="text-sm font-black text-emerald-400 tracking-[0.2em] uppercase bg-emerald-500/5 px-4 py-1.5 rounded-full border border-emerald-500/10">
-                                        @{profile.username}
-                                    </div>
-                                    <div className="h-5 w-px bg-border" />
-                                    {profile.professional_title && (
-                                        <div className="flex items-center gap-2 text-[11px] font-black text-foreground uppercase tracking-widest">
-                                            <Briefcase size={12} className="text-purple-400" /> {profile.professional_title}
-                                            {profile.experience_years > 0 && (
-                                                <span className="text-muted-foreground lowercase ml-1">({profile.experience_years}y exp)</span>
-                                            )}
-                                        </div>
-                                    )}
-                                    <div className="h-5 w-px bg-border invisible md:visible" />
-                                    <div className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em] flex items-center gap-2">
-                                        Node joined {new Date(profile.created_at).toLocaleDateString([], { month: 'short', year: 'numeric' })}
-                                    </div>
-                                </div>
-                            </div>
+            {followError ? (
+                <p className="text-sm" role="alert">
+                    {followError}
+                </p>
+            ) : null}
 
-                            {/* Social Links Cockpit */}
-                            {profile.social_links && (
-                                <div className="flex items-center gap-3">
-                                    {Object.entries(profile.social_links).map(([platform, handle]) => {
-                                        const href = socialProfileUrl(platform, handle);
-                                        if (!href) return null;
-                                        const Icon = platform === 'twitter' || platform === 'x' ? Twitter : platform === 'github' ? Github : Linkedin;
-                                        return (
-                                            <motion.a
-                                                key={platform}
-                                                whileHover={{ y: -2, scale: 1.1 }}
-                                                href={href}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="p-3 rounded-xl bg-muted border border-border text-muted-foreground hover:text-primary hover:border-primary/20 transition-all shadow-xl"
-                                            >
-                                                <Icon size={16} />
-                                            </motion.a>
-                                        );
-                                    })}
-                                </div>
-                            )}
-                            {profile.website && socialProfileUrl("website", profile.website) && (
-                                <a
-                                    href={socialProfileUrl("website", profile.website)!}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-muted-foreground hover:text-primary"
-                                >
-                                    <ExternalLink size={12} /> Website
-                                </a>
-                            )}
-                        </div>
-
-                        {/* Actions Control Unit */}
-                        <div className="flex gap-4 pb-4">
-                            {isOwnProfile ? (
-                                <Link
-                                    href="/dashboard/settings/identity"
-                                    className="px-10 py-5 rounded-2xl bg-white text-black font-black text-[11px] uppercase tracking-widest flex items-center gap-3 shadow-2xl hover:scale-105 transition-all active:scale-95"
-                                >
-                                    <Edit3 size={18} /> Edit profile
-                                </Link>
+            <section className="ui-surface">
+                <div className="flex flex-col sm:flex-row gap-6 items-start min-w-0">
+                    <span className="ui-region overflow-hidden" style={{ width: 72, height: 72, fontSize: 24 }}>
+                        {profile.avatar_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                            (profile.display_name?.[0] || profile.username?.[0] || "?").toUpperCase()
+                        )}
+                    </span>
+                    <div className="min-w-0 space-y-2">
+                        <div className="flex flex-wrap items-center gap-3">
+                            <span className="text-sm text-muted-foreground">@{profile.username}</span>
+                            {profile.verified ? (
+                                <span className="ui-status good">
+                                    <ShieldCheck size={14} aria-hidden="true" /> Verified
+                                </span>
+                            ) : null}
+                            {profile.is_online ? (
+                                <span className="ui-status good">Online</span>
                             ) : (
-                                <div className="flex gap-4 items-center">
-                                    <button
-                                        onClick={handleFollow}
-                                        className={`px-10 py-5 rounded-2xl font-black text-[11px] uppercase tracking-widest flex items-center gap-3 transition-all active:scale-95 shadow-2xl ${isFollowing
-                                                ? 'bg-muted border border-border text-muted-foreground hover:bg-surface-hover'
-                                                : 'bg-primary text-primary-foreground hover:shadow-primary/30'
-                                            }`}
-                                    >
-                                        {isFollowing ? <UserCheck size={18} /> : <Users size={18} />}
-                                        {isFollowing ? 'Following' : 'Follow'}
-                                    </button>
-                                    <Link
-                                        href={`/messages?to=${profile.id}`}
-                                        className="p-5 rounded-2xl bg-muted border border-border text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-all shadow-xl"
-                                    >
-                                        <MessageCircle size={20} />
-                                    </Link>
-                                    <button
-                                        onClick={handleBlock}
-                                        className="p-5 rounded-2xl bg-muted border border-border text-rose-500/40 hover:text-rose-500 hover:bg-rose-500/10 transition-all shadow-xl"
-                                    >
-                                        <Ban size={20} />
-                                    </button>
-                                </div>
+                                <span className="ui-status neutral">Offline</span>
                             )}
                         </div>
+                        {profile.professional_title ? (
+                            <p className="text-sm text-foreground">
+                                {profile.professional_title}
+                                {profile.experience_years > 0
+                                    ? ` (${profile.experience_years}y exp)`
+                                    : ""}
+                            </p>
+                        ) : null}
+                        <p className="ui-note">
+                            Joined{" "}
+                            {new Date(profile.created_at).toLocaleDateString([], {
+                                month: "short",
+                                year: "numeric",
+                            })}
+                        </p>
+                        {profile.social_links && (
+                            <div className="flex items-center gap-3 flex-wrap">
+                                {Object.entries(profile.social_links).map(([platform, handle]) => {
+                                    const href = socialProfileUrl(platform, handle);
+                                    if (!href) return null;
+                                    const Icon =
+                                        platform === "twitter" || platform === "x"
+                                            ? Twitter
+                                            : platform === "github"
+                                              ? Github
+                                              : Linkedin;
+                                    return (
+                                        <a
+                                            key={platform}
+                                            href={href}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="ui-link text-sm inline-flex items-center gap-1"
+                                        >
+                                            <Icon size={14} aria-hidden="true" />
+                                            {platform}
+                                        </a>
+                                    );
+                                })}
+                            </div>
+                        )}
+                        {profile.website && socialProfileUrl("website", profile.website) && (
+                            <a
+                                href={socialProfileUrl("website", profile.website)!}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="ui-link text-sm inline-flex items-center gap-1"
+                            >
+                                <ExternalLink size={14} aria-hidden="true" /> Website
+                            </a>
+                        )}
                     </div>
-                </GlassCard>
-            </motion.div>
+                </div>
+            </section>
 
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
-                {/* Left Unit: Bio & Stats HUD */}
-                <div className="lg:col-span-4 space-y-12">
-                    <motion.div variants={itemVariants} className="space-y-6">
-                        <div className="flex items-center gap-3 px-6">
-                            <div className="h-px bg-border flex-1" />
-                            <div className="text-[9px] font-black uppercase text-muted-foreground tracking-[0.4em]">Bio</div>
-                            <div className="h-px bg-border flex-1" />
-                        </div>
-                        <GlassCard className="border-border bg-card rounded-[2rem] relative group p-8">
-                            <div className="absolute top-0 right-0 p-6 opacity-[0.03] group-hover:opacity-[0.1] transition-opacity duration-700">
-                                <Terminal size={80} />
-                            </div>
-                            <div className="space-y-6 relative z-10">
-                                <p className="text-sm font-black text-foreground leading-relaxed italic">
-                                    "{profile.bio || "No bio yet."}"
-                                </p>
-                                {profile.primary_specialization && (
-                                    <div className="pt-6 border-t border-border flex items-center gap-4">
-                                        <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400">
-                                            <Fingerprint size={14} />
-                                        </div>
-                                        <div className="space-y-1">
-                                            <div className="text-[8px] font-black uppercase tracking-[0.2em] text-muted-foreground">Specialization</div>
-                                            <div className="text-[11px] font-black uppercase tracking-widest text-foreground">{profile.primary_specialization}</div>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        </GlassCard>
-                    </motion.div>
+            <div className="ui-columns">
+                <div className="space-y-6 min-w-0">
+                    <section className="ui-surface">
+                        <h2>Bio</h2>
+                        <p className="text-sm leading-relaxed mt-3">
+                            {profile.bio || "No bio yet."}
+                        </p>
+                        {profile.primary_specialization ? (
+                            <p className="ui-note mt-4">
+                                Specialization: {profile.primary_specialization}
+                            </p>
+                        ) : null}
+                    </section>
 
-                    {/* Stats Matrix */}
-                    <motion.div variants={itemVariants} className="grid grid-cols-2 gap-6">
-                        {[
-                            { label: 'Followers', value: profile.followers_count || 0, icon: Users, color: 'text-primary' },
-                            { label: 'Following', value: profile.following_count || 0, icon: Hexagon, color: 'text-muted-foreground' },
-                            { label: 'Rating', value: profile.reviews_count > 0 ? profile.avg_rating.toFixed(1) : '—', icon: Star, color: 'text-yellow-500' },
-                            { label: 'Reviews', value: profile.reviews_count || 0, icon: ShieldCheck, color: 'text-emerald-500' }
-                        ].map((stat, i) => (
-                            <GlassCard key={i} className="!p-6 border-border bg-card rounded-[2rem] hover:scale-105 transition-transform">
-                                <stat.icon className={`${stat.color} mb-3`} size={18} />
-                                <div className="text-2xl font-black text-foreground tracking-tighter">{stat.value}</div>
-                                <div className="text-[8px] font-black uppercase text-muted-foreground tracking-widest mt-1">{stat.label}</div>
-                            </GlassCard>
-                        ))}
-                    </motion.div>
+                    <section className="ui-stats" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                        <Stat
+                            label="Followers"
+                            value={profile.followers_count || 0}
+                            detail="Accounts following this profile"
+                        />
+                        <Stat
+                            label="Following"
+                            value={profile.following_count || 0}
+                            detail="Accounts this profile follows"
+                        />
+                        <Stat
+                            label="Rating"
+                            value={profile.reviews_count > 0 ? profile.avg_rating.toFixed(1) : "—"}
+                            detail="Average from completed orders"
+                        />
+                        <Stat
+                            label="Reviews"
+                            value={profile.reviews_count || 0}
+                            detail="Public reviews"
+                        />
+                    </section>
 
                     {badges.length > 0 && (
-                        <motion.div variants={itemVariants} className="space-y-4">
-                            <div className="flex items-center gap-3 px-2">
-                                <Award size={14} className="text-primary" />
-                                <div className="text-[9px] font-black uppercase text-muted-foreground tracking-[0.4em]">Badges</div>
-                                <div className="h-px bg-border flex-1" />
-                            </div>
-                            <div className="flex flex-wrap gap-2">
+                        <section className="ui-surface">
+                            <h2>Badges</h2>
+                            <div className="flex flex-wrap gap-2 mt-3">
                                 {badges.map((ub) => (
                                     <span
                                         key={ub.badge_id}
                                         title={ub.badge?.description || ub.badge?.name}
-                                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-primary/10 border border-primary/20 text-[10px] font-black uppercase tracking-widest text-primary"
+                                        className="ui-tag"
                                     >
-                                        <Award size={12} />
                                         {ub.badge?.name || "Badge"}
                                     </span>
                                 ))}
                             </div>
-                        </motion.div>
+                        </section>
                     )}
 
-                    {/* Capability Map */}
-                    {((profile.skills && profile.skills.length > 0) || (profile.languages && profile.languages.length > 0)) && (
-                        <motion.div variants={itemVariants} className="space-y-8">
-                            <div className="flex items-center gap-3 px-6">
-                                <div className="text-[9px] font-black uppercase text-muted-foreground tracking-[0.4em]">Capacity Matrix</div>
-                                <div className="h-px bg-border flex-1" />
-                            </div>
-                            
+                    {((profile.skills && profile.skills.length > 0) ||
+                        (profile.languages && profile.languages.length > 0)) && (
+                        <section className="ui-surface space-y-4">
                             {profile.languages && profile.languages.length > 0 && (
-                                <div className="space-y-4">
-                                    <div className="text-[8px] font-black uppercase tracking-widest text-emerald-500/40 px-6">Protocol Languages</div>
-                                    <div className="flex flex-wrap gap-2 px-1">
-                                        {profile.languages.map(lang => (
-                                            <span key={lang} className="px-4 py-2 rounded-xl bg-muted border border-border text-[9px] font-black uppercase tracking-widest text-muted-foreground">
+                                <div>
+                                    <h2>Languages</h2>
+                                    <div className="flex flex-wrap gap-2 mt-3">
+                                        {profile.languages.map((lang) => (
+                                            <span key={lang} className="ui-tag">
                                                 {lang}
                                             </span>
                                         ))}
                                     </div>
                                 </div>
                             )}
-
                             {profile.skills && profile.skills.length > 0 && (
-                                <div className="space-y-4">
-                                    <div className="text-[8px] font-black uppercase tracking-widest text-purple-500/40 px-6">Specialized Modules</div>
-                                    <div className="flex flex-wrap gap-2 px-1">
-                                        {profile.skills.map(skill => (
-                                            <span key={skill} className="px-5 py-2.5 rounded-xl bg-emerald-500/5 border border-emerald-500/10 text-[9px] font-black uppercase tracking-widest text-emerald-400/60 hover:text-emerald-400 hover:border-emerald-500/40 transition-all cursor-default">
+                                <div>
+                                    <h2>Skills</h2>
+                                    <div className="flex flex-wrap gap-2 mt-3">
+                                        {profile.skills.map((skill) => (
+                                            <span key={skill} className="ui-tag">
                                                 {skill}
                                             </span>
                                         ))}
                                     </div>
                                 </div>
                             )}
-                        </motion.div>
+                        </section>
                     )}
                 </div>
 
-                {/* Right Unit: Activity & Trust Ledger */}
-                <div className="lg:col-span-8 space-y-12">
-                    <motion.div variants={itemVariants} className="flex gap-8 border-b border-border">
-                        {[
-                            { id: 'reviews', label: 'Reviews', count: reviews.length, icon: Heart },
-                            ...(profile?.role === 'provider' || profile?.role === 'both' || listings.length > 0
-                                ? [{ id: 'listings', label: 'Listings', count: listings.length, icon: Activity }]
-                                : []),
-                        ].map((tab) => (
+                <div className="min-w-0 space-y-6">
+                    <nav className="ui-tabs" aria-label="Profile activity">
+                        <button
+                            type="button"
+                            onClick={() => setActiveTab("reviews")}
+                            className={activeTab === "reviews" ? "active" : ""}
+                        >
+                            Reviews ({reviews.length})
+                        </button>
+                        {showListingsTab ? (
                             <button
-                                key={tab.id}
-                                onClick={() => setActiveTab(tab.id as any)}
-                                className={`relative flex items-center gap-3 px-8 py-5 text-[10px] font-black uppercase tracking-[0.3em] transition-all ${activeTab === tab.id ? "text-primary" : "text-muted-foreground hover:text-foreground"
-                                    }`}
+                                type="button"
+                                onClick={() => setActiveTab("listings")}
+                                className={activeTab === "listings" ? "active" : ""}
                             >
-                                <tab.icon size={14} />
-                                {tab.label}
-                                <span className={`ml-2 px-2 py-0.5 rounded-md text-[8px] border font-black ${activeTab === tab.id ? "bg-primary/20 border-primary/20" : "bg-muted border-border"
-                                    }`}>
-                                    {tab.count}
-                                </span>
-                                {activeTab === tab.id && (
-                                    <motion.div layoutId="profile-tab" className="absolute bottom-0 inset-x-0 h-1 bg-primary rounded-full shadow-[0_0_20px_rgba(16,185,129,0.5)]" />
-                                )}
+                                Listings ({listings.length})
                             </button>
-                        ))}
-                    </motion.div>
+                        ) : null}
+                    </nav>
 
-                    <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
-                        {activeTab === "reviews" && (
-                            <div className="space-y-6">
-                                {reviews.length === 0 ? (
-                                    <div className="py-40 text-center border-2 border-dashed border-border rounded-[3rem] bg-muted">
-                                        <div className="relative w-20 h-20 mx-auto mb-8">
-                                            <div className="absolute inset-0 rounded-full border border-border animate-ping opacity-20" />
-                                            <div className="absolute inset-0 flex items-center justify-center">
-                                                <Star size={32} className="text-muted-foreground" />
+                    {activeTab === "reviews" && (
+                        <div className="space-y-4">
+                            {reviews.length === 0 ? (
+                                <EmptyState
+                                    title="No reviews yet"
+                                    description="Reviews from completed orders will show here."
+                                />
+                            ) : (
+                                reviews.map((review) => (
+                                    <article key={review.id} className="ui-surface">
+                                        <div className="flex items-start justify-between gap-4 mb-3">
+                                            <div className="min-w-0">
+                                                <p className="text-sm font-medium">
+                                                    @{review.reviewer?.username || "Anonymous"}
+                                                </p>
+                                                <div className="flex gap-1 mt-1" aria-label={`${review.rating} of 5 stars`}>
+                                                    {Array.from({ length: 5 }).map((_, i) => (
+                                                        <Star
+                                                            key={i}
+                                                            size={14}
+                                                            className={
+                                                                i < review.rating
+                                                                    ? "fill-primary text-primary"
+                                                                    : "text-muted-foreground"
+                                                            }
+                                                            aria-hidden="true"
+                                                        />
+                                                    ))}
+                                                </div>
                                             </div>
+                                            <p className="ui-note shrink-0">
+                                                {new Date(review.created_at).toLocaleDateString()}
+                                            </p>
                                         </div>
-                                        <h4 className="text-xl font-black uppercase tracking-tighter text-foreground">No reviews yet</h4>
-                                        <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.4em] mt-4">Reviews from completed orders will show here.</p>
-                                    </div>
-                                ) : (
-                                    <div className="space-y-6">
-                                        {reviews.map((review) => (
-                                            <GlassCard key={review.id} className="group !p-8 border-border bg-card rounded-[2.5rem] hover:bg-surface-hover transition-all">
-                                                <div className="flex items-start justify-between gap-6 mb-8">
-                                                    <div className="flex items-center gap-5">
-                                                        <div className="w-12 h-12 rounded-2xl bg-muted border border-border flex items-center justify-center text-xs font-black text-primary overflow-hidden">
-                                                            {review.reviewer?.avatar_url ? (
-                                                                <img src={review.reviewer.avatar_url} alt="" className="w-full h-full object-cover opacity-50" />
-                                                            ) : (
-                                                                (review.reviewer?.username?.[0] || "A").toUpperCase()
-                                                            )}
-                                                        </div>
-                                                        <div className="space-y-1">
-                                                            <div className="text-[11px] font-black text-foreground uppercase tracking-wider">
-                                                                @{review.reviewer?.username || "Anonymous"}
-                                                            </div>
-                                                            <div className="flex gap-1">
-                                                                {Array.from({ length: 5 }).map((_, i) => (
-                                                                    <Star key={i} size={10} className={i < review.rating ? "fill-primary text-primary" : "text-muted-foreground"} />
-                                                                ))}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                    <div className="text-right">
-                                                        <div className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">{new Date(review.created_at).toLocaleDateString()}</div>
-                                                    </div>
-                                                </div>
-                                                <div className="relative pl-6">
-                                                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary/20 rounded-full" />
-                                                    <p className="text-sm font-black text-foreground leading-relaxed italic">
-                                                        "{review.content}"
-                                                    </p>
-                                                </div>
-                                            </GlassCard>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        )}
+                                        <p className="text-sm leading-relaxed">{review.content}</p>
+                                    </article>
+                                ))
+                            )}
+                        </div>
+                    )}
 
-                        {activeTab === "listings" && (
-                            <div className="space-y-4">
-                                {listings.length === 0 ? (
-                                    <div className="py-24 text-center border-2 border-dashed border-border rounded-[3rem] bg-muted">
-                                        <h4 className="text-xl font-black uppercase tracking-tighter text-foreground">No listings</h4>
-                                        <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.4em] mt-4">This seller has no public listings yet.</p>
-                                    </div>
-                                ) : (
-                                    listings.map((listing) => (
-                                        <Link key={listing.id} href={`/marketplace/${listing.id}`} className="block">
-                                            <GlassCard className="!p-6 border-border bg-card rounded-[1.5rem] flex items-center justify-between hover:bg-surface-hover transition-all">
-                                                <div className="space-y-1">
-                                                    <div className="text-lg font-black uppercase tracking-tight text-foreground">
-                                                        {listing.title}
-                                                    </div>
-                                                    <div className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                                                        {[listing.country, listing.city, listing.status].filter(Boolean).join(" · ")}
-                                                    </div>
-                                                </div>
-                                                <ArrowRight size={20} className="text-muted-foreground" />
-                                            </GlassCard>
-                                        </Link>
-                                    ))
-                                )}
-                                <Link href={`/marketplace?seller_id=${profile?.id}`} className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-primary">
-                                    View all on marketplace <ArrowRight size={14} />
-                                </Link>
-                            </div>
-                        )}
-                    </div>
+                    {activeTab === "listings" && (
+                        <div className="space-y-3">
+                            {listings.length === 0 ? (
+                                <EmptyState
+                                    title="No listings"
+                                    description="This seller has no public listings yet."
+                                />
+                            ) : (
+                                listings.map((listing) => (
+                                    <Link
+                                        key={listing.id}
+                                        href={`/marketplace/${listing.id}`}
+                                        className="ui-listing"
+                                    >
+                                        <div className="min-w-0">
+                                            <h2>{listing.title}</h2>
+                                            <p className="ui-listing-meta">
+                                                {[listing.country, listing.city, listing.status]
+                                                    .filter(Boolean)
+                                                    .join(" · ")}
+                                            </p>
+                                        </div>
+                                    </Link>
+                                ))
+                            )}
+                            <Link
+                                href={`/marketplace?seller_id=${profile.id}`}
+                                className="ui-link text-sm"
+                            >
+                                View all on marketplace
+                            </Link>
+                        </div>
+                    )}
                 </div>
             </div>
-        </motion.div>
+
+            <ConfirmDialog
+                open={blockOpen}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setBlockOpen(false);
+                        setBlockError("");
+                    }
+                }}
+                title="Block this user"
+                description="Block this user? They will be removed from your follows."
+                confirmLabel="Block"
+                cancelLabel="Cancel"
+                destructive
+                loading={blockLoading}
+                error={blockError || undefined}
+                onConfirm={() => void handleBlock()}
+            />
+        </div>
     );
 }

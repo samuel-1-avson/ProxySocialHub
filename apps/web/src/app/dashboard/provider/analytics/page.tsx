@@ -5,11 +5,17 @@ import { getProviderNodes, ProviderNode } from '@/lib/api/marketplace';
 import { getProviderEarningsSummary, getNodeUptime } from '@/lib/api/provider';
 import { ProviderScoreCard } from '@/components/ProviderScoreCard';
 import { MarketplaceFunnelDashboard } from '@/components/admin/MarketplaceFunnelDashboard';
-import { Loader2, Server, BarChart2, Coins, TrendingUp, Activity, Plus, Gauge, Wifi } from 'lucide-react';
-import { GlassCard } from '@/components/ui/glass-card';
-import { motion } from 'framer-motion';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/lib/auth';
+import {
+    PageHeading,
+    Loading,
+    DataError,
+    EmptyState,
+    Stat,
+    Status,
+    amount,
+} from '@/components/workspace/Patterns';
 
 async function fetchProviderNodes(): Promise<ProviderNode[]> {
     const data = await getProviderNodes();
@@ -26,7 +32,7 @@ function uptimeBarColor(percent: number): string {
 
 export default function ProviderAnalyticsPage() {
     const { isAuthenticated } = useAuth();
-    const { data: nodes = [], isLoading: loading } = useQuery({
+    const { data: nodes = [], isLoading: loading, isError: nodesError, error: nodesQueryError, refetch: refetchNodes } = useQuery({
         queryKey: ['provider-nodes-analytics'],
         queryFn: fetchProviderNodes,
         retry: 2,
@@ -57,9 +63,13 @@ export default function ProviderAnalyticsPage() {
 
     if (loading) {
         return (
-            <div className="flex flex-col items-center justify-center min-h-[50vh]">
-                <Loader2 className="w-8 h-8 animate-spin text-primary mb-4" />
-                <p className="text-xs font-mono uppercase text-muted-foreground">Analyzing Network Performance...</p>
+            <div className="ui-page">
+                <PageHeading
+                    eyebrow="Performance analytics"
+                    title="Provider scorecard"
+                    description="Real-time trust metrics, node performance, and earnings."
+                />
+                <Loading label="Loading network performance…" />
             </div>
         );
     }
@@ -84,198 +94,120 @@ export default function ProviderAnalyticsPage() {
     const totalSessions = earnings?.total_sessions ?? null;
 
     return (
-        <div className="space-y-8 animate-in fade-in duration-500 pb-20">
-            <div className="flex flex-col gap-2 border-b border-border pb-6">
-                <div className="flex items-center gap-2 text-primary font-mono text-xs font-bold uppercase tracking-widest">
-                    <BarChart2 size={14} />
-                    Performance Analytics
-                </div>
-                <h1 className="text-3xl font-bold font-mono uppercase tracking-tight">Provider Scorecard</h1>
-                <p className="text-muted-foreground font-mono text-xs max-w-lg">
-                    Real-time trust metrics, node performance, and earnings.
-                </p>
-            </div>
+        <div className="ui-page">
+            <PageHeading
+                eyebrow="Performance analytics"
+                title="Provider scorecard"
+                description="Real-time trust metrics, node performance, and earnings."
+            />
 
-            <GlassCard hoverEffect={false} className="p-6">
+            {nodesError && (
+                <DataError error={nodesQueryError} retry={() => void refetchNodes()} />
+            )}
+
+            <section className="ui-surface">
                 <MarketplaceFunnelDashboard mode="seller" enabled={isAuthenticated} />
-            </GlassCard>
+            </section>
 
             {!hasActiveNodes ? (
-                <GlassCard hoverEffect={false}>
-                    <div className="text-center py-12 space-y-4">
-                        <Server className="mx-auto w-14 h-14 text-muted-foreground/20" />
-                        <p className="font-mono text-sm font-bold">No nodes yet</p>
-                        <p className="font-mono text-xs text-muted-foreground max-w-md mx-auto">
-                            Add a node with the setup wizard, then start the CLI. Stats appear after your first heartbeat.
-                        </p>
-                        <div className="flex gap-3 justify-center">
-                            <Link
-                                href="/dashboard/provider/setup"
-                                className="px-4 py-2 bg-primary text-primary-foreground rounded-xl font-mono text-xs font-bold uppercase"
-                            >
-                                Setup wizard
-                            </Link>
-                            <Link
-                                href="/dashboard/provider/cli"
-                                className="px-4 py-2 bg-muted border border-border rounded-xl font-mono text-xs font-bold uppercase"
-                            >
-                                CLI download
-                            </Link>
-                        </div>
-                    </div>
-                </GlassCard>
+                <EmptyState
+                    title="No nodes yet"
+                    description="Add a node with the setup wizard, then start the CLI. Stats appear after your first heartbeat."
+                    href="/dashboard/provider/setup"
+                    action="Setup wizard"
+                />
             ) : (
                 <>
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                        <GlassCard className="p-5 border-emerald-500/10 bg-emerald-500/5">
-                            <div className="flex items-center gap-3 mb-3">
-                                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20">
-                                    <Coins size={20} className="text-emerald-400" />
-                                </div>
-                                <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Total Earnings</div>
-                            </div>
-                            <div className="text-2xl font-black font-mono text-emerald-400">
-                                {totalEarned.toFixed(4)} <span className="text-sm text-emerald-400/60">SOL</span>
-                            </div>
-                            <p className="text-[10px] text-muted-foreground mt-1">
-                                Pending {((earnings?.pending_sol ?? 0)).toFixed(4)} SOL ·{' '}
-                                <Link href="/dashboard/provider/earnings" className="text-primary hover:underline">Income</Link>
-                            </p>
-                        </GlassCard>
+                    <section className="ui-stats">
+                        <Stat
+                            label="Total earnings"
+                            value={`${amount(totalEarned, 4)} SOL`}
+                            detail={`Pending ${amount(earnings?.pending_sol ?? 0, 4)} SOL`}
+                        />
+                        <Stat
+                            label="Active nodes"
+                            value={`${nodes.filter(n => n.status === 'online').length}/${nodes.length}`}
+                            detail="Online now"
+                        />
+                        <Stat
+                            label="Trust score"
+                            value={(nodes.length > 0 ? (nodes.reduce((acc, n) => acc + (Number(n.quality_score) || 0), 0) / nodes.length) : 0).toFixed(1)}
+                            detail="Average across nodes"
+                        />
+                    </section>
+                    <section className="ui-stats">
+                        <Stat
+                            label="Connections"
+                            value={nodes.reduce((acc, n) => acc + (n.active_connections || 0), 0)}
+                            detail="Active right now"
+                        />
+                        <Stat
+                            label="Avg uptime (30d)"
+                            value={avgUptime !== null ? `${avgUptime.toFixed(1)}%` : '—'}
+                            detail="Across all reporting nodes"
+                        />
+                        <Stat
+                            label="Avg latency"
+                            value={avgLatency !== null ? `${avgLatency.toFixed(0)} ms` : '—'}
+                            detail="Across all reporting nodes"
+                        />
+                    </section>
+                    <p className="ui-note">
+                        Pending {amount(earnings?.pending_sol ?? 0, 4)} SOL ·{' '}
+                        <Link href="/dashboard/provider/earnings" className="ui-link">Income</Link>
+                        {' · '}
+                        Lifetime sessions: {totalSessions !== null ? totalSessions.toLocaleString() : '—'}
+                    </p>
 
-                        <GlassCard className="p-5 border-border bg-muted">
-                            <div className="flex items-center gap-3 mb-3">
-                                <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
-                                    <Activity size={20} className="text-blue-400" />
-                                </div>
-                                <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Active Nodes</div>
-                            </div>
-                            <div className="text-2xl font-black font-mono">
-                                {nodes.filter(n => n.status === 'online').length}<span className="text-sm text-muted-foreground">/{nodes.length}</span>
-                            </div>
-                            <p className="text-[10px] text-muted-foreground mt-1">Online now</p>
-                        </GlassCard>
-
-                        <GlassCard className="p-5 border-border bg-muted">
-                            <div className="flex items-center gap-3 mb-3">
-                                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20">
-                                    <TrendingUp size={20} className="text-emerald-400" />
-                                </div>
-                                <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Trust Score</div>
-                            </div>
-                            <div className="text-2xl font-black font-mono">
-                                {(nodes.length > 0 ? (nodes.reduce((acc, n) => acc + (Number(n.quality_score) || 0), 0) / nodes.length) : 0).toFixed(1)}
-                            </div>
-                            <p className="text-[10px] text-muted-foreground mt-1">Average across nodes</p>
-                        </GlassCard>
-
-                        <GlassCard className="p-5 border-border bg-muted">
-                            <div className="flex items-center gap-3 mb-3">
-                                <div className="w-10 h-10 rounded-xl bg-orange-500/10 flex items-center justify-center border border-orange-500/20">
-                                    <Server size={20} className="text-orange-400" />
-                                </div>
-                                <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Connections</div>
-                            </div>
-                            <div className="text-2xl font-black font-mono">
-                                {nodes.reduce((acc, n) => acc + (n.active_connections || 0), 0)}
-                            </div>
-                            <p className="text-[10px] text-muted-foreground mt-1">Active right now</p>
-                        </GlassCard>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <GlassCard className="p-5 border-border bg-muted">
-                            <div className="flex items-center gap-3 mb-3">
-                                <div className="w-10 h-10 rounded-xl bg-cyan-500/10 flex items-center justify-center border border-cyan-500/20">
-                                    <Gauge size={20} className="text-cyan-400" />
-                                </div>
-                                <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Avg Uptime (30d)</div>
-                            </div>
-                            <div className="text-2xl font-black font-mono">
-                                {avgUptime !== null ? `${avgUptime.toFixed(1)}%` : '—'}
-                            </div>
-                            <p className="text-[10px] text-muted-foreground mt-1">Across all reporting nodes</p>
-                        </GlassCard>
-
-                        <GlassCard className="p-5 border-border bg-muted">
-                            <div className="flex items-center gap-3 mb-3">
-                                <div className="w-10 h-10 rounded-xl bg-violet-500/10 flex items-center justify-center border border-violet-500/20">
-                                    <Wifi size={20} className="text-violet-400" />
-                                </div>
-                                <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Avg Latency</div>
-                            </div>
-                            <div className="text-2xl font-black font-mono">
-                                {avgLatency !== null ? `${avgLatency.toFixed(0)}` : '—'}
-                                {avgLatency !== null && <span className="text-sm text-muted-foreground"> ms</span>}
-                            </div>
-                            <p className="text-[10px] text-muted-foreground mt-1">Across all reporting nodes</p>
-                        </GlassCard>
-
-                        <GlassCard className="p-5 border-border bg-muted">
-                            <div className="flex items-center gap-3 mb-3">
-                                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20">
-                                    <BarChart2 size={20} className="text-emerald-400" />
-                                </div>
-                                <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Total Sessions</div>
-                            </div>
-                            <div className="text-2xl font-black font-mono">
-                                {totalSessions !== null ? totalSessions.toLocaleString() : '—'}
-                            </div>
-                            <p className="text-[10px] text-muted-foreground mt-1">Lifetime, from earnings</p>
-                        </GlassCard>
-                    </div>
-
-                    <div className="space-y-4">
-                        <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-muted-foreground">
-                            <Gauge size={16} />
-                            Node Availability (30d)
+                    <section className="ui-surface">
+                        <div className="ui-section-heading">
+                            <h2>Node availability (30d)</h2>
                         </div>
-                        <GlassCard hoverEffect={false} className="p-5 border-border bg-muted divide-y divide-border">
-                            {nodes.map((node) => {
-                                const uptime = uptimeByNode[node.id];
-                                const uptimePercent = uptime?.uptime_percent ?? node.uptime_percent ?? null;
-                                const latency = uptime?.avg_latency_ms ?? node.latency_ms ?? null;
-                                return (
-                                    <div key={node.id} className="py-3 first:pt-0 last:pb-0 flex flex-col md:flex-row md:items-center gap-3">
-                                        <div className="flex items-center gap-2 md:w-48 shrink-0">
-                                            <div className={`w-1.5 h-1.5 rounded-full ${node.status === 'online' ? 'bg-emerald-500' : 'bg-rose-500'}`} />
-                                            <span className="text-xs font-mono font-bold truncate">{node.name || node.ip_address || node.id.slice(0, 8)}</span>
-                                        </div>
-                                        <div className="flex-1 min-w-[120px]">
-                                            {uptimePercent !== null ? (
-                                                <div className="h-2 w-full bg-background rounded-full overflow-hidden border border-border">
-                                                    <div
-                                                        className={`h-full rounded-full ${uptimeBarColor(uptimePercent)}`}
-                                                        style={{ width: `${Math.min(100, Math.max(0, uptimePercent))}%` }}
-                                                    />
-                                                </div>
-                                            ) : (
-                                                <p className="text-[10px] text-muted-foreground font-mono">No uptime data yet</p>
-                                            )}
-                                        </div>
-                                        <div className="flex items-center gap-4 text-[10px] font-mono text-muted-foreground md:w-56 shrink-0 justify-end">
-                                            <span>{uptimePercent !== null ? `${uptimePercent.toFixed(1)}%` : '—'}</span>
-                                            <span>{latency !== null ? `${latency.toFixed(0)}ms` : '—'}</span>
-                                            {uptime?.current_status && (
-                                                <span className="uppercase">{uptime.current_status}</span>
-                                            )}
+                        {nodes.map((node) => {
+                            const uptime = uptimeByNode[node.id];
+                            const uptimePercent = uptime?.uptime_percent ?? node.uptime_percent ?? null;
+                            const latency = uptime?.avg_latency_ms ?? node.latency_ms ?? null;
+                            return (
+                                <div key={node.id} className="ui-row">
+                                    <div className="ui-row-identity">
+                                        <span className="ui-region">
+                                            <Status tone={node.status === 'online' ? 'good' : 'error'}>
+                                                {node.status}
+                                            </Status>
+                                        </span>
+                                        <div>
+                                            <h3>{node.name || node.ip_address || node.id.slice(0, 8)}</h3>
+                                            <p>
+                                                {uptimePercent !== null ? `${uptimePercent.toFixed(1)}% uptime` : 'No uptime data yet'}
+                                                {' · '}
+                                                {latency !== null ? `${latency.toFixed(0)}ms` : '—'}
+                                                {uptime?.current_status ? ` · ${uptime.current_status}` : ''}
+                                            </p>
                                         </div>
                                     </div>
-                                );
-                            })}
-                        </GlassCard>
-                    </div>
+                                    {uptimePercent !== null ? (
+                                        <div className="min-w-[120px] flex-1">
+                                            <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
+                                                <div
+                                                    className={`h-full rounded-full ${uptimeBarColor(uptimePercent)}`}
+                                                    style={{ width: `${Math.min(100, Math.max(0, uptimePercent))}%` }}
+                                                />
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <p className="ui-note">No uptime data yet</p>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </section>
 
-                    <div className="space-y-4">
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-muted-foreground">
-                                <Server size={16} />
-                                Your Nodes
-                            </div>
-                            <div className="flex gap-2 text-[10px] font-mono">
-                                <Link href="/dashboard/provider/health" className="text-primary hover:underline">Diagnostics</Link>
-                                <span className="text-muted-foreground">·</span>
-                                <Link href="/dashboard/provider/nodes" className="text-primary hover:underline">Manage</Link>
+                    <section>
+                        <div className="ui-section-heading">
+                            <h2>Your nodes</h2>
+                            <div className="ui-actions">
+                                <Link href="/dashboard/provider/health" className="ui-link">Diagnostics</Link>
+                                <Link href="/dashboard/provider/nodes" className="ui-link">Manage</Link>
                             </div>
                         </div>
                         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
@@ -283,35 +215,27 @@ export default function ProviderAnalyticsPage() {
                                 <ProviderScoreCard key={node.id} node={node} />
                             ))}
                         </div>
-                    </div>
+                    </section>
 
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="flex justify-center pt-8"
-                    >
-                        <GlassCard className="p-6 border-dashed border-border bg-muted/40 max-w-2xl w-full">
-                            <div className="flex items-center justify-between gap-4">
-                                <div className="flex items-center gap-4">
-                                    <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center border border-primary/20">
-                                        <TrendingUp size={24} className="text-primary" />
-                                    </div>
-                                    <div>
-                                        <h3 className="font-bold">Scale Your Earnings</h3>
-                                        <p className="text-xs text-muted-foreground">Add more nodes to increase your earning potential</p>
-                                    </div>
-                                </div>
-                                <Link
-                                    href="/dashboard/provider/setup"
-                                    className="px-4 py-2 bg-primary/10 hover:bg-primary/20 border border-primary/20 rounded-lg text-[10px] font-bold uppercase tracking-wider text-primary transition-all flex items-center gap-1.5 shrink-0"
-                                >
-                                    <Plus size={12} />
-                                    Add Node
-                                </Link>
-                            </div>
-                        </GlassCard>
-                    </motion.div>
+                    <section className="ui-attention">
+                        <h3>Scale your earnings</h3>
+                        <p>Add more nodes to increase your earning potential.</p>
+                        <Link
+                            href="/dashboard/provider/setup"
+                            className="ui-button"
+                        >
+                            Add node
+                        </Link>
+                    </section>
                 </>
+            )}
+
+            {!hasActiveNodes && (
+                <div className="ui-actions">
+                    <Link href="/dashboard/provider/cli" className="ui-button secondary">
+                        CLI download
+                    </Link>
+                </div>
             )}
         </div>
     );
