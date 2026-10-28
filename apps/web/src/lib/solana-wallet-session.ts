@@ -1,3 +1,36 @@
+/** Raised by clearSolanaWalletAdapterSession() once storage is cleared. */
+export const WALLET_SESSION_CLEAR_EVENT = 'proxyhubb:wallet-session-clear';
+/** Raised by logout() after it has cleared the wallet session. */
+export const AUTH_LOGOUT_EVENT = 'proxyhubb:auth-logout';
+
+/**
+ * Disconnect the wallet when a session-clear or logout event fires.
+ *
+ * The handler must ONLY disconnect. It used to call clearSolanaWalletAdapterSession() first,
+ * which dispatches WALLET_SESSION_CLEAR_EVENT, the event this handler listens for, so every
+ * logout re-entered it until the call stack overflowed (RangeError) in the middle of the wallet
+ * adapter's disconnect, leaving the adapter and Phantom disagreeing about the connection.
+ * Whoever raises either event has already cleared storage.
+ */
+export function bindWalletSessionClear(opts: {
+  isConnected: () => boolean;
+  disconnect: () => Promise<void>;
+  target?: Pick<Window, 'addEventListener' | 'removeEventListener'>;
+}): () => void {
+  const target = opts.target ?? window;
+  const onClear = () => {
+    if (opts.isConnected()) {
+      void opts.disconnect().catch(() => undefined);
+    }
+  };
+  target.addEventListener(WALLET_SESSION_CLEAR_EVENT, onClear);
+  target.addEventListener(AUTH_LOGOUT_EVENT, onClear);
+  return () => {
+    target.removeEventListener(WALLET_SESSION_CLEAR_EVENT, onClear);
+    target.removeEventListener(AUTH_LOGOUT_EVENT, onClear);
+  };
+}
+
 /**
  * Clear Solana wallet-adapter session so autoConnect cannot resurrect
  * the previous account after logout / user switch / manual disconnect.
@@ -14,7 +47,7 @@ export function clearSolanaWalletAdapterSession(): void {
     // ignore quota / private mode
   }
   try {
-    window.dispatchEvent(new CustomEvent('proxyhubb:wallet-session-clear'));
+    window.dispatchEvent(new CustomEvent(WALLET_SESSION_CLEAR_EVENT));
   } catch {
     // ignore
   }
