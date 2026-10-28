@@ -137,6 +137,7 @@ Cargo.lock
 !services/zk-prover/Cargo.lock
 !services/provider-node/Cargo.lock
 !cli/Cargo.lock
+!apps/provider-app/src-tauri/Cargo.lock
 
 # Go
 services/control-api/vendor/
