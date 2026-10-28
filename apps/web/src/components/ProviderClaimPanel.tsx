@@ -1,146 +1,197 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useWallet } from '@solana/wallet-adapter-react';
-import bs58 from 'bs58';
-import Link from 'next/link';
-import { Loader2, Wallet, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { GlassCard } from '@/components/ui/glass-card';
+import { useRef, useState } from "react";
+import Link from "next/link";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useWallet } from "@solana/wallet-adapter-react";
+import bs58 from "bs58";
+import { useAuth } from "@/lib/auth";
 import {
-    confirmProviderClaim,
-    getProviderClaimSummary,
-    prepareProviderClaim,
-} from '@/lib/api/provider';
+  confirmProviderClaim,
+  getProviderClaimSummary,
+  prepareProviderClaim,
+  type ProviderClaimPrepareResponse,
+} from "@/lib/api/provider";
+import { explorerHref } from "@/lib/navigation/workspace";
+import { Loading, DataError, amount } from "@/components/workspace/Patterns";
 
 export function ProviderClaimPanel() {
-    const { publicKey, signMessage, connected } = useWallet();
-    const queryClient = useQueryClient();
-    const [claiming, setClaiming] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    const [txHash, setTxHash] = useState<string | null>(null);
-
-    const { data: claim, isLoading } = useQuery({
-        queryKey: ['provider-claim-summary'],
-        queryFn: getProviderClaimSummary,
-        staleTime: 30_000,
-    });
-
-    const canClaim =
-        claim &&
-        claim.oracle_ready &&
-        claim.pending_count > 0 &&
-        claim.pending_sol >= claim.min_claim_sol &&
-        Boolean(claim.payout_wallet);
-
-    async function handleClaim() {
-        setError(null);
-        setTxHash(null);
-        if (!signMessage || !connected || !publicKey) {
-            setError('Connect the Solana wallet that matches your provider payout address.');
-            return;
-        }
-        if (!canClaim) return;
-
-        setClaiming(true);
-        try {
-            const prepared = await prepareProviderClaim();
-            const encoded = new TextEncoder().encode(prepared.message);
-            const sigBytes = await signMessage(encoded);
-            const signature = bs58.encode(sigBytes);
-
-            const result = await confirmProviderClaim({
-                claim_id: prepared.claim_id,
-                message: prepared.message,
-                signature,
-            });
-
-            setTxHash(result.tx_hash ?? null);
-            await queryClient.invalidateQueries({ queryKey: ['provider-claim-summary'] });
-            await queryClient.invalidateQueries({ queryKey: ['provider-earnings-summary'] });
-            await queryClient.invalidateQueries({ queryKey: ['provider-earnings'] });
-        } catch (e) {
-            setError(e instanceof Error ? e.message : 'Claim failed');
-        } finally {
-            setClaiming(false);
-        }
-    }
-
-    if (isLoading) {
-        return null;
-    }
-
-    if (!claim) {
-        return null;
-    }
-
-    if (!claim.payout_wallet) {
-        return (
-            <GlassCard className="p-6 border-amber-500/20 bg-amber-500/5">
-                <div className="flex items-start gap-3">
-                    <AlertCircle className="text-amber-400 shrink-0 mt-0.5" size={18} />
-                    <div className="space-y-2">
-                        <p className="text-sm font-bold font-mono uppercase tracking-wider text-amber-400">
-                            Set a payout wallet
-                        </p>
-                        <p className="text-sm text-muted-foreground max-w-xl">
-                            Claims require a Solana payout wallet on your provider node. Link a wallet in{' '}
-                            <Link href="/dashboard/settings" className="text-primary hover:underline">Settings</Link>
-                            {' '}— it is copied to your nodes automatically on create, heartbeat, or readiness check.
-                        </p>
-                        <Link
-                            href="/dashboard/settings"
-                            className="inline-flex text-[10px] font-bold uppercase tracking-widest text-primary hover:underline"
-                        >
-                            Open Settings →
-                        </Link>
-                    </div>
-                </div>
-            </GlassCard>
+  const { user } = useAuth();
+  const wallet = useWallet();
+  const client = useQueryClient();
+  const [progress, setProgress] = useState("");
+  const [hasSigned, setHasSigned] = useState(false);
+  const signed = useRef<{
+    prepared: ProviderClaimPrepareResponse;
+    signature: string;
+  } | null>(null);
+  const query = useQuery({
+    queryKey: ["provider-claim-summary", user?.id],
+    queryFn: getProviderClaimSummary,
+    staleTime: 15_000,
+  });
+  const claim = query.data;
+  const matching = Boolean(
+    wallet.connected &&
+      wallet.publicKey &&
+      wallet.publicKey.toBase58() === claim?.payout_wallet,
+  );
+  const eligible = Boolean(
+    claim?.oracle_ready &&
+      claim.pending_count > 0 &&
+      claim.pending_sol >= claim.min_claim_sol &&
+      claim.payout_wallet,
+  );
+  const submit = useMutation({
+    retry: false,
+    mutationFn: async () => {
+      if (!matching || !wallet.signMessage || !wallet.publicKey)
+        throw new Error(
+          "Connect the Solana wallet matching the reported payout address.",
         );
-    }
-
-    if (claim.pending_sol <= 0) {
-        return null;
-    }
-
-    return (
-        <GlassCard className="p-6 border-emerald-500/20 bg-emerald-500/5">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                    <div className="flex items-center gap-2 text-emerald-400 font-mono text-[10px] font-bold uppercase tracking-widest mb-2">
-                        <Wallet size={14} />
-                        Manual on-chain claim
-                    </div>
-                    <p className="text-sm text-muted-foreground max-w-xl">
-                        Pull pending earnings to{' '}
-                        <code className="text-emerald-300">{claim.payout_wallet}</code>
-                        {' '}when you have at least {claim.min_claim_sol} SOL pending.
-                    </p>
-                    {!claim.oracle_ready && (
-                        <p className="text-xs text-amber-500 mt-2 flex items-center gap-1">
-                            <AlertCircle size={12} /> Oracle is not ready — claims are temporarily unavailable.
-                        </p>
-                    )}
-                    {error && (
-                        <p className="text-xs text-red-400 mt-2">{error}</p>
-                    )}
-                    {txHash && (
-                        <p className="text-xs text-emerald-400 mt-2 flex items-center gap-1">
-                            <CheckCircle2 size={12} /> Claim submitted — tx {txHash.slice(0, 16)}…
-                        </p>
-                    )}
-                </div>
-                <button
-                    type="button"
-                    disabled={!canClaim || claiming}
-                    onClick={handleClaim}
-                    className="px-5 py-3 rounded-xl bg-primary hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed text-primary-foreground text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-2 shrink-0"
-                >
-                    {claiming ? <Loader2 size={14} className="animate-spin" /> : null}
-                    Claim {claim.pending_sol.toFixed(4)} SOL
-                </button>
+      if (!signed.current) {
+        const prepared = await prepareProviderClaim();
+        if (prepared.wallet !== wallet.publicKey.toBase58())
+          throw new Error(
+            "The prepared payout address does not match your connected wallet.",
+          );
+        if (!prepared.message || !prepared.claim_id)
+          throw new Error(
+            "The payout authorization was incomplete. No message was signed.",
+          );
+        if (
+          Number.isFinite(Date.parse(prepared.expires_at)) &&
+          Date.parse(prepared.expires_at) <= Date.now()
+        )
+          throw new Error(
+            "This payout authorization has expired. Refresh eligibility before trying again.",
+          );
+        setProgress("Approve the payout authorization in your wallet…");
+        const signature = bs58.encode(
+          await wallet.signMessage(new TextEncoder().encode(prepared.message)),
+        );
+        signed.current = { prepared, signature };
+      }
+      const { prepared, signature } = signed.current;
+      if (prepared.wallet !== wallet.publicKey.toBase58())
+        throw new Error(
+          "Reconnect the wallet that signed this authorization before retrying.",
+        );
+      setHasSigned(true);
+      setProgress("Submitting the signed authorization…");
+      return confirmProviderClaim({
+        claim_id: prepared.claim_id,
+        message: prepared.message,
+        signature,
+      });
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["provider-claim-summary"] });
+      void client.invalidateQueries({
+        queryKey: ["provider-earnings-summary"],
+      });
+      void client.invalidateQueries({ queryKey: ["provider-earnings"] });
+      void client.invalidateQueries({ queryKey: ["provider-payouts"] });
+    },
+    onSettled: () => setProgress(""),
+  });
+  return (
+    <section className="ui-surface ui-page">
+      <div>
+        <h2>Protocol payout authorization</h2>
+        <p className="ui-note">
+          Authorize eligible protocol earnings with the configured payout
+          wallet. This is separate from the account payable balance.
+        </p>
+      </div>
+      {query.isLoading && (
+        <Loading label="Loading protocol payout eligibility…" />
+      )}
+      {query.isError && (
+        <DataError error={query.error} retry={() => void query.refetch()} />
+      )}
+      {claim && (
+        <>
+          <dl className="ui-detail-list">
+            <div>
+              <dt>Reported pending</dt>
+              <dd>{amount(claim.pending_sol, 9)} SOL</dd>
             </div>
-        </GlassCard>
-    );
+            <div>
+              <dt>Minimum claim</dt>
+              <dd>{amount(claim.min_claim_sol, 9)} SOL</dd>
+            </div>
+            <div>
+              <dt>Payout address</dt>
+              <dd style={{ overflowWrap: "anywhere" }}>
+                {claim.payout_wallet || "Not configured"}
+              </dd>
+            </div>
+          </dl>
+          {!claim.payout_wallet ? (
+            <Link className="ui-link" href="/app/settings">
+              Link a payout wallet →
+            </Link>
+          ) : (
+            !matching && (
+              <p className="ui-note">
+                Connect the wallet matching this payout address through{" "}
+                <Link className="ui-link" href="/app/wallet">
+                  Wallet settings
+                </Link>{" "}
+                before authorizing.
+              </p>
+            )
+          )}
+          {!claim.oracle_ready && (
+            <p className="ui-note">
+              The payout service is not ready. Authorization is temporarily
+              unavailable.
+            </p>
+          )}
+          {progress && (
+            <p className="ui-note" role="status">
+              {progress}
+            </p>
+          )}
+          {submit.isError && <DataError error={submit.error} />}
+          {submit.data && (
+            <div className="ui-attention" role="status">
+              <h3>Authorization response: {submit.data.status}</h3>
+              {submit.data.tx_hash ? (
+                <a
+                  className="ui-link"
+                  href={explorerHref(
+                    `/transactions/${encodeURIComponent(submit.data.tx_hash)}`,
+                  )}
+                >
+                  Inspect the reported transaction ↗
+                </a>
+              ) : (
+                <p>
+                  A transaction hash has not been returned. Review payout
+                  history before attempting another authorization.
+                </p>
+              )}
+            </div>
+          )}
+          <button
+            className="ui-button self-start"
+            disabled={
+              !eligible || !matching || submit.isPending || submit.isSuccess
+            }
+            onClick={() => submit.mutate()}
+          >
+            {submit.isPending
+              ? "Authorizing…"
+              : submit.isSuccess
+                ? "Authorization submitted"
+                : hasSigned
+                  ? "Retry signed authorization"
+                  : "Authorize protocol payout"}
+          </button>
+        </>
+      )}
+    </section>
+  );
 }

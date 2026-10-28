@@ -1,7 +1,4 @@
-"use client";
-
-import { NotificationPreferencesPanel } from "@/components/settings/NotificationPreferencesPanel";
-
-export default function DashboardNotificationSettingsPage() {
-    return <NotificationPreferencesPanel />;
+import { redirect } from "next/navigation";
+export default function Page() {
+  redirect("/app/settings?tab=preferences");
 }

@@ -127,12 +127,13 @@ export function saveProviderApiKey(token: string, nodeId?: string | null) {
     }
 }
 
-export function loadProviderApiKey(nodeId?: string | null): string | null {
+export function loadProviderApiKey(nodeId?: string | null, options: { allowLegacyFallback?: boolean } = {}): string | null {
     if (typeof window === 'undefined') return null;
     try {
         if (nodeId) {
             const perNode = sessionStorage.getItem(apiKeyStorageKey(nodeId));
             if (perNode) return perNode;
+            if (options.allowLegacyFallback === false) return null;
         }
         return sessionStorage.getItem(STORAGE_KEY);
     } catch {
@@ -148,6 +149,16 @@ export function clearProviderApiKey(nodeId?: string | null) {
     } catch {
         /* ignore */
     }
+}
+
+/** Clear only provider connection tokens, without touching signing keys or unrelated session state. */
+export function clearProviderSessionTokens() {
+    if (typeof window === 'undefined') return;
+    try {
+        for (const key of Object.keys(sessionStorage)) {
+            if (key === STORAGE_KEY || key.startsWith(`${STORAGE_KEY}_`)) sessionStorage.removeItem(key);
+        }
+    } catch { /* Private browsing can disable storage. */ }
 }
 
 export function generateProviderSigningKey(): string {
