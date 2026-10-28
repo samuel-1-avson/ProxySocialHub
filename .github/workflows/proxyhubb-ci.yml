@@ -60,6 +60,7 @@ jobs:
       docs: ${{ steps.filter.outputs.docs }}
       edge: ${{ steps.filter.outputs.edge }}
       provider: ${{ steps.filter.outputs.provider }}
+      providerapp: ${{ steps.filter.outputs.providerapp }}
       solana: ${{ steps.filter.outputs.solana }}
     steps:
       - uses: actions/checkout@v4
@@ -82,6 +83,9 @@ jobs:
               - 'cli/**'
               - 'scripts/build-cli-dist.sh'
               - 'rebuild-cli.ps1'
+            providerapp:
+              - 'apps/provider-app/**'
+              - 'services/provider-node/**'
             solana:
               - 'services/solana-programs/**'
 
@@ -611,6 +615,106 @@ jobs:
     - name: Run Clippy
       run: cargo clippy -- -D warnings
 
+  # ==================== Provider app (Tauri tray app, Windows) ====================
+  # The app bundles provider-node as a sidecar, so a provider-node change re-checks it too.
+  # Actions are pinned by commit SHA (the tag is in the comment).
+  provider-app-check:
+    name: provider-app check (windows)
+    needs: changes
+    if: ${{ needs.changes.outputs.providerapp == 'true' || github.event_name == 'workflow_dispatch' }}
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: ./apps/provider-app
+    steps:
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+    - name: Use Node.js
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      with:
+        # Not env.NODE_VERSION (20): vitest 5 needs Node >= 22.12.
+        node-version: '22'
+        cache: 'npm'
+        cache-dependency-path: ./apps/provider-app/package-lock.json
+
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch tip
+      with:
+        toolchain: stable
+        components: rustfmt, clippy
+
+    - name: Cache Rust dependencies
+      uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
+      with:
+        workspaces: "./apps/provider-app/src-tauri -> target"
+
+    - name: Install dependencies
+      run: npm ci
+
+    # The frontend must be built first: the Rust build embeds ../dist.
+    - name: Frontend typecheck, tests, build
+      run: |
+        npm run typecheck
+        npm test
+        npm run build
+
+    # tauri-build needs the bundled node to exist; these checks never run the app.
+    - name: Placeholder sidecar
+      run: node scripts/build-sidecar.mjs --placeholder
+
+    - name: Check formatting
+      working-directory: ./apps/provider-app/src-tauri
+      run: cargo fmt -- --check
+
+    - name: Run unit tests
+      working-directory: ./apps/provider-app/src-tauri
+      run: cargo test --locked
+
+    - name: Run Clippy
+      working-directory: ./apps/provider-app/src-tauri
+      run: cargo clippy --locked --all-targets -- -D warnings
+
+  # Builds the real thing: provider-node, the app and the NSIS installer (debug profile, UNSIGNED,
+  # never installed or uploaded). The installer step downloads NSIS tooling from GitHub, which
+  # times out occasionally; scripts/build-app.mjs retries only that step.
+  provider-app-installer:
+    name: provider-app installer (windows, unsigned debug build)
+    needs: [changes, provider-app-check]
+    if: ${{ needs.changes.outputs.providerapp == 'true' || github.event_name == 'workflow_dispatch' }}
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: ./apps/provider-app
+    steps:
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+    - name: Use Node.js
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      with:
+        node-version: '22'
+        cache: 'npm'
+        cache-dependency-path: ./apps/provider-app/package-lock.json
+
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch tip
+      with:
+        toolchain: stable
+
+    - name: Cache Rust dependencies
+      uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
+      with:
+        workspaces: |
+          ./services/provider-node -> target
+          ./apps/provider-app/src-tauri -> target
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Build the installer
+      run: npm run build:app:debug
+
   proxyhubb-cli-check:
     name: proxyhubb-cli check
     needs: changes
@@ -848,7 +952,8 @@ jobs:
     - name: Build Web Docker image
       uses: docker/build-push-action@v5
       with:
-        context: ./apps/web
+        context: .
+        file: apps/web/Dockerfile
         push: false
         tags: web:test
         cache-from: type=gha
