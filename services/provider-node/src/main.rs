@@ -239,6 +239,11 @@ enum Commands {
         /// Emit JSON for scripts
         #[arg(long)]
         json: bool,
+
+        /// Only look at this computer (process, local metrics, tunnel state); do not call the
+        /// Control API. Fast and offline-safe, for programs that poll every few seconds.
+        #[arg(long)]
+        local: bool,
     },
 
     /// Pre-flight checks for config, auth, gateway, and local daemon
@@ -954,12 +959,21 @@ async fn main() -> anyhow::Result<()> {
             config,
             metrics_port,
             json,
+            local,
         } => {
-            init_logging(false);
+            // With --json, stdout must be the report and nothing else; logging goes to stdout.
+            if !json {
+                init_logging(false);
+            }
             let config_path = config
                 .map(std::path::PathBuf::from)
                 .unwrap_or_else(config::Config::default_config_path);
-            let report = status::collect(config_path, metrics_port).await?;
+            let mode = if local {
+                status::StatusCollectMode::LocalOnly
+            } else {
+                status::StatusCollectMode::Full
+            };
+            let report = status::collect_with_mode(config_path, metrics_port, mode).await?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
