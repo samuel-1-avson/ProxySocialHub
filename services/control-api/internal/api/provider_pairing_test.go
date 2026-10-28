@@ -758,6 +758,109 @@ func TestProviderPairing_StartWithNoBodyStillWorks(t *testing.T) {
 	}
 }
 
+// start and poll take no credentials, and the control API has no global body limit, so
+// the routes cap their own bodies. An oversized body must be refused without creating a
+// pairing, and a body just inside the cap must still work.
+func TestProviderPairing_OversizedBodiesAreRefused(t *testing.T) {
+	e := newPairingEnv(t)
+	pairingRows := func() int64 {
+		var n int64
+		if err := db.DB.Model(&models.ProviderPairing{}).Count(&n).Error; err != nil {
+			t.Fatalf("count pairings: %v", err)
+		}
+		return n
+	}
+	post := func(path, body string, headers map[string]string) int {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Forwarded-For", e.ip)
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+		w := httptest.NewRecorder()
+		e.r.ServeHTTP(w, req)
+		return w.Code
+	}
+	pad := func(n int) string { return strings.Repeat("a", n) }
+
+	if got := post("/v1/provider/pair/start", `{"device_name":"`+pad(pairingMaxBodyBytes*2)+`"}`, nil); got != http.StatusBadRequest {
+		t.Errorf("oversized start = %d, want 400", got)
+	}
+	if n := pairingRows(); n != 0 {
+		t.Errorf("an oversized start created %d pairing row(s)", n)
+	}
+	if got := post("/v1/provider/pair/poll", `{"device_code":"`+pad(pairingMaxBodyBytes*2)+`"}`, nil); got != http.StatusBadRequest {
+		t.Errorf("oversized poll = %d, want 400", got)
+	}
+	if got := post("/v1/provider/pair/decision", `{"code":"`+pad(pairingMaxBodyBytes*2)+`","decision":"approve"}`, e.asOwner()); got != http.StatusBadRequest {
+		t.Errorf("oversized decision = %d, want 400", got)
+	}
+
+	// Just inside the cap: a long device name is accepted and clipped to its own limit,
+	// so the body cap does not shorten anything a real client sends.
+	if got := post("/v1/provider/pair/start", `{"device_name":"`+pad(pairingMaxBodyBytes-512)+`"}`, nil); got != http.StatusCreated {
+		t.Errorf("start just inside the cap = %d, want 201", got)
+	}
+}
+
+// start purges rows well past expiry and nothing else: a device that polls a little late
+// must still be told "expired" or "redeemed", not "unknown".
+func TestProviderPairing_StartPurgesOnlyRowsPastRetention(t *testing.T) {
+	e := newPairingEnv(t)
+	now := time.Now().UTC()
+	approver := e.owner.ID
+
+	seed := func(status string, expiredAgo time.Duration) uuid.UUID {
+		t.Helper()
+		code, err := newPairingUserCode()
+		if err != nil {
+			t.Fatalf("user code: %v", err)
+		}
+		p := models.ProviderPairing{
+			ID:             uuid.New(),
+			DeviceCodeHash: hashPairingDeviceCode(uuid.NewString() + uuid.NewString()),
+			UserCode:       code,
+			Status:         status,
+			CreatedIP:      "203.0.113.250",
+			NextPollAt:     now,
+			ExpiresAt:      now.Add(-expiredAgo),
+		}
+		if status == models.ProviderPairingApproved || status == models.ProviderPairingRedeemed {
+			p.UserID = &approver
+		}
+		if err := db.DB.Create(&p).Error; err != nil {
+			t.Fatalf("seed %s pairing: %v", status, err)
+		}
+		return p.ID
+	}
+	exists := func(id uuid.UUID) bool {
+		var n int64
+		if err := db.DB.Model(&models.ProviderPairing{}).Where("id = ?", id).Count(&n).Error; err != nil {
+			t.Fatalf("count: %v", err)
+		}
+		return n == 1
+	}
+
+	staleExpired := seed(models.ProviderPairingPending, pairingPurgeAfter+time.Hour)
+	staleRedeemed := seed(models.ProviderPairingRedeemed, pairingPurgeAfter+time.Hour)
+	recentExpired := seed(models.ProviderPairingPending, time.Hour)
+	recentRedeemed := seed(models.ProviderPairingRedeemed, pairingPurgeAfter-time.Hour)
+	live := seed(models.ProviderPairingApproved, -pairingTTL)
+
+	e.start() // any start runs the purge
+
+	for name, id := range map[string]uuid.UUID{"expired long ago": staleExpired, "redeemed long ago": staleRedeemed} {
+		if exists(id) {
+			t.Errorf("%s: row should have been purged", name)
+		}
+	}
+	for name, id := range map[string]uuid.UUID{"expired an hour ago": recentExpired, "redeemed inside retention": recentRedeemed, "live approved": live} {
+		if !exists(id) {
+			t.Errorf("%s: row must be kept", name)
+		}
+	}
+}
+
 // ── pure helpers (no database) ───────────────────────────────────────────────
 
 func TestNormalizePairingUserCode(t *testing.T) {
