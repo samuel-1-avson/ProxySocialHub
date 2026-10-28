@@ -5,12 +5,18 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// What `status --json` prints. The desktop app reads it, so the fields it uses are pinned by
+/// `contract_tests` below: renaming or removing one is a breaking change for that app.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StatusReport {
     pub config_path: String,
     pub process: ProcessStatus,
     pub metrics: Option<stats::Snapshot>,
     pub control_api: ControlAPIStatus,
+    /// The daemon's own view of its tunnel (`runtime.json`). It can be stale after a crash, so
+    /// read it together with `process.running`.
+    #[serde(default)]
+    pub runtime: Option<crate::runtime_state::RuntimeState>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -150,6 +156,7 @@ pub async fn collect_with_mode(
         },
         metrics,
         control_api: control,
+        runtime: crate::runtime_state::RuntimeState::read(&crate::paths::runtime_state_file()),
     })
 }
 
@@ -281,5 +288,97 @@ pub fn print_human(report: &StatusReport) {
         }
     } else if let Some(err) = &report.control_api.error {
         println!("  Error:      {err}");
+    }
+}
+
+#[cfg(test)]
+mod contract_tests {
+    use super::*;
+    use serde_json::Value;
+
+    fn sample() -> StatusReport {
+        StatusReport {
+            config_path: "/p/provider.toml".into(),
+            process: ProcessStatus {
+                running: true,
+                pid: Some(4242),
+                pid_file: "/p/provider.pid".into(),
+            },
+            metrics: Some(stats::Snapshot {
+                active_connections: 3,
+                total_connections: 10,
+                failed_connections: 1,
+                bytes_up: 111,
+                bytes_down: 222,
+                rate_up_kbps: 5,
+                rate_down_kbps: 6,
+                uptime_seconds: 90,
+                last_heartbeat_ago_ms: 40,
+                latency_ms: 20,
+                latency_avg_ms: 21,
+                latency_max_ms: 30,
+                connection_type: "residential".into(),
+            }),
+            control_api: ControlAPIStatus {
+                url: "https://api.example.test".into(),
+                reachable: true,
+                user_id: Some("u".into()),
+                nodes: Vec::new(),
+                error: None,
+            },
+            runtime: Some(crate::runtime_state::RuntimeState {
+                provider_run_id: "run_1".into(),
+                active_gateway: "gw:3128".into(),
+                gateway_index: 0,
+                gateway_total: 1,
+                transport: "tcp".into(),
+                tunnel_connected: true,
+                last_session_error: Some("boom".into()),
+                updated_at_unix: 1,
+            }),
+        }
+    }
+
+    /// The desktop app (apps/provider-app, src-tauri/src/node.rs) reads exactly these paths.
+    /// If this test fails because a field moved or was renamed, update the app in the same
+    /// change; do not just edit the list.
+    #[test]
+    fn status_json_keeps_the_fields_the_desktop_app_reads() {
+        let v: Value = serde_json::to_value(sample()).unwrap();
+        let bool_at = |p: &str| {
+            v.pointer(p)
+                .and_then(Value::as_bool)
+                .unwrap_or_else(|| panic!("{p} must be a bool"))
+        };
+        let u64_at = |p: &str| {
+            v.pointer(p)
+                .and_then(Value::as_u64)
+                .unwrap_or_else(|| panic!("{p} must be a u64"))
+        };
+
+        assert!(bool_at("/process/running"));
+        assert_eq!(u64_at("/process/pid"), 4242);
+        assert_eq!(u64_at("/metrics/uptime_seconds"), 90);
+        assert_eq!(u64_at("/metrics/bytes_up"), 111);
+        assert_eq!(u64_at("/metrics/bytes_down"), 222);
+        assert_eq!(u64_at("/metrics/active_connections"), 3);
+        assert!(bool_at("/runtime/tunnel_connected"));
+        assert_eq!(
+            v.pointer("/runtime/last_session_error")
+                .and_then(Value::as_str),
+            Some("boom")
+        );
+        assert!(bool_at("/control_api/reachable"));
+    }
+
+    #[test]
+    fn a_report_without_runtime_or_metrics_still_deserializes() {
+        // Older daemons, or a node that has never run: the optional parts are simply absent.
+        let mut v: Value = serde_json::to_value(sample()).unwrap();
+        v.as_object_mut().unwrap().remove("runtime");
+        v["metrics"] = Value::Null;
+        let report: StatusReport = serde_json::from_value(v).unwrap();
+        assert!(report.runtime.is_none());
+        assert!(report.metrics.is_none());
     }
 }

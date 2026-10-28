@@ -1,0 +1,74 @@
+---
+title: Provider app (preview)
+description: A Windows tray app that connects your computer to your ProxyHubb account and keeps your node running, with no terminal.
+---
+
+The **ProxyHubb Provider app** is for people who want to share their connection without using a terminal. You install it, read and agree to what sharing means, approve one code in your browser, and it keeps your node running in the background.
+
+<Callout type="warning" title="Preview">
+
+The installer is not published yet, and it is not signed yet, so Windows will show a SmartScreen warning when you run it. It supports Windows 10 and 11 only. If you are comfortable with a terminal, the [Provider CLI](/docs/provider/cli) does the same job today and works on Windows, macOS and Linux.
+
+</Callout>
+
+## Getting started
+
+1. **Install and open the app.** It lives in the system tray, the icons near the clock.
+2. **Read and agree.** The first screen explains what sharing means (see below). Nothing is shared, and no account is connected, until you tick the box and continue.
+3. **Press Connect.** The app shows a short code such as `BCDF-GHJK`.
+4. **Approve it in your browser.** Press *Open ProxyHubb*, sign in if asked, check that the device name and the code match what you see in the app, and choose **Approve this computer**. There is nothing to copy or paste.
+5. **You are sharing.** The window finishes by itself and shows *Sharing is on*.
+
+The code works once and expires after 10 minutes. If it lapses, press Connect again. Only approve a code you started yourself, on a computer you own: approving connects that computer to your account.
+
+## What sharing means
+
+The app asks you to read this before it does anything, and to confirm that you own the connection or have permission from whoever does:
+
+- Websites that buyers visit will see **your home internet address**, not theirs.
+- Their traffic uses **your** internet speed and data allowance. You can pause sharing at any time.
+- Only web traffic is allowed (ports 80, 443, 8080 and 8443), and connections to private or local addresses on your own network are blocked.
+- ProxyHubb's rules say buyers must use the service lawfully, but you are the owner of the connection. If someone misuses it, your internet provider may contact you. **Sharing is not risk-free.**
+
+## Pausing, closing and quitting
+
+| You do this | What happens |
+|-------------|--------------|
+| Press **Pause sharing** | The node stops. It stays stopped, even after a restart, until you press **Resume sharing**. |
+| Close the window | The window hides to the tray. **Sharing keeps going.** |
+| Right-click the tray icon and choose **Quit (stops sharing)** | The node stops and the app closes. The next time you open the app, or sign in with *Start when I sign in* ticked, sharing resumes if it was on. |
+
+The tray icon's hover text tells you the state: sharing, connecting, paused, or needs attention. *Start when I sign in to Windows* is a checkbox on the main screen; it adds the app to Windows Startup, where you can also turn it off under **Task Manager → Startup apps**.
+
+## Where things are
+
+The app and the [Provider CLI](/docs/provider/cli) share one node, so they always agree. If you paired with the app you can also run `provider-node status` in a terminal, and the other way round.
+
+| What | Where |
+|------|-------|
+| Node settings and keys (`provider.toml`) | `%APPDATA%\proxyhubb\provider.toml` |
+| Node logs and runtime state | `%USERPROFILE%\.proxyhubb` (logs in `logs\`) |
+| Your agreement to the sharing terms | `%APPDATA%\com.proxyhubb.provider\settings.json` |
+
+Keep `provider.toml` private: it holds the key that connects this computer to your account.
+
+## Disconnecting a computer
+
+Uninstalling the app (Windows **Settings → Apps**) does not delete `provider.toml` and does not revoke the node's key. To disconnect a computer completely:
+
+1. Choose **Quit** from the tray icon, then uninstall the app.
+2. In your dashboard, open **Tokens** and revoke the token named `Paired: <your computer's name>`. Revoking it cuts the computer off immediately.
+3. Delete `%APPDATA%\proxyhubb\provider.toml` if you do not need it.
+
+Paired tokens do not expire, so a lost or retired computer should be revoked rather than left.
+
+## Troubleshooting
+
+| You see | What to do |
+|---------|-----------|
+| **Connecting…** for more than a minute | Check your internet connection. The window shows the node's last error; if it names the gateway, a firewall or network filter may be blocking outgoing connections to `proxy.proxyhubb.com` on port 3128. You can press **Pause sharing** at any time. |
+| **Something needs attention** | The message says what failed. Press **Try again**; if it keeps failing, run `provider-node doctor` in a terminal for a detailed check. |
+| *The code expired* | Press **Connect** for a new one. |
+| *The request was denied* | The code was denied in the dashboard. Nothing was connected. Start again and approve it. |
+| A Windows **SmartScreen** warning when installing | Expected for the preview, which is not signed yet. Only continue if you downloaded the installer from ProxyHubb. |
+| *This computer is not connected to an account yet* | Press **Connect** and approve the code. |
