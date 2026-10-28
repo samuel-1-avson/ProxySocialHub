@@ -1,4 +1,5 @@
-import type { NodeGeoPoint } from '@/lib/services/explorer';
+import { explorerHref } from "@/lib/navigation/workspace";
+import type { NodeGeoPoint } from "@/lib/services/explorer";
 import type { ExplorerListingPin } from './types';
 
 /** Escape a string for safe use inside an HTML attribute or text node */
@@ -50,7 +51,7 @@ export function singleNodePopup(node: NodeGeoPoint, color: NodeColor): string {
     const heading = node.title || location || 'Network node';
     const linkable = node.explorer_linkable !== false && !!node.node_id && !/^[a-f0-9]{16}$/i.test(node.node_id);
     const detailsLink = linkable
-        ? `<a href="/explorer/nodes/${esc(node.node_id)}" style="display:block;text-align:center;padding:6px;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);border-radius:8px;color:#6366f1;font-size:8px;font-weight:900;text-transform:uppercase;letter-spacing:.15em;text-decoration:none;">View Details →</a>`
+        ? `<a href="${explorerHref(`/nodes/${esc(node.node_id)}`)}" style="display:block;text-align:center;padding:6px;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);border-radius:8px;color:#6366f1;font-size:8px;font-weight:900;text-transform:uppercase;letter-spacing:.15em;text-decoration:none;">View Details →</a>`
         : `<div style="text-align:center;padding:6px;color:rgba(255,255,255,.35);font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;">Availability only</div>`;
 
     return `<div style="background:#0a0a15;border:1px solid rgba(99,102,241,.3);border-radius:12px;padding:12px;min-width:220px;font-family:monospace;color:#fff;box-shadow:0 8px 32px rgba(0,0,0,.5);">
@@ -168,7 +169,7 @@ export function clusterPopup(nodes: NodeGeoPoint[], color: NodeColor): string {
         const sc = n.is_active ? '#10b981' : '#ef4444';
         const linkable = n.explorer_linkable !== false && !!n.node_id && !/^[a-f0-9]{16}$/i.test(n.node_id);
         const details = linkable
-            ? `<a href="/explorer/nodes/${esc(n.node_id)}" style="font-size:7px;color:#6366f1;text-decoration:none;">details</a>`
+            ? `<a href="${explorerHref(`/nodes/${esc(n.node_id)}`)}" style="font-size:7px;color:#6366f1;text-decoration:none;">details</a>`
             : `<span style="font-size:7px;color:rgba(255,255,255,.3);">map only</span>`;
         return `<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05);gap:6px;">
             <div style="flex:1;min-width:0;">
