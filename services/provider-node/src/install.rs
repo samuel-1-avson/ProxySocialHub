@@ -30,14 +30,8 @@ pub fn print_paths_and_hints() {
     #[cfg(windows)]
     {
         println!();
-        println!("Windows service (manual): use NSSM or sc.exe with:");
-        println!(
-            "  {} start --config {}",
-            which_provider_node()
-                .map(|p| p.display().to_string())
-                .unwrap_or_else(|_| "provider-node.exe".into()),
-            paths::config_file().display()
-        );
+        println!("Start automatically when you sign in to Windows:");
+        println!("  provider-node service install     # turn off any time: provider-node service uninstall");
     }
 }
 
