@@ -88,6 +88,11 @@ docs.proxyhubb.com {
 	reverse_proxy 127.0.0.1:3010
 }
 
+explorer.proxyhubb.com {
+	encode gzip
+	reverse_proxy 127.0.0.1:4012
+}
+
 # --- Testnet template (replace example.com) ---------------------------------
 # Point FRONTEND_URL / CORS_ORIGINS / APP_URL at the single apex web host only.
 #
