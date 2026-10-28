@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { QRCodeSVG } from "qrcode.react";
 import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
@@ -361,6 +362,28 @@ function NotificationForm({
           <option value="daily">Daily digest</option>
         </select>
       </label>
+      {draft.email_digest_frequency === "daily" && (
+        <label className="ui-field">
+          Daily digest hour
+          <select
+            className="ui-select"
+            value={draft.digest_hour}
+            disabled={save.isPending}
+            onChange={(e) =>
+              setDraft((current) => ({
+                ...current,
+                digest_hour: Number(e.target.value),
+              }))
+            }
+          >
+            {Array.from({ length: 24 }, (_, hour) => (
+              <option value={hour} key={hour}>
+                {String(hour).padStart(2, "0")}:00
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       {save.isError && <DataError error={save.error} />}
       {save.isSuccess && (
         <p className="ui-note" role="status">
@@ -542,15 +565,10 @@ function Authentication() {
               enable.mutate();
             }}
           >
-            <img
-              src={
-                setup.qr_code.startsWith("data:")
-                  ? setup.qr_code
-                  : `data:image/png;base64,${setup.qr_code}`
-              }
-              alt="Authenticator setup QR code"
-              width={200}
-              height={200}
+            <QRCodeSVG
+              value={setup.otpauth_url}
+              title="Authenticator setup QR code"
+              size={200}
             />
             <details className="ui-note">
               <summary>Enter a setup key manually</summary>

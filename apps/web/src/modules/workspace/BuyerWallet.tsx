@@ -134,8 +134,8 @@ export function BuyerWallet() {
     (parseSolAmountLamports(withdraw.withdrawAmount) ?? 0) > 0;
   const ledgerMismatch = Boolean(
     wallet?.solana_network &&
-      wallet.solana_network.replace("mainnet-beta", "mainnet") !==
-        page.solanaNetwork.replace("mainnet-beta", "mainnet"),
+    wallet.solana_network.replace("mainnet-beta", "mainnet") !==
+      page.solanaNetwork.replace("mainnet-beta", "mainnet"),
   );
   const canFund = Boolean(
     wallet && configuredNetwork && !ledgerMismatch && !processing,
@@ -348,6 +348,20 @@ export function BuyerWallet() {
         <>
           <section className="ui-surface ui-page">
             <h2>Deposit into account funds</h2>
+            {deposit.retainedDeposit && !deposit.depositTxHash && (
+              <div className="ui-attention">
+                <p>
+                  A previous account transfer needs verification before another
+                  deposit.
+                </p>
+                <button
+                  className="ui-button secondary"
+                  onClick={() => deposit.restoreDeposit()}
+                >
+                  Resume previous account transfer
+                </button>
+              </div>
+            )}
             <p className="ui-note">
               Use account funds for supported account services. Buying bandwidth
               uses order escrow separately.
@@ -372,7 +386,7 @@ export function BuyerWallet() {
                 className="ui-input"
                 inputMode="decimal"
                 value={deposit.depositAmount}
-                disabled={processing || Boolean(deposit.depositTxHash)}
+                disabled={processing || Boolean(deposit.retainedDeposit)}
                 onChange={(e) => deposit.setDepositAmount(e.target.value)}
               />
             </label>

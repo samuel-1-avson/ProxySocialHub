@@ -20,6 +20,15 @@ on:
         description: 'Optional explicit image tag (default: git tag or sha)'
         required: false
         type: string
+      services:
+        description: 'Images to publish'
+        type: choice
+        options: [web, all]
+        default: web
+      deploy_web:
+        description: 'Roll only the production web container after publishing'
+        type: boolean
+        default: false
 
 env:
   REGISTRY: ghcr.io
@@ -27,35 +36,29 @@ env:
   IMAGE_OWNER: ${{ github.repository_owner }}
 
 jobs:
+  select-services:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+    steps:
+      - id: select
+        env:
+          SERVICES: ${{ inputs.services || 'all' }}
+        run: |
+          if [ "$SERVICES" = web ]; then
+            echo 'matrix={"service":[{"name":"web","context":".","dockerfile":"apps/web/Dockerfile","platforms":"linux/amd64"}]}' >> "$GITHUB_OUTPUT"
+          else
+            echo 'matrix={"service":[{"name":"control-api","context":".","dockerfile":"services/control-api/Dockerfile","platforms":"linux/amd64"},{"name":"edge-gateway","context":"./services/edge-gateway","dockerfile":"Dockerfile","platforms":"linux/amd64,linux/arm64"},{"name":"provider-node","context":"./services/provider-node","dockerfile":"Dockerfile","platforms":"linux/amd64,linux/arm64"},{"name":"groth16-prover","context":"./services/groth16-prover","dockerfile":"Dockerfile","platforms":"linux/amd64"},{"name":"web","context":".","dockerfile":"apps/web/Dockerfile","platforms":"linux/amd64"}]}' >> "$GITHUB_OUTPUT"
+          fi
   build:
+    needs: select-services
     name: Build & Push GHCR Images
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     strategy:
-      matrix:
-        service:
-          - name: control-api
-            context: .
-            dockerfile: services/control-api/Dockerfile
-            platforms: linux/amd64
-          - name: edge-gateway
-            context: ./services/edge-gateway
-            dockerfile: Dockerfile
-            platforms: linux/amd64,linux/arm64
-          - name: provider-node
-            context: ./services/provider-node
-            dockerfile: Dockerfile
-            platforms: linux/amd64,linux/arm64
-          - name: groth16-prover
-            context: ./services/groth16-prover
-            dockerfile: Dockerfile
-            platforms: linux/amd64
-          - name: web
-            context: ./apps/web
-            dockerfile: Dockerfile
-            platforms: linux/amd64
+      matrix: ${{ fromJSON(needs.select-services.outputs.matrix) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -95,6 +98,69 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: ${{ matrix.service.platforms }}
+          build-args: |
+            NEXT_PUBLIC_PROXY_ENDPOINT=${{ vars.NEXT_PUBLIC_PROXY_ENDPOINT || 'proxy.proxyhubb.com:8090' }}
+            NEXT_PUBLIC_GATEWAY_URL=${{ vars.NEXT_PUBLIC_GATEWAY_URL || 'https://proxy.proxyhubb.com' }}
+
+  deploy-web:
+    name: Roll production frontend only
+    needs: build
+    if: ${{ inputs.services == 'web' && inputs.deploy_web }}
+    runs-on: ubuntu-latest
+    concurrency:
+      group: production-web-roll
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare release metadata and authentication
+        id: release
+        env:
+          SSH_KEY: ${{ secrets.GCP_SSH_PRIVATE_KEY || secrets.GCP_VM_SSH_KEY }}
+          SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          IMAGE_TAG_INPUT: ${{ inputs.image_tag }}
+        run: |
+          set -euo pipefail
+          tag="${IMAGE_TAG_INPUT:-sha-${GITHUB_SHA::7}}"
+          [[ "$tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || exit 1
+          echo "image=ghcr.io/${{ env.IMAGE_OWNER }}/web:$tag" >> "$GITHUB_OUTPUT"
+          if [ -n "$SSH_KEY" ]; then
+            mkdir -p ~/.ssh
+            printf '%s\n' "$SSH_KEY" | tr -d '\r' > ~/.ssh/id_rsa
+            chmod 600 ~/.ssh/id_rsa
+            echo 'method=ssh' >> "$GITHUB_OUTPUT"
+          elif [ -n "$SA_KEY" ]; then
+            echo 'method=gcloud' >> "$GITHUB_OUTPUT"
+          else
+            echo '::error::Production frontend deployment needs an existing GCP SSH key or service account secret.'
+            exit 1
+          fi
+      - name: Roll frontend over SSH
+        if: ${{ steps.release.outputs.method == 'ssh' }}
+        env:
+          HOST: ${{ secrets.GCP_VM_HOST || '34.68.134.20' }}
+          VM_USER: ${{ secrets.GCP_VM_USER || 'samuelavson360' }}
+          WEB_IMAGE: ${{ steps.release.outputs.image }}
+        run: |
+          set -euo pipefail
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+          remote="/tmp/proxyhubb-web-${GITHUB_SHA}.sh"
+          scp -o ConnectTimeout=30 scripts/gcp-roll-web-image.sh "$VM_USER@$HOST:$remote"
+          ssh -o ConnectTimeout=30 "$VM_USER@$HOST" "sudo env WEB_IMAGE=$WEB_IMAGE EXPECTED_REVISION=$GITHUB_SHA bash $remote"
+      - uses: google-github-actions/auth@v2
+        if: ${{ steps.release.outputs.method == 'gcloud' }}
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      - uses: google-github-actions/setup-gcloud@v2
+        if: ${{ steps.release.outputs.method == 'gcloud' }}
+      - name: Roll frontend through GCP
+        if: ${{ steps.release.outputs.method == 'gcloud' }}
+        env:
+          WEB_IMAGE: ${{ steps.release.outputs.image }}
+        run: |
+          set -euo pipefail
+          remote="/tmp/proxyhubb-web-${GITHUB_SHA}.sh"
+          gcloud compute scp scripts/gcp-roll-web-image.sh "proxyhubb-testnet:$remote" --zone=us-central1-a --project=gen-lang-client-0022105784 --quiet
+          gcloud compute ssh proxyhubb-testnet --zone=us-central1-a --project=gen-lang-client-0022105784 --quiet --command="sudo env WEB_IMAGE=$WEB_IMAGE EXPECTED_REVISION=$GITHUB_SHA bash $remote"
 
   announce-vm-roll:
     name: Announce VM Roll Instructions

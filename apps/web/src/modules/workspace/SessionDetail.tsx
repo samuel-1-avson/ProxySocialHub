@@ -46,7 +46,10 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
   const orders = useOrders();
   const order = orders.data?.find((item) => item.session_id === sessionId);
   const row = session.data;
-  const bytes = usage.data?.bytes_used ?? row?.bytes_used;
+  const bytes =
+    usage.data?.bytes_used == null && row?.bytes_used == null
+      ? undefined
+      : Math.max(usage.data?.bytes_used ?? 0, row?.bytes_used ?? 0);
   const eligible = row?.status === "active";
   return (
     <div className="ui-page">

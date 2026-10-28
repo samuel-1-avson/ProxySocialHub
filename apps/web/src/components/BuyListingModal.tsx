@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ShieldCheck,
   Zap,
@@ -101,6 +101,7 @@ export function BuyListingModal({
   const toast = useToast();
   const queryClient = useQueryClient();
   const [loading, setLoading] = useState(false);
+  const paymentInFlight = useRef(false);
   const [error, setError] = useState("");
   const [pendingOrderId, setPendingOrderId] = useState<string | null>(
     existingOrder?.id ?? null,
@@ -179,6 +180,7 @@ export function BuyListingModal({
   };
 
   const handleConnect = async () => {
+    if (paymentInFlight.current) return;
     if (!e2eMockBuy && (!wallet || !publicKey)) {
       toast.warning(
         "Wallet required",
@@ -187,6 +189,7 @@ export function BuyListingModal({
       return;
     }
 
+    paymentInFlight.current = true;
     setLoading(true);
     setError("");
     try {
@@ -327,6 +330,7 @@ export function BuyListingModal({
         );
       }
     } finally {
+      paymentInFlight.current = false;
       setLoading(false);
     }
   };
