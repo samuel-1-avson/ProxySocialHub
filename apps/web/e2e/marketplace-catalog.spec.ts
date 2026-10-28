@@ -105,8 +105,12 @@ test.describe('marketplace catalog browse + buy', () => {
         await expect(page.getByText(newCatalogTitle).first()).toBeVisible({ timeout: 15_000 });
         await expect(page.getByTestId('catalog-product-badge').first()).toBeVisible();
 
-        await page.getByTestId('buy-listing-inject').first().click();
+        await page.getByRole('button', { name: /view details/i }).first().click();
+        const detailsDialog = page.getByRole('dialog');
+        await expect(detailsDialog).toContainText(newCatalogTitle);
+        await detailsDialog.getByRole('button', { name: /buy bandwidth/i }).click();
         await expect(page.getByTestId('buy-listing-modal')).toBeVisible({ timeout: 15_000 });
+        await expect(page.getByTestId('buy-listing-modal').getByRole('heading', { name: /review purchase/i })).toBeVisible();
         await page.getByTestId('buy-listing-start-connection').click();
         await expect(page.getByTestId('buy-listing-modal-success')).toBeVisible({ timeout: 20_000 });
         await expect(page.getByText(mockProxyCredentials.endpoint)).toBeVisible();
