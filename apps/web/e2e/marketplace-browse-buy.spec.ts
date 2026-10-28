@@ -1,112 +1,123 @@
-import { expect, test } from '@playwright/test';
-import { verifiedMapListingId } from './fixtures/marketplace-map';
-import { stubMarketplaceBrowse } from './fixtures/marketplace-browse';
+import { expect, test } from "@playwright/test";
+import { stubMarketplaceBrowse } from "./fixtures/marketplace-browse";
 import {
-    enableE2EMockBuy,
-    mockProxyCredentials,
-    stubPurchaseApis,
-} from './fixtures/marketplace-purchase';
+  e2eOrderId,
+  enableE2EMockBuy,
+  mockProxyCredentials,
+  stubPurchaseApis,
+} from "./fixtures/marketplace-purchase";
 
-const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:4011';
+const BASE_URL = process.env.TEST_BASE_URL || "http://localhost:4011";
 
-test.describe('marketplace browse grid buy', () => {
-    test.describe.configure({ mode: 'serial' });
-    test.setTimeout(120_000);
-
-    test('opens buy modal from browse grid Inject action', async ({ page }) => {
-        await enableE2EMockBuy(page, BASE_URL);
-        await stubMarketplaceBrowse(page);
-
-        await page.goto(`${BASE_URL}/marketplace`, { waitUntil: 'domcontentloaded' });
-
-        const injectAction = page.getByTestId('buy-listing-inject').first();
-        await expect(injectAction).toBeVisible({ timeout: 15000 });
-        await injectAction.click();
-
-        const modal = page.getByTestId('buy-listing-modal');
-        await expect(modal).toBeVisible({ timeout: 15000 });
-        await expect(modal.getByRole('heading', { name: /connect to node/i })).toBeVisible();
+test.describe("focused marketplace purchase", () => {
+  test.setTimeout(150_000);
+  async function openCheckout(page: import("@playwright/test").Page) {
+    await page.goto(`${BASE_URL}/marketplace`, {
+      waitUntil: "domcontentloaded",
     });
-
-    test('completes mocked purchase from browse grid', async ({ page }) => {
-        await enableE2EMockBuy(page, BASE_URL);
-        await stubMarketplaceBrowse(page);
-        await stubPurchaseApis(page);
-
-        await page.goto(`${BASE_URL}/marketplace`, { waitUntil: 'domcontentloaded' });
-        await page.getByTestId('buy-listing-inject').first().click();
-        await expect(page.getByTestId('buy-listing-modal')).toBeVisible({ timeout: 15000 });
-
-        await page.getByTestId('buy-listing-start-connection').click();
-
-        await expect(page.getByTestId('buy-listing-modal-success')).toBeVisible({ timeout: 20000 });
-        await expect(page.getByText(mockProxyCredentials.endpoint)).toBeVisible();
+    await page.getByRole("button", { name: "View details" }).first().click();
+    await page.getByRole("button", { name: "Buy bandwidth" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Review purchase" }),
+    ).toBeVisible();
+  }
+  test("reviews an offer before requesting escrow funding", async ({
+    page,
+  }) => {
+    await enableE2EMockBuy(page, BASE_URL);
+    await stubMarketplaceBrowse(page);
+    await openCheckout(page);
+    await expect(page.getByTestId("buy-listing-start-connection")).toHaveText(
+      /Fund escrow/,
+    );
+    await expect(page.getByText("Bandwidth held in escrow")).toBeVisible();
+  });
+  test("completes mocked escrow flow and opens the real order credentials screen", async ({
+    page,
+  }) => {
+    await enableE2EMockBuy(page, BASE_URL);
+    await stubMarketplaceBrowse(page);
+    await stubPurchaseApis(page);
+    await page.route(`**/v1/orders/${e2eOrderId}/confirm-escrow`, (r) =>
+      r.fulfill({ json: { order: { id: e2eOrderId, status: "active" } } }),
+    );
+    await openCheckout(page);
+    await page.getByTestId("buy-listing-start-connection").click();
+    await expect(page).toHaveURL(
+      new RegExp(`/app/connections/${e2eOrderId}$`),
+      { timeout: 30_000 },
+    );
+    await expect(
+      page.getByTestId("marketplace-order-credentials"),
+    ).toContainText(mockProxyCredentials.endpoint);
+  });
+  test("retries an existing order after a failed payment confirmation without creating another", async ({
+    page,
+  }) => {
+    await enableE2EMockBuy(page, BASE_URL);
+    await stubMarketplaceBrowse(page);
+    await stubPurchaseApis(page);
+    let created = 0;
+    page.on("request", (request) => {
+      if (
+        request.method() === "POST" &&
+        /\/v1\/orders$/.test(new URL(request.url()).pathname)
+      )
+        created++;
     });
-
-    test('shows featured strip and collection rails', async ({ page }) => {
-        await stubMarketplaceBrowse(page);
-
-        await page.goto(`${BASE_URL}/marketplace`, { waitUntil: 'domcontentloaded' });
-
-        await expect(page.getByTestId('marketplace-featured-strip')).toBeVisible({ timeout: 15000 });
-        await expect(page.getByTestId('marketplace-collection-rails')).toBeVisible();
-        await expect(page.getByTestId('marketplace-collection-featured')).toBeVisible();
-        await expect(page.getByTestId('marketplace-facet-chips')).toBeVisible();
+    await page.route(`**/v1/orders/${e2eOrderId}/confirm-escrow`, (r) =>
+      r.fulfill({
+        status: 503,
+        json: { error: "Temporary confirmation outage" },
+      }),
+    );
+    await openCheckout(page);
+    await page.getByTestId("buy-listing-start-connection").click();
+    await expect(
+      page.getByRole("link", { name: "Review existing order" }),
+    ).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId("buy-listing-start-connection").click();
+    await expect(page).toHaveURL(
+      new RegExp(`/app/connections/${e2eOrderId}$`),
+      { timeout: 30_000 },
+    );
+    expect(created).toBe(1);
+  });
+  test("requests catalog products and keeps the useful product badge", async ({
+    page,
+  }) => {
+    await stubMarketplaceBrowse(page);
+    const request = page.waitForRequest(
+      (r) =>
+        /\/v1\/listings$/.test(new URL(r.url()).pathname) &&
+        new URL(r.url()).searchParams.get("include") === "product",
+    );
+    await page.goto(`${BASE_URL}/marketplace`, {
+      waitUntil: "domcontentloaded",
     });
-
-    test('requests catalog embed on listings index', async ({ page }) => {
-        await stubMarketplaceBrowse(page);
-
-        const listingsRequest = page.waitForRequest(
-            (request) => {
-                if (request.method() !== 'GET') return false;
-                try {
-                    const url = new URL(request.url());
-                    const isIndex =
-                        url.pathname === '/v1/listings' || url.pathname === '/api/v1/listings';
-                    return isIndex && url.searchParams.get('include') === 'product';
-                } catch {
-                    return false;
-                }
-            },
-            { timeout: 45_000 },
-        );
-
-        await page.goto(`${BASE_URL}/marketplace`, { waitUntil: 'domcontentloaded' });
-        await listingsRequest;
+    await request;
+    await expect(
+      page.getByTestId("catalog-product-badge").first(),
+    ).toHaveAttribute("title", "Premium Austin Pool");
+    await expect(page.getByTestId("marketplace-featured-strip")).toHaveCount(0);
+  });
+  test("applies a country filter to the inventory request and URL", async ({
+    page,
+  }) => {
+    await stubMarketplaceBrowse(page);
+    await page.goto(`${BASE_URL}/marketplace`, {
+      waitUntil: "domcontentloaded",
     });
-
-    test('shows catalog product badge on browse cards', async ({ page }) => {
-        await stubMarketplaceBrowse(page);
-
-        await page.goto(`${BASE_URL}/marketplace`, { waitUntil: 'domcontentloaded' });
-        await expect(page.getByTestId('catalog-product-badge').first()).toBeVisible({ timeout: 15_000 });
-        await expect(page.getByText('Premium Austin Pool').first()).toBeVisible();
-    });
-
-    test('passes country filter to listings API', async ({ page }) => {
-        await enableE2EMockBuy(page, BASE_URL);
-        await stubMarketplaceBrowse(page);
-
-        const filteredListingsRequest = page.waitForRequest(
-            (request) => {
-                if (request.method() !== 'GET') return false;
-                try {
-                    const url = new URL(request.url());
-                    const isIndex =
-                        url.pathname === '/v1/listings' || url.pathname === '/api/v1/listings';
-                    return isIndex && url.searchParams.get('country') === 'US';
-                } catch {
-                    return false;
-                }
-            },
-            { timeout: 45_000 },
-        );
-
-        await page.goto(`${BASE_URL}/marketplace`, { waitUntil: 'domcontentloaded' });
-        await expect(page.getByTestId('marketplace-facet-chips')).toBeVisible({ timeout: 15_000 });
-
-        await page.getByTestId('marketplace-facet-country-US').click();
-        await filteredListingsRequest;
-    });
+    await page.getByTestId("marketplace-filter-country").fill("US");
+    const request = page.waitForRequest(
+      (r) =>
+        /\/v1\/listings$/.test(new URL(r.url()).pathname) &&
+        new URL(r.url()).searchParams.get("country") === "US",
+    );
+    await page
+      .getByRole("button", { name: "Apply filters", exact: true })
+      .click();
+    await request;
+    await expect(page).toHaveURL(/country=US/);
+  });
 });
