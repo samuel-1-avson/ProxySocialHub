@@ -2,7 +2,7 @@ pub mod provider_lease;
 pub mod session_intent;
 
 mod redis_keys {
-    /// Pre-sized Redis keys (one allocation, no `format!` macro).
+    //! Pre-sized Redis keys (one allocation, no `format!` macro).
 
     pub fn session(username: &str) -> String {
         let mut key = String::with_capacity(8 + username.len());
@@ -245,7 +245,9 @@ fn looks_like_capability_token(password: &str) -> bool {
 fn parse_capability_password(password: &str) -> Option<SessionData> {
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine;
-    let rest = password.trim().strip_prefix(SESSION_CAPABILITY_TOKEN_PREFIX)?;
+    let rest = password
+        .trim()
+        .strip_prefix(SESSION_CAPABILITY_TOKEN_PREFIX)?;
     if rest.is_empty() {
         return None;
     }
@@ -278,6 +280,7 @@ fn encode_capability_token(tok: &CapabilityTokenWire) -> Option<String> {
     ))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn canonical_session_capability_bytes(
     session_id: &str,
     offer_hash: &str,
@@ -483,15 +486,13 @@ impl SessionAuthenticator {
                     None => return Ok(None),
                 }
             }
-            Err(redis_err) => {
-                match self.hydrate_and_rewarm(username).await {
-                    Ok(Some(session_data)) => {
-                        return self.admit_loaded_session(username, session_data).await;
-                    }
-                    Ok(None) => return Err(redis_err),
-                    Err(hydrate_err) => return Err(hydrate_err),
+            Err(redis_err) => match self.hydrate_and_rewarm(username).await {
+                Ok(Some(session_data)) => {
+                    return self.admit_loaded_session(username, session_data).await;
                 }
-            }
+                Ok(None) => return Err(redis_err),
+                Err(hydrate_err) => return Err(hydrate_err),
+            },
         };
 
         let session_data: SessionData = serde_json::from_str(&json_str)?;
@@ -628,7 +629,9 @@ impl SessionAuthenticator {
                     }));
                 }
                 None => {
-                    tracing::warn!("Rejected CONNECT: session capability token invalid (Redis not consulted)");
+                    tracing::warn!(
+                        "Rejected CONNECT: session capability token invalid (Redis not consulted)"
+                    );
                     return Ok(None);
                 }
             }
@@ -988,10 +991,10 @@ impl SessionData {
             return false;
         }
 
-        if self.is_session_capability() {
-            if self.capability_expires_at <= 0 || now.timestamp() > self.capability_expires_at {
-                return false;
-            }
+        if self.is_session_capability()
+            && (self.capability_expires_at <= 0 || now.timestamp() > self.capability_expires_at)
+        {
+            return false;
         }
 
         if let Some(expires_at) = self.expires_at {
@@ -1190,7 +1193,9 @@ mod tests {
     #[test]
     fn session_capability_valid_local_ed25519() {
         use ed25519_dalek::{Signer, SigningKey};
-        let _guard = CAPABILITY_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = CAPABILITY_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         reset_operator_bundle();
         let signing_key = SigningKey::from_bytes(&[7_u8; 32]);
         let issuer = bs58::encode(signing_key.verifying_key().as_bytes()).into_string();
@@ -1242,7 +1247,9 @@ mod tests {
     #[test]
     fn session_capability_valid_bundle_operator_issuer() {
         use ed25519_dalek::{Signer, SigningKey};
-        let _guard = CAPABILITY_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = CAPABILITY_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         reset_operator_bundle();
         let signing_key = SigningKey::from_bytes(&[13_u8; 32]);
         let operator = bs58::encode(signing_key.verifying_key().as_bytes()).into_string();
@@ -1367,7 +1374,9 @@ mod tests {
 
     #[test]
     fn capability_token_roundtrip_admits_without_redis() {
-        let _guard = CAPABILITY_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = CAPABILITY_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         reset_operator_bundle();
         let username = "w7c-buyer";
         let (issuer, wire) = mint_w7c_token(username);
@@ -1390,7 +1399,9 @@ mod tests {
 
     #[test]
     fn capability_token_admits_verified_bundle_issuer() {
-        let _guard = CAPABILITY_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = CAPABILITY_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         reset_operator_bundle();
         let username = "w7c-buyer";
         let (issuer, wire) = mint_w7c_token(username);
@@ -1438,7 +1449,9 @@ mod tests {
 
     #[test]
     fn capability_token_bad_prefix_and_payload_rejected() {
-        let _guard = CAPABILITY_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = CAPABILITY_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         reset_operator_bundle();
         assert!(!looks_like_capability_token("legacy-password"));
         assert!(looks_like_capability_token("phubb1.not-valid-base64"));

@@ -59,9 +59,6 @@ func TestZKAggregator_SubmitBatchDirect_PersistsProofBytesFromRealProver(t *test
 		}
 		t.Cleanup(db.Close)
 	}
-	if err := db.DB.AutoMigrate(&models.ZKBatch{}); err != nil {
-		t.Fatalf("auto migrate zk_batch model: %v", err)
-	}
 
 	batch, err := buildIntegrationBatch()
 	if err != nil {

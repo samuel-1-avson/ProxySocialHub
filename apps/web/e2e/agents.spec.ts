@@ -33,13 +33,20 @@ async function stubAgentsApis(page: import('@playwright/test').Page) {
     });
 }
 
+/** These routes redirect to the console; on a cold dev server the first navigation can
+ * be replaced mid-flight (net::ERR_ABORTED), so wait for where it ends up instead. */
+async function gotoAgentConsole(page: import('@playwright/test').Page, path: string) {
+    await page.goto(`${BASE_URL}${path}`, { waitUntil: 'commit' }).catch(() => undefined);
+    await page.waitForURL((url) => url.pathname === '/dashboard/agents', { timeout: 60_000 });
+}
+
 test.describe('agents IA (Phase C — console only)', () => {
+    test.setTimeout(120_000);
+
     test('redirects /agents to Agent console', async ({ page }) => {
         await seedSignedAuth(page, BASE_URL, 'buyer');
         await stubAgentsApis(page);
-        await page.goto(`${BASE_URL}/agents`, { waitUntil: 'domcontentloaded' });
-
-        expect(new URL(page.url()).pathname).toBe('/dashboard/agents');
+        await gotoAgentConsole(page, '/agents');
         await expect(page.getByRole('heading', { name: /agent console/i })).toBeVisible({
             timeout: 15_000,
         });
@@ -49,9 +56,7 @@ test.describe('agents IA (Phase C — console only)', () => {
     test('permanent-redirects legacy /marketplace/agents to Agent console', async ({ page }) => {
         await seedSignedAuth(page, BASE_URL, 'buyer');
         await stubAgentsApis(page);
-        await page.goto(`${BASE_URL}/marketplace/agents`, { waitUntil: 'domcontentloaded' });
-
-        expect(new URL(page.url()).pathname).toBe('/dashboard/agents');
+        await gotoAgentConsole(page, '/marketplace/agents');
         await expect(page.getByRole('heading', { name: /agent console/i })).toBeVisible({
             timeout: 15_000,
         });
@@ -60,9 +65,7 @@ test.describe('agents IA (Phase C — console only)', () => {
     test('redirects /agents/instances to Agent console when authenticated', async ({ page }) => {
         await seedSignedAuth(page, BASE_URL, 'buyer');
         await stubAgentsApis(page);
-        await page.goto(`${BASE_URL}/agents/instances`, { waitUntil: 'domcontentloaded' });
-
-        expect(new URL(page.url()).pathname).toBe('/dashboard/agents');
+        await gotoAgentConsole(page, '/agents/instances');
         await expect(page.getByRole('heading', { name: /agent console/i })).toBeVisible({
             timeout: 15_000,
         });

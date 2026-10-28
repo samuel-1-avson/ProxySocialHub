@@ -66,7 +66,7 @@ func TestSettleSession_P0_PriceUnavailableRetainsUsage(t *testing.T) {
 		t.Fatalf("save buyer wallet: %v", err)
 	}
 
-	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("billing-p0-provider"), "seller")
+	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("billing-p0-provider"), "provider")
 	listing := models.ProxyListing{
 		SellerID:             provider.ID,
 		Title:                "P0 price listing",

@@ -27,16 +27,19 @@ CREATE OR REPLACE FUNCTION auth.email() RETURNS TEXT AS $$
   SELECT NULL::TEXT;
 $$ LANGUAGE SQL STABLE;
 
--- Supabase roles used in RLS policies — stub them for local Docker dev
+-- Supabase roles used in RLS policies — stub them for local Docker dev.
+-- Roles are cluster-wide, and the Go test harness builds several databases at
+-- once, so a concurrent session may create the same role first: an existence
+-- check would race, so attempt the CREATE and treat "already there" as done.
 DO $$
+DECLARE
+    r TEXT;
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
-        CREATE ROLE anon NOLOGIN;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
-        CREATE ROLE authenticated NOLOGIN;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
-        CREATE ROLE service_role NOLOGIN;
-    END IF;
+    FOREACH r IN ARRAY ARRAY['anon', 'authenticated', 'service_role'] LOOP
+        BEGIN
+            EXECUTE format('CREATE ROLE %I NOLOGIN', r);
+        EXCEPTION WHEN duplicate_object OR unique_violation THEN
+            NULL;
+        END;
+    END LOOP;
 END $$;

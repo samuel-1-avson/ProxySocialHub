@@ -36,6 +36,7 @@ func TestCountActiveListingSessions_IgnoresDisabledAndExpired(t *testing.T) {
 			ListingID: &lid,
 			Type:      models.SessionRotating,
 			Status:    status,
+			Config:    "{}", // sessions.config is jsonb; the zero value "" is not valid JSON
 			ExpiresAt: exp,
 		}
 		if err := db.DB.Create(&s).Error; err != nil {

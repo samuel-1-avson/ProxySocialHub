@@ -61,7 +61,7 @@ type UsageProof struct {
 	OnChainSlot   int64  `json:"on_chain_slot,omitempty"`
 
 	// Status
-	Status    UsageProofStatus `gorm:"type:varchar(20);default:'pending'" json:"status"`
+	Status    UsageProofStatus `gorm:"type:varchar(32);default:'pending'" json:"status"` // "settling_confidential" is 21 chars (000168)
 	CreatedAt time.Time        `json:"created_at"`
 	UpdatedAt time.Time        `json:"updated_at"`
 

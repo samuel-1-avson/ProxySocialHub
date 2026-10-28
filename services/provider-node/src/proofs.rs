@@ -136,8 +136,12 @@ fn sha256_hex(message: &str) -> String {
     digest.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+// Whitepaper v2 mutual receipts (settled on-chain by the proxyhub program). The node
+// does not exchange receipts yet; these are exercised by the unit tests below.
+#[allow(dead_code)]
 pub const RECEIPT_VERSION: &str = "v1";
 
+#[allow(dead_code)]
 /// Mutual session receipt offer issued by the provider.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MutualReceiptOffer {
@@ -151,6 +155,7 @@ pub struct MutualReceiptOffer {
     pub seller_signature: String,
 }
 
+#[allow(dead_code)]
 /// Mutual session receipt acknowledged and counter-signed by the buyer.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MutualReceiptAck {
@@ -158,6 +163,7 @@ pub struct MutualReceiptAck {
     pub buyer_signature: String,
 }
 
+#[allow(dead_code)]
 /// Construct canonical message for mutual session receipt settlement:
 /// `receipt:v1:{escrow}:{buyer}:{seller}:{bytes}:{seq}`
 pub fn build_receipt_canonical_message(
@@ -173,6 +179,7 @@ pub fn build_receipt_canonical_message(
     )
 }
 
+#[allow(dead_code)] // receipt and P2P signing: see the notes on RECEIPT_VERSION and P2P_ANNOUNCEMENT_PREFIX
 impl ProviderSigner {
     /// Sign a mutual receipt offer to send to the buyer client.
     pub fn sign_receipt_offer(
@@ -238,6 +245,7 @@ impl ProviderSigner {
     }
 
     /// Sign a P2P node announcement for decentralized discovery.
+    #[allow(clippy::too_many_arguments)]
     pub fn sign_p2p_announcement(
         &self,
         node_id: &str,
@@ -280,9 +288,12 @@ impl ProviderSigner {
     }
 }
 
+// Whitepaper v2 P2P discovery announcements; not wired into the node yet.
+#[allow(dead_code)]
 pub const P2P_ANNOUNCEMENT_PREFIX: &str = "PROXYHUB_P2P_ANNOUNCEMENT:v1:";
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[allow(dead_code)]
 pub struct P2PNodeAnnouncement {
     pub version: String,
     pub node_id: String,
@@ -298,6 +309,7 @@ pub struct P2PNodeAnnouncement {
     pub signature: String,
 }
 
+#[allow(dead_code, clippy::too_many_arguments)]
 pub fn build_p2p_announcement_canonical_message(
     node_id: &str,
     provider_hotkey: &str,
@@ -326,6 +338,7 @@ pub fn build_p2p_announcement_canonical_message(
     )
 }
 
+#[allow(dead_code)]
 pub fn verify_p2p_announcement(announcement: &P2PNodeAnnouncement) -> Result<(), String> {
     if announcement.provider_hotkey.trim().is_empty() {
         return Err("missing provider hotkey".to_string());

@@ -62,7 +62,9 @@ LEFT JOIN explorer_nodes en ON
     (n_geo.id IS NOT NULL AND en.node_id = n_geo.id::text)
     OR (
         (pn.gateway_node_id IS NULL OR pn.gateway_node_id = '')
-        AND en.provider_user_id = pl.seller_id::text
+        -- provider_user_id is uuid in migrated databases (varchar in AutoMigrate-era
+        -- ones); comparing as text works for both, uuid = text does not.
+        AND en.provider_user_id::text = pl.seller_id::text
     )
 LEFT JOIN LATERAL (
     SELECT n.id, n.gateway_node_id, n.is_healthy, n.uptime_percent, n.latency_ms, n.city

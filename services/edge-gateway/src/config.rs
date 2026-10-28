@@ -65,7 +65,7 @@ impl EdgeRole {
         {
             "ingress" | "edge" | "buyer" => Self::Ingress,
             "tunnel" | "tunnel-gw" | "tunnel_gw" | "provider" => Self::Tunnel,
-            other if other.is_empty() => {
+            "" => {
                 panic!("EDGE_MODE=split requires EDGE_ROLE=ingress|tunnel (buyer vs tunnel tier)");
             }
             other => {
@@ -486,7 +486,7 @@ pub type SharedDynamicConfig = Arc<RwLock<DynamicConfig>>;
 
 impl DynamicConfig {
     pub async fn update_from_redis(
-        redis: &mut redis::aio::Connection,
+        redis: &mut redis::aio::MultiplexedConnection,
     ) -> Result<Self, redis::RedisError> {
         use redis::AsyncCommands;
 

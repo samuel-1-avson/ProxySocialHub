@@ -35,7 +35,7 @@ pub async fn run_mux_lanes(
     info!(lane_count, gateway = %cfg.gateway_addr, "Starting multi-yamux provider session");
 
     // Primary lane first so the gateway registers before attach lanes connect.
-    let mut primary = TunnelClient::new(&cfg, stats.clone(), provider_run_id.clone());
+    let mut primary = TunnelClient::new(&cfg, provider_run_id.clone());
     primary.connect().await?;
     let mut shared_cfg = cfg.clone();
     if !primary.auth_token().is_empty() {
@@ -70,7 +70,7 @@ pub async fn run_mux_lanes(
     let mut lane_handles = vec![primary_handle];
 
     for lane in 1..lane_count {
-        let mut client = TunnelClient::new(&shared_cfg, stats.clone(), provider_run_id.clone());
+        let mut client = TunnelClient::new(&shared_cfg, provider_run_id.clone());
         match client.connect().await {
             Ok(()) => info!(lane, "Secondary yamux lane connected"),
             Err(err) => {
@@ -102,7 +102,7 @@ async fn run_single_lane(
     lane: usize,
     provider_run_id: String,
 ) -> Result<()> {
-    let mut client = TunnelClient::new(&cfg, stats.clone(), provider_run_id.clone());
+    let mut client = TunnelClient::new(&cfg, provider_run_id.clone());
     client.connect().await?;
 
     let hb = HeartbeatManager::new(
