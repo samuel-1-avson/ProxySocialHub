@@ -5,8 +5,11 @@
 //   node scripts/build-sidecar.mjs            release build (what the installer ships)
 //   node scripts/build-sidecar.mjs --debug    faster build for local work
 //   PROVIDER_NODE_BIN=<path> node scripts/build-sidecar.mjs   reuse an existing binary
+//   node scripts/build-sidecar.mjs --placeholder   an EMPTY stand-in, for fmt/clippy/test runs.
+//                                    tauri-build only needs the file to exist; nothing that
+//                                    uses a placeholder may run the app.
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -18,6 +21,15 @@ const profile = process.argv.includes('--debug') ? 'debug' : 'release';
 const host = /host: (\S+)/.exec(execFileSync('rustc', ['-vV'], { encoding: 'utf8' }))?.[1];
 if (!host) throw new Error('could not read the Rust host triple from `rustc -vV`');
 const ext = host.includes('windows') ? '.exe' : '';
+
+if (process.argv.includes('--placeholder')) {
+  const destDir = join(appDir, 'src-tauri', 'binaries');
+  mkdirSync(destDir, { recursive: true });
+  const dest = join(destDir, `provider-node-${host}${ext}`);
+  writeFileSync(dest, '');
+  console.log(`placeholder sidecar (empty, not runnable): ${dest}`);
+  process.exit(0);
+}
 
 let built;
 if (process.env.PROVIDER_NODE_BIN) {
