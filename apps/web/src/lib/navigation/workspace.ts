@@ -9,6 +9,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { WorkspaceMode } from "@/lib/store/workspace-store";
+import { STANDALONE_EXPLORER_ORIGIN } from "@/lib/navigation/explorer-redirects.mjs";
 export interface WorkspaceDestination {
   label: string;
   href: string;
@@ -128,20 +129,22 @@ export function isWorkspaceDestinationActive(
     return path === candidate || path.startsWith(candidate + "/");
   });
 }
-/** Preserve current public URLs until the separate deployment is configured. */
+/** Dedicated Explorer host. Clicks never stay on the main site. */
 export function explorerHref(path = "/"): string {
   const configured = process.env.NEXT_PUBLIC_EXPLORER_URL?.trim();
+  let origin = STANDALONE_EXPLORER_ORIGIN;
   if (configured) {
     try {
       const url = new URL(configured);
       if (
         url.protocol === "https:" ||
         (url.protocol === "http:" && process.env.NODE_ENV !== "production")
-      )
-        return `${configured.replace(/\/$/, "")}${path === "/" ? "" : path}`;
+      ) {
+        origin = configured.replace(/\/$/, "");
+      }
     } catch {
-      /* Legacy fallback. */
+      /* Dedicated Explorer host. */
     }
   }
-  return `/explorer${path === "/" ? "" : path}`;
+  return `${origin}${path === "/" ? "" : path}`;
 }
