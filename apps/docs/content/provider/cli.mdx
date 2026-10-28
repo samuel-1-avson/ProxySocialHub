@@ -89,6 +89,23 @@ proxyhubb-cli start --config provider.toml
 
 Confirm the node goes **online** under [My nodes](https://proxyhubb.com/dashboard/provider/nodes). Browser “ping” is not a real tunnel — use Connect + CLI start.
 
+### Start automatically at sign-in
+
+```bash
+provider-node service install      # turn on
+provider-node service start        # start now, without signing out
+provider-node service status
+provider-node service uninstall    # turn off
+```
+
+| OS | What `service install` creates |
+|----|-------------------------------|
+| Windows | A per-user startup entry (no administrator rights). It appears under **Task Manager → Startup apps** as “ProxyHubb Provider Node”, where you can also switch it off. |
+| macOS | A LaunchAgent in `~/Library/LaunchAgents` |
+| Linux | A systemd **user** unit |
+
+On Windows the entry runs `provider-node start --background`, which launches the tunnel as a hidden background process and exits (a console window may flash for a moment at sign-in). It starts when you sign in, not at boot, so a Windows machine nobody signs in to needs a different setup. Earlier builds registered an `sc.exe` service named `proxyhubb-provider` that could never start; `service uninstall` removes it if it has permission, otherwise run `sc.exe delete proxyhubb-provider` from an administrator prompt.
+
 ## Config (`provider.toml`)
 
 Typical fields (written by `join` / validated by provider-node):

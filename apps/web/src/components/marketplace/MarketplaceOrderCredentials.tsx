@@ -68,17 +68,17 @@ export function MarketplaceOrderCredentials({
 
     return (
         <div className="space-y-4" data-testid="marketplace-order-credentials">
-            <div className="space-y-3 bg-white/5 rounded-2xl p-4 border border-white/10">
-                <p className="text-[9px] font-black uppercase tracking-widest text-white/40">Proxy credentials</p>
-                <p className="text-[10px] text-white/40">
+            <div className="space-y-3 bg-secondary rounded-2xl p-4 border border-border">
+                <p className="text-xs font-medium text-muted-foreground">Proxy credentials</p>
+                <p className="text-xs text-muted-foreground">
                     HTTP CONNECT to the endpoint below. Password is HMAC for the public buyer edge
                     ({creds.endpoint || 'proxy.proxyhubb.com:8090'}).
                 </p>
                 {fields.map(({ label, value, key, secret }) => (
                     <div key={key} className="flex items-center justify-between gap-2">
                         <div className="min-w-0 flex-1">
-                            <p className="text-[9px] text-white/30 uppercase tracking-widest">{label}</p>
-                            <p className="text-xs font-mono text-white/80 break-all">
+                            <p className="text-xs text-muted-foreground uppercase tracking-widest">{label}</p>
+                            <p className="text-xs font-mono text-foreground break-all">
                                 {secret && !showPass ? '••••••••••••' : value}
                             </p>
                         </div>
@@ -87,7 +87,7 @@ export function MarketplaceOrderCredentials({
                                 <button
                                     type="button"
                                     onClick={() => setShowPass((v) => !v)}
-                                    className="p-2 rounded-lg hover:bg-white/10 text-white/40 hover:text-white transition-colors"
+                                    className="p-2 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
                                     aria-label={showPass ? 'Hide password' : 'Show password'}
                                 >
                                     {showPass ? <EyeOff size={14} /> : <Eye size={14} />}
@@ -96,7 +96,7 @@ export function MarketplaceOrderCredentials({
                             <button
                                 type="button"
                                 onClick={() => copyToClipboard(value, key)}
-                                className="p-2 rounded-lg hover:bg-white/10 text-white/40 hover:text-white transition-colors"
+                                className="p-2 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
                                 aria-label={`Copy ${label}`}
                             >
                                 {copied === key ? (
@@ -111,21 +111,21 @@ export function MarketplaceOrderCredentials({
             </div>
 
             <div className="space-y-2">
-                <p className="text-[9px] font-black uppercase tracking-widest text-white/40">Quick test</p>
-                <p className="text-[10px] text-white/40">
+                <p className="text-xs font-medium text-muted-foreground">Quick test</p>
+                <p className="text-xs text-muted-foreground">
                     Endpoint is HTTP CONNECT / SOCKS5 only (absolute-URI forward proxy returns 501). Chrome and
                     curl use this username + password — not a capability token.
                 </p>
                 <pre
                     data-testid="marketplace-order-credentials-curl"
-                    className="text-[10px] font-mono text-white/70 bg-black/40 border border-white/10 rounded-xl p-3 overflow-x-auto whitespace-pre-wrap break-all"
+                    className="text-xs font-mono text-foreground bg-secondary border border-border rounded-xl p-3 overflow-x-auto whitespace-pre-wrap break-all"
                 >
                     {curlExample}
                 </pre>
                 <button
                     type="button"
                     onClick={() => copyToClipboard(curlExample, 'curl')}
-                    className="text-[10px] font-bold uppercase tracking-widest text-purple-400 hover:text-purple-300"
+                    className="text-xs font-bold uppercase tracking-widest text-primary hover:text-primary"
                 >
                     {copied === 'curl' ? 'Copied curl command' : 'Copy curl command'}
                 </button>
@@ -134,24 +134,24 @@ export function MarketplaceOrderCredentials({
             {creds.session_capability ? (
                 <details
                     data-testid="marketplace-order-credentials-advanced"
-                    className="rounded-2xl border border-white/10 bg-white/[0.02] p-4"
+                    className="rounded-2xl border border-border bg-card p-4"
                 >
-                    <summary className="cursor-pointer text-[9px] font-black uppercase tracking-widest text-white/40">
+                    <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
                         Advanced: soak capability token
                     </summary>
-                    <p className="mt-2 text-[10px] text-white/40">
+                    <p className="mt-2 text-xs text-muted-foreground">
                         {creds.session_capability_note ||
                             'Not for the public buyer edge. Host-A capability soak (:18091) only.'}
                     </p>
                     <div className="mt-3 flex items-start justify-between gap-2">
-                        <p className="min-w-0 break-all font-mono text-[10px] text-white/60">
+                        <p className="min-w-0 break-all font-mono text-xs text-muted-foreground">
                             {showCapability ? creds.session_capability : '••••••••••••'}
                         </p>
                         <div className="flex shrink-0 gap-1">
                             <button
                                 type="button"
                                 onClick={() => setShowCapability((v) => !v)}
-                                className="rounded-lg p-2 text-white/40 hover:bg-white/10 hover:text-white"
+                                className="rounded-lg p-2 text-muted-foreground hover:bg-secondary hover:text-foreground"
                                 aria-label={showCapability ? 'Hide capability token' : 'Show capability token'}
                             >
                                 {showCapability ? <EyeOff size={14} /> : <Eye size={14} />}
@@ -159,7 +159,7 @@ export function MarketplaceOrderCredentials({
                             <button
                                 type="button"
                                 onClick={() => copyToClipboard(creds.session_capability ?? '', 'capability')}
-                                className="rounded-lg p-2 text-white/40 hover:bg-white/10 hover:text-white"
+                                className="rounded-lg p-2 text-muted-foreground hover:bg-secondary hover:text-foreground"
                                 aria-label="Copy capability token"
                             >
                                 {copied === 'capability' ? (
@@ -174,8 +174,8 @@ export function MarketplaceOrderCredentials({
             ) : null}
 
             {orderId && (
-                <p className="text-[10px] text-white/30">
-                    Order <span className="font-mono text-white/50">{orderId}</span> — traffic routes through the edge
+                <p className="text-xs text-muted-foreground">
+                    Order <span className="font-mono text-muted-foreground">{orderId}</span> — traffic routes through the edge
                     gateway using the credentials above.
                 </p>
             )}

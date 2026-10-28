@@ -1,17 +1,17 @@
-'use client';
+"use client";
 
-import { useAuth } from '@/lib/auth';
-import { useCallback, useEffect, useState } from 'react';
-import { useWalletWS } from '@/lib/hooks/useWalletWS';
+import { useAuth } from "@/lib/auth";
+import { useCallback, useEffect, useState } from "react";
+import { useWalletWS } from "@/lib/hooks/useWalletWS";
 import {
   getWallet,
   getSystemConfig,
   getWithdrawalSecurity,
   Wallet as WalletType,
-} from '@/lib/api';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { DEFAULT_LARGE_WITHDRAW_SOL } from '../constants';
-import type { WalletResult } from '../types';
+} from "@/lib/api";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { DEFAULT_LARGE_WITHDRAW_SOL } from "../constants";
+import type { WalletResult } from "../types";
 
 export function useWalletPageData() {
   const { user } = useAuth();
@@ -20,18 +20,27 @@ export function useWalletPageData() {
   const [result, setResult] = useState<WalletResult | null>(null);
   const [mounted, setMounted] = useState(false);
 
-  const rawSolanaNetwork = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'devnet';
-  const solanaNetwork = rawSolanaNetwork === 'mainnet' ? 'mainnet-beta' : rawSolanaNetwork;
-  const isDevnet = solanaNetwork.toLowerCase().includes('devnet');
+  const rawSolanaNetwork = process.env.NEXT_PUBLIC_SOLANA_NETWORK || "devnet";
+  const solanaNetwork =
+    rawSolanaNetwork === "mainnet" ? "mainnet-beta" : rawSolanaNetwork;
+  const isDevnet = solanaNetwork.toLowerCase().includes("devnet");
   const solanaRpc =
-    process.env.NEXT_PUBLIC_SOLANA_RPC_URL || process.env.NEXT_PUBLIC_SOLANA_RPC || '';
+    process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
+    process.env.NEXT_PUBLIC_SOLANA_RPC ||
+    "";
   const isLocalSolanaRpc = /localhost|127\.0\.0\.1/i.test(solanaRpc);
   const solanaRpcUrl =
     solanaRpc.trim() ||
-    (isDevnet ? 'https://api.devnet.solana.com' : 'https://api.mainnet-beta.solana.com');
+    (isDevnet
+      ? "https://api.devnet.solana.com"
+      : "https://api.mainnet-beta.solana.com");
 
-  const { data: wallet, isLoading: loading, error: walletError } = useQuery({
-    queryKey: ['wallet'],
+  const {
+    data: wallet,
+    isLoading: loading,
+    error: walletError,
+  } = useQuery({
+    queryKey: ["wallet", user?.id],
     queryFn: () => getWallet(),
     enabled: !!user,
     refetchInterval: 30000,
@@ -40,11 +49,13 @@ export function useWalletPageData() {
 
   const handleBalanceUpdate = useCallback(
     (update: { balance_sol: number }) => {
-      queryClient.setQueryData(['wallet'], (old: WalletType | undefined) =>
-        old ? { ...old, balance_sol: update.balance_sol } : old
+      queryClient.setQueryData(
+        ["wallet", user?.id],
+        (old: WalletType | undefined) =>
+          old ? { ...old, balance_sol: update.balance_sol } : old,
       );
     },
-    [queryClient]
+    [queryClient, user?.id],
   );
 
   useWalletWS({
@@ -54,17 +65,18 @@ export function useWalletPageData() {
   });
 
   const { data: treasuryConfig } = useQuery({
-    queryKey: ['system-config'],
+    queryKey: ["system-config"],
     queryFn: getSystemConfig,
     enabled: !!user,
     staleTime: 60000,
   });
 
-  const { data: withdrawalSecurity, refetch: refetchWithdrawalSecurity } = useQuery({
-    queryKey: ['withdrawal-security'],
-    queryFn: getWithdrawalSecurity,
-    enabled: !!user,
-  });
+  const { data: withdrawalSecurity, refetch: refetchWithdrawalSecurity } =
+    useQuery({
+      queryKey: ["withdrawal-security", user?.id],
+      queryFn: getWithdrawalSecurity,
+      enabled: !!user,
+    });
 
   const largeWithdrawThresholdSOL =
     treasuryConfig?.large_withdraw_threshold_sol ?? DEFAULT_LARGE_WITHDRAW_SOL;

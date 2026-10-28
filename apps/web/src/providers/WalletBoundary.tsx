@@ -12,7 +12,7 @@ import type { ReactNode } from 'react';
 const SolanaWalletProvider = dynamic(
   () =>
     import('@/providers/SolanaWalletProvider').then((m) => m.SolanaWalletProvider),
-  { ssr: false }
+  { ssr: false, loading: () => <div className="ui-loading" role="status">Loading wallet support…</div> }
 );
 
 const OptionalEvmWalletProvider = dynamic(

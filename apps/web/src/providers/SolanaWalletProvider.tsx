@@ -6,6 +6,7 @@ import {
     BaseMessageSignerWalletAdapter,
     WalletName,
     WalletReadyState,
+    WalletAdapterNetwork,
 } from '@solana/wallet-adapter-base';
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
 import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom';
@@ -173,9 +174,9 @@ export const SolanaWalletProvider: FC<Props> = ({ children }) => {
         if (!mounted) return [];
         return [
             new PhantomWalletAdapter(),
-            new SolflareWalletAdapter(),
+            new SolflareWalletAdapter({ network: network as WalletAdapterNetwork }),
         ];
-    }, [enableTestWallet, mounted, testWalletSecret]);
+    }, [enableTestWallet, mounted, testWalletSecret, network]);
 
     useEffect(() => {
         if (!enableTestWallet || wallets.length === 0) return;

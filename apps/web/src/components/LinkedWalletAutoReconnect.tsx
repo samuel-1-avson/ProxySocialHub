@@ -11,12 +11,12 @@ import {
 
 /**
  * After JWT auth, try once to restore a wallet-adapter session when a profile
- * wallet is linked. Never fight a manual disconnect, and never keep retrying
- * after a wrong-account connect (user must switch in Phantom then reconnect).
+ * wallet is linked and that installed wallet was already selected. Never pick
+ * a loadable wallet: connecting it can open a blocking mobile wallet iframe.
  */
 export function LinkedWalletAutoReconnect() {
   const { user } = useAuth();
-  const { connected, publicKey, wallets, select, connect, connecting } = useWallet();
+  const { connected, publicKey, wallet, connecting } = useWallet();
   const attempted = useRef(false);
 
   const expected = (user?.wallet_address || "").trim();
@@ -46,27 +46,13 @@ export function LinkedWalletAutoReconnect() {
 
     if (attempted.current) return;
 
-    const installed = wallets.filter(
-      (w) =>
-        w.readyState === WalletReadyState.Installed ||
-        w.readyState === WalletReadyState.Loadable,
-    );
-    if (installed.length === 0) return;
+    if (!wallet || wallet.readyState !== WalletReadyState.Installed) return;
 
     attempted.current = true;
-    const preferred =
-      installed.find((w) => /phantom/i.test(w.adapter.name)) || installed[0];
-
-    void (async () => {
-      try {
-        select(preferred.adapter.name);
-        await new Promise((r) => setTimeout(r, 50));
-        await connect();
-      } catch {
-        attempted.current = false;
-      }
-    })();
-  }, [expected, connected, publicKey, wallets, select, connect, connecting]);
+    // autoConnect is the adapter's silent restoration path. Explicit wallet
+    // selection and permission prompts remain in the user's connect action.
+    void wallet.adapter.autoConnect().catch(() => {});
+  }, [expected, connected, publicKey, wallet, connecting]);
 
   return null;
 }

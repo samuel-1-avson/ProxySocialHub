@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ProxyHubb — workspace concept v2</title>
+<script src="theme.js"></script>
+<link rel="stylesheet" href="concept.css">
+<link rel="stylesheet" href="concept-v2.css">
+</head>
+<body>
+<a class="skip" href="#main-content">Skip to main content</a>
+<div class="review"><strong>Workspace concept · revision 2</strong><span class="reviewmeta">Buyer + seller · Sample data · No live actions</span><span class="mobile-concept">Example data</span></div>
+<aside class="rail" aria-label="Workspace navigation">
+ <div class="brand"><span class="mark" aria-hidden="true">ph</span>ProxyHubb</div>
+ <label class="workspace"><span aria-hidden="true">◈</span><select id="workspace" aria-label="Workspace"><option value="buyer">Buyer workspace</option><option value="provider">Seller workspace</option></select></label>
+ <div class="workspace-label smallcaps">Workspace</div>
+ <nav id="desktopnav" aria-label="Primary"></nav>
+ <div class="railfooter"><a class="navbtn explorer-link" href="EXPLORER.html"><span class="navicon" aria-hidden="true">◎</span>Explorer <span class="external-mark">↗</span></a><button class="navbtn" data-info="help"><span class="navicon" aria-hidden="true">?</span>Help & support</button><button class="navbtn" data-info="settings"><span class="navicon" aria-hidden="true">⚙</span>Settings</button><div class="note">Four focused destinations.<br>Public evidence lives in Explorer.</div></div>
+</aside>
+<header class="utility"><div class="mobilebrand"><span class="mark" aria-hidden="true">ph</span>ProxyHubb</div><button class="searchbtn" id="search"><span class="searchsymbol" aria-hidden="true">⌕</span> Search workspace <kbd>Ctrl / ⌘ K</kbd></button><div class="utilgroup"><label class="theme-control"><span class="theme-label">Theme</span><select data-theme-choice aria-label="Color theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label><span class="env">DEVNET CONCEPT</span><button class="walletbtn" data-info="wallet"><span>Wallet</span><b class="mono">0.250 SOL</b></button><button class="iconbtn notification" data-info="inbox" aria-label="Open inbox">Inbox · 1</button><button class="iconbtn" id="account" aria-label="Account and workspace"><span class="avatar">JD</span></button></div></header>
+<main id="main-content" tabindex="-1"><div class="content" id="screen"></div></main>
+<nav class="bottomnav" id="mobilenav" aria-label="Mobile primary"></nav>
+<dialog id="detail" aria-labelledby="dialogtitle"><div class="dialoghead"><h2 id="dialogtitle"></h2><button class="dialogclose" aria-label="Close dialog">×</button></div><div id="dialogbody"></div></dialog>
+<script src="concept-base.js"></script>
+<script src="concept-v2.js"></script>
+</body>
+</html>

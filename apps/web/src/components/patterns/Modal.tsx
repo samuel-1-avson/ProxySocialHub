@@ -58,6 +58,7 @@ export function Modal({
       <DialogContent
         data-testid={testId}
         hideCloseButton={hideCloseButton}
+        {...(!description ? { "aria-describedby": undefined } : {})}
         className={cn(SIZE_CLASS[size], "gap-0 p-0", className)}
       >
         <DialogHeader className="border-b border-border px-6 py-4 text-left">
