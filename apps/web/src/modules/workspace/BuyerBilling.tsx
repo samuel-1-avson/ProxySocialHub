@@ -20,7 +20,7 @@ import {
   assertExpectedSolanaCluster,
   shopSolanaClusterLabel,
 } from "@/lib/solana";
-import { sendSolTransfer } from "@/lib/solana-transfer";
+import { sendSolTransfer, SolTransferFailedError } from "@/lib/solana-transfer";
 import { Modal } from "@/components/patterns/Modal";
 import {
   Loading,
@@ -67,6 +67,7 @@ export function BuyerBilling() {
   const [manualSignature, setManualSignature] = useState("");
   const [cancelOpen, setCancelOpen] = useState(false);
   const keys = useRef(new Map<string, string>());
+  const paymentInFlight = useRef(false);
   const mine = useQuery({
     queryKey: ["buyer-pass", user?.id],
     queryFn: getMyPass,
@@ -100,9 +101,17 @@ export function BuyerBilling() {
         purchase_id: payment.purchaseId,
         tier: payment.tier,
       }),
-    onSuccess: () => {
-      sessionStorage.removeItem(key);
-      setPending(null);
+    onSuccess: (_result, payment) => {
+      if (readPending(key)?.signature === payment.signature) {
+        try {
+          sessionStorage.removeItem(key);
+        } catch {
+          /* Storage may be disabled. */
+        }
+      }
+      setPending((current) =>
+        current?.signature === payment.signature ? null : current,
+      );
       invalidate();
     },
   });
@@ -118,50 +127,88 @@ export function BuyerBilling() {
   const pay = useMutation({
     retry: false,
     mutationFn: async () => {
-      if (pending) {
-        await confirm.mutateAsync(pending);
-        return;
-      }
-      if (
-        !quote ||
-        quote.mode !== "treasury_sol_transfer" ||
-        !quote.treasury ||
-        !quote.purchase_id
-      )
-        throw new Error("A complete payment quote is required.");
-      if (
-        !wallet.connected ||
-        !wallet.publicKey ||
-        wallet.publicKey.toBase58() !== quote.buyer_wallet
-      )
-        throw new Error("Connect the wallet matching this purchase quote.");
-      if (
-        !Number.isSafeInteger(quote.amount_lamports) ||
-        quote.amount_lamports! <= 0
-      )
-        throw new Error(
-          "The quoted amount is invalid. No transaction was sent.",
+      if (paymentInFlight.current)
+        throw new Error("A payment is already in progress.");
+      paymentInFlight.current = true;
+      try {
+        if (pending) {
+          await confirm.mutateAsync(pending);
+          return;
+        }
+        if (
+          !quote ||
+          quote.mode !== "treasury_sol_transfer" ||
+          !quote.treasury ||
+          !quote.purchase_id
+        )
+          throw new Error("A complete payment quote is required.");
+        if (
+          !wallet.connected ||
+          !wallet.publicKey ||
+          wallet.publicKey.toBase58() !== quote.buyer_wallet
+        )
+          throw new Error("Connect the wallet matching this purchase quote.");
+        if (
+          !Number.isSafeInteger(quote.amount_lamports) ||
+          quote.amount_lamports! <= 0
+        )
+          throw new Error(
+            "The quoted amount is invalid. No transaction was sent.",
+          );
+        const connection = getConnection();
+        await assertExpectedSolanaCluster(connection);
+        const signature = await sendSolTransfer(
+          connection,
+          {
+            publicKey: wallet.publicKey,
+            signTransaction: wallet.signTransaction,
+            sendTransaction: wallet.sendTransaction,
+          },
+          new PublicKey(quote.treasury),
+          quote.amount_lamports!,
+          (signature) => {
+            const payment = {
+              tier: quote.tier,
+              signature,
+              purchaseId: quote.purchase_id,
+            };
+            setPending(payment);
+            try {
+              sessionStorage.setItem(key, JSON.stringify(payment));
+            } catch {
+              /* Keep recovery available in memory. */
+            }
+          },
         );
-      const connection = getConnection();
-      await assertExpectedSolanaCluster(connection);
-      const signature = await sendSolTransfer(
-        connection,
-        {
-          publicKey: wallet.publicKey,
-          signTransaction: wallet.signTransaction,
-          sendTransaction: wallet.sendTransaction,
-        },
-        new PublicKey(quote.treasury),
-        quote.amount_lamports!,
-      );
-      const payment = {
-        tier: quote.tier,
-        signature,
-        purchaseId: quote.purchase_id,
-      };
-      setPending(payment);
-      sessionStorage.setItem(key, JSON.stringify(payment));
-      await confirm.mutateAsync(payment);
+        const payment = {
+          tier: quote.tier,
+          signature,
+          purchaseId: quote.purchase_id,
+        };
+        setPending(payment);
+        try {
+          sessionStorage.setItem(key, JSON.stringify(payment));
+        } catch {
+          /* Keep recovery available in memory. */
+        }
+        await confirm.mutateAsync(payment);
+      } catch (error) {
+        if (error instanceof SolTransferFailedError) {
+          setPending((current) =>
+            current?.signature === error.signature ? null : current,
+          );
+          if (readPending(key)?.signature === error.signature) {
+            try {
+              sessionStorage.removeItem(key);
+            } catch {
+              /* Optional recovery storage. */
+            }
+          }
+        }
+        throw error;
+      } finally {
+        paymentInFlight.current = false;
+      }
     },
     onSuccess: () => {
       setSelection(null);

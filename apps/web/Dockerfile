@@ -3,7 +3,7 @@
 
 # Stage 1: Dependencies
 FROM node:20-alpine AS deps
-WORKDIR /app
+WORKDIR /repo/apps/web
 # Install build tools needed for native addons (usb, lightningcss, etc.).
 # Retry apk: Alpine CDN occasionally aborts mid-extract (e.g. python3-pycache-pyc0).
 RUN set -eux; \
@@ -13,18 +13,19 @@ RUN set -eux; \
     apk cache clean || true; \
     sleep $((attempt * 5)); \
   done
-COPY package.json package-lock.json ./
-RUN npm install
+COPY apps/web/package.json apps/web/package-lock.json ./
+RUN npm ci
 
 # Stage 2: Builder
 FROM node:20-alpine AS builder
-WORKDIR /app
+WORKDIR /repo/apps/web
 
 # Copy dependencies installed for the correct platform
-COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /repo/apps/web/node_modules ./node_modules
 
 # Copy source code
-COPY . .
+COPY apps/web/ ./
+COPY packages/design-system/ /repo/packages/design-system/
 
 # Build arguments for environment variables.
 # API_URL is a server-only var used by next.config.ts rewrites (never exposed
@@ -54,6 +55,7 @@ ARG NEXT_PUBLIC_GLOBE_TOPOLOGY=false
 ARG NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=
 ARG NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID=
 ARG NEXT_PUBLIC_LEGACY_EXPLORER_GLOBE=false
+ARG NEXT_PUBLIC_EXPLORER_URL=
 ENV API_URL=${API_URL}
 ENV NEXT_PUBLIC_GATEWAY_URL=${NEXT_PUBLIC_GATEWAY_URL}
 ENV NEXT_PUBLIC_ENABLE_EVM_WALLETS=${NEXT_PUBLIC_ENABLE_EVM_WALLETS}
@@ -76,6 +78,7 @@ ENV NEXT_PUBLIC_GLOBE_TOPOLOGY=${NEXT_PUBLIC_GLOBE_TOPOLOGY}
 ENV NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=${NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}
 ENV NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID=${NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID}
 ENV NEXT_PUBLIC_LEGACY_EXPLORER_GLOBE=${NEXT_PUBLIC_LEGACY_EXPLORER_GLOBE}
+ENV NEXT_PUBLIC_EXPLORER_URL=${NEXT_PUBLIC_EXPLORER_URL}
 
 # Build the application
 RUN npm run build
@@ -90,11 +93,10 @@ ENV NODE_ENV=production
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
-# Standalone preserves the app path when outputFileTracingRoot is above the project dir
-# (monorepo root locally; filesystem root in this image). server.js is at app/server.js.
-COPY --from=builder /app/public ./app/public
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./app/.next/static
+# Preserve the monorepo layout used by Next's output tracing.
+COPY --from=builder /repo/apps/web/public ./apps/web/public
+COPY --from=builder --chown=nextjs:nodejs /repo/apps/web/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /repo/apps/web/.next/static ./apps/web/.next/static
 
 # Switch to non-root user
 USER nextjs
@@ -110,4 +112,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD wget --no-verbose --tries=1 -O /dev/null http://127.0.0.1:3000/ || exit 1
 
 # Start the application
-CMD ["node", "app/server.js"]
+CMD ["node", "apps/web/server.js"]

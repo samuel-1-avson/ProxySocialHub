@@ -1,0 +1,15 @@
+**
+!apps/
+!apps/web/
+!apps/web/**
+!packages/
+!packages/design-system/
+!packages/design-system/**
+**/node_modules
+**/.next
+**/.env*
+!**/.env.example
+**/test-results
+**/playwright-report
+**/*.log
+**/*.tsbuildinfo

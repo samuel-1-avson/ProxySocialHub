@@ -7,6 +7,7 @@ import { depositCrypto } from "@/lib/api";
 import {
   formatSolanaWalletError,
   sendSolTransfer,
+  SolTransferFailedError,
 } from "@/lib/solana-transfer";
 import { getSolscanTxUrl } from "@/lib/solscan";
 import { getErrorMessage } from "@/lib/utils";
@@ -14,6 +15,26 @@ import type { QueryClient } from "@tanstack/react-query";
 import { DEPOSIT_FEE_BUFFER_LAMPORTS } from "../constants";
 import { parseSolAmountLamports } from "@/lib/sol-amount";
 import type { WalletResult } from "../types";
+import { assertExpectedSolanaCluster, shopSolanaCluster } from "@/lib/solana";
+
+type RetainedDeposit = {
+  amount: number;
+  amountInput: string;
+  signature: string;
+};
+function readDeposit(key: string): RetainedDeposit | null {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(key) || "null");
+    return value &&
+      typeof value.signature === "string" &&
+      typeof value.amountInput === "string" &&
+      value.amount > 0
+      ? value
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 type SolanaWallet = ReturnType<typeof useSolanaWallet>;
 
@@ -66,6 +87,16 @@ export function useWalletDeposit(opts: {
   const [depositConfirmAmount, setDepositConfirmAmount] = useState<
     number | null
   >(null);
+  const recoveryKey = `proxyhubb-account-deposit:${wallet?.linked_solana_address}:${shopSolanaCluster()}`;
+  const retainedDeposit = wallet?.linked_solana_address
+    ? readDeposit(recoveryKey)
+    : null;
+  const restoreDeposit = (payment = retainedDeposit) => {
+    if (!payment) return;
+    setDepositAmount(payment.amountInput);
+    setDepositTxHash(payment.signature);
+    setShowManualDeposit(true);
+  };
   const confirmedTransfer = useRef<{
     amount: number;
     signature: string;
@@ -89,6 +120,11 @@ export function useWalletDeposit(opts: {
     setDepositAmount("");
     setDepositTxHash("");
     confirmedTransfer.current = null;
+    try {
+      sessionStorage.removeItem(recoveryKey);
+    } catch {
+      /* Optional recovery storage. */
+    }
     queryClient.invalidateQueries({ queryKey: ["wallet"] });
   };
 
@@ -131,12 +167,13 @@ export function useWalletDeposit(opts: {
   };
 
   const initiateDeposit = () => {
-    if (confirmedTransfer.current) {
+    if (confirmedTransfer.current || retainedDeposit) {
+      restoreDeposit();
       setShowManualDeposit(true);
       setResult({
         success: false,
         message:
-          "A transfer is already confirmed. Verify its existing transaction before sending another.",
+          "A transfer was already submitted. Verify its existing transaction before sending another.",
       });
       return;
     }
@@ -205,15 +242,17 @@ export function useWalletDeposit(opts: {
     setResult(null);
     try {
       const { getConnection } = await import("@/lib/solana");
-      if (confirmedTransfer.current) {
-        if (confirmedTransfer.current.amount !== amt)
+      const previous = confirmedTransfer.current || readDeposit(recoveryKey);
+      if (previous) {
+        if (previous.amount !== amt)
           throw new Error(
             "Verify the original deposit amount before starting another transfer.",
           );
-        await creditDepositOnServer(amt, confirmedTransfer.current.signature);
+        await creditDepositOnServer(amt, previous.signature);
         return;
       }
       const connection = getConnection();
+      await assertExpectedSolanaCluster(connection);
       const treasuryPk = new PublicKey(treasury);
       const lamports = exactLamports ?? 0;
       if (lamports <= 0) {
@@ -244,6 +283,23 @@ export function useWalletDeposit(opts: {
         },
         treasuryPk,
         lamports,
+        (signature) => {
+          confirmedTransfer.current = { amount: amt, signature };
+          setDepositTxHash(signature);
+          setShowManualDeposit(true);
+          try {
+            sessionStorage.setItem(
+              recoveryKey,
+              JSON.stringify({
+                amount: amt,
+                amountInput: depositAmount,
+                signature,
+              }),
+            );
+          } catch {
+            /* Recovery remains available in memory. */
+          }
+        },
       );
       confirmedTransfer.current = { amount: amt, signature };
       setDepositTxHash(signature);
@@ -256,6 +312,15 @@ export function useWalletDeposit(opts: {
       });
       await creditDepositOnServer(amt, signature);
     } catch (err: unknown) {
+      if (err instanceof SolTransferFailedError) {
+        confirmedTransfer.current = null;
+        setDepositTxHash("");
+        try {
+          sessionStorage.removeItem(recoveryKey);
+        } catch {
+          /* Optional recovery storage. */
+        }
+      }
       setResult({ success: false, message: formatSolanaWalletError(err) });
     } finally {
       depositInFlightRef.current = false;
@@ -291,5 +356,7 @@ export function useWalletDeposit(opts: {
     handleDepositSol,
     handleDepositVerify,
     copyTreasuryAddress,
+    retainedDeposit,
+    restoreDeposit,
   };
 }
