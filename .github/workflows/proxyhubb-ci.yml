@@ -289,6 +289,7 @@ jobs:
         npm run test:provider-config
         npm run test:listing-display
         npm run test:order-status
+        npm run test:wallet-session
 
   # ==================== Docs (Next.js / MDX) ====================
   docs-check:
