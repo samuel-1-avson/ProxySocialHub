@@ -17,6 +17,7 @@
         "title": "ProxyHubb Provider",
         "width": 460,
         "height": 660,
+        "visible": false,
         "resizable": false,
         "maximizable": false
       }
