@@ -949,17 +949,11 @@ func TestProviderPairing_RealDatabaseErrorIsReportedByClass(t *testing.T) {
 	if w := e.decide(s.UserCode, "approve", e.asOwner()); w.Code != http.StatusOK {
 		t.Fatalf("approve: %d %s", w.Code, w.Body.String())
 	}
-	// Remove the approver, dependents first (the approval wrote an audit-log row for them).
-	// If this schema will not let the account go, there is no real foreign key to trip, so
-	// skip: the injected-failure test above already covers every step's label.
-	for _, q := range []string{
-		"DELETE FROM audit_logs WHERE user_id = ?",
-		"DELETE FROM profiles WHERE id = ?",
-		"DELETE FROM users WHERE id = ?",
-	} {
-		if err := db.DB.Exec(q, e.owner.ID).Error; err != nil {
-			t.Skipf("could not remove the approver in this schema (%s): %v", q, err)
-		}
+	// provider_tokens, provider_nodes and provider_node_registrations all reference profiles,
+	// while the pairing row itself does not, so the approval survives the account and the
+	// redeem trips a real foreign key at its first insert.
+	if err := db.DB.Exec("DELETE FROM profiles WHERE id = ?", e.owner.ID).Error; err != nil {
+		t.Fatalf("remove the approver's profile: %v", err)
 	}
 
 	w := e.poll(s.DeviceCode)
