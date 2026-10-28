@@ -1,5 +1,6 @@
 import { ProviderNode } from '@/lib/api/marketplace';
 import { Shield, Clock, Wifi, Award, TrendingUp, AlertTriangle } from 'lucide-react';
+import { measurement, measured } from '@/lib/measurements';
 
 interface ProviderScoreCardProps {
     node: ProviderNode;
@@ -7,24 +8,20 @@ interface ProviderScoreCardProps {
 
 export function ProviderScoreCard({ node }: ProviderScoreCardProps) {
     // Calculate tier based on score
-    const score = node.quality_score || 0;
-    let tier = 'Standard';
+    const score = measurement(node.quality_score);
     let tierColor = 'text-muted-foreground';
     let borderColor = 'border-border';
     let bgGradient = 'bg-card';
 
-    if (score >= 90) {
-        tier = 'Platinum';
+    if (score !== undefined && score >= 90) {
         tierColor = 'text-cyan-400';
         borderColor = 'border-cyan-500/50';
         bgGradient = 'bg-gradient-to-br from-cyan-900/10 to-transparent';
-    } else if (score >= 80) {
-        tier = 'Gold';
+    } else if (score !== undefined && score >= 80) {
         tierColor = 'text-yellow-400';
         borderColor = 'border-yellow-500/50';
         bgGradient = 'bg-gradient-to-br from-yellow-900/10 to-transparent';
-    } else if (score >= 70) {
-        tier = 'Silver';
+    } else if (score !== undefined && score >= 70) {
         tierColor = 'text-slate-300';
         borderColor = 'border-slate-400/50';
     }
@@ -43,10 +40,10 @@ export function ProviderScoreCard({ node }: ProviderScoreCardProps) {
                         <Shield size={12} /> Trust Score
                     </div>
                     <div className={`text-5xl font-black font-mono tracking-tighter ${tierColor}`}>
-                        {Number(score || 0).toFixed(1)}
+                        {measured(score, 1)}
                     </div>
                     <div className={`mt-2 px-3 py-1 text-[10px] font-bold uppercase rounded-full border ${borderColor} ${tierColor} bg-background`}>
-                        {tier} Tier
+                        Reported score
                     </div>
                 </div>
 
@@ -58,7 +55,7 @@ export function ProviderScoreCard({ node }: ProviderScoreCardProps) {
                             <span className="text-[10px] font-bold font-mono uppercase text-muted-foreground">Uptime</span>
                         </div>
                         <div className="text-2xl font-bold font-mono">
-                            {node.uptime_percent ? Number(node.uptime_percent).toFixed(1) + '%' : 'N/A'}
+                            {measured(node.uptime_percent, 1, '%')}
                         </div>
                         <div className="h-1 w-full bg-secondary mt-2 rounded-full overflow-hidden">
                             <div
@@ -74,10 +71,10 @@ export function ProviderScoreCard({ node }: ProviderScoreCardProps) {
                             <span className="text-[10px] font-bold font-mono uppercase text-muted-foreground">Latency</span>
                         </div>
                         <div className="text-2xl font-bold font-mono">
-                            {node.latency_ms || '-'} <span className="text-sm text-muted-foreground">ms</span>
+                            {measured(node.latency_ms, 1, 'ms')}
                         </div>
                         <p className="text-[10px] text-muted-foreground mt-1">
-                            {node.latency_ms && node.latency_ms < 50 ? 'Excellent' : node.latency_ms && node.latency_ms < 150 ? 'Good' : 'Fair'}
+                            {node.latency_ms != null ? 'Reported response time' : 'No response-time measurement'}
                         </p>
                     </div>
 
@@ -87,7 +84,7 @@ export function ProviderScoreCard({ node }: ProviderScoreCardProps) {
                             <span className="text-[10px] font-bold font-mono uppercase text-muted-foreground">Traffic</span>
                         </div>
                         <div className="text-xl font-bold font-mono">
-                            {node.active_connections || 0} <span className="text-sm text-muted-foreground">Active</span>
+                            {measured(node.active_connections, 0)} <span className="text-sm text-muted-foreground">Active</span>
                         </div>
                     </div>
 
@@ -97,7 +94,7 @@ export function ProviderScoreCard({ node }: ProviderScoreCardProps) {
                             <span className="text-[10px] font-bold font-mono uppercase text-muted-foreground">Disputes</span>
                         </div>
                         <div className="text-xl font-bold font-mono">
-                            0 <span className="text-sm text-muted-foreground">Open</span>
+                            Not reported
                         </div>
                     </div>
                 </div>
@@ -105,7 +102,7 @@ export function ProviderScoreCard({ node }: ProviderScoreCardProps) {
 
             <div className="mt-6 pt-4 border-t border-border flex justify-between items-center text-xs text-muted-foreground font-mono">
                 <span>Node ID: {node.id.slice(0, 12)}...</span>
-                <span>Last Updated: Just now</span>
+                <span>Source timestamp not reported</span>
             </div>
         </div>
     );

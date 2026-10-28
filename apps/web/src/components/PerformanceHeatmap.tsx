@@ -9,8 +9,9 @@ interface PerformanceHeatmapProps {
 
 export function PerformanceHeatmap({ distribution }: PerformanceHeatmapProps) {
     // Industrial Heatmap logic
-    const tiers = Object.keys(distribution);
-    const maxVal = Math.max(...Object.values(distribution), 1);
+    const tiers = Object.keys(distribution).filter(key => Number.isFinite(distribution[key]) && distribution[key] >= 0);
+    const maxVal = Math.max(...tiers.map(key => distribution[key]), 1);
+    const samples = tiers.reduce((sum, key) => sum + distribution[key], 0);
 
     const getHeatColor = (count: number) => {
         const intensity = (count / maxVal) * 100;
@@ -58,13 +59,13 @@ export function PerformanceHeatmap({ distribution }: PerformanceHeatmapProps) {
             {/* Scale Info */}
             <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5 flex items-center justify-between">
                 <div className="flex flex-col">
-                    <span className="text-[8px] font-black text-white/20 uppercase tracking-widest leading-none">Telemetry Quality</span>
-                    <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-tighter">99.8% Fidelity</span>
+                    <span className="text-[8px] font-black text-white/20 uppercase tracking-widest leading-none">Reported samples</span>
+                    <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-tighter">{samples.toLocaleString()}</span>
                 </div>
                 <div className="h-4 w-px bg-white/10"></div>
                 <div className="flex flex-col text-right">
                     <span className="text-[8px] font-black text-white/20 uppercase tracking-widest leading-none">Sample Set</span>
-                    <span className="text-[10px] font-bold text-white font-mono uppercase tracking-tighter">Verified Real-time</span>
+                    <span className="text-[10px] font-bold text-white font-mono uppercase tracking-tighter">Source time not reported</span>
                 </div>
             </div>
         </div>

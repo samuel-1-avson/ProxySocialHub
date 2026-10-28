@@ -91,8 +91,9 @@ export interface Conversation {
     id: string;
     participant1: string;
     participant2: string;
-    last_message_at: string;
-    other_participant?: User;
+    last_message_at?: string;
+    other_participant?: Pick<User, 'id'> & Partial<Omit<User, 'id'>>;
+    other_participant_name?: string;
     last_message?: Message;
     unread_count?: number;
 }

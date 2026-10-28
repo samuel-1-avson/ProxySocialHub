@@ -187,10 +187,13 @@ export function projectPublicData(
                 "region",
                 "geo_source",
               ]);
-              const lat = roundedMapPoint(asRecord(item).lat);
-              const lon = roundedMapPoint(asRecord(item).lon);
-              if (lat !== undefined) point.lat = lat;
-              if (lon !== undefined) point.lon = lon;
+              const raw = asRecord(item);
+              if (typeof raw.lat === "number" && Number.isFinite(raw.lat) && Math.abs(raw.lat) <= 90 &&
+                  typeof raw.lon === "number" && Number.isFinite(raw.lon) && Math.abs(raw.lon) <= 180 &&
+                  raw.geo_source !== "unknown") {
+                point.lat = roundedMapPoint(raw.lat);
+                point.lon = roundedMapPoint(raw.lon);
+              }
               return point;
             })
           : [],

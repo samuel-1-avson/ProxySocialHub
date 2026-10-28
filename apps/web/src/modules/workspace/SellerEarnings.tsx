@@ -267,6 +267,7 @@ export function SellerEarnings() {
       <details className="ui-note">
         <summary>Advanced business tools</summary>
         <div className="ui-actions mt-3">
+          <Link className="ui-link" href="/dashboard/provider/analytics">Performance analytics →</Link>
           <Link className="ui-link" href="/dashboard/provider/relationships">
             Customers →
           </Link>
