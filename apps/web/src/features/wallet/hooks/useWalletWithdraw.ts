@@ -201,23 +201,28 @@ export function useWalletWithdraw(opts: {
         amountLamports: exactLamports!,
       };
       const res = await withdrawWallet(amt, "", "", opts);
-      const txRef = res.tx_hash || res.reference;
-      const processing = res.status === "processing";
+      const txRef = res.tx_hash;
+      const processing = !["completed", "failed", "ops_required"].includes(
+        res.status,
+      );
+      const failed = ["failed", "ops_required"].includes(res.status);
       setResult({
-        success: true,
-        message: processing
-          ? res.message ||
-            "Withdrawal submitted — usually completes in under a few minutes"
-          : txRef
-            ? `Withdrawal submitted (${txRef.slice(0, 12)}…)`
-            : "Withdrawal submitted",
+        success: !failed,
+        message: failed
+          ? `Withdrawal ${res.status}. Review wallet activity before retrying.`
+          : processing
+            ? res.message ||
+              `Withdrawal ${res.status}. Review wallet activity for settlement.`
+            : txRef
+              ? `Withdrawal submitted (${txRef.slice(0, 12)}…)`
+              : "Withdrawal submitted",
         solscanUrl: processing
           ? undefined
           : res.solscan_url || (txRef ? getSolscanTxUrl(txRef) : undefined),
       });
       idemRef.current = null;
       setWithdrawAmount("");
-      if (processing || res.status === "queued") {
+      if (processing) {
         setPendingWithdrawal("Withdrawal queued...");
         pollWithdrawalStatus(res.reference || undefined);
       }

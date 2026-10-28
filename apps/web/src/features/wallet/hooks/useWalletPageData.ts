@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth } from "@/lib/auth";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { useWalletWS } from "@/lib/hooks/useWalletWS";
 import {
   getWallet,
@@ -18,7 +18,6 @@ export function useWalletPageData() {
   const queryClient = useQueryClient();
   const [processing, setProcessing] = useState(false);
   const [result, setResult] = useState<WalletResult | null>(null);
-  const [mounted, setMounted] = useState(false);
 
   const rawSolanaNetwork = process.env.NEXT_PUBLIC_SOLANA_NETWORK || "devnet";
   const solanaNetwork =
@@ -81,10 +80,6 @@ export function useWalletPageData() {
   const largeWithdrawThresholdSOL =
     treasuryConfig?.large_withdraw_threshold_sol ?? DEFAULT_LARGE_WITHDRAW_SOL;
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
   return {
     user,
     queryClient,
@@ -92,7 +87,6 @@ export function useWalletPageData() {
     setProcessing,
     result,
     setResult,
-    mounted,
     wallet,
     loading,
     walletError,
