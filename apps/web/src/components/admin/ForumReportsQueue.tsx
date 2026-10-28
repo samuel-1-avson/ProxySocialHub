@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, Check, EyeOff, Loader2, Lock, MessageSquare, Trash2, X } from 'lucide-react';
+import { Check, EyeOff, Lock, Trash2, X } from 'lucide-react';
 import {
     forumModerationKeys,
     getForumReports,
@@ -12,6 +12,8 @@ import {
     type ForumReportStatus,
 } from '@/lib/api/forum-moderation';
 import { getErrorMessage } from '@/lib/utils';
+import { ConfirmDialog } from '@/components/patterns/ConfirmDialog';
+import { Loading, DataError, EmptyState } from '@/components/workspace/Patterns';
 
 interface ForumReportsQueueProps {
     enabled: boolean;
@@ -25,10 +27,18 @@ const RESOLVE_ACTIONS: { action: ForumReportAction; label: string; icon: typeof 
     { action: 'none', label: 'Resolve only', icon: Check },
 ];
 
+const DESTRUCTIVE_ACTIONS = new Set<ForumReportAction>(['hide', 'lock', 'hide_and_lock', 'delete']);
+
 export function ForumReportsQueue({ enabled }: ForumReportsQueueProps) {
     const queryClient = useQueryClient();
     const [page, setPage] = useState(1);
     const [statusFilter, setStatusFilter] = useState<ForumReportStatus>('pending');
+    const [pending, setPending] = useState<{
+        id: string;
+        title: string;
+        action: ForumReportAction;
+        label: string;
+    } | null>(null);
     const limit = 20;
 
     const { data, isLoading, error } = useQuery({
@@ -49,6 +59,7 @@ export function ForumReportsQueue({ enabled }: ForumReportsQueueProps) {
         }) => updateForumReportStatus(id, status, action ?? 'none'),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: forumModerationKeys.all });
+            setPending(null);
         },
     });
 
@@ -59,19 +70,13 @@ export function ForumReportsQueue({ enabled }: ForumReportsQueueProps) {
     return (
         <div className="space-y-6" data-testid="admin-forum-reports">
             <div>
-                <div className="flex items-center gap-2 text-primary font-bold uppercase tracking-wider text-xs mb-2">
-                    <MessageSquare size={14} />
-                    Forum moderation
-                </div>
-                <h2 className="text-2xl font-black tracking-tighter uppercase italic">
-                    Content <span className="text-primary">reports</span>
-                </h2>
-                <p className="text-sm text-muted-foreground mt-2">
+                <h2>Forum reports</h2>
+                <p className="ui-note mt-2">
                     Hide, lock, or delete reported content when resolving. Dismiss leaves content unchanged.
                 </p>
             </div>
 
-            <div className="flex flex-wrap gap-2">
+            <nav className="ui-tabs" aria-label="Report status">
                 {(['pending', 'resolved', 'dismissed', 'all'] as const).map((s) => (
                     <button
                         key={s}
@@ -80,37 +85,22 @@ export function ForumReportsQueue({ enabled }: ForumReportsQueueProps) {
                             setStatusFilter(s);
                             setPage(1);
                         }}
-                        className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest border transition-colors ${
-                            statusFilter === s
-                                ? 'border-primary/40 bg-primary/10 text-primary'
-                                : 'border-white/10 text-muted-foreground hover:text-foreground'
-                        }`}
+                        className={statusFilter === s ? 'active' : ''}
                     >
                         {s}
                     </button>
                 ))}
-            </div>
+            </nav>
 
-            {isLoading && (
-                <div className="flex flex-col items-center py-12 gap-3">
-                    <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                    <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest">
-                        Loading reports…
-                    </p>
-                </div>
-            )}
+            {isLoading && <Loading label="Loading reports…" />}
 
-            {error && (
-                <div className="flex items-start gap-3 p-4 rounded-xl border border-red-500/20 bg-red-500/5 text-sm text-red-400">
-                    <AlertCircle size={18} className="shrink-0 mt-0.5" />
-                    <span>{getErrorMessage(error)}</span>
-                </div>
-            )}
+            {error && <DataError error={error} />}
 
             {!isLoading && !error && reports.length === 0 && (
-                <div className="text-center py-12 border border-dashed border-white/10 rounded-2xl">
-                    <p className="text-muted-foreground">No reports in this queue.</p>
-                </div>
+                <EmptyState
+                    title="No reports in this queue"
+                    description="Incoming reports will appear here for review."
+                />
             )}
 
             <ul className="space-y-3">
@@ -118,29 +108,29 @@ export function ForumReportsQueue({ enabled }: ForumReportsQueueProps) {
                     <li
                         key={report.id}
                         data-testid={`forum-report-${report.id}`}
-                        className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-3"
+                        className="ui-surface space-y-3"
                     >
                         <div className="flex flex-wrap items-start justify-between gap-2">
-                            <div>
-                                <p className="text-[10px] font-mono uppercase text-muted-foreground/60">
+                            <div className="min-w-0">
+                                <p className="ui-note">
                                     {report.reason} · {report.status}
                                     {report.post_id ? ' · post' : report.thread_id ? ' · thread' : ''}
                                 </p>
-                                <p className="text-sm font-bold mt-1">
+                                <p className="text-sm font-medium mt-1">
                                     {report.thread_title || report.post_preview || 'Forum content'}
                                 </p>
                                 {report.reporter_name && (
-                                    <p className="text-[10px] text-muted-foreground mt-1">
+                                    <p className="text-sm text-muted-foreground mt-1">
                                         Reported by {report.reporter_name}
                                     </p>
                                 )}
                             </div>
-                            <time className="text-[9px] font-mono text-muted-foreground/50">
+                            <time className="text-sm text-muted-foreground">
                                 {new Date(report.created_at).toLocaleString()}
                             </time>
                         </div>
                         {report.details && (
-                            <p className="text-xs text-muted-foreground border-l-2 border-white/10 pl-3">
+                            <p className="text-sm text-muted-foreground border-l-2 border-border pl-3">
                                 {report.details}
                             </p>
                         )}
@@ -148,7 +138,7 @@ export function ForumReportsQueue({ enabled }: ForumReportsQueueProps) {
                             {report.thread_id && (
                                 <Link
                                     href={`/community/forum/thread/${report.thread_id}`}
-                                    className="text-[10px] font-bold uppercase tracking-widest text-primary hover:underline"
+                                    className="ui-link text-sm"
                                 >
                                     Open thread
                                 </Link>
@@ -160,22 +150,28 @@ export function ForumReportsQueue({ enabled }: ForumReportsQueueProps) {
                                             key={action}
                                             type="button"
                                             disabled={updateMutation.isPending}
-                                            onClick={() =>
+                                            onClick={() => {
+                                                if (DESTRUCTIVE_ACTIONS.has(action)) {
+                                                    setPending({
+                                                        id: report.id,
+                                                        title:
+                                                            report.thread_title ||
+                                                            report.post_preview ||
+                                                            'this content',
+                                                        action,
+                                                        label,
+                                                    });
+                                                    return;
+                                                }
                                                 updateMutation.mutate({
                                                     id: report.id,
                                                     status: 'resolved',
                                                     action,
-                                                })
-                                            }
-                                            className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border text-[10px] font-bold uppercase tracking-widest ${
-                                                action === 'delete'
-                                                    ? 'bg-red-500/10 text-red-400 border-red-500/20'
-                                                    : action === 'none'
-                                                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                                                      : 'bg-amber-500/10 text-amber-300 border-amber-500/20'
-                                            }`}
+                                                });
+                                            }}
+                                            className="ui-button small secondary"
                                         >
-                                            <Icon size={12} /> {label}
+                                            <Icon size={14} aria-hidden="true" /> {label}
                                         </button>
                                     ))}
                                     <button
@@ -184,43 +180,71 @@ export function ForumReportsQueue({ enabled }: ForumReportsQueueProps) {
                                         onClick={() =>
                                             updateMutation.mutate({ id: report.id, status: 'dismissed' })
                                         }
-                                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white/5 text-muted-foreground border border-white/10 text-[10px] font-bold uppercase tracking-widest"
+                                        className="ui-button small ghost"
                                     >
-                                        <X size={12} /> Dismiss
+                                        <X size={14} aria-hidden="true" /> Dismiss
                                     </button>
                                 </>
                             )}
                         </div>
                         {updateMutation.isError && (
-                            <p className="text-xs text-red-400">{getErrorMessage(updateMutation.error)}</p>
+                            <p className="text-sm" role="alert">
+                                {getErrorMessage(updateMutation.error)}
+                            </p>
                         )}
                     </li>
                 ))}
             </ul>
 
             {totalPages > 1 && (
-                <div className="flex items-center justify-center gap-3">
+                <div className="ui-pagination">
                     <button
                         type="button"
                         disabled={page <= 1}
                         onClick={() => setPage((p) => Math.max(1, p - 1))}
-                        className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground disabled:opacity-30"
+                        className="ui-button small secondary"
                     >
                         Previous
                     </button>
-                    <span className="text-[10px] font-mono text-muted-foreground">
+                    <span>
                         {page} / {totalPages}
                     </span>
                     <button
                         type="button"
                         disabled={page >= totalPages}
                         onClick={() => setPage((p) => p + 1)}
-                        className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground disabled:opacity-30"
+                        className="ui-button small secondary"
                     >
                         Next
                     </button>
                 </div>
             )}
+
+            <ConfirmDialog
+                open={pending !== null}
+                onOpenChange={(open) => {
+                    if (!open) setPending(null);
+                }}
+                title={pending?.label || 'Confirm moderation'}
+                description={
+                    pending
+                        ? `Apply “${pending.label}” to ${pending.title}? This cannot be easily undone.`
+                        : undefined
+                }
+                confirmLabel={pending?.label || 'Confirm'}
+                cancelLabel="Cancel"
+                destructive
+                loading={updateMutation.isPending}
+                error={updateMutation.error ? getErrorMessage(updateMutation.error) : undefined}
+                onConfirm={() => {
+                    if (!pending) return;
+                    updateMutation.mutate({
+                        id: pending.id,
+                        status: 'resolved',
+                        action: pending.action,
+                    });
+                }}
+            />
         </div>
     );
 }

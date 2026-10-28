@@ -13,9 +13,20 @@ import {
     type Friendship,
 } from "@/lib/friends-api";
 import { PeopleYouMayKnow } from "@/components/PeopleYouMayKnow";
-import { GlassCard } from "@/components/ui/glass-card";
+import { ConfirmDialog } from "@/components/patterns/ConfirmDialog";
 import { ROUTES } from "@/lib/navigation/routes";
-import { Check, Loader2, UserMinus, Users, X } from "lucide-react";
+import {
+    PageHeading,
+    Loading,
+    DataError,
+    EmptyState,
+} from "@/components/workspace/Patterns";
+import { Check } from "lucide-react";
+
+type PendingAction =
+    | { kind: "reject"; id: string; name: string }
+    | { kind: "remove"; id: string; name: string }
+    | null;
 
 export default function FriendsPage() {
     const { isAuthenticated } = useAuth();
@@ -25,6 +36,7 @@ export default function FriendsPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
     const [busyId, setBusyId] = useState<string | null>(null);
+    const [pending, setPending] = useState<PendingAction>(null);
 
     const refresh = async () => {
         setLoading(true);
@@ -48,57 +60,68 @@ export default function FriendsPage() {
 
     if (!isAuthenticated) {
         return (
-            <div className="max-w-3xl mx-auto py-16 px-4 text-center space-y-4">
-                <Users className="mx-auto text-primary" size={32} />
-                <h1 className="text-2xl font-black uppercase tracking-tight">Friends</h1>
-                <p className="text-muted-foreground text-sm">Sign in to manage friend requests and connections.</p>
-                <Link href={ROUTES.login} className="text-primary text-sm font-bold uppercase tracking-widest">
-                    Sign in
-                </Link>
+            <div className="ui-page">
+                <PageHeading
+                    eyebrow="Community"
+                    title="Friends"
+                    description="Sign in to manage friend requests and connections."
+                    actions={
+                        <Link href={ROUTES.login} className="ui-button">
+                            Sign in
+                        </Link>
+                    }
+                />
             </div>
         );
     }
 
-    return (
-        <div className="max-w-5xl mx-auto py-10 px-4 space-y-8" data-testid="community-friends">
-            <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-primary mb-2">Community</p>
-                <h1 className="text-3xl font-black uppercase tracking-tight italic">
-                    Friends <span className="text-primary">network</span>
-                </h1>
-                <p className="text-sm text-muted-foreground mt-2">
-                    Accept requests, manage connections, and discover people you may know.
-                </p>
-            </div>
+    const runPending = async () => {
+        if (!pending) return;
+        const action = pending;
+        setBusyId(action.id);
+        try {
+            if (action.kind === "reject") {
+                await rejectFriendRequest(action.id);
+            } else {
+                await removeFriend(action.id);
+            }
+            setPending(null);
+            await refresh();
+        } finally {
+            setBusyId(null);
+        }
+    };
 
-            {error && (
-                <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-400">{error}</div>
-            )}
+    return (
+        <div className="ui-page" data-testid="community-friends">
+            <PageHeading
+                eyebrow="Community"
+                title="Friends"
+                description="Accept requests, manage connections, and discover people you may know."
+            />
+
+            {error ? <DataError error={new Error(error)} retry={() => void refresh()} /> : null}
 
             {loading ? (
-                <div className="flex justify-center py-16">
-                    <Loader2 className="animate-spin text-primary" />
-                </div>
+                <Loading label="Loading friends…" />
             ) : (
-                <div className="grid lg:grid-cols-[1.4fr_1fr] gap-6">
-                    <div className="space-y-6">
-                        <GlassCard className="!p-6 space-y-4">
-                            <h2 className="text-xs font-black uppercase tracking-widest text-muted-foreground">
-                                Incoming requests ({incoming.length})
-                            </h2>
+                <div className="ui-columns">
+                    <div className="space-y-6 min-w-0">
+                        <section className="ui-surface">
+                            <h2>Incoming requests ({incoming.length})</h2>
                             {incoming.length === 0 ? (
-                                <p className="text-sm text-muted-foreground">No pending requests.</p>
+                                <p className="text-sm text-muted-foreground mt-3">No pending requests.</p>
                             ) : (
-                                <ul className="space-y-3">
+                                <ul>
                                     {incoming.map((r) => (
-                                        <li key={r.id} className="flex items-center justify-between gap-3">
+                                        <li key={r.id} className="ui-row">
                                             <Link
                                                 href={`/profile/${r.sender?.username || r.sender_id}`}
-                                                className="text-sm font-bold hover:text-primary"
+                                                className="ui-link text-sm"
                                             >
                                                 {r.sender?.display_name || r.sender?.username || "User"}
                                             </Link>
-                                            <div className="flex gap-2">
+                                            <div className="flex flex-wrap gap-2">
                                                 <button
                                                     type="button"
                                                     disabled={busyId === r.id}
@@ -111,90 +134,111 @@ export default function FriendsPage() {
                                                             setBusyId(null);
                                                         }
                                                     }}
-                                                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-bold uppercase"
+                                                    className="ui-button small"
                                                 >
-                                                    <Check size={12} /> Accept
+                                                    <Check size={14} aria-hidden="true" /> Accept
                                                 </button>
                                                 <button
                                                     type="button"
                                                     disabled={busyId === r.id}
-                                                    onClick={async () => {
-                                                        setBusyId(r.id);
-                                                        try {
-                                                            await rejectFriendRequest(r.id);
-                                                            await refresh();
-                                                        } finally {
-                                                            setBusyId(null);
-                                                        }
-                                                    }}
-                                                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-white/10 text-[10px] font-bold uppercase text-muted-foreground"
+                                                    onClick={() =>
+                                                        setPending({
+                                                            kind: "reject",
+                                                            id: r.id,
+                                                            name:
+                                                                r.sender?.display_name ||
+                                                                r.sender?.username ||
+                                                                "this user",
+                                                        })
+                                                    }
+                                                    className="ui-button small secondary"
                                                 >
-                                                    <X size={12} /> Decline
+                                                    Decline
                                                 </button>
                                             </div>
                                         </li>
                                     ))}
                                 </ul>
                             )}
-                        </GlassCard>
+                        </section>
 
-                        <GlassCard className="!p-6 space-y-4">
-                            <h2 className="text-xs font-black uppercase tracking-widest text-muted-foreground">
-                                Your friends ({friends.length})
-                            </h2>
+                        <section className="ui-surface">
+                            <h2>Your friends ({friends.length})</h2>
                             {friends.length === 0 ? (
-                                <p className="text-sm text-muted-foreground">No friends yet — try suggestions.</p>
+                                <EmptyState
+                                    title="No friends yet"
+                                    description="Try suggestions to find people you may know."
+                                />
                             ) : (
-                                <ul className="space-y-3">
+                                <ul>
                                     {friends.map((f) => (
-                                        <li key={f.id} className="flex items-center justify-between gap-3">
+                                        <li key={f.id} className="ui-row">
                                             <Link
                                                 href={`/profile/${f.friend?.username || f.friend_id}`}
-                                                className="text-sm font-bold hover:text-primary"
+                                                className="ui-link text-sm"
                                             >
                                                 {f.friend?.display_name || f.friend?.username || "Friend"}
                                             </Link>
                                             <button
                                                 type="button"
                                                 disabled={busyId === f.friend_id}
-                                                onClick={async () => {
-                                                    setBusyId(f.friend_id);
-                                                    try {
-                                                        await removeFriend(f.friend_id);
-                                                        await refresh();
-                                                    } finally {
-                                                        setBusyId(null);
-                                                    }
-                                                }}
-                                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-white/10 text-[10px] font-bold uppercase text-muted-foreground"
+                                                onClick={() =>
+                                                    setPending({
+                                                        kind: "remove",
+                                                        id: f.friend_id,
+                                                        name:
+                                                            f.friend?.display_name ||
+                                                            f.friend?.username ||
+                                                            "this friend",
+                                                    })
+                                                }
+                                                className="ui-button small secondary"
                                             >
-                                                <UserMinus size={12} /> Remove
+                                                Remove
                                             </button>
                                         </li>
                                     ))}
                                 </ul>
                             )}
-                        </GlassCard>
+                        </section>
 
                         {outgoing.length > 0 && (
-                            <GlassCard className="!p-6 space-y-3">
-                                <h2 className="text-xs font-black uppercase tracking-widest text-muted-foreground">
-                                    Outgoing ({outgoing.length})
-                                </h2>
-                                <ul className="space-y-2 text-sm text-muted-foreground">
+                            <section className="ui-surface">
+                                <h2>Outgoing ({outgoing.length})</h2>
+                                <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
                                     {outgoing.map((r) => (
                                         <li key={r.id}>
                                             Waiting on {r.receiver?.display_name || r.receiver?.username || "user"}
                                         </li>
                                     ))}
                                 </ul>
-                            </GlassCard>
+                            </section>
                         )}
                     </div>
 
                     <PeopleYouMayKnow limit={8} showViewAll={false} />
                 </div>
             )}
+
+            <ConfirmDialog
+                open={pending !== null}
+                onOpenChange={(open) => {
+                    if (!open) setPending(null);
+                }}
+                title={pending?.kind === "remove" ? "Remove friend" : "Decline request"}
+                description={
+                    pending?.kind === "remove"
+                        ? `Remove ${pending.name} from your friends?`
+                        : pending
+                          ? `Decline the friend request from ${pending.name}?`
+                          : undefined
+                }
+                confirmLabel={pending?.kind === "remove" ? "Remove" : "Decline"}
+                cancelLabel="Cancel"
+                destructive
+                loading={busyId !== null}
+                onConfirm={() => void runPending()}
+            />
         </div>
     );
 }

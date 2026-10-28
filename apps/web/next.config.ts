@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { explorerRedirects } from "./src/lib/navigation/explorer-redirects.mjs";
 
 const require = createRequire(import.meta.url);
 const configDir = path.dirname(fileURLToPath(import.meta.url));
@@ -84,6 +85,27 @@ const nextConfig: NextConfig = {
   },
   async redirects() {
     return [
+      ...explorerRedirects(process.env.NEXT_PUBLIC_EXPLORER_URL),
+      {
+        source: '/dashboard/settings/identity',
+        destination: '/app/settings',
+        permanent: true,
+      },
+      {
+        source: '/dashboard/settings/notifications',
+        destination: '/app/settings?tab=preferences',
+        permanent: true,
+      },
+      {
+        source: '/dashboard/settings/security',
+        destination: '/app/settings?tab=security',
+        permanent: true,
+      },
+      {
+        source: '/dashboard/settings/devices',
+        destination: '/app/settings?tab=devices',
+        permanent: true,
+      },
       {
         source: '/feed',
         destination: '/community/feed',
@@ -91,12 +113,12 @@ const nextConfig: NextConfig = {
       },
       {
         source: '/notifications',
-        destination: '/dashboard/settings/notifications',
+        destination: '/app/settings?tab=preferences',
         permanent: true,
       },
       {
         source: '/settings/notifications',
-        destination: '/dashboard/settings/notifications',
+        destination: '/app/settings?tab=preferences',
         permanent: true,
       },
       {
@@ -231,17 +253,17 @@ const nextConfig: NextConfig = {
       },
       {
         source: '/dashboard/settings',
-        destination: '/dashboard/settings/identity',
+        destination: '/app/settings',
         permanent: true,
       },
       {
         source: '/dashboard/profile',
-        destination: '/dashboard/settings/identity',
+        destination: '/app/settings',
         permanent: true,
       },
       {
         source: '/dashboard/security',
-        destination: '/dashboard/settings/security',
+        destination: '/app/settings?tab=security',
         permanent: true,
       },
       {
@@ -261,7 +283,7 @@ const nextConfig: NextConfig = {
       },
       {
         source: '/settings',
-        destination: '/dashboard/settings/identity',
+        destination: '/app/settings',
         permanent: true,
       },
       {
