@@ -607,6 +607,7 @@ func main() {
 
 	// Public Routes (No Authentication Required)
 	api.RegisterProviderAuthRoute(v1) // CLI auth endpoint must be public
+	api.RegisterProviderPairingPublicRoutes(v1) // Device pairing: the node has no credentials yet; device_code is the proof
 
 	// Bulk Proxy + B2B purchase API: JWT session or X-API-Key (phub_ / pk_)
 	bulkAuth := v1.Group("/")
@@ -627,6 +628,7 @@ func main() {
 		{
 			api.RegisterProviderNodeRoutes(providerOps)
 			api.RegisterProviderTokenRoutes(providerOps)
+			api.RegisterProviderPairingRoutes(providerOps) // approve/deny a pairing: same gate as minting a token
 			api.RegisterProviderLeaseRoutes(providerOps)
 			api.RegisterProviderEarningsRoutes(providerOps)
 			api.RegisterProviderClaimRoutes(providerOps)

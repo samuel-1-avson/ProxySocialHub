@@ -9,9 +9,31 @@ Do **not** confuse provider tunnel **`:3128`** with buyer CONNECT **`:8090`**.
 
 ## Recommended path
 
+The simplest way to connect a computer is to **pair** it — no token to copy, no script to run:
+
+1. Download `provider-node` from [CLI Tools](https://proxyhubb.com/dashboard/provider/cli)
+2. Run `provider-node pair` and approve the code it shows in your dashboard ([details](#pair-this-computer))
+3. Run `provider-node start`
+
+Already set up through the wizard? Then skip pairing:
+
 1. Complete the in-app [provider setup wizard](https://proxyhubb.com/dashboard/provider/setup)
 2. Download CLI + `provider.toml` from [CLI Tools](https://proxyhubb.com/dashboard/provider/cli)
 3. Start the node — **do not run `join` / register again** after the wizard (reuse the downloaded config / `--node-id`)
+
+### Pair this computer
+
+```bash
+provider-node pair
+```
+
+The command prints a link and a short code such as `BCDF-GHJK` and opens the link in your browser. Sign in if asked, check that the **device name and system** shown match this computer and that the code matches, then choose **Approve this computer**. The command finishes on its own, writes `provider.toml`, and tells you to run `provider-node start`.
+
+- The code works **once** and expires after **10 minutes**. If it lapses, run `pair` again.
+- Approving creates a node for the device and a provider token named `Paired: <device name>`. The token **does not expire**, so an unattended node never drops offline because a key lapsed. Revoke it any time under [Tokens](https://proxyhubb.com/dashboard/provider/tokens) and the device is cut off.
+- Only approve a code **you** just started on a computer **you** own. A code someone else gives you would connect their computer to your account.
+- `pair` refuses to run if a `provider.toml` already exists (so you never approve something that then fails to save). Use `--force` to replace it, or `--config <path>` to write elsewhere.
+- Flags: `--api-url`, `--gateway-addr`, `--device-name <name>` (defaults to the computer's name), `--no-browser` (print the link instead of opening it).
 
 ## Downloads
 
@@ -55,6 +77,7 @@ There is **no separate “seller CLI”** — marketplace sellers are providers;
 
 | Command | Purpose |
 |---------|---------|
+| `pair` | Connect this computer by approving a short code in the dashboard; write `provider.toml` |
 | `join` | Enroll with provider token; write `provider.toml` |
 | `start` | Start the tunnel daemon |
 | `stop` | Stop |
