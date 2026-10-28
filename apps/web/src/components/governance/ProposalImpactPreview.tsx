@@ -2,14 +2,13 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, BarChart3, Loader2 } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import {
     fetchProposalImpact,
-    impactRiskColor,
     previewGovernanceImpact,
     type GovernanceImpactPreview,
 } from "@/lib/governance-impact";
-import { GlassCard } from "@/components/ui/glass-card";
+import { Loading, Status } from "@/components/workspace/Patterns";
 
 type Props =
     | { mode: "proposal"; proposalId: string }
@@ -19,6 +18,13 @@ type Props =
           executionData: Record<string, unknown>;
           enabled?: boolean;
       };
+
+function riskTone(level: string): "good" | "warning" | "error" | "neutral" {
+    if (level === "low") return "good";
+    if (level === "medium") return "warning";
+    if (level === "high") return "error";
+    return "neutral";
+}
 
 export function ProposalImpactPreview(props: Props) {
     const [impact, setImpact] = useState<GovernanceImpactPreview | null>(null);
@@ -76,48 +82,31 @@ export function ProposalImpactPreview(props: Props) {
     }
 
     return (
-        <GlassCard className="!p-6 border-white/10 space-y-4">
-            <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground/50">
-                    <BarChart3 size={14} className="text-primary" />
-                    Impact preview
-                </div>
-                {impact ? (
-                    <span
-                        className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded border ${impactRiskColor(impact.risk_level)}`}
-                    >
-                        {impact.risk_level} risk
-                    </span>
-                ) : null}
+        <section className="ui-surface space-y-4">
+            <div className="ui-section-heading">
+                <h2>Impact preview</h2>
+                {impact ? <Status tone={riskTone(impact.risk_level)}>{impact.risk_level} risk</Status> : null}
             </div>
 
-            {loading ? (
-                <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground/40">
-                    <Loader2 size={14} className="animate-spin" />
-                    Estimating network impact…
-                </div>
-            ) : null}
+            {loading ? <Loading label="Estimating network impact…" /> : null}
 
             {error ? (
-                <p className="text-[10px] font-black uppercase tracking-widest text-rose-400/80">{error}</p>
+                <p className="text-sm" role="alert">
+                    {error}
+                </p>
             ) : null}
 
             {impact && !loading ? (
                 <>
-                    <p className="text-xs font-bold text-foreground/80 leading-relaxed">{impact.summary}</p>
-                    <dl className="space-y-2">
+                    <p className="text-sm leading-relaxed">{impact.summary}</p>
+                    <dl className="ui-detail-list">
                         {impact.lines.map((line) => (
-                            <div
-                                key={line.label}
-                                className="flex flex-col sm:flex-row sm:justify-between gap-1 text-[10px] border-b border-white/5 pb-2"
-                            >
-                                <dt className="font-black uppercase tracking-widest text-muted-foreground/40">
-                                    {line.label}
-                                </dt>
-                                <dd className="font-mono text-foreground/90 sm:text-right max-w-md">
+                            <div key={line.label}>
+                                <dt>{line.label}</dt>
+                                <dd>
                                     {line.value}
                                     {line.hint ? (
-                                        <span className="block text-[9px] text-muted-foreground/30 mt-0.5 normal-case">
+                                        <span className="block text-sm text-muted-foreground mt-0.5">
                                             {line.hint}
                                         </span>
                                     ) : null}
@@ -128,25 +117,22 @@ export function ProposalImpactPreview(props: Props) {
                     {impact.warnings && impact.warnings.length > 0 ? (
                         <ul className="space-y-2 pt-2">
                             {impact.warnings.map((w) => (
-                                <li
-                                    key={w}
-                                    className="flex gap-2 text-[10px] font-bold text-amber-300/90 leading-relaxed"
-                                >
-                                    <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+                                <li key={w} className="flex gap-2 text-sm leading-relaxed">
+                                    <AlertTriangle size={14} className="shrink-0 mt-0.5" aria-hidden="true" />
                                     {w}
                                 </li>
                             ))}
                         </ul>
                     ) : null}
-                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/30 pt-2">
+                    <p className="ui-note pt-2">
                         Active listings at preview time: {impact.affected_counts.active_listings}
                         {" · "}
-                        <Link href="/treasury" className="text-primary/60 hover:text-primary">
+                        <Link href="/treasury" className="ui-link">
                             Treasury transparency
                         </Link>
                     </p>
                 </>
             ) : null}
-        </GlassCard>
+        </section>
     );
 }

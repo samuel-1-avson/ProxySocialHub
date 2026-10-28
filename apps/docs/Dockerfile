@@ -1,15 +1,17 @@
 # syntax=docker/dockerfile:1
 
 FROM node:20-alpine AS deps
-WORKDIR /app
+WORKDIR /repo/apps/docs
 RUN apk add --no-cache libc6-compat
-COPY package.json package-lock.json* ./
-RUN npm install
+COPY apps/docs/package.json apps/docs/package-lock.json ./
+RUN npm ci
 
 FROM node:20-alpine AS builder
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+WORKDIR /repo/apps/docs
+COPY --from=deps /repo/apps/docs/node_modules ./node_modules
+COPY apps/docs/ ./
+COPY packages/design-system/ /repo/packages/design-system/
+COPY docs/openapi.yaml /repo/docs/openapi.yaml
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
@@ -20,9 +22,9 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
-COPY --from=builder /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder /repo/apps/docs/public ./apps/docs/public
+COPY --from=builder --chown=nextjs:nodejs /repo/apps/docs/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /repo/apps/docs/.next/static ./apps/docs/.next/static
 USER nextjs
 EXPOSE 3000
-CMD ["node", "server.js"]
+CMD ["node", "apps/docs/server.js"]

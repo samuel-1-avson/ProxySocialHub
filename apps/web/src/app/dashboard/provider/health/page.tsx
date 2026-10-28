@@ -3,13 +3,18 @@
 import { useMemo, useState } from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
-import { GlassCard } from '@/components/ui/glass-card';
-import { motion } from 'framer-motion';
 import {
-    ShieldCheck, RefreshCw, CheckCircle2, XCircle, AlertCircle,
-    Loader2, Wifi, Server, Clock, BarChart3, Cpu, MapPin
+    CheckCircle2, XCircle, AlertCircle,
+    Loader2, Wifi, Clock, BarChart3, Cpu, MapPin
 } from 'lucide-react';
 import { getMyNodes, getNodeUptime } from '@/lib/api/provider';
+import {
+    PageHeading,
+    Loading,
+    DataError,
+    EmptyState,
+    Status,
+} from '@/components/workspace/Patterns';
 
 type CheckStatus = 'pass' | 'warn' | 'fail' | 'loading';
 
@@ -21,31 +26,31 @@ interface HealthCheck {
     detail?: string;
 }
 
+function checkTone(status: CheckStatus): 'good' | 'warning' | 'error' | 'neutral' {
+    if (status === 'pass') return 'good';
+    if (status === 'warn') return 'warning';
+    if (status === 'fail') return 'error';
+    return 'neutral';
+}
+
 function StatusIcon({ status }: { status: CheckStatus }) {
-    if (status === 'loading') return <Loader2 size={16} className="animate-spin text-muted-foreground" />;
-    if (status === 'pass') return <CheckCircle2 size={16} className="text-emerald-400" />;
-    if (status === 'warn') return <AlertCircle size={16} className="text-amber-400" />;
-    return <XCircle size={16} className="text-red-400" />;
+    if (status === 'loading') return <Loader2 size={16} className="animate-spin text-muted-foreground" aria-hidden="true" />;
+    if (status === 'pass') return <CheckCircle2 size={16} aria-hidden="true" />;
+    if (status === 'warn') return <AlertCircle size={16} aria-hidden="true" />;
+    return <XCircle size={16} aria-hidden="true" />;
 }
 
-function statusColor(status: CheckStatus) {
-    if (status === 'pass') return 'text-emerald-400';
-    if (status === 'warn') return 'text-amber-400';
-    if (status === 'fail') return 'text-red-400';
-    return 'text-muted-foreground';
-}
-
-function statusBg(status: CheckStatus) {
-    if (status === 'pass') return 'bg-emerald-500/10 border-emerald-500/20';
-    if (status === 'warn') return 'bg-amber-500/10 border-amber-500/20';
-    if (status === 'fail') return 'bg-red-500/10 border-red-500/20';
-    return 'bg-white/5 border-white/10';
+function overallLabel(status: CheckStatus) {
+    if (status === 'loading') return 'Running checks…';
+    if (status === 'pass') return 'All systems healthy';
+    if (status === 'warn') return 'Some checks need attention';
+    return 'Critical issues detected';
 }
 
 export default function HealthPage() {
     const [refreshKey, setRefreshKey] = useState(0);
 
-    const { data: nodesData, isLoading: nodesLoading } = useQuery({
+    const { data: nodesData, isLoading: nodesLoading, isError: nodesError, error: nodesQueryError, refetch: refetchNodes } = useQuery({
         queryKey: ['my-nodes', refreshKey],
         queryFn: getMyNodes,
     });
@@ -200,169 +205,181 @@ export default function HealthPage() {
     const overall: CheckStatus = failing > 0 ? 'fail' : warning > 0 ? 'warn' : nodesLoading ? 'loading' : 'pass';
 
     return (
-        <div className="space-y-6 animate-in fade-in duration-500 pb-20">
-            <div className="flex flex-col gap-2 border-b border-border pb-6">
-                <div className="flex items-center gap-2 text-primary font-mono text-xs font-bold uppercase tracking-widest">
-                    <ShieldCheck size={14} />
-                    Diagnostics
-                </div>
-                <div className="flex items-center justify-between">
-                    <h1 className="text-3xl font-bold font-mono uppercase tracking-tight">Node Health</h1>
+        <div className="ui-page">
+            <PageHeading
+                eyebrow="Diagnostics"
+                title="Node health"
+                description="Connectivity, uptime history, heartbeat proofs, and payout readiness."
+                actions={
                     <button
                         type="button"
                         onClick={() => setRefreshKey((k) => k + 1)}
-                        className="flex items-center gap-2 px-3 py-2 bg-white/5 hover:bg-white/10 rounded-xl font-mono text-xs transition-colors"
+                        className="ui-button secondary"
                     >
-                        <RefreshCw size={12} />
                         Refresh
                     </button>
-                </div>
-                <p className="text-muted-foreground font-mono text-xs max-w-lg">
-                    Connectivity, uptime history, heartbeat proofs, and payout readiness.
-                </p>
-            </div>
+                }
+            />
 
-            {!nodesLoading && nodes.length === 0 && (
-                <GlassCard hoverEffect={false}>
-                    <div className="text-center py-12 space-y-4">
-                        <Server className="mx-auto w-14 h-14 text-muted-foreground/20" />
-                        <p className="font-mono text-sm font-bold">No nodes to diagnose</p>
-                        <p className="font-mono text-xs text-muted-foreground max-w-md mx-auto">
-                            Create a node with Setup, download config, and start the CLI. Then return here.
-                        </p>
-                        <div className="flex gap-3 justify-center">
-                            <Link href="/dashboard/provider/setup" className="px-4 py-2 bg-primary text-primary-foreground rounded-xl font-mono text-xs font-bold uppercase">
-                                Setup wizard
-                            </Link>
-                            <Link href="/dashboard/provider/cli" className="px-4 py-2 bg-white/10 rounded-xl font-mono text-xs font-bold uppercase">
-                                CLI download
-                            </Link>
-                        </div>
-                    </div>
-                </GlassCard>
+            {nodesError && (
+                <DataError
+                    error={nodesQueryError}
+                    retry={() => {
+                        setRefreshKey((k) => k + 1);
+                        void refetchNodes();
+                    }}
+                />
             )}
 
-            <motion.div
-                initial={{ opacity: 0, y: -8 }}
-                animate={{ opacity: 1, y: 0 }}
-                className={`rounded-2xl border p-5 flex items-center gap-4 ${statusBg(overall)}`}
-            >
-                <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${statusBg(overall)} border`}>
-                    <StatusIcon status={overall} />
+            {nodesLoading && <Loading label="Checking node health…" />}
+
+            {!nodesLoading && nodes.length === 0 && (
+                <EmptyState
+                    title="No nodes to diagnose"
+                    description="Create a node with Setup, download config, and start the CLI. Then return here."
+                    href="/dashboard/provider/setup"
+                    action="Setup wizard"
+                />
+            )}
+            {!nodesLoading && nodes.length === 0 && (
+                <div className="ui-actions">
+                    <Link href="/dashboard/provider/cli" className="ui-button secondary">
+                        CLI download
+                    </Link>
                 </div>
+            )}
+
+            <section className="ui-hero">
                 <div>
-                    <p className={`text-lg font-black font-mono ${statusColor(overall)}`}>
-                        {overall === 'loading'
-                            ? 'Running checks…'
-                            : overall === 'pass'
-                            ? 'All systems healthy'
-                            : overall === 'warn'
-                            ? 'Some checks need attention'
-                            : 'Critical issues detected'}
-                    </p>
-                    <p className="text-xs font-mono text-muted-foreground">
+                    <Status tone={checkTone(overall)}>
+                        <span className="ui-inline-icon">
+                            <StatusIcon status={overall} />
+                            {overallLabel(overall)}
+                        </span>
+                    </Status>
+                    <h2>{overallLabel(overall)}</h2>
+                    <p>
                         {passing} passed · {warning} warnings · {failing} failed
                     </p>
                 </div>
-            </motion.div>
+            </section>
 
-            <div className="space-y-3">
-                {checks.map((check, i) => (
-                    <motion.div
-                        key={check.id}
-                        initial={{ opacity: 0, y: 8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: i * 0.05, duration: 0.3 }}
-                        className={`rounded-2xl border p-4 flex items-start gap-4 ${statusBg(check.status)}`}
-                    >
-                        <div className="mt-0.5">
-                            <StatusIcon status={check.status} />
+            <section>
+                {checks.map((check) => (
+                    <div key={check.id} className="ui-row">
+                        <div className="ui-row-identity">
+                            <span className="ui-region">
+                                <StatusIcon status={check.status} />
+                            </span>
+                            <div>
+                                <h3>{check.label}</h3>
+                                <p>{check.description}</p>
+                                {check.detail && <p>{check.detail}</p>}
+                            </div>
                         </div>
-                        <div className="flex-1 min-w-0">
-                            <p className="text-sm font-bold font-mono">{check.label}</p>
-                            <p className="text-[10px] font-mono text-muted-foreground">{check.description}</p>
-                            {check.detail && (
-                                <p className={`text-xs font-mono mt-1 ${statusColor(check.status)}`}>{check.detail}</p>
-                            )}
-                        </div>
-                    </motion.div>
+                        <Status tone={checkTone(check.status)}>
+                            {check.status === 'loading' ? 'Checking' : check.status}
+                        </Status>
+                    </div>
                 ))}
-            </div>
+            </section>
 
             {nodes.length > 0 && (
-                <GlassCard hoverEffect={false}>
-                    <h2 className="text-sm font-bold font-mono mb-4 flex items-center gap-2">
-                        <Server size={14} className="text-primary" />
-                        Node Details
-                    </h2>
-                    <div className="divide-y divide-white/5">
-                        {nodes.map((node) => {
-                            const hist = uptimeByNode.get(node.id);
-                            return (
-                                <div key={node.id} className="py-3 flex items-center justify-between gap-4">
-                                    <div className="flex items-center gap-3 min-w-0">
-                                        <span className={`w-2 h-2 rounded-full shrink-0 ${
-                                            node.status === 'online' ? 'bg-emerald-500' : node.status === 'pending' ? 'bg-amber-400' : 'bg-red-400'
-                                        }`} />
-                                        <div className="min-w-0">
-                                            <p className="text-xs font-bold font-mono truncate">{node.name}</p>
-                                            {node.country && (
-                                                <p className="text-[9px] font-mono text-muted-foreground flex items-center gap-1">
-                                                    <MapPin size={8} />
-                                                    {node.city ? `${node.city}, ` : ''}{node.country}
-                                                </p>
-                                            )}
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-4 text-[10px] font-mono text-muted-foreground shrink-0">
-                                        <div className="flex items-center gap-1" title="24h uptime API">
-                                            <Clock size={10} />
-                                            <span>{(hist?.uptime_percent ?? node.uptime_percent)?.toFixed(1) ?? '—'}%</span>
-                                        </div>
-                                        <div className="flex items-center gap-1">
-                                            <Wifi size={10} />
-                                            <span>{node.latency_ms != null ? `${node.latency_ms}ms` : '—'}</span>
-                                        </div>
-                                        <div className="flex items-center gap-1">
-                                            <BarChart3 size={10} />
-                                            <span>{node.quality_score?.toFixed(0) ?? '—'}</span>
-                                        </div>
-                                        <div className="flex items-center gap-1">
-                                            <Cpu size={10} />
-                                            <span>{node.active_connections ?? 0} conn</span>
-                                        </div>
-                                        {hist && (
-                                            <span className="text-[9px] text-muted-foreground/60">{hist.checks_24h} checks</span>
-                                        )}
-                                        <Link href="/dashboard/provider/nodes" className="text-primary hover:underline text-[9px] uppercase font-bold">
-                                            Manage
-                                        </Link>
-                                    </div>
-                                </div>
-                            );
-                        })}
+                <section className="ui-surface">
+                    <div className="ui-section-heading">
+                        <h2>Node details</h2>
                     </div>
-                </GlassCard>
+                    <div className="ui-table-wrap" role="region" aria-label="Node details" tabIndex={0}>
+                        <table className="ui-table">
+                            <thead>
+                                <tr>
+                                    <th>Node</th>
+                                    <th>Location</th>
+                                    <th>Uptime</th>
+                                    <th>Latency</th>
+                                    <th>Score</th>
+                                    <th>Connections</th>
+                                    <th>Checks</th>
+                                    <th>Manage</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {nodes.map((node) => {
+                                    const hist = uptimeByNode.get(node.id);
+                                    return (
+                                        <tr key={node.id}>
+                                            <td>
+                                                {node.name}
+                                                <p>
+                                                    <Status tone={node.status === 'online' ? 'good' : node.status === 'pending' ? 'warning' : 'error'}>
+                                                        {node.status}
+                                                    </Status>
+                                                </p>
+                                            </td>
+                                            <td>
+                                                {node.country ? (
+                                                    <span className="ui-inline-icon">
+                                                        <MapPin size={13} aria-hidden="true" />
+                                                        {node.city ? `${node.city}, ` : ''}{node.country}
+                                                    </span>
+                                                ) : '—'}
+                                            </td>
+                                            <td>
+                                                <span className="ui-inline-icon">
+                                                    <Clock size={13} aria-hidden="true" />
+                                                    {(hist?.uptime_percent ?? node.uptime_percent)?.toFixed(1) ?? '—'}%
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <span className="ui-inline-icon">
+                                                    <Wifi size={13} aria-hidden="true" />
+                                                    {node.latency_ms != null ? `${node.latency_ms}ms` : '—'}
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <span className="ui-inline-icon">
+                                                    <BarChart3 size={13} aria-hidden="true" />
+                                                    {node.quality_score?.toFixed(0) ?? '—'}
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <span className="ui-inline-icon">
+                                                    <Cpu size={13} aria-hidden="true" />
+                                                    {node.active_connections ?? 0} conn
+                                                </span>
+                                            </td>
+                                            <td>{hist ? `${hist.checks_24h} checks` : '—'}</td>
+                                            <td>
+                                                <Link href="/dashboard/provider/nodes" className="ui-link">
+                                                    Manage
+                                                </Link>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
             )}
 
             {failing > 0 && (
-                <GlassCard hoverEffect={false}>
-                    <h2 className="text-sm font-bold font-mono mb-3 flex items-center gap-2">
-                        <AlertCircle size={14} className="text-amber-400" />
-                        Remediation Tips
-                    </h2>
-                    <div className="space-y-2 text-xs font-mono text-muted-foreground">
+                <section className="ui-surface">
+                    <div className="ui-section-heading">
+                        <h2>Remediation tips</h2>
+                    </div>
+                    <div className="ui-note">
                         {nodes.length === 0 && (
-                            <p>• Use <Link href="/dashboard/provider/setup" className="text-primary hover:underline">Setup</Link> then <code className="text-primary">provider-node start</code> (not a second register).</p>
+                            <p>• Use <Link href="/dashboard/provider/setup" className="ui-link">Setup</Link> then <code>provider-node start</code> (not a second register).</p>
                         )}
                         {offlineNodes.length > 0 && (
                             <p>• {offlineNodes.length} node(s) offline/pending — open My nodes → Connect and start the CLI.</p>
                         )}
                         {withWallet < nodes.length && nodes.length > 0 && (
-                            <p>• Link a Solana wallet in <Link href="/dashboard/settings" className="text-primary hover:underline">Settings</Link> so payout wallets auto-bind for claims.</p>
+                            <p>• Link a Solana wallet in <Link href="/dashboard/settings" className="ui-link">Settings</Link> so payout wallets auto-bind for claims.</p>
                         )}
                         {proofOk < nodes.length && nodes.length > 0 && (
-                            <p>• Configure <code className="text-primary">provider_signing_key</code> (or linked wallet hotkey) for verified heartbeats.</p>
+                            <p>• Configure <code>provider_signing_key</code> (or linked wallet hotkey) for verified heartbeats.</p>
                         )}
                         {avgLatency !== null && avgLatency > 200 && (
                             <p>• High latency detected. Check your network connection.</p>
@@ -371,7 +388,7 @@ export default function HealthPage() {
                             <p>• Low quality score. Ensure stable uptime and sufficient bandwidth.</p>
                         )}
                     </div>
-                </GlassCard>
+                </section>
             )}
         </div>
     );

@@ -1,19 +1,9 @@
 import type { ReactNode } from 'react';
 import type { Metadata } from 'next';
-import { Geist, Geist_Mono } from 'next/font/google';
+import { GeistMono } from 'geist/font/mono';
+import { GeistSans } from 'geist/font/sans';
 import { DocsAnalytics } from '@/components/analytics';
 import './globals.css';
-
-const sans = Geist({
-  subsets: ['latin'],
-  variable: '--font-geist-sans',
-  display: 'swap',
-});
-const mono = Geist_Mono({
-  subsets: ['latin'],
-  variable: '--font-geist-mono',
-  display: 'swap',
-});
 
 const SITE = 'https://docs.proxyhubb.com';
 
@@ -46,19 +36,18 @@ export const viewport = {
   width: 'device-width',
   initialScale: 1,
   themeColor: [
-    { media: '(prefers-color-scheme: dark)', color: '#070b09' },
-    { media: '(prefers-color-scheme: light)', color: '#f3f6f4' },
+    { media: '(prefers-color-scheme: dark)', color: '#15191f' },
+    { media: '(prefers-color-scheme: light)', color: '#f4f4f9' },
   ],
 };
 
-const themeBoot = `(function(){try{var t=localStorage.getItem('phub-docs-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();`;
+const themeBoot = `(function(){var t='system';try{var s=localStorage.getItem('phub-docs-theme');if(s==='light'||s==='dark')t=s;}catch(e){}var d=t==='dark'||(t==='system'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.classList.toggle('dark',d);document.documentElement.setAttribute('data-theme',d?'dark':'light');})();`;
 
 export default function Layout({ children }: { children: ReactNode }) {
   return (
     <html
       lang="en"
-      className={`${sans.className} ${sans.variable} ${mono.variable}`}
-      data-theme="dark"
+      className={`${GeistSans.className} ${GeistSans.variable} ${GeistMono.variable}`}
       suppressHydrationWarning
     >
       <head>
