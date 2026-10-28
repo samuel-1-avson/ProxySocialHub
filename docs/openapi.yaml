@@ -640,6 +640,19 @@ paths:
           description: Expired, or already redeemed (`status` is `expired` or `redeemed`)
         '429':
           description: Polling too fast (`status` is `slow_down`)
+        '500':
+          description: |
+            The server could not turn the approval into credentials. Nothing was created and the
+            approval is untouched, so the same `device_code` can be polled again; clients should retry.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string, example: failed to complete pairing }
+                  code: { type: string, example: pairing_redeem_failed }
+                  step: { type: string, enum: [claim, token, node, registration, link], description: Which part of redeeming failed. Absent for other failures. }
+                  sqlstate: { type: string, example: '23503', description: The database error class (never its message), when there is one }
 
   /v1/provider/pair/lookup:
     get:

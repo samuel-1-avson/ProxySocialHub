@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 	"unicode"
@@ -67,6 +68,32 @@ const (
 )
 
 var errPairingNotRedeemable = errors.New("pairing is not redeemable")
+
+// redeemStepError says which part of redeeming an approval failed. The poll response reports
+// the step (and the database error class) so a failure can be told apart without the server
+// log, but never the database's own message, which can name tables and constraints.
+type redeemStepError struct {
+	step string
+	err  error
+}
+
+func (e *redeemStepError) Error() string { return e.step + ": " + e.err.Error() }
+func (e *redeemStepError) Unwrap() error { return e.err }
+
+var sqlStatePattern = regexp.MustCompile(`SQLSTATE ([0-9A-Z]{5})`)
+
+// sqlStateOf returns the Postgres error class in err's text (for example 23503, a foreign key
+// violation, or 23505, a unique violation), or "". It reads the text for the same reason
+// isUniqueViolation does: the driver's typed error is only an indirect dependency here.
+func sqlStateOf(err error) string {
+	if err == nil {
+		return ""
+	}
+	if m := sqlStatePattern.FindStringSubmatch(err.Error()); m != nil {
+		return m[1]
+	}
+	return ""
+}
 
 // RegisterProviderPairingPublicRoutes registers the routes the node itself calls.
 // They are unauthenticated by design; see the package comment above.
@@ -264,7 +291,18 @@ func pollProviderPairing(c *gin.Context) {
 			return
 		}
 		logging.Warn().Err(err).Str("pairing_id", p.ID.String()).Msg("provider pairing: redeem failed")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to complete pairing"})
+		// The transaction rolled back, so the approval is untouched and the node's next poll
+		// may succeed; the step and error class tell whoever sees this what to look at. Only
+		// the holder of the device code can reach this answer.
+		body := gin.H{"error": "failed to complete pairing", "code": "pairing_redeem_failed"}
+		var stepErr *redeemStepError
+		if errors.As(err, &stepErr) {
+			body["step"] = stepErr.step
+			if state := sqlStateOf(stepErr.err); state != "" {
+				body["sqlstate"] = state
+			}
+		}
+		c.JSON(http.StatusInternalServerError, body)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
@@ -307,7 +345,7 @@ func redeemProviderPairing(c *gin.Context, p models.ProviderPairing, now time.Ti
 				"updated_at":  now,
 			})
 		if res.Error != nil {
-			return res.Error
+			return &redeemStepError{"claim", res.Error}
 		}
 		if res.RowsAffected != 1 {
 			return errPairingNotRedeemable
@@ -321,7 +359,7 @@ func redeemProviderPairing(c *gin.Context, p models.ProviderPairing, now time.Ti
 			ExpiresAt: expiresAt,
 		}
 		if err := tx.Create(&token).Error; err != nil {
-			return err
+			return &redeemStepError{"token", err}
 		}
 
 		// Same shape as createProviderNodeForToken, but inside the transaction and
@@ -336,7 +374,7 @@ func redeemProviderPairing(c *gin.Context, p models.ProviderPairing, now time.Ti
 			IsHealthy:     false,
 		}
 		if err := tx.Create(&pn).Error; err != nil {
-			return err
+			return &redeemStepError{"node", err}
 		}
 		reg := models.ProviderNodeRegistration{
 			UserID:    userID,
@@ -348,11 +386,14 @@ func redeemProviderPairing(c *gin.Context, p models.ProviderPairing, now time.Ti
 			IsActive:  true,
 		}
 		if err := tx.Create(&reg).Error; err != nil {
-			return err
+			return &redeemStepError{"registration", err}
 		}
 		nodeID = pn.ID
-		return tx.Model(&models.ProviderPairing{}).Where("id = ?", p.ID).
-			Updates(map[string]interface{}{"token_id": token.ID, "node_id": pn.ID}).Error
+		if err := tx.Model(&models.ProviderPairing{}).Where("id = ?", p.ID).
+			Updates(map[string]interface{}{"token_id": token.ID, "node_id": pn.ID}).Error; err != nil {
+			return &redeemStepError{"link", err}
+		}
+		return nil
 	})
 	if err != nil {
 		return "", uuid.Nil, err
