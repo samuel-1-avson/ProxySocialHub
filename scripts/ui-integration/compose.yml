@@ -1,0 +1,63 @@
+name: proxyhubb-ui-integration
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: proxyhubb
+      POSTGRES_DB: proxyhubb_ui
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Generated local secret required}
+    volumes: ["ui_postgres:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U proxyhubb -d proxyhubb_ui"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?Generated local secret required}", "--appendonly", "yes"]
+    volumes: ["ui_redis:/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+  nats:
+    image: nats:2-alpine
+  control-api:
+    build:
+      context: ../..
+      dockerfile: services/control-api/Dockerfile
+    ports: ["127.0.0.1:18080:8080"]
+    environment:
+      DATABASE_URL: postgres://proxyhubb:${POSTGRES_PASSWORD}@postgres:5432/proxyhubb_ui?sslmode=disable
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      NATS_URL: nats://nats:4222
+      JWT_SECRET: ${JWT_SECRET}
+      SESSION_SECRET: ${SESSION_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      GATEWAY_SHARED_SECRET: ${GATEWAY_SHARED_SECRET}
+      TOKEN_HMAC_SECRET: ${TOKEN_HMAC_SECRET}
+      APP_ENV: development
+      GIN_MODE: release
+      PORT: "8080"
+      API_BASE_URL: http://127.0.0.1:18080
+      FRONTEND_URL: http://localhost:4011
+      CORS_ORIGINS: http://localhost:4011,http://127.0.0.1:4011
+      AUTO_MIGRATE: "true"
+      FORCE_MIGRATE: "true"
+      SKIP_CREDENTIAL_CHECK: "true"
+      SOLANA_NETWORK: devnet
+      SOLANA_RPC_ENDPOINT: https://api.devnet.solana.com
+      EXPLORER_INDEXER_ENABLED: "false"
+      EXPLORER_METRICS_ENABLED: "false"
+      ENABLE_PROVIDER_CLAIM: "false"
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      nats: {condition: service_started}
+volumes:
+  ui_postgres:
+  ui_redis:

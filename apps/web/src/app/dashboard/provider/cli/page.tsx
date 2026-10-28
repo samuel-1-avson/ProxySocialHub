@@ -183,7 +183,7 @@ export default function CLIPage() {
         : `# After download:\nchmod +x ./${binaryHint}\n# Optional install onto PATH:\n# sudo mv ./${binaryHint} /usr/local/bin/provider-node\n\n./${binaryHint}\n\n# Config path: ${configPath}\n# Prefer: Setup wizard / My nodes → Connect (do not register again)`;
 
     const installCmd = selectedPlatform === 'windows'
-        ? `# Recommended — after Setup / My nodes → Connect saved provider.toml\n# Do NOT run register again (creates a second orphan node).\n${exe} doctor ${cfg}\n${exe} start ${cfg}\n\n# Optional — run as a Windows service instead of foreground start:\n# ${exe} service install ${cfg}\n# ${exe} service start\n# ${exe} service status`
+        ? `# Recommended — after Setup / My nodes → Connect saved provider.toml\n# Do NOT run register again (creates a second orphan node).\n${exe} doctor ${cfg}\n${exe} start ${cfg}\n\n# Optional — start automatically each time you sign in to Windows:\n# ${exe} service install ${cfg}\n# ${exe} service start\n# ${exe} service status`
         : `# Recommended — after Setup / My nodes → Connect saved provider.toml\n# Do NOT run register again (creates a second orphan node).\nchmod +x ./${binaryHint}\n./${binaryHint} doctor ${cfg}\n./${binaryHint} start ${cfg}\n\n# Optional — systemd/launchd service instead of foreground start:\n# provider-node service install ${cfg}\n# provider-node service start`;
 
     const registerOnlyCmd = `${exe} register --api-url ${endpoints.controlApiUrl} --api-key <PROVIDER_TOKEN>\n${exe} start ${cfg}`;
@@ -597,7 +597,7 @@ metrics_port = 9090`;
                         { cmd: `${exe} doctor ${cfg}`, desc: 'Pre-flight checks' },
                         { cmd: `${exe} start ${cfg}`, desc: 'Start daemon (preferred after Setup / Connect)' },
                         { cmd: `${exe} dashboard ${cfg}`, desc: 'Live TUI window' },
-                        { cmd: `${exe} service install ${cfg}`, desc: 'Optional: install background service' },
+                        { cmd: `${exe} service install ${cfg}`, desc: 'Optional: start automatically at sign-in' },
                         { cmd: `${exe} service start`, desc: 'Optional: start installed service' },
                         { cmd: `${exe} status --json`, desc: 'Machine-readable status' },
                         { cmd: `${exe} register --api-url ${endpoints.controlApiUrl} --api-key <PROVIDER_TOKEN>`, desc: 'CLI-only: creates a NEW node (skip after wizard)' },

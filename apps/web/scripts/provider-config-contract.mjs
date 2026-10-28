@@ -19,6 +19,11 @@ const transpiled = ts.transpileModule(source, {
 });
 
 const module = { exports: {} };
+const sessionStorage = {
+  getItem(key) { return Object.hasOwn(this,key) ? this[key] : null; },
+  setItem(key,value) { this[key]=value; },
+  removeItem(key) { delete this[key]; },
+};
 const sandboxRequire = (id) => {
   if (id === 'bs58') return require('bs58');
   return require(id);
@@ -30,6 +35,8 @@ vm.runInNewContext(transpiled.outputText, {
   exports: module.exports,
   process,
   crypto: globalThis.crypto,
+  window: {},
+  sessionStorage,
 });
 
 const { buildProviderToml } = module.exports;
@@ -63,4 +70,17 @@ for (const line of requiredLines) {
 }
 
 assert.equal(toml.endsWith('\n'), true, 'provider TOML should end with newline');
+const {saveProviderApiKey,loadProviderApiKey,clearProviderSessionTokens}=module.exports;
+saveProviderApiKey('token-a','node-a');
+assert.equal(loadProviderApiKey('node-a',{allowLegacyFallback:false}),'token-a');
+assert.equal(loadProviderApiKey('node-b',{allowLegacyFallback:false}),null,'a new node must not inherit another node token');
+saveProviderApiKey('token-b','node-b');
+assert.equal(loadProviderApiKey('node-a',{allowLegacyFallback:false}),'token-a');
+sessionStorage.setItem('proxyhubb_provider_signing_key_node-a','retained-signing-key');
+sessionStorage.setItem('unrelated-session-value','retained');
+clearProviderSessionTokens();
+assert.equal(loadProviderApiKey('node-a',{allowLegacyFallback:false}),null);
+assert.equal(loadProviderApiKey('node-b',{allowLegacyFallback:false}),null);
+assert.equal(sessionStorage.getItem('proxyhubb_provider_signing_key_node-a'),'retained-signing-key');
+assert.equal(sessionStorage.getItem('unrelated-session-value'),'retained');
 console.log('provider config contract ok');

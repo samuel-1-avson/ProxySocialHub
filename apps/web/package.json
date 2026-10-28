@@ -9,6 +9,8 @@
     "analyze": "node -e \"process.env.ANALYZE='true'; require('child_process').execSync('npx next build',{stdio:'inherit',env:process.env,cwd:process.cwd()})\"",
     "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
     "test:provider-config": "node scripts/provider-config-contract.mjs",
+    "test:sol-amount": "node --test scripts/sol-amount.test.mjs",
+    "test:e2e:seller": "playwright test e2e/seller-workflows.spec.ts e2e/workspace.spec.ts --project=chromium --workers=1",
     "test:listing-display": "node scripts/listing-display-contract.mjs",
     "test:order-status": "node scripts/order-status-contract.mjs",
     "validate:routes": "node scripts/validate-routes.mjs",

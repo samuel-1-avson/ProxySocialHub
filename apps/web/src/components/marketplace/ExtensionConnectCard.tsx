@@ -122,17 +122,17 @@ export function ExtensionConnectCard({ orderId, listingTitle = '', compact = fal
 
     return (
         <div
-            className={compact ? 'space-y-3 rounded-[var(--radius-md)] border border-border bg-secondary p-4' : 'space-y-3 rounded-2xl border border-white/10 bg-white/[0.02] p-4'}
+            className={compact ? 'space-y-3 rounded-[var(--radius-md)] border border-border bg-secondary p-4' : 'space-y-3 rounded-2xl border border-border bg-card p-4'}
             data-testid="extension-connect-card"
         >
-            <p className={compact ? 'text-xs font-medium uppercase tracking-wide text-muted-foreground' : 'text-[9px] font-black uppercase tracking-widest text-white/40'}>
+            <p className={compact ? 'text-xs font-medium uppercase tracking-wide text-muted-foreground' : 'text-xs font-medium text-muted-foreground'}>
                 Browser extension
             </p>
-            <p className={compact ? 'text-xs text-muted-foreground' : 'text-[10px] text-white/40'}>
+            <p className={compact ? 'text-xs text-muted-foreground' : 'text-xs text-muted-foreground'}>
                 Connect with ProxyHubb turns on HTTP CONNECT to proxy.proxyhubb.com:8090 with HMAC. Chrome uses local
                 DNS; QUIC and WebRTC can bypass the proxy. This replaces any proxy already on in this browser.
             </p>
-            <p className={compact ? 'text-xs text-muted-foreground' : 'text-[10px] text-white/50'} data-testid="extension-install-hint">
+            <p className={compact ? 'text-xs text-muted-foreground' : 'text-xs text-muted-foreground'} data-testid="extension-install-hint">
                 {!checked
                     ? extensionId
                         ? 'Checking for the extension…'
@@ -149,7 +149,7 @@ export function ExtensionConnectCard({ orderId, listingTitle = '', compact = fal
             </p>
             {!cwsUrl ? (
                 <div className="space-y-2">
-                    <label className={compact ? 'block text-xs text-muted-foreground' : 'block text-[10px] text-white/50'}>
+                    <label className={compact ? 'block text-xs text-muted-foreground' : 'block text-xs text-muted-foreground'}>
                         Local unpacked extension ID
                         <input
                             value={unpackedIdDraft}
@@ -161,7 +161,7 @@ export function ExtensionConnectCard({ orderId, listingTitle = '', compact = fal
                             className={
                                 compact
                                     ? 'mt-1 w-full rounded-[var(--radius-sm)] border border-border bg-background px-2 py-1 font-mono text-xs'
-                                    : 'mt-1 w-full rounded-md border border-white/10 bg-black/40 px-2 py-1 font-mono text-[11px]'
+                                    : 'mt-1 w-full rounded-md border border-border bg-secondary px-2 py-1 font-mono text-[11px]'
                             }
                         />
                     </label>
@@ -169,7 +169,7 @@ export function ExtensionConnectCard({ orderId, listingTitle = '', compact = fal
                         <button
                             type="button"
                             onClick={saveUnpackedId}
-                            className={compact ? 'text-xs font-medium text-purple-400' : 'text-[10px] font-bold uppercase tracking-widest text-purple-400'}
+                            className={compact ? 'text-xs font-medium text-primary' : 'text-xs font-bold uppercase tracking-widest text-primary'}
                         >
                             Use this ID
                         </button>
@@ -183,7 +183,7 @@ export function ExtensionConnectCard({ orderId, listingTitle = '', compact = fal
                                     setPing(null);
                                     setChecked(false);
                                 }}
-                                className={compact ? 'text-xs text-muted-foreground' : 'text-[10px] text-white/40'}
+                                className={compact ? 'text-xs text-muted-foreground' : 'text-xs text-muted-foreground'}
                             >
                                 Clear
                             </button>
@@ -196,7 +196,7 @@ export function ExtensionConnectCard({ orderId, listingTitle = '', compact = fal
                     href={cwsUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className={compact ? 'text-xs font-medium text-purple-400 hover:text-purple-300' : 'text-[10px] font-bold uppercase tracking-widest text-purple-400 hover:text-purple-300'}
+                    className={compact ? 'text-xs font-medium text-primary hover:text-primary' : 'text-xs font-bold uppercase tracking-widest text-primary hover:text-primary'}
                     data-testid="extension-cws-link"
                 >
                     Install from Chrome Web Store
@@ -209,7 +209,7 @@ export function ExtensionConnectCard({ orderId, listingTitle = '', compact = fal
                 className={
                     compact
                         ? 'inline-flex w-full items-center justify-center rounded-[var(--radius-md)] bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50'
-                        : 'text-[10px] font-bold uppercase tracking-widest text-purple-400 hover:text-purple-300 disabled:opacity-50'
+                        : 'text-xs font-bold uppercase tracking-widest text-primary hover:text-primary disabled:opacity-50'
                 }
                 data-testid="extension-connect-button"
             >
@@ -217,15 +217,15 @@ export function ExtensionConnectCard({ orderId, listingTitle = '', compact = fal
             </button>
             {code ? (
                 <p
-                    className={compact ? 'break-all font-mono text-sm text-foreground' : 'break-all font-mono text-sm text-white/80'}
+                    className={compact ? 'break-all font-mono text-sm text-foreground' : 'break-all font-mono text-sm text-foreground'}
                     data-testid="extension-pair-code"
                 >
                     {code}
-                    {expiresIn ? <span className="ml-2 text-[10px] text-white/40">{expiresIn}s</span> : null}
+                    {expiresIn ? <span className="ml-2 text-xs text-muted-foreground">{expiresIn}s</span> : null}
                 </p>
             ) : null}
             {message ? (
-                <p className={compact ? 'text-xs text-muted-foreground' : 'text-[10px] text-white/50'} data-testid="extension-connect-status">
+                <p className={compact ? 'text-xs text-muted-foreground' : 'text-xs text-muted-foreground'} data-testid="extension-connect-status">
                     {message}
                 </p>
             ) : null}

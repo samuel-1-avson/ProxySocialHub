@@ -198,8 +198,16 @@ export async function getSessions(status: 'active' | 'all' | unknown = 'active')
 /**
  * Get a specific session
  */
-export function getSession(id: string) {
-    return apiGet<Session>(`/v1/sessions/${id}`);
+export async function getSession(id: string) {
+    const data = await apiGet<Session | {session: Session; bandwidth_used?: number; bandwidth_limit?: number}>(`/v1/sessions/${encodeURIComponent(id)}`);
+    const session = 'session' in data ? {...data.session} : {...data};
+    if ('session' in data) {
+        const live = Number(data.bandwidth_used);
+        if (Number.isFinite(live) && live > (session.bytes_used || 0)) session.bytes_used = live;
+        const limit = Number(data.bandwidth_limit);
+        if (Number.isFinite(limit) && limit > 0) session.bytes_limit = limit;
+    }
+    return session;
 }
 
 /**

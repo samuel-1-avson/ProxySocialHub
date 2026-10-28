@@ -166,6 +166,12 @@ enum Commands {
         /// Parallel yamux tunnels per gateway (P4; env `YAMUX_CONNS_PER_NODE`, max 16).
         #[arg(long, env = "YAMUX_CONNS_PER_NODE")]
         yamux_conns_per_node: Option<usize>,
+
+        /// Start the tunnel as a detached background process and return. Used by the
+        /// sign-in entry that `service install` creates; the background daemon reads
+        /// only `provider.toml`, so the other overrides above do not apply.
+        #[arg(long, default_value_t = false)]
+        background: bool,
     },
 
     /// Display real-time node metrics from a running node
@@ -294,7 +300,11 @@ enum ServiceCommands {
         config: Option<String>,
     },
     /// Start the installed service
-    Start,
+    Start {
+        /// Path to configuration file (Windows only; defaults to the platform config dir)
+        #[arg(short, long)]
+        config: Option<String>,
+    },
     /// Stop the installed service
     Stop,
     /// Show service install/running status
@@ -626,7 +636,16 @@ async fn main() -> anyhow::Result<()> {
             use_tls,
             debug,
             yamux_conns_per_node,
+            background,
         } => {
+            if background {
+                let config_path = config
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(paths::config_file);
+                let result = daemon_ctrl::ensure_started(&config_path).await?;
+                println!("{}", daemon_ctrl::describe(result));
+                return Ok(());
+            }
             init_logging(debug);
             info!(
                 "Starting ProxyHubb Provider Node v{}",
@@ -988,11 +1007,12 @@ async fn main() -> anyhow::Result<()> {
                 let config_path = config.map(std::path::PathBuf::from);
                 service::install(config_path)?;
             }
-            ServiceCommands::Start => {
-                service::start()?;
+            ServiceCommands::Start { config } => {
+                let config_path = config.map(std::path::PathBuf::from);
+                service::start(config_path).await?;
             }
             ServiceCommands::Stop => {
-                service::stop()?;
+                service::stop().await?;
             }
             ServiceCommands::Status { config, json } => {
                 let config_path = config.map(std::path::PathBuf::from);
@@ -1004,7 +1024,7 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
             ServiceCommands::Uninstall => {
-                service::uninstall()?;
+                service::uninstall().await?;
             }
         },
 
