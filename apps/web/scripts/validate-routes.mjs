@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 
 const projectRoot = process.cwd();
@@ -23,6 +23,60 @@ for (const [, routeName] of dynamicRouteMatches) {
 const missingPages = [];
 let validatedCount = 0;
 
+function collectAppPages(directory, routeSegments = []) {
+    if (!existsSync(directory)) return [];
+
+    const pages = [];
+    const entries = readdirSync(directory, { withFileTypes: true });
+
+    for (const entry of entries) {
+        if (entry.isFile() && /^page\.(?:tsx?|jsx?)$/.test(entry.name)) {
+            pages.push(routeSegments);
+            continue;
+        }
+
+        if (!entry.isDirectory() || entry.name.startsWith("_") || entry.name.startsWith("@")) {
+            continue;
+        }
+
+        // Route groups organize files without adding a URL segment.
+        const nextSegments = /^\(.+\)$/.test(entry.name)
+            ? routeSegments
+            : [...routeSegments, entry.name];
+        pages.push(...collectAppPages(path.join(directory, entry.name), nextSegments));
+    }
+
+    return pages;
+}
+
+function escapeRegExp(value) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function appPageMatchesRoute(appSegments, routePath) {
+    let pattern = "^";
+
+    for (const segment of appSegments) {
+        const optionalCatchAll = segment.match(/^\[\[\.\.\.([^\]]+)\]\]$/);
+        const catchAll = segment.match(/^\[\.\.\.([^\]]+)\]$/);
+        const dynamic = segment.match(/^\[([^\]]+)\]$/);
+
+        if (optionalCatchAll) {
+            pattern += "(?:/[^/]+(?:/[^/]+)*)?";
+        } else if (catchAll) {
+            pattern += "/[^/]+(?:/[^/]+)*";
+        } else if (dynamic) {
+            pattern += "/[^/]+";
+        } else {
+            pattern += `/${escapeRegExp(segment)}`;
+        }
+    }
+
+    return new RegExp(`${pattern}/?$`).test(routePath);
+}
+
+const appPages = collectAppPages(appDir);
+
 for (const [, routeName, routePath] of routeMatches) {
     if (!routePath.startsWith("/") || routePath.includes("?") || routePath.includes("#")) continue;
 
@@ -33,7 +87,7 @@ for (const [, routeName, routePath] of routeMatches) {
 
     validatedCount += 1;
 
-    if (!existsSync(pagePath)) {
+    if (!appPages.some((appSegments) => appPageMatchesRoute(appSegments, normalizedRoute))) {
         missingPages.push({
             routeName,
             routePath,
