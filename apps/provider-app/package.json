@@ -10,7 +10,10 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "tauri": "tauri",
-    "build:sidecar": "node scripts/build-sidecar.mjs"
+    "build:sidecar": "node scripts/build-sidecar.mjs",
+    "build:app": "node scripts/build-app.mjs",
+    "build:app:debug": "node scripts/build-app.mjs --debug",
+    "e2e": "node e2e/run.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "2.12.3",
