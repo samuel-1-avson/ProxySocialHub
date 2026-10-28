@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { getMyNodes, getNodeUptime } from '@/lib/api/provider';
 import { meanMeasurements } from '@/lib/measurements';
+import { useAuth } from '@/lib/auth';
 import {
     PageHeading,
     Loading,
@@ -50,10 +51,12 @@ function overallLabel(status: CheckStatus) {
 
 export default function HealthPage() {
     const [refreshKey, setRefreshKey] = useState(0);
+    const { user, isAuthenticated } = useAuth();
 
     const { data: nodesData, isLoading: nodesLoading, isError: nodesError, error: nodesQueryError, refetch: refetchNodes } = useQuery({
-        queryKey: ['my-nodes', refreshKey],
+        queryKey: ['my-nodes', user?.id, refreshKey],
         queryFn: getMyNodes,
+        enabled: isAuthenticated,
     });
 
     const nodes = nodesData?.nodes ?? [];
@@ -62,7 +65,7 @@ export default function HealthPage() {
 
     const uptimeQueries = useQueries({
         queries: nodes.slice(0, 8).map((node) => ({
-            queryKey: ['node-uptime', node.id, refreshKey],
+            queryKey: ['node-uptime', user?.id, node.id, refreshKey],
             queryFn: () => getNodeUptime(node.id),
             staleTime: 60_000,
             enabled: nodes.length > 0,

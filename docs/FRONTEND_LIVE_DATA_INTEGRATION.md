@@ -70,3 +70,9 @@ Automated tests intentionally use API fixtures and intercept community tile requ
 - A complete funded purchase → gateway/provider traffic → accepted settlement/earnings run remains a separate acceptance step requiring the configured oracle and provider environment. This change does not claim to complete that run.
 - Existing backend analytics contracts can return aggregate zero values when no samples exist. The frontend identifies request-based rates/latency as unreported when no request samples exist; database error handling inside those backend aggregations is outside this frontend release.
 - The parallel team's broader redesign and docs work remain separate. This branch started from main and incorporates their merged public Explorer redirect changes before release.
+
+## Release status
+
+Source is published as [PR #78](https://github.com/samuel-1-avson/ProxySocialHub/pull/78), with DCO sign-offs under the user's configured Git identity.
+
+GitHub Actions currently refuses to start jobs because recent account payments failed or the spending limit needs increasing. This is visible on the [startup-failure run](https://github.com/samuel-1-avson/ProxySocialHub/actions/runs/40788380654). Local validation above is complete, but cloud CI and deployment have not completed. The frontend remains unreleased pending restoration of Actions and passing cloud checks. Required source checks are not bypassed.
