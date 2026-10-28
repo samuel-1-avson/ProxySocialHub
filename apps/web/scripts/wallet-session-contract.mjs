@@ -84,4 +84,22 @@ function fakeBrowser() {
     assert(disconnects === 0, 'unbind: listener still fired');
 }
 
+// 5. Sign-in failures: a declined request is not a fault; Phantom's bare "Unexpected error"
+//    means the connection is stale and the wallet must be reset; anything else passes through.
+{
+    const walletErr = (message) => Object.assign(new Error(message), { name: 'WalletSignMessageError' });
+    const declined = mod.classifySignInError(walletErr('User rejected the request.'), 'x');
+    assert(declined.resetWallet === false && /cancelled/.test(declined.message), 'declined request should not reset the wallet');
+    const stale = mod.classifySignInError(walletErr('Unexpected error'), 'x');
+    assert(stale.resetWallet === true && /connect/.test(stale.message), 'Unexpected error should reset the wallet');
+    assert(mod.classifySignInError(walletErr(''), 'x').resetWallet === true, 'empty sign error should reset the wallet');
+    const other = mod.classifySignInError(walletErr('Ledger does not support signMessage'), 'x');
+    assert(other.resetWallet === false && other.message === 'Ledger does not support signMessage', 'other wallet errors pass through');
+    const net = mod.classifySignInError(new Error('Wallet challenge returned non-JSON response (status 502).'), 'x');
+    assert(net.resetWallet === false && /502/.test(net.message), 'API errors pass through');
+    assert(mod.classifySignInError({ weird: true }, 'fallback text').message === 'fallback text', 'unknown values use the fallback');
+    // A different error type with the same words is not treated as a wallet fault.
+    assert(mod.classifySignInError(new Error('Unexpected error'), 'x').resetWallet === false, 'only WalletSignMessageError resets');
+}
+
 console.log('wallet-session contract OK');
