@@ -58,6 +58,7 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
       docs: ${{ steps.filter.outputs.docs }}
+      explorer: ${{ steps.filter.outputs.explorer }}
       edge: ${{ steps.filter.outputs.edge }}
       provider: ${{ steps.filter.outputs.provider }}
       providerapp: ${{ steps.filter.outputs.providerapp }}
@@ -76,6 +77,9 @@ jobs:
               - 'apps/web/**'
             docs:
               - 'apps/docs/**'
+            explorer:
+              - 'apps/explorer/**'
+              - 'packages/design-system/**'
             edge:
               - 'services/edge-gateway/**'
             provider:
@@ -321,6 +325,34 @@ jobs:
 
     - name: Build docs static pages
       run: npm run build
+
+  explorer-check:
+    needs: changes
+    if: ${{ needs.changes.outputs.explorer == 'true' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/explorer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/explorer/package-lock.json
+      - run: npm ci
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium webkit
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: explorer-browser-failures
+          path: apps/explorer/test-results
+          retention-days: 7
 
   # ==================== Edge Gateway (Rust) ====================
   edge-gateway-check:
