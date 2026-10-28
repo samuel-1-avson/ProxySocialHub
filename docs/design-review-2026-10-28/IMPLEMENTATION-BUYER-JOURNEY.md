@@ -62,7 +62,9 @@ The frontend can be reviewed and released independently of that experiment. A fu
 
 ## Frontend release
 
-The production image now builds from the repository root and includes the shared design system. The standalone runtime retains the monorepo paths. The existing Deploy workflow supports publishing only the web image and rolling only the web container, retaining the production environment and previous image for automatic rollback on failed health or workspace checks. Deployment status is recorded separately once verified against the live site.
+The buyer workspace frontend is deployed on [proxyhubb.com](https://proxyhubb.com). [GitHub Actions release run 40707255985](https://github.com/samuel-1-avson/ProxySocialHub/actions/runs/40707255985) built revision `66e7140d50fa38721f3341a4e0a5d443086b03bf`, copied the image to GCP, and completed all deployment checks. The production container and public `/app` route both returned HTTP 307 to the sign-in page when checked without a user session. After sign-in, `/app` opens the redesigned workspace. The rollout changed the web container only and retained its prior image for rollback; it did not roll the API, gateway, database, or Explorer.
+
+The web image now builds from the repository root and includes the shared design system. The standalone runtime preserves the monorepo paths. The manual Deploy workflow has a web-only release choice and checks the installed wallet adapter's readiness during the build. The previous rollout attempts failed before reaching GCP: the first GHCR push lacked package access, and the second build caught a TypeScript error from the then-current `main` wallet reconnect code. Both were resolved before the successful third run.
 
 ## Preview evidence
 

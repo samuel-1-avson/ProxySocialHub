@@ -2,9 +2,9 @@ import { Metadata } from 'next';
 import { WhitepaperViewer } from '@/components/whitepaper/WhitepaperViewer';
 
 export const metadata: Metadata = {
-  title: 'Official Protocol Whitepaper v2.0 | ProxyHubb DePIN',
+  title: 'Architecture draft | ProxyHubb',
   description:
-    'Technical whitepaper for ProxyHubb: High-Throughput Decentralized Physical Infrastructure Protocol for Zero-Knowledge Bandwidth Routing and State-Channel Settlement on Solana.',
+    'Proposed architecture notes. These concepts do not describe currently available or independently verified ProxyHubb features.',
 };
 
 export default function WhitepaperPage() {

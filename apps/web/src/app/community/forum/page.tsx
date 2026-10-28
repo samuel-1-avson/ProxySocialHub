@@ -16,11 +16,7 @@ import {
     MessageSquare,
     Search,
     Plus,
-    Hash,
-    Clock,
     TrendingUp,
-    Users,
-    ChevronRight,
     Loader2,
     MessageCircle,
     Eye,
@@ -36,7 +32,6 @@ function ForumContent() {
     const [searchQuery, setSearchQuery] = useState("");
     const [searchResults, setSearchResults] = useState<ForumThread[] | null>(null);
     const [searching, setSearching] = useState(false);
-    const [activeTab, setActiveTab] = useState<"categories" | "recent" | "popular">("categories");
 
     useEffect(() => {
         loadForumData();
@@ -103,7 +98,7 @@ function ForumContent() {
                 </div>
                 {isAuthenticated && (
                     <Link
-                        href="/community/forum/new"
+                        href="/help/forum/new"
                         className="inline-flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-lg font-bold font-mono text-sm hover:bg-primary/90 transition-colors"
                     >
                         <Plus className="w-4 h-4" />
@@ -175,33 +170,9 @@ function ForumContent() {
                 <div className="grid lg:grid-cols-3 gap-8">
                     {/* Left Column - Categories/Threads */}
                     <div className="lg:col-span-2 space-y-6">
-                        {/* Tabs */}
-                        <div className="flex gap-2 p-1 bg-secondary/20 rounded-lg">
-                            {[
-                                { id: "categories", label: "Categories", icon: Hash },
-                                { id: "recent", label: "Recent", icon: Clock },
-                                { id: "popular", label: "Popular", icon: TrendingUp },
-                            ].map((tab) => (
-                                <button
-                                    key={tab.id}
-                                    onClick={() => setActiveTab(tab.id as typeof activeTab)}
-                                    className={`flex items-center gap-2 px-4 py-2 rounded-md font-mono text-sm font-medium transition-all ${
-                                        activeTab === tab.id
-                                            ? "bg-primary text-primary-foreground"
-                                            : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
-                                    }`}
-                                >
-                                    <tab.icon className="w-4 h-4" />
-                                    {tab.label}
-                                </button>
-                            ))}
-                        </div>
-
-                        {/* Content */}
-                        {activeTab === "categories" && (
-                            <div className="grid sm:grid-cols-2 gap-4">
-                                {categories.map((category) => (
-                                    <Link key={category.id} href={`/community/forum/category/${category.slug}`}>
+                        <div className="grid sm:grid-cols-2 gap-4">
+                            {categories.map((category) => (
+                                    <Link key={category.id} href={`/help/forum/category/${category.slug}`}>
                                         <GlassCard className="!p-5 hover:border-primary/50 transition-all h-full group">
                                             <div className="flex items-start gap-4">
                                                 <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
@@ -224,34 +195,8 @@ function ForumContent() {
                                             </div>
                                         </GlassCard>
                                     </Link>
-                                ))}
-                            </div>
-                        )}
-
-                        {activeTab === "recent" && (
-                            <div className="space-y-3">
-                                {recentThreads.length === 0 ? (
-                                    <GlassCard className="!p-8 text-center">
-                                        <p className="text-muted-foreground">No recent discussions</p>
-                                    </GlassCard>
-                                ) : (
-                                    recentThreads.map((thread) => (
-                                        <ThreadCard key={thread.id} thread={thread} />
-                                    ))
-                                )}
-                            </div>
-                        )}
-
-                        {activeTab === "popular" && (
-                            <div className="space-y-3">
-                                {[...recentThreads]
-                                    .sort((a, b) => (b.views_count || 0) - (a.views_count || 0))
-                                    .slice(0, 10)
-                                    .map((thread) => (
-                                        <ThreadCard key={thread.id} thread={thread} />
-                                    ))}
-                            </div>
-                        )}
+                            ))}
+                        </div>
                     </div>
 
                     {/* Right Column - Stats & Info */}
@@ -274,44 +219,11 @@ function ForumContent() {
                                     </span>
                                 </div>
                                 <div className="flex items-center justify-between">
-                                    <span className="text-muted-foreground">Recent Activity</span>
+                                    <span className="text-muted-foreground">Recent threads loaded</span>
                                     <span className="font-bold font-mono text-emerald-500">
-                                        {recentThreads.length} new
+                                        {recentThreads.length}
                                     </span>
                                 </div>
-                            </div>
-                        </GlassCard>
-
-                        {/* Quick Links */}
-                        <GlassCard className="!p-6">
-                            <h3 className="font-bold font-mono mb-4">Quick Links</h3>
-                            <div className="space-y-2">
-                                <Link
-                                    href="/community/forum/recent"
-                                    className="flex items-center gap-3 p-3 rounded-lg hover:bg-secondary/30 transition-colors group"
-                                >
-                                    <Clock className="w-4 h-4 text-muted-foreground group-hover:text-primary" />
-                                    <span className="text-sm">Recent Activity</span>
-                                    <ChevronRight className="w-4 h-4 ml-auto text-muted-foreground" />
-                                </Link>
-                                <Link
-                                    href="/community/forum/unanswered"
-                                    className="flex items-center gap-3 p-3 rounded-lg hover:bg-secondary/30 transition-colors group"
-                                >
-                                    <MessageCircle className="w-4 h-4 text-muted-foreground group-hover:text-primary" />
-                                    <span className="text-sm">Unanswered</span>
-                                    <ChevronRight className="w-4 h-4 ml-auto text-muted-foreground" />
-                                </Link>
-                                {isAuthenticated && (
-                                    <Link
-                                        href="/community/forum/my-posts"
-                                        className="flex items-center gap-3 p-3 rounded-lg hover:bg-secondary/30 transition-colors group"
-                                    >
-                                        <Users className="w-4 h-4 text-muted-foreground group-hover:text-primary" />
-                                        <span className="text-sm">My Posts</span>
-                                        <ChevronRight className="w-4 h-4 ml-auto text-muted-foreground" />
-                                    </Link>
-                                )}
                             </div>
                         </GlassCard>
 
@@ -352,7 +264,7 @@ interface ThreadCardProps {
 
 function ThreadCard({ thread, compact }: ThreadCardProps) {
     return (
-        <Link href={`/community/forum/thread/${thread.id}`}>
+        <Link href={`/help/forum/thread/${thread.id}`}>
             <GlassCard className={`hover:border-primary/50 transition-all group ${compact ? "!p-4" : "!p-5"}`}>
                 <div className="flex items-start gap-4">
                     {/* Vote Count */}
