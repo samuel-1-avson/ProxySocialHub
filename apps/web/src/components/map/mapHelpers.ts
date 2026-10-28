@@ -1,5 +1,11 @@
 import type { NodeGeoPoint } from '@/lib/services/explorer';
 import type { ExplorerListingPin } from './types';
+import { measured, measurement } from '@/lib/measurements';
+
+export function lowestListingPrice(pins: ExplorerListingPin[]): number | undefined {
+    const prices = pins.map(pin => measurement(pin.price_per_gb)).filter((price): price is number => price !== undefined);
+    return prices.length ? Math.min(...prices) : undefined;
+}
 
 /** Escape a string for safe use inside an HTML attribute or text node */
 export function esc(s: string | number | undefined | null): string {
@@ -46,7 +52,7 @@ export function singleNodePopup(node: NodeGeoPoint, color: NodeColor): string {
         || (node.network_class ? `${node.network_class} node` : null)
         || (node.is_validator ? 'High quality' : 'Proxy node');
     const statusColor = node.is_active ? '#10b981' : '#ef4444';
-    const statusText = node.is_active ? '● Active' : '○ Offline';
+    const statusText = esc(node.status || (node.is_active ? 'Active' : 'Offline'));
     const heading = node.title || location || 'Network node';
     const linkable = node.explorer_linkable !== false && !!node.node_id && !/^[a-f0-9]{16}$/i.test(node.node_id);
     const detailsLink = linkable
@@ -61,8 +67,8 @@ export function singleNodePopup(node: NodeGeoPoint, color: NodeColor): string {
             <div style="display:flex;justify-content:space-between;font-size:9px;"><span style="color:rgba(255,255,255,.4)">Location</span><span style="color:#fff;font-weight:600;max-width:130px;text-align:right;">${location}</span></div>
             ${node.network_class ? `<div style="display:flex;justify-content:space-between;font-size:9px;"><span style="color:rgba(255,255,255,.4)">Network</span><span style="color:#94a3b8;text-transform:capitalize;">${esc(node.network_class)}</span></div>` : ''}
             ${node.quality_score != null ? `<div style="display:flex;justify-content:space-between;font-size:9px;"><span style="color:rgba(255,255,255,.4)">Quality</span><span style="color:#fff;font-weight:600;">${Number(node.quality_score).toFixed(0)}</span></div>` : ''}
-            <div style="display:flex;justify-content:space-between;font-size:9px;"><span style="color:rgba(255,255,255,.4)">Uptime</span><span style="color:#fff;font-weight:600;">${(node.uptime_percent || 0).toFixed(1)}%</span></div>
-            ${node.active_sessions ? `<div style="display:flex;justify-content:space-between;font-size:9px;"><span style="color:rgba(255,255,255,.4)">Sessions</span><span style="color:#fff;font-weight:600;">${node.active_sessions}</span></div>` : ''}
+            <div style="display:flex;justify-content:space-between;font-size:9px;"><span style="color:rgba(255,255,255,.4)">Uptime</span><span style="color:#fff;font-weight:600;">${measured(node.uptime_percent, 1, '%')}</span></div>
+            <div style="font-size:9px;">Sessions: ${measured(node.active_sessions, 0)}</div>
         </div>
         ${detailsLink}
     </div>`;
@@ -84,13 +90,13 @@ export function groupListingPins(pins: ExplorerListingPin[]): ExplorerListingPin
     return Array.from(groups.values());
 }
 
-export function listingMarkerHtml(price: number, selected: boolean, estimated: boolean, count: number): string {
+export function listingMarkerHtml(price: number | undefined, selected: boolean, estimated: boolean, count: number): string {
     const color = selected ? '#f59e0b' : estimated ? '#d97706' : '#10b981';
     const border = estimated ? '2px dashed rgba(251,191,36,.85)' : '2px solid rgba(255,255,255,.35)';
     const size = count > 1 ? 30 : 24;
     const label = count > 1
         ? `<span style="font-size:11px;font-weight:900;color:#fff;line-height:1;">${count}</span>`
-        : `<span style="font-size:7px;font-weight:900;color:#fff;">${price.toFixed(4)}</span>`;
+        : `<span style="font-size:7px;font-weight:900;color:#fff;">${price === undefined ? '—' : price.toFixed(4)}</span>`;
     const sublabel = count > 1
         ? `<span style="position:absolute;bottom:-10px;left:50%;transform:translateX(-50%);font-size:6px;font-weight:800;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.08em;white-space:nowrap;">listings</span>`
         : '';
@@ -116,7 +122,8 @@ function catalogPopupLine(pin: { catalog_product?: { title?: string; slug?: stri
 }
 
 function occupancyLine(pin: ExplorerListingPin): string {
-    const active = pin.active_sessions ?? 0;
+    const active = measurement(pin.active_sessions);
+    if (active === undefined) return ' · Activity not reported';
     const cap = pin.max_concurrency ?? 0;
     if (active <= 0 && cap <= 0) return '';
     if (cap > 0) {
@@ -138,25 +145,25 @@ export function listingPopup(
         <div style="font-size:8px;font-weight:900;color:#10b981;text-transform:uppercase;letter-spacing:.2em;margin-bottom:4px;">Market listing</div>
         ${catalogLine}
         <div style="font-size:11px;font-weight:700;margin-bottom:6px;">${esc(pin.title)}</div>
-        <div style="font-size:9px;color:rgba(255,255,255,.5);margin-bottom:8px;">${loc} · $${pin.price_per_gb.toFixed(4)}/GB${occupancyLine(pin)}</div>
+        <div style="font-size:9px;color:rgba(255,255,255,.5);margin-bottom:8px;">${loc} · ${measured(pin.price_per_gb, 4, 'USD / GB')}${occupancyLine(pin)}</div>
         ${buyCtl}
     </div>`;
 }
 
 export function listingClusterPopup(pins: (ExplorerListingPin & { city?: string })[]): string {
     const loc = esc(listingLocationLabel(pins[0]));
-    const minPrice = Math.min(...pins.map(p => p.price_per_gb));
+    const minPrice = lowestListingPrice(pins);
     const rows = pins.map(p => {
         const verified = p.listing_offer_verified ? 'signed' : 'unsigned';
         return `<button type="button" data-listing-id="${esc(p.listing_id)}" class="ph-listing-cluster-row" style="display:block;width:100%;text-align:left;padding:8px 0;border:none;border-bottom:1px solid rgba(255,255,255,.06);background:transparent;cursor:pointer;font-family:monospace;">
             <div style="font-size:10px;font-weight:700;color:#fff;margin-bottom:2px;">${esc(p.title)}</div>
-            <div style="font-size:8px;color:rgba(255,255,255,.45);">$${p.price_per_gb.toFixed(4)}/GB · ${verified}</div>
+            <div style="font-size:8px;color:rgba(255,255,255,.45);">${measured(p.price_per_gb, 4, 'USD / GB')} · ${verified}</div>
         </button>`;
     }).join('');
 
     return `<div style="background:#0a0a15;border:1px solid rgba(16,185,129,.35);border-radius:12px;padding:12px;min-width:240px;max-width:280px;font-family:monospace;color:#fff;box-shadow:0 8px 32px rgba(0,0,0,.5);">
         <div style="font-size:8px;font-weight:900;color:#10b981;text-transform:uppercase;letter-spacing:.2em;margin-bottom:4px;">${pins.length} listings here</div>
-        <div style="font-size:9px;color:rgba(255,255,255,.45);margin-bottom:8px;">📍 ${loc} · from $${minPrice.toFixed(4)}/GB</div>
+        <div style="font-size:9px;color:rgba(255,255,255,.45);margin-bottom:8px;">${loc} · ${measured(minPrice, 4, 'USD / GB')}</div>
         <div style="max-height:220px;overflow-y:auto;scrollbar-width:thin;">${rows}</div>
         <div style="font-size:7px;color:rgba(255,255,255,.3);text-transform:uppercase;letter-spacing:.12em;margin-top:8px;text-align:center;">Tap a listing to select</div>
     </div>`;
@@ -173,7 +180,7 @@ export function clusterPopup(nodes: NodeGeoPoint[], color: NodeColor): string {
         return `<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05);gap:6px;">
             <div style="flex:1;min-width:0;">
                 <div style="font-size:9px;color:#6366f1;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc((n.title || n.node_id).slice(0, 22))}…</div>
-                <div style="font-size:8px;color:rgba(255,255,255,.4);">${(n.uptime_percent || 0).toFixed(1)}% up · ${n.active_sessions} sess</div>
+                <div style="font-size:8px;color:rgba(255,255,255,.4);">Uptime ${measured(n.uptime_percent, 1, '%')} · Sessions ${measured(n.active_sessions, 0)}</div>
             </div>
             <div style="flex-shrink:0;display:flex;flex-direction:column;align-items:flex-end;gap:2px;">
                 <span style="font-size:8px;color:${sc};font-weight:700;">${n.is_active ? '●' : '○'}</span>

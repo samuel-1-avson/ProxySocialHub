@@ -284,6 +284,15 @@ jobs:
         TEST_JWT_SECRET: "test-jwt-secret-for-ci-min-32-chars-long"
         PLAYWRIGHT_E2E_AUTH_BYPASS: "1"
         NEXT_PUBLIC_PLAYWRIGHT_E2E_MOCK_BUY: "1"
+    - name: Data availability and geographic map regressions
+      run: |
+        npm run test:measurements
+        npm run test:e2e:live-data
+      env:
+        JWT_SECRET: "test-jwt-secret-for-ci-min-32-chars-long"
+        TEST_JWT_SECRET: "test-jwt-secret-for-ci-min-32-chars-long"
+        PLAYWRIGHT_E2E_AUTH_BYPASS: "1"
+        NEXT_PUBLIC_PLAYWRIGHT_E2E_MOCK_BUY: "1"
       
     - name: Build
       run: npm run build
