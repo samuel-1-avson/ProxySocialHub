@@ -20,6 +20,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/middleware"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/testutil"
+	"gorm.io/gorm"
 )
 
 // ── fixtures ─────────────────────────────────────────────────────────────────
@@ -858,6 +859,139 @@ func TestProviderPairing_StartPurgesOnlyRowsPastRetention(t *testing.T) {
 		if !exists(id) {
 			t.Errorf("%s: row must be kept", name)
 		}
+	}
+}
+
+// failInsertInto makes every insert into `table` fail, inside this process only, with an error
+// shaped like Postgres's foreign key violation. It stands in for a production database whose
+// schema or data rejects one step of redeeming an approval. A hook rather than a constraint,
+// because the test database is shared and a temporary constraint would reach other packages.
+func failInsertInto(t *testing.T, table string) (stop func()) {
+	t.Helper()
+	name := "zz_pairing_test_fail_" + table
+	err := db.DB.Callback().Create().Before("gorm:create").Register(name, func(tx *gorm.DB) {
+		if tx.Statement != nil && tx.Statement.Table == table {
+			_ = tx.AddError(fmt.Errorf("ERROR: insert or update on table %q violates foreign key constraint \"fk_test\" (SQLSTATE 23503)", table))
+		}
+	})
+	if err != nil {
+		t.Fatalf("register failing hook for %s: %v", table, err)
+	}
+	var once sync.Once
+	stop = func() { once.Do(func() { _ = db.DB.Callback().Create().Remove(name) }) }
+	t.Cleanup(stop)
+	return stop
+}
+
+// A failed redeem must say which step failed, create nothing, leave the approval intact and
+// answer with something the node can retry: the poll that follows, once the cause is gone,
+// has to succeed. Before, the 500 said only "failed to complete pairing".
+func TestProviderPairing_FailedRedeemNamesTheStepAndKeepsTheApproval(t *testing.T) {
+	steps := []struct{ step, table string }{
+		{"token", "provider_tokens"},
+		{"node", "provider_nodes"},
+		{"registration", "provider_node_registrations"},
+	}
+	for _, tc := range steps {
+		t.Run(tc.step, func(t *testing.T) {
+			e := newPairingEnv(t)
+			s := e.start()
+			if w := e.decide(s.UserCode, "approve", e.asOwner()); w.Code != http.StatusOK {
+				t.Fatalf("approve: %d %s", w.Code, w.Body.String())
+			}
+			stop := failInsertInto(t, tc.table)
+
+			w := e.poll(s.DeviceCode)
+			if w.Code != http.StatusInternalServerError {
+				t.Fatalf("poll while %s fails: %d %s, want 500", tc.table, w.Code, w.Body.String())
+			}
+			m := decodeMap(t, w)
+			if m["code"] != "pairing_redeem_failed" || m["step"] != tc.step || m["sqlstate"] != "23503" {
+				t.Errorf("failure body = %v, want code pairing_redeem_failed, step %q, sqlstate 23503", m, tc.step)
+			}
+			if _, leaked := m["api_key"]; leaked {
+				t.Error("a failed redeem must never carry a key")
+			}
+			if strings.Contains(w.Body.String(), tc.table) || strings.Contains(w.Body.String(), "fk_test") {
+				t.Errorf("the response must not repeat the database's own message: %s", w.Body.String())
+			}
+
+			// Rolled back: nothing minted, and the approval is exactly as it was.
+			var nodes, regs int64
+			db.DB.Model(&models.ProviderNode{}).Where("user_id = ?", e.owner.ID).Count(&nodes)
+			db.DB.Model(&models.ProviderNodeRegistration{}).Where("user_id = ?", e.owner.ID).Count(&regs)
+			if n := e.pairedTokenCount(); n != 0 || nodes != 0 || regs != 0 {
+				t.Errorf("a failed redeem left %d token(s), %d node(s), %d registration(s)", n, nodes, regs)
+			}
+			if row := e.row(s.DeviceCode); row.Status != models.ProviderPairingApproved || row.RedeemedAt != nil {
+				t.Errorf("approval was consumed by a failed redeem: status %q, redeemed_at %v", row.Status, row.RedeemedAt)
+			}
+
+			// The cause goes away (a redeploy finishes, a hiccup passes): the same device code works.
+			stop()
+			w = e.poll(s.DeviceCode)
+			if w.Code != http.StatusOK || decodeMap(t, w)["api_key"] == nil {
+				t.Fatalf("retry after the cause is gone: %d %s", w.Code, w.Body.String())
+			}
+			if n := e.pairedTokenCount(); n != 1 {
+				t.Errorf("after the retry there should be exactly one paired token, got %d", n)
+			}
+		})
+	}
+}
+
+// The same report for a REAL Postgres error: the approver's account disappears between the
+// approval and the redeem, so a foreign key rejects the insert. The response must carry the
+// error class (23503), not the database's text.
+func TestProviderPairing_RealDatabaseErrorIsReportedByClass(t *testing.T) {
+	e := newPairingEnv(t)
+	s := e.start()
+	if w := e.decide(s.UserCode, "approve", e.asOwner()); w.Code != http.StatusOK {
+		t.Fatalf("approve: %d %s", w.Code, w.Body.String())
+	}
+	// Remove the approver, dependents first (the approval wrote an audit-log row for them).
+	// If this schema will not let the account go, there is no real foreign key to trip, so
+	// skip: the injected-failure test above already covers every step's label.
+	for _, q := range []string{
+		"DELETE FROM audit_logs WHERE user_id = ?",
+		"DELETE FROM profiles WHERE id = ?",
+		"DELETE FROM users WHERE id = ?",
+	} {
+		if err := db.DB.Exec(q, e.owner.ID).Error; err != nil {
+			t.Skipf("could not remove the approver in this schema (%s): %v", q, err)
+		}
+	}
+
+	w := e.poll(s.DeviceCode)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("poll after the approver was removed: %d %s, want 500", w.Code, w.Body.String())
+	}
+	m := decodeMap(t, w)
+	if m["sqlstate"] != "23503" {
+		t.Errorf("sqlstate = %v, want 23503 (foreign key violation); body %v", m["sqlstate"], m)
+	}
+	if step, _ := m["step"].(string); step == "" {
+		t.Errorf("a database failure inside the transaction must name its step: %v", m)
+	}
+	if strings.Contains(strings.ToLower(w.Body.String()), "violates") {
+		t.Errorf("the response must not repeat the database's own message: %s", w.Body.String())
+	}
+}
+
+func TestSQLStateOf(t *testing.T) {
+	cases := map[string]string{
+		`ERROR: insert or update on table "x" violates foreign key constraint "y" (SQLSTATE 23503)`: "23503",
+		`ERROR: duplicate key value violates unique constraint "u" (SQLSTATE 23505)`:                "23505",
+		`ERROR: invalid input syntax for type inet: "" (SQLSTATE 22P02)`:                            "22P02",
+		`dial tcp: connection refused`: "",
+	}
+	for text, want := range cases {
+		if got := sqlStateOf(errors.New(text)); got != want {
+			t.Errorf("sqlStateOf(%q) = %q, want %q", text, got, want)
+		}
+	}
+	if got := sqlStateOf(nil); got != "" {
+		t.Errorf("sqlStateOf(nil) = %q", got)
 	}
 }
 
