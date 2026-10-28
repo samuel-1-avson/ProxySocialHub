@@ -1,12 +1,13 @@
 import { Metadata } from 'next';
-import { DePINPortal } from '@/components/network/DePINPortal';
+import { redirect } from 'next/navigation';
 
 export const metadata: Metadata = {
-  title: 'DePIN Protocol & Mining Portal | ProxyHubb',
+  title: 'Protocol overview | ProxyHubb',
   description:
-    'Staked Gateway Operators, Proof-of-Bandwidth Mining, and State-Channel Mutual Receipts on Solana.',
+    'Explore ProxyHubb buyer and seller workspaces, public network records, and the current settlement acceptance status.',
 };
 
 export default function DePINPage() {
-  return <DePINPortal />;
+  const explorer = process.env.NEXT_PUBLIC_EXPLORER_URL?.replace(/\/+$/, '');
+  redirect(explorer ? `${explorer}/about/protocol` : '/explorer/about/protocol');
 }

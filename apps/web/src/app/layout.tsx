@@ -9,9 +9,9 @@ import { SkipLink } from "@/components/Accessibility";
 import { TestnetEnvironmentBanner } from "@/components/TestnetEnvironmentBanner";
 
 export const metadata: Metadata = {
-  title: "ProxyHub — Residential bandwidth with on-chain settlement",
+  title: "ProxyHubb — Proxy marketplace and network explorer",
   description:
-    "Buy verified residential proxy capacity or earn by running nodes. Metered at the edge, settled in SOL.",
+    "Discover proxy capacity, manage provider listings, and inspect public network records.",
 };
 
 /**

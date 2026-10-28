@@ -34,7 +34,7 @@ if (enableEvmWallets && process.env.NODE_ENV !== 'test') {
 
 const config = enableEvmWallets && selectedChain && evmRpcUrl && walletConnectProjectId
     ? getDefaultConfig({
-        appName: 'ProxyHub',
+        appName: 'ProxyHubb',
         projectId: walletConnectProjectId,
         chains: [selectedChain],
         transports: {

@@ -29,15 +29,15 @@ export default function Home() {
 
           <div className="relative z-10 mx-auto flex w-full max-w-[1120px] flex-1 flex-col justify-center px-4 py-20 sm:px-6">
             <p className="mb-6 font-data text-xs font-medium uppercase tracking-[0.2em] text-primary">
-              ProxyHub
+              ProxyHubb
             </p>
 
             <h1 className="max-w-3xl text-5xl font-semibold tracking-tight text-foreground sm:text-6xl md:text-7xl md:leading-[1.05]">
-              The decentralized bandwidth marketplace.
+              A clearer way to buy and provide proxy capacity.
             </h1>
 
             <p className="mt-6 max-w-xl text-lg leading-relaxed text-muted-foreground sm:text-xl">
-              Buy verified residential proxy capacity or earn by running nodes anywhere. Usage is metered at the edge and settled on-chain.
+              Compare provider offers, manage buyer connections, or publish capacity from one workspace. Public network records have their own Explorer.
             </p>
 
             <div className="mt-10 flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -45,7 +45,7 @@ export default function Home() {
                 <span className="h-12 w-40 animate-pulse rounded-[var(--radius-md)] bg-secondary" aria-hidden />
               ) : user ? (
                 <Link
-                  href={ROUTES.dashboard}
+                  href={ROUTES.workspace}
                   className="inline-flex h-12 items-center justify-center rounded-[var(--radius-md)] bg-primary px-8 text-base font-medium text-primary-foreground transition-colors hover:bg-[var(--primary-dark)]"
                 >
                   Open dashboard
@@ -80,9 +80,9 @@ export default function Home() {
         <section className="border-b border-border" aria-label="Network proof points">
           <div className="mx-auto grid max-w-[1120px] grid-cols-1 divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
             {[
-              { value: "Devnet", label: "Settlement network" },
-              { value: "CONNECT", label: "Buyer proxy protocol" },
-              { value: "SOL", label: "Settlement rail" },
+              { value: "Devnet", label: "Test network" },
+              { value: "CONNECT", label: "Supported proxy protocol" },
+              { value: "SOL", label: "Test settlement asset" },
             ].map((m) => (
               <div key={m.label} className="px-6 py-10 sm:px-8">
                 <div className="font-data text-3xl font-semibold tabular-nums text-foreground">
@@ -99,7 +99,7 @@ export default function Home() {
           <div className="mx-auto max-w-[1120px] px-4 sm:px-6">
             <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">How it works</h2>
             <p className="mt-3 max-w-xl text-lg text-muted-foreground">
-              Three steps from wallet to live session — no vendor lock-in, no opaque billing.
+              Three clear steps across the buyer and provider workspaces.
             </p>
             <ol className="mt-16 grid gap-12 sm:grid-cols-3">
               {[
@@ -115,8 +115,8 @@ export default function Home() {
                 },
                 {
                   step: "03",
-                  title: "Route and settle",
-                  desc: "Traffic hits the edge gateway; usage settles against your wallet balance.",
+                  title: "Connect and monitor",
+                  desc: "Use the supported gateway, then review session status and reported usage in your workspace.",
                 },
               ].map((item) => (
                 <li key={item.step} className="group min-w-0">
@@ -137,7 +137,7 @@ export default function Home() {
             <div className="group border border-border bg-card p-10 transition-colors hover:border-[var(--border-strong)] sm:p-12">
               <h2 className="text-2xl font-semibold tracking-tight">For buyers</h2>
               <p className="mt-4 text-base leading-relaxed text-muted-foreground">
-                Residential routes with transparent pricing, session credentials, and usage you can audit.
+                Compare listed price, capacity, location, and terms. Review orders, credentials, and reported usage in Activity.
               </p>
               <Link
                 href={ROUTES.marketplace}
@@ -150,10 +150,10 @@ export default function Home() {
             <div className="group border border-border bg-card p-10 transition-colors hover:border-[var(--border-strong)] sm:p-12">
               <h2 className="text-2xl font-semibold tracking-tight">For providers</h2>
               <p className="mt-4 text-base leading-relaxed text-muted-foreground">
-                Run the provider node CLI, publish listings, and earn when buyers route through your capacity.
+                Set up nodes, publish offers, and review reported earnings in the provider workspace.
               </p>
               <Link
-                href={ROUTES.dashboardBecomeProvider}
+                href={ROUTES.seller}
                 className="mt-8 inline-flex items-center gap-2 text-base font-medium text-primary transition-colors hover:gap-3"
               >
                 Become a provider
@@ -166,9 +166,9 @@ export default function Home() {
         {/* Network teaser */}
         <section className="border-b border-border py-24 sm:py-32">
           <div className="mx-auto max-w-[1120px] px-4 sm:px-6">
-            <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">Live network</h2>
+            <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">Public network records</h2>
             <p className="mt-3 max-w-xl text-lg text-muted-foreground">
-              Inspect nodes, sessions, and settlement activity on the public explorer — no account required.
+              Inspect reported nodes, indexed ledger records, health, and governance evidence without signing in.
             </p>
             <div className="mt-10 flex flex-wrap gap-4">
               <Link
@@ -196,7 +196,7 @@ export default function Home() {
                     PH
                   </span>
                   <span className="font-data text-sm font-semibold tracking-[0.12em] uppercase">
-                    ProxyHub
+                    ProxyHubb
                   </span>
                 </div>
                 <p className="mt-5 text-sm leading-relaxed text-muted-foreground">
@@ -247,7 +247,7 @@ export default function Home() {
               </div>
             </div>
             <div className="mt-16 border-t border-border pt-8 font-data text-xs text-muted-foreground">
-              © {new Date().getFullYear()} ProxyHub. All rights reserved.
+              © {new Date().getFullYear()} ProxyHubb. All rights reserved.
             </div>
           </div>
         </footer>

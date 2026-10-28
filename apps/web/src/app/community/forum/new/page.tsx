@@ -118,7 +118,7 @@ function NewThreadContent() {
         <div className="max-w-3xl mx-auto space-y-6">
             {/* Back Link */}
             <Link
-                href="/community/forum"
+                href="/help/forum"
                 className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors font-mono text-sm"
             >
                 <ArrowLeft className="w-4 h-4" />
@@ -235,7 +235,7 @@ function NewThreadContent() {
                     {/* Actions */}
                     <div className="flex items-center justify-between pt-4 border-t border-border">
                         <Link
-                            href="/community/forum"
+                            href="/help/forum"
                             className="px-6 py-2 text-sm font-mono text-muted-foreground hover:text-foreground transition-colors"
                         >
                             Cancel

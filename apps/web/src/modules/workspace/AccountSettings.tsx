@@ -19,6 +19,7 @@ import {
 } from "@/lib/notifications-api";
 import { ThemeSelect } from "@/components/workspace/ThemeSelect";
 import { Modal } from "@/components/patterns/Modal";
+import ReferralPage from "@/app/community/referrals/page";
 import {
   PageHeading,
   Loading,
@@ -29,7 +30,7 @@ import {
 
 export function AccountSettings() {
   const params = useSearchParams();
-  const tab = ["preferences", "security", "devices", "history"].includes(
+  const tab = ["preferences", "security", "devices", "history", "referrals"].includes(
     params.get("tab") ?? "",
   )
     ? params.get("tab")!
@@ -53,6 +54,7 @@ export function AccountSettings() {
           ["security", "Security"],
           ["devices", "Devices"],
           ["history", "Security activity"],
+          ["referrals", "Referrals"],
         ].map(([key, label]) => (
           <Link
             key={key}
@@ -74,6 +76,8 @@ export function AccountSettings() {
         <Authentication />
       ) : tab === "devices" ? (
         <Devices />
+      ) : tab === "referrals" ? (
+        <ReferralPage />
       ) : (
         <SecurityActivity />
       )}

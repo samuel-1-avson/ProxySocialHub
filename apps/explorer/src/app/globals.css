@@ -87,6 +87,273 @@ select {
 .ui-section-heading {
   margin-top: 0;
 }
+.explorer-view-tabs,
+.explorer-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+}
+.explorer-view-tabs {
+  width: fit-content;
+  max-width: 100%;
+  margin: 20px 0;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+}
+.explorer-view-tabs button {
+  min-height: 38px;
+  padding: 8px 12px;
+  border-radius: 7px;
+  color: var(--muted-foreground);
+  background: transparent;
+  font-size: 13px;
+}
+.explorer-view-tabs button.active {
+  color: var(--foreground);
+  background: var(--secondary);
+}
+.explorer-toolbar {
+  justify-content: space-between;
+  margin: 16px 0;
+}
+.explorer-toolbar > div:first-child {
+  margin-right: auto;
+}
+.ui-control {
+  display: grid;
+  gap: 5px;
+  min-width: 160px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.explorer-filter {
+  flex: 1 1 280px;
+}
+.explorer-period-toolbar {
+  align-items: center;
+  margin: 0 0 20px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+}
+.explorer-period-toolbar h2 {
+  margin: 0 0 2px;
+  font-size: 17px;
+}
+.explorer-chart-gridline {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 20px;
+}
+.explorer-chart {
+  min-width: 0;
+}
+.explorer-chart .ui-section-heading {
+  margin: 0 0 12px;
+}
+.explorer-chart-count {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 9px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.explorer-line-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+.explorer-chart-grid {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+.explorer-chart-line {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.explorer-chart-point {
+  fill: var(--primary);
+}
+.explorer-chart-summary,
+.explorer-map-disclosure {
+  margin-top: 8px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.explorer-chart-data {
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.explorer-chart-data summary {
+  width: fit-content;
+  color: var(--foreground);
+}
+.explorer-chart-empty {
+  padding: 24px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--card) 78%, transparent);
+}
+.explorer-history {
+  margin-top: 18px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+}
+.explorer-history .ui-section-heading h2 {
+  margin: 0;
+}
+.explorer-history-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+.explorer-history-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 11px;
+  font-size: 12px;
+}
+.explorer-history-item > span:first-child {
+  color: var(--muted-foreground);
+}
+.explorer-history-item strong {
+  grid-column: 1 / -1;
+}
+.explorer-map-card,
+.explorer-compare,
+.explorer-execution {
+  margin-top: 18px;
+}
+.explorer-protocol {
+  display: grid;
+  gap: 16px;
+}
+.explorer-protocol h2 {
+  margin: 0 0 8px;
+}
+.explorer-protocol-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+.explorer-map-frame {
+  overflow: hidden;
+  margin-top: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--secondary) 34%, var(--background));
+}
+.explorer-map-frame svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.explorer-map-grid {
+  stroke: var(--border);
+  stroke-width: 1;
+  opacity: 0.72;
+}
+.explorer-map-land {
+  fill: var(--muted-foreground);
+  opacity: 0.14;
+}
+.explorer-map-point {
+  fill: var(--muted-foreground);
+  fill-opacity: 0.75;
+  stroke: var(--card);
+  stroke-width: 2;
+}
+.explorer-map-point.active {
+  fill: var(--primary);
+  fill-opacity: 0.94;
+}
+.explorer-region-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+  margin-top: 16px;
+}
+.explorer-region-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 11px;
+  font-size: 12px;
+}
+.explorer-region-row small {
+  grid-column: 1 / -1;
+  color: var(--muted-foreground);
+}
+.explorer-proposal-type {
+  margin-top: 3px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  text-transform: capitalize;
+}
+.explorer-proposal-votes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin-top: 12px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.explorer-proposal-votes strong {
+  color: var(--foreground);
+}
+.explorer-execution-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+.explorer-execution-item {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 13px;
+}
+.explorer-execution-item p {
+  margin-top: 5px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.explorer-execution-item a {
+  display: inline-block;
+  margin-top: 8px;
+}
+.explorer-source-note {
+  margin: 10px 0;
+}
+.explorer-subheading {
+  margin: 22px 0 8px;
+  font-size: 15px;
+}
 .ui-row {
   margin: 0;
 }
@@ -102,6 +369,28 @@ summary {
   height: 1px;
   overflow: hidden;
   clip-path: inset(50%);
+}
+@media (max-width: 720px) {
+  .explorer-chart-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .explorer-toolbar {
+    align-items: stretch;
+  }
+  .explorer-toolbar .ui-control {
+    flex: 1 1 100%;
+  }
+  .explorer-view-tabs {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .explorer-region-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .explorer-map-disclosure {
+    line-height: 1.5;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   * {

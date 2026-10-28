@@ -29,8 +29,16 @@ const observed = (value: unknown) =>
     ? new Date(value).toLocaleString()
     : "Observation time unavailable";
 const subscribe = () => () => {};
-function usePublic(resource: PublicResource, id?: string, page = 1) {
-  const key = `${resource}:${id || ""}:${page}`;
+function usePublic(
+  resource: PublicResource,
+  id?: string,
+  page = 1,
+  filters: Record<string, string> = {},
+) {
+  const filterKey = new URLSearchParams(
+    Object.entries(filters).sort(([left], [right]) => left.localeCompare(right)),
+  ).toString();
+  const key = `${resource}:${id || ""}:${page}:${filterKey}`;
   const [result, setResult] = useState<{
     key: string;
     data?: Data;
@@ -50,6 +58,9 @@ function usePublic(resource: PublicResource, id?: string, page = 1) {
       try {
         const query = new URLSearchParams({ resource, page: String(page) });
         if (id) query.set("id", id);
+        new URLSearchParams(filterKey).forEach((value, name) =>
+          query.set(name, value),
+        );
         const response = await fetch(`/api/public?${query}`, {
           credentials: "omit",
           signal: controller.signal,
@@ -78,11 +89,56 @@ function usePublic(resource: PublicResource, id?: string, page = 1) {
       controller.abort();
       window.clearInterval(interval);
     };
-  }, [key, resource, id, page, version]);
+  }, [key, resource, id, page, filterKey, version]);
   return {
     ...(result.key === key ? result : { key, loading: true }),
     retry: () => setVersion((value) => value + 1),
   };
+}
+type Period = "1h" | "24h" | "7d" | "30d";
+const periods: Period[] = ["1h", "24h", "7d", "30d"];
+function usePeriod() {
+  const [period, setPeriod] = useState<Period>("24h");
+  useEffect(() => {
+    const sync = () => {
+      const value = new URL(window.location.href).searchParams.get("period");
+      if (periods.includes(value as Period)) setPeriod(value as Period);
+    };
+    sync();
+    window.addEventListener("popstate", sync);
+    return () => window.removeEventListener("popstate", sync);
+  }, []);
+  const update = (value: Period) => {
+    setPeriod(value);
+    const url = new URL(window.location.href);
+    url.searchParams.set("period", value);
+    window.history.replaceState({}, "", url);
+  };
+  return [period, update] as const;
+}
+function PeriodSelect({
+  value,
+  onChange,
+}: {
+  value: Period;
+  onChange: (value: Period) => void;
+}) {
+  return (
+    <label className="ui-control">
+      <span>Time window</span>
+      <select
+        className="ui-select"
+        aria-label="Time window"
+        value={value}
+        onChange={(event) => onChange(event.target.value as Period)}
+      >
+        <option value="1h">Last hour</option>
+        <option value="24h">Last 24 hours</option>
+        <option value="7d">Last 7 days</option>
+        <option value="30d">Last 30 days</option>
+      </select>
+    </label>
+  );
 }
 function SourceState({ source }: { source: ReturnType<typeof usePublic> }) {
   return (
@@ -271,66 +327,164 @@ function MetricSummary() {
     </>
   );
 }
-function Health() {
+function TrendChart({
+  title,
+  unit,
+  points,
+}: {
+  title: string;
+  unit: string;
+  points: Data[];
+}) {
+  const values = points
+    .map((point) => ({
+      time: point.timestamp,
+      value: point.value,
+    }))
+    .filter(
+      (point): point is { time: unknown; value: number } =>
+        typeof point.value === "number" && Number.isFinite(point.value),
+    );
+  const max = Math.max(0, ...values.map((point) => point.value));
+  const min = Math.min(0, ...values.map((point) => point.value));
+  const span = Math.max(max - min, 1);
+  const line = values
+    .map((point, index) => {
+      const x = values.length < 2 ? 320 : 16 + (index / (values.length - 1)) * 608;
+      const y = 144 - ((point.value - min) / span) * 124;
+      return `${x},${y}`;
+    })
+    .join(" ");
+  return (
+    <section className="ui-surface explorer-chart">
+      <div className="ui-section-heading">
+        <h2>{title}</h2>
+        <span className="explorer-chart-count">
+          {values.length ? `${values.length} observations` : "No observations"}
+        </span>
+      </div>
+      {values.length ? (
+        <>
+          <svg
+            className="explorer-line-chart"
+            viewBox="0 0 640 168"
+            role="img"
+            aria-label={`${title}, ${values.length} reported observations`}
+          >
+            <title>{title}</title>
+            {[20, 62, 103, 144].map((y) => (
+              <line
+                key={y}
+                x1="16"
+                x2="624"
+                y1={y}
+                y2={y}
+                className="explorer-chart-gridline"
+              />
+            ))}
+            <polyline points={line} className="explorer-chart-line" />
+            {values.length === 1 && (
+              <circle
+                cx="320"
+                cy={144 - ((values[0].value - min) / span) * 124}
+                r="4"
+                className="explorer-chart-point"
+              />
+            )}
+          </svg>
+          <p className="explorer-chart-summary">
+            {num(min)}–{num(max)} {unit} across the selected window. Values are
+            reported by the public metrics source.
+          </p>
+          <details className="explorer-chart-data">
+            <summary>Show measurement values</summary>
+            <div className="ui-table-wrap" role="region" aria-label={`${title} values`} tabIndex={0}>
+              <table className="ui-table">
+                <thead>
+                  <tr><th>Observed</th><th>{title} ({unit})</th></tr>
+                </thead>
+                <tbody>
+                  {values.map((point, index) => (
+                    <tr key={`${String(point.time)}-${index}`}>
+                      <td>{observed(point.time)}</td><td>{num(point.value, 4)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        </>
+      ) : (
+        <div className="explorer-chart-empty">
+          Time-series measurements have not been reported for this window.
+        </div>
+      )}
+    </section>
+  );
+}
+function Health({ period = "24h" }: { period?: Period }) {
   const health = usePublic("health");
   const trust = usePublic("trust");
+  const historyPeriod = period === "1h" ? "24h" : period;
+  const history = usePublic("health-history", undefined, 1, { period: historyPeriod });
+  const historyPoints = records(history.data?.history);
   return (
-    <div className="ui-columns">
-      <section className="ui-surface">
+    <>
+      <div className="ui-columns">
+        <section className="ui-surface">
+          <div className="ui-section-heading">
+            <h2>Network & source health</h2>
+            <Status value={health.data?.status} />
+          </div>
+          <SourceState source={health} />
+          {health.data ? (
+            <>
+              <div className="ui-row"><span>Solana source</span><Status value={health.data.solana_health} /></div>
+              <div className="ui-row"><span>Database source</span><Status value={health.data.database_health} /></div>
+              <p className="explorer-source">Last checked · {observed(health.data.last_checked)}</p>
+            </>
+          ) : !health.loading && !health.error ? (
+            <p className="ui-note">No source-health observation is available.</p>
+          ) : null}
+        </section>
+        <section className="ui-surface">
+          <h2>Writer evidence</h2>
+          <SourceState source={trust} />
+          {trust.data ? (
+            <>
+              <div className="ui-row"><span>Observed / required writers</span><strong>{num(trust.data.unique_writers, 0)} / {num(trust.data.min_writers_required, 0)}</strong></div>
+              <div className="ui-row"><span>Indexing mode</span><span>{text(trust.data.explorer_mode).replace(/_/g, " ")}</span></div>
+              <div className="ui-row"><span>Full decentralization reported</span><span>{trust.data.fully_decentralized === true ? "Yes" : trust.data.fully_decentralized === false ? "No" : "Not reported"}</span></div>
+              <p className="explorer-source">Last updated · {observed(trust.data.last_updated)}</p>
+            </>
+          ) : !trust.loading && !trust.error ? (
+            <p className="ui-note">Writer attestations have not been reported.</p>
+          ) : null}
+        </section>
+      </div>
+      <section className="explorer-history">
         <div className="ui-section-heading">
-          <h2>Network & source health</h2>
-          <Status value={health.data?.status} />
+          <div><h2>Network history</h2><p className="ui-note">Reported active nodes and health by observation window.</p></div>
+          <span className="explorer-chart-count">{historyPeriod === "24h" && period === "1h" ? "last 24h" : historyPeriod}</span>
         </div>
-        <SourceState source={health} />
-        {health.data && (
-          <>
-            <div className="ui-row">
-              <span>Solana source</span>
-              <Status value={health.data.solana_health} />
-            </div>
-            <div className="ui-row">
-              <span>Database source</span>
-              <Status value={health.data.database_health} />
-            </div>
-            <p className="explorer-source">
-              {observed(health.data.last_checked)}
-            </p>
-          </>
-        )}
+        <SourceState source={history} />
+        {history.data?.metrics_available === false ? (
+          <p className="explorer-chart-empty">{text(history.data.message, "No historical health measurements have been reported yet.")}</p>
+        ) : historyPoints.length ? (
+          <div className="explorer-history-list">
+            {historyPoints.map((point, index) => (
+              <div className="explorer-history-item" key={`${String(point.timestamp)}-${index}`}>
+                <span>{observed(point.timestamp)}</span>
+                <Status value={point.status} />
+                <strong>{num(point.active_nodes, 0)} active nodes</strong>
+              </div>
+            ))}
+          </div>
+        ) : !history.loading && !history.error ? (
+          <p className="explorer-chart-empty">No historical health measurements have been reported for this window.</p>
+        ) : null}
       </section>
-      <section className="ui-surface">
-        <h2>Writer evidence</h2>
-        <SourceState source={trust} />
-        {trust.data && (
-          <>
-            <div className="ui-row">
-              <span>Observed / required writers</span>
-              <strong>
-                {num(trust.data.unique_writers, 0)} /{" "}
-                {num(trust.data.min_writers_required, 0)}
-              </strong>
-            </div>
-            <div className="ui-row">
-              <span>Indexing mode</span>
-              <span>{text(trust.data.explorer_mode).replace(/_/g, " ")}</span>
-            </div>
-            <div className="ui-row">
-              <span>Full decentralization reported</span>
-              <span>
-                {trust.data.fully_decentralized === true
-                  ? "Yes"
-                  : trust.data.fully_decentralized === false
-                    ? "No"
-                    : "Not reported"}
-              </span>
-            </div>
-            <p className="explorer-source">
-              {observed(trust.data.last_updated)}
-            </p>
-          </>
-        )}
-      </section>
-    </div>
+    </>
   );
 }
 function Ledger({ blocks = false }: { blocks?: boolean }) {
@@ -436,138 +590,265 @@ function Ledger({ blocks = false }: { blocks?: boolean }) {
     </>
   );
 }
-function Nodes() {
-  const [page, setPage] = useState(1);
-  const source = usePublic("nodes", undefined, page);
+type NodeView = "inventory" | "map" | "compare" | "rankings";
+const nodeViews: Array<[NodeView, string]> = [
+  ["inventory", "Inventory"],
+  ["map", "Regional map"],
+  ["compare", "Compare"],
+  ["rankings", "Rankings"],
+];
+function updateQuery(updates: Record<string, string | null>) {
+  const url = new URL(window.location.href);
+  for (const [key, value] of Object.entries(updates)) {
+    if (value) url.searchParams.set(key, value);
+    else url.searchParams.delete(key);
+  }
+  window.history.replaceState({}, "", url);
+}
+function RegionalMap({ source }: { source: ReturnType<typeof usePublic> }) {
   const rows = records(source.data?.nodes);
+  const clusters = new Map<string, { lat: number; lon: number; count: number; active: number }>();
+  const regions = new Map<string, { count: number; active: number }>();
+  for (const row of rows) {
+    const lat = row.lat;
+    const lon = row.lon;
+    if (typeof lat === "number" && typeof lon === "number") {
+      const key = `${lat}:${lon}`;
+      const cluster = clusters.get(key) || { lat, lon, count: 0, active: 0 };
+      cluster.count += 1;
+      if (row.is_active === true) cluster.active += 1;
+      clusters.set(key, cluster);
+    }
+    const region = text(row.region, text(row.country, "Unspecified region"));
+    const entry = regions.get(region) || { count: 0, active: 0 };
+    entry.count += 1;
+    if (row.is_active === true) entry.active += 1;
+    regions.set(region, entry);
+  }
+  const sortedRegions = [...regions.entries()].sort((a, b) => b[1].count - a[1].count);
   return (
-    <>
-      <p className="ui-note">
-        Public regional inventory. Node health, seller presence and purchasable
-        offers remain distinct.
-      </p>
+    <section className="ui-surface explorer-map-card" aria-labelledby="regional-map-title">
+      <div className="ui-section-heading">
+        <div>
+          <h2 id="regional-map-title">Regional node footprint</h2>
+          <p className="ui-note">A public view of node coverage and reported state.</p>
+        </div>
+        <span className="explorer-chart-count">{num(source.data?.total, 0)} reported</span>
+      </div>
       <SourceState source={source} />
+      {clusters.size ? (
+        <>
+          <div className="explorer-map-frame">
+            <svg viewBox="0 0 1000 480" role="img" aria-label="Approximate public node distribution by region">
+              <title>Approximate public node distribution</title>
+              {[100, 200, 300, 400].map((y) => <line key={`h${y}`} x1="24" x2="976" y1={y} y2={y} className="explorer-map-grid" />)}
+              {[200, 400, 600, 800].map((x) => <line key={`v${x}`} y1="20" y2="460" x1={x} x2={x} className="explorer-map-grid" />)}
+              <path className="explorer-map-land" d="M75 110 120 68 190 75 225 108 207 146 230 171 205 198 178 190 163 216 133 206 121 177 93 170 77 143ZM227 222 258 235 272 268 255 312 245 357 224 388 214 344 202 302 207 263ZM389 112 423 88 455 97 471 121 458 137 429 132ZM425 149 469 145 503 175 497 226 470 276 447 319 430 275 412 229 404 185ZM473 105 528 76 599 69 675 91 732 87 782 110 834 143 866 178 838 198 799 184 769 205 729 194 709 220 680 198 643 203 619 172 590 164 562 145 531 147 505 128ZM792 284 822 277 842 293 832 316 805 322 787 305ZM892 362 919 348 938 358 930 376 906 380Z" />
+              {[...clusters.values()].map((cluster) => {
+                const x = 24 + ((cluster.lon + 180) / 360) * 952;
+                const y = 20 + ((90 - cluster.lat) / 180) * 440;
+                const radius = Math.min(13, 4 + Math.log2(cluster.count));
+                return (
+                  <circle
+                    key={`${cluster.lat}:${cluster.lon}`}
+                    cx={x}
+                    cy={y}
+                    r={radius}
+                    className={cluster.active ? "explorer-map-point active" : "explorer-map-point"}
+                  >
+                    <title>{`${cluster.count} nodes in an approximate region; ${cluster.active} reported active`}</title>
+                  </circle>
+                );
+              })}
+            </svg>
+          </div>
+          <p className="explorer-map-disclosure">Node positions are deliberately rounded to roughly 5° and grouped. The map is regional context, not a precise address or live traffic trace.</p>
+          <div className="explorer-region-grid" aria-label="Node counts by reported region">
+            {sortedRegions.slice(0, 8).map(([region, counts]) => (
+              <div className="explorer-region-row" key={region}>
+                <span>{region}</span><strong>{counts.count}</strong><small>{counts.active} active</small>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : source.loading ? null : source.error ? null : (
+        <div className="explorer-chart-empty">No public node locations have been reported.</div>
+      )}
+    </section>
+  );
+}
+function RegionalMapView() {
+  const source = usePublic("node-geo");
+  return <RegionalMap source={source} />;
+}
+function NodeRankings({
+  period,
+  onPeriodChange,
+}: {
+  period: Period;
+  onPeriodChange: (period: Period) => void;
+}) {
+  const [category, setCategory] = useState("uptime");
+  useEffect(() => {
+    const metric = new URL(window.location.href).searchParams.get("metric");
+    if (metric && ["uptime", "bandwidth", "sessions"].includes(metric))
+      setCategory(metric);
+  }, []);
+  const source = usePublic("leaderboard", undefined, 1, { category, period });
+  const rows = records(source.data?.entries);
+  const valueLabel = category === "bandwidth" ? "Reported bandwidth" : category === "sessions" ? "Active sessions" : "Reported uptime";
+  return (
+    <section className="ui-surface">
+      <div className="ui-section-heading"><div><h2>Measured node rankings</h2><p className="ui-note">Ranked by the selected public metric; scores are not buying recommendations.</p></div><PeriodSelect value={period} onChange={onPeriodChange} /></div>
+      <div className="explorer-toolbar" role="group" aria-label="Ranking metric">
+        {([["uptime", "Uptime"], ["bandwidth", "Bandwidth"], ["sessions", "Sessions"]] as const).map(([key, label]) => (
+          <button key={key} className={`ui-button small ${category === key ? "" : "secondary"}`} aria-pressed={category === key} onClick={() => { setCategory(key); updateQuery({ metric: key }); }}>{label}</button>
+        ))}
+      </div>
+      <SourceState source={source} />
+      {typeof source.data?.note === "string" && <p className="ui-note explorer-source-note">{text(source.data.note)}</p>}
       {source.data && (
-        <div
-          className="ui-table-wrap"
-          role="region"
-          aria-label="Public nodes"
-          tabIndex={0}
-        >
+        <div className="ui-table-wrap" role="region" aria-label={`${valueLabel} ranking`} tabIndex={0}>
           <table className="ui-table">
-            <thead>
-              <tr>
-                <th>Node</th>
-                <th>Region</th>
-                <th>Reported state</th>
-                <th>Last heartbeat</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={text(row.node_id)}>
-                  <td>
-                    <Link
-                      href={`/nodes/${encodeURIComponent(text(row.node_id, ""))}`}
-                      className="ui-link"
-                    >
-                      {text(row.name, text(row.node_id).slice(0, 14))}
-                    </Link>
-                  </td>
-                  <td>{text(row.country, text(row.region))}</td>
-                  <td>
-                    <Status
-                      value={
-                        row.is_active === true
-                          ? "Active"
-                          : row.is_active === false
-                            ? "Offline"
-                            : "Unknown"
-                      }
-                    />
-                  </td>
-                  <td>{observed(row.last_heartbeat)}</td>
-                </tr>
-              ))}
-            </tbody>
+            <thead><tr><th>Rank</th><th>Node</th><th>Region</th><th>{valueLabel}</th><th>Status</th></tr></thead>
+            <tbody>{rows.map((row) => {
+              const id = text(row.node_id, "");
+              const value = category === "bandwidth" ? `${num(row.bandwidth_gb)} GB` : category === "sessions" ? num(row.active_sessions, 0) : `${num(row.uptime_percent)}%`;
+              return <tr key={id}><td>#{num(row.rank, 0)}</td><td><Link className="ui-link" href={`/nodes/${encodeURIComponent(id)}`}>{text(row.name, id.slice(0, 14))}</Link></td><td>{text(row.country, text(row.region))}</td><td>{value}</td><td><Status value={row.is_validator === true ? "Validator" : "Node"} /></td></tr>;
+            })}</tbody>
           </table>
-          {!rows.length && (
-            <p className="ui-note">No public nodes were returned.</p>
-          )}
+          {!rows.length && <p className="ui-note">No ranking data has been reported.</p>}
         </div>
       )}
-      <div className="ui-pagination">
-        <button
-          className="ui-button secondary small"
-          disabled={page === 1}
-          onClick={() => setPage((value) => value - 1)}
-        >
-          Previous
-        </button>
-        <span>Page {page}</span>
-        <button
-          className="ui-button secondary small"
-          disabled={rows.length < 20}
-          onClick={() => setPage((value) => value + 1)}
-        >
-          Next
-        </button>
-      </div>
+      <p className="explorer-map-disclosure">Source: {text(source.data?.data_source, "public index")}. {source.data?.period_applied === false ? "This metric uses current indexed counters; the selected window is not applied." : `Time window: ${text(source.data?.period, period)}.`}</p>
+    </section>
+  );
+}
+function Nodes() {
+  const [page, setPage] = useState(1);
+  const [view, setView] = useState<NodeView>("inventory");
+  const [search, setSearch] = useState("");
+  const [region, setRegion] = useState("all");
+  const [selected, setSelected] = useState<string[]>([]);
+  const [period, setPeriod] = usePeriod();
+  useEffect(() => {
+    const sync = () => {
+      const url = new URL(window.location.href);
+      const next = url.searchParams.get("view") as NodeView | null;
+      if (next && nodeViews.some(([key]) => key === next)) setView(next);
+    };
+    sync();
+    window.addEventListener("popstate", sync);
+    return () => window.removeEventListener("popstate", sync);
+  }, []);
+  const source = usePublic("nodes", undefined, page);
+  const rows = records(source.data?.nodes);
+  const total = typeof source.data?.total === "number" ? source.data.total : undefined;
+  const regionOptions = [...new Set(rows.map((row) => text(row.region, text(row.country, "Unspecified region"))))].sort();
+  const query = search.trim().toLowerCase();
+  const visibleRows = rows.filter((row) => {
+    const searchable = `${text(row.name, "")} ${text(row.node_id, "")} ${text(row.region, "")} ${text(row.country, "")}`.toLowerCase();
+    const rowRegion = text(row.region, text(row.country, "Unspecified region"));
+    return (!query || searchable.includes(query)) && (region === "all" || region === rowRegion);
+  });
+  const selectView = (next: NodeView) => {
+    setView(next);
+    if (next === "compare") setPage(1);
+    updateQuery({ view: next === "inventory" ? null : next });
+  };
+  return (
+    <>
+      <p className="ui-note">Public regional inventory. Node health, seller presence and purchasable offers remain distinct.</p>
+      <nav className="explorer-view-tabs" aria-label="Node views">
+        {nodeViews.map(([key, label]) => <button key={key} type="button" className={view === key ? "active" : ""} aria-current={view === key ? "page" : undefined} onClick={() => selectView(key)}>{label}</button>)}
+      </nav>
+      {view !== "map" && view !== "rankings" && (
+        <div className="explorer-toolbar">
+          <label className="ui-control explorer-filter"><span>Search nodes</span><input className="ui-input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Name, node ID, or region" /></label>
+          <label className="ui-control"><span>Region</span><select className="ui-select" value={region} onChange={(event) => setRegion(event.target.value)}><option value="all">All regions</option>{regionOptions.map((value) => <option value={value} key={value}>{value}</option>)}</select></label>
+          {view === "compare" && <span className="explorer-chart-count">Select up to 3 nodes</span>}
+        </div>
+      )}
+      {view === "map" ? (
+        <RegionalMapView />
+      ) : view === "rankings" ? (
+        <NodeRankings period={period} onPeriodChange={setPeriod} />
+      ) : (
+        <>
+          <SourceState source={source} />
+          {source.data && (
+            <div className="ui-table-wrap" role="region" aria-label={view === "compare" ? "Select nodes to compare" : "Public nodes"} tabIndex={0}>
+              <table className="ui-table">
+                <thead><tr>{view === "compare" && <th>Compare</th>}<th>Node</th><th>Region</th><th>Reported state</th><th>Uptime</th><th>Latency</th><th>Last heartbeat</th></tr></thead>
+                <tbody>{visibleRows.map((row) => {
+                  const id = text(row.node_id, "");
+                  const checked = selected.includes(id);
+                  return (
+                    <tr key={id}>
+                      {view === "compare" && <td><input type="checkbox" aria-label={`Select ${text(row.name, id)} for comparison`} checked={checked} disabled={!checked && selected.length >= 3} onChange={(event) => setSelected((items) => event.target.checked ? [...items, id] : items.filter((item) => item !== id))} /></td>}
+                      <td><Link href={`/nodes/${encodeURIComponent(id)}`} className="ui-link">{text(row.name, id.slice(0, 14))}</Link><p>{id.length > 22 ? `${id.slice(0, 12)}…${id.slice(-6)}` : id}</p></td>
+                      <td>{text(row.country, text(row.region))}</td>
+                      <td><Status value={row.is_active === true ? "Active" : row.is_active === false ? "Offline" : "Unknown"} /></td>
+                      <td>{typeof row.uptime_percent === "number" ? `${num(row.uptime_percent)}%` : "Not reported"}</td>
+                      <td>{typeof row.latency_ms === "number" ? `${num(row.latency_ms, 0)} ms` : "Not reported"}</td>
+                      <td>{observed(row.last_heartbeat)}</td>
+                    </tr>
+                  );
+                })}</tbody>
+              </table>
+              {!visibleRows.length && <p className="ui-note">No nodes match these filters.</p>}
+            </div>
+          )}
+          {view === "compare" && selected.length > 0 && (
+            <section className="ui-surface explorer-compare">
+              <div className="ui-section-heading"><div><h2>Node comparison</h2><p className="ui-note">Only reported values are shown.</p></div><button className="ui-button small secondary" onClick={() => setSelected([])}>Clear selection</button></div>
+              <div className="ui-table-wrap" role="region" aria-label="Compared node metrics" tabIndex={0}><table className="ui-table"><thead><tr><th>Measure</th>{selected.map((id) => <th key={id}>{text(rows.find((row) => text(row.node_id) === id)?.name, id.slice(0, 12))}</th>)}</tr></thead><tbody>
+                {([["Region", (row: Data) => text(row.country, text(row.region))], ["Status", (row: Data) => row.is_active === true ? "Active" : row.is_active === false ? "Offline" : "Not reported"], ["Uptime", (row: Data) => typeof row.uptime_percent === "number" ? `${num(row.uptime_percent)}%` : "Not reported"], ["Bandwidth", (row: Data) => typeof row.bandwidth_gb === "number" ? `${num(row.bandwidth_gb)} GB` : "Not reported"], ["Active sessions", (row: Data) => typeof row.active_sessions === "number" ? num(row.active_sessions, 0) : "Not reported"], ["Last heartbeat", (row: Data) => observed(row.last_heartbeat)]] as Array<[string, (row: Data) => string]>).map(([label, read]) => <tr key={label}><th>{label}</th>{selected.map((id) => <td key={id}>{read(rows.find((row) => text(row.node_id) === id) || {})}</td>)}</tr>)}
+              </tbody></table></div>
+            </section>
+          )}
+          <div className="ui-pagination">
+            <button className="ui-button secondary small" disabled={page === 1 || view === "compare"} onClick={() => setPage((value) => value - 1)}>Previous</button>
+            <span>Page {page}{total != null ? ` · ${num(total, 0)} nodes` : ""}</span>
+            <button className="ui-button secondary small" disabled={rows.length < 100 || (total != null && page * 100 >= total) || view === "compare"} onClick={() => setPage((value) => value + 1)}>Next</button>
+          </div>
+        </>
+      )}
     </>
   );
 }
 function Analytics() {
-  const source = usePublic("analytics");
+  const [period, setPeriod] = usePeriod();
+  const source = usePublic("analytics", undefined, 1, { period });
   return (
     <>
-      <Health />
+      <div className="explorer-toolbar explorer-period-toolbar">
+        <div><h2>Network measurements</h2><p className="ui-note">Time-series values retain the source window and reported units.</p></div>
+        <PeriodSelect value={period} onChange={setPeriod} />
+      </div>
+      <Health period={period} />
       <SourceState source={source} />
-      {source.data && (
-        <section className="ui-surface">
-          <h2>Reported daily measurements</h2>
-          <p className="ui-note">
-            {text(
-              source.data.message,
-              "Source window: " + text(source.data.period, "24h"),
-            )}
-          </p>
-          {source.data.metrics_available === false ? (
-            <p className="ui-note">
-              Measurements are unavailable for this period. Try again later.
-            </p>
-          ) : (
-            <div
-              className="ui-table-wrap"
-              role="region"
-              aria-label="Reported bandwidth measurements"
-              tabIndex={0}
-            >
-              <table className="ui-table">
-                <thead>
-                  <tr>
-                    <th>Observed</th>
-                    <th>Bandwidth (GB)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {records(source.data.bandwidth_gb).map((point, index) => (
-                    <tr key={index}>
-                      <td>{observed(point.timestamp)}</td>
-                      <td>{num(point.value, 3)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+      {source.data?.metrics_available === false ? (
+        <section className="ui-surface explorer-chart-empty">
+          {text(source.data.message, "Measurements are not available for this time window.")}
         </section>
-      )}
+      ) : source.data ? (
+        <div className="explorer-chart-grid">
+          <TrendChart title="Bandwidth" unit="GB" points={records(source.data.bandwidth_gb)} />
+          <TrendChart title="Active nodes" unit="nodes" points={records(source.data.active_nodes)} />
+          <TrendChart title="Transaction volume" unit="SOL" points={records(source.data.transaction_volume)} />
+          <TrendChart title="Active wallets" unit="wallets" points={records(source.data.active_wallets)} />
+        </div>
+      ) : !source.loading && !source.error ? (
+        <div className="explorer-chart-empty">No measurement response was returned.</div>
+      ) : null}
     </>
   );
 }
 function Governance({ treasury = false }: { treasury?: boolean }) {
   const source = usePublic(treasury ? "treasury" : "proposals");
   const stats = record(source.data?.treasury);
+  const payouts = records(source.data?.recent_batch_payouts);
   return (
     <>
       <nav className="ui-tabs" aria-label="Governance views">
@@ -593,7 +874,7 @@ function Governance({ treasury = false }: { treasury?: boolean }) {
             </div>
             <div className="ui-row">
               <span>Lifetime provider payments</span>
-              <span>{num(source.data.lifetime_provider_paid_sol, 4)} SOL</span>
+              <span>{typeof source.data.lifetime_provider_paid_sol === "number" ? `${num(source.data.lifetime_provider_paid_sol, 4)} SOL` : "Not reported"}</span>
             </div>
             <p className="explorer-source">
               {text(source.data.network)} · {observed(stats.last_checked_at)}
@@ -601,18 +882,32 @@ function Governance({ treasury = false }: { treasury?: boolean }) {
             <p className="ui-note">
               Treasury aggregates are not your wallet balance.
             </p>
+            <h3 className="explorer-subheading">Recent payout batches</h3>
+            {payouts.length ? (
+              <div className="explorer-execution-list">
+                {payouts.map((payout, index) => {
+                  const hash = text(payout.tx_hash, "");
+                  return <article className="explorer-execution-item" key={text(payout.id, String(index))}>
+                    <div className="ui-section-heading"><strong>{num(payout.total_amount, 6)} SOL</strong><Status value={payout.status} /></div>
+                    <p>{num(payout.success_count, 0)} of {num(payout.total_count, 0)} payments · {observed(payout.created_at)}</p>
+                    {hash && <Link className="ui-link" href={`/transactions/${encodeURIComponent(hash)}`}>Inspect indexed transaction ↗</Link>}
+                  </article>;
+                })}
+              </div>
+            ) : <p className="ui-note">No public payout batches were returned.</p>}
           </section>
         ) : (
           <div className="explorer-list">
             {records(source.data.proposals).map((proposal) => (
               <article key={text(proposal.id)}>
                 <div className="ui-section-heading">
-                  <h2>{text(proposal.title)}</h2>
+                  <div><h2>{text(proposal.title)}</h2><p className="explorer-proposal-type">{text(proposal.type, "General proposal").replace(/_/g, " ")}</p></div>
                   <Status value={proposal.status} />
                 </div>
                 <p className="ui-note">
                   {text(proposal.description, "").slice(0, 250)}
                 </p>
+                <div className="explorer-proposal-votes"><span>Yes <strong>{num(proposal.yes_votes, 0)}</strong></span><span>No <strong>{num(proposal.no_votes, 0)}</strong></span><span>Quorum <strong>{num(proposal.quorum, 0)}</strong></span><span>Closes <strong>{observed(proposal.end_time)}</strong></span></div>
                 <div className="ui-actions">
                   <Link
                     className="ui-button secondary small"
@@ -632,6 +927,61 @@ function Governance({ treasury = false }: { treasury?: boolean }) {
         Create a proposal in the workspace ↗
       </a>
     </>
+  );
+}
+function ProposalExecutionPanel({ id }: { id: string }) {
+  const source = usePublic("proposal-execution", id);
+  const rows = records(source.data?.treasury_transactions);
+  return (
+    <section className="ui-surface explorer-execution" aria-labelledby="execution-title">
+      <div className="ui-section-heading">
+        <div>
+          <div className="ui-eyebrow">Public audit records</div>
+          <h2 id="execution-title">Execution evidence</h2>
+        </div>
+        <span className="explorer-chart-count">Proposal-linked transfers</span>
+      </div>
+      <SourceState source={source} />
+      {rows.length ? (
+        <div className="explorer-execution-list">
+          {rows.map((row, index) => {
+            const hash = text(row.tx_hash, "");
+            const amount = row.amount == null ? "Amount not reported" : `${num(row.amount, 6)} ${text(row.currency, "")}`;
+            return (
+              <article key={text(row.id, `${id}-${index}`)} className="explorer-execution-item">
+                <div className="ui-section-heading"><strong>{amount}</strong><Status value={row.status} /></div>
+                <p>Recorded {observed(row.created_at)}</p>
+                <p>Executed {row.executed_at ? observed(row.executed_at) : "Execution time not reported"}</p>
+                {hash ? <Link className="ui-link" href={`/transactions/${encodeURIComponent(hash)}`}>Inspect indexed transaction ↗</Link> : <span className="ui-note">No transaction hash is attached to this record.</span>}
+              </article>
+            );
+          })}
+        </div>
+      ) : source.data ? (
+        <div className="explorer-chart-empty">No proposal-linked treasury transfer is available from the public source. Proposal status and executed transfers are separate records.</div>
+      ) : null}
+    </section>
+  );
+}
+function ProtocolOverview() {
+  return (
+    <div className="explorer-protocol">
+      <section className="ui-surface">
+        <div className="ui-eyebrow">Protocol overview</div>
+        <h2>What ProxyHubb supports</h2>
+        <p className="ui-note">ProxyHubb connects buyers with provider capacity through marketplace offers, measured sessions, and public network records.</p>
+        <div className="explorer-protocol-links">
+          <a className="ui-button" href={appHref("/marketplace")}>Browse capacity ↗</a>
+          <a className="ui-button secondary" href={appHref("/provider")}>Provider workspace ↗</a>
+        </div>
+      </section>
+      <section className="ui-surface">
+        <h2>Current verification boundary</h2>
+        <p className="ui-note">A complete funded purchase → verified traffic → accepted earnings run has not yet been confirmed end-to-end. This page does not present staking, mining rewards, proof-of-bandwidth claims, or simulated on-chain receipts as active product features.</p>
+        <div className="ui-row"><span>Settlement acceptance</span><Status value="Pending" /></div>
+        <div className="ui-row"><span>Public source data</span><span>Shown with source and observation context</span></div>
+      </section>
+    </div>
   );
 }
 function Detail({ resource, id }: { resource: PublicResource; id: string }) {
@@ -661,6 +1011,11 @@ function Detail({ resource, id }: { resource: PublicResource; id: string }) {
     no_votes: "No votes",
     total_votes: "Total votes",
     quorum: "Quorum",
+    type: "Proposal type",
+    start_time: "Voting opened",
+    onchain_pda: "On-chain proposal address",
+    created_at: "Created",
+    updated_at: "Last updated",
     is_active: "Reported active",
     is_verified: "Verified metadata",
   };
@@ -689,14 +1044,14 @@ function Detail({ resource, id }: { resource: PublicResource; id: string }) {
               ))}
           </dl>
           {resource === "proposal" && (
-            <div className="ui-actions">
-              <a
-                className="ui-button"
-                href={appHref(`/governance/${encodeURIComponent(id)}`)}
-              >
-                Participate in workspace ↗
-              </a>
-            </div>
+            <>
+              <div className="ui-actions">
+                <a className="ui-button" href={appHref(`/governance/${encodeURIComponent(id)}`)}>
+                  Participate in workspace ↗
+                </a>
+              </div>
+              <ProposalExecutionPanel id={id} />
+            </>
           )}
           <p className="explorer-source">
             Public source record. Private order IDs, account identities and
@@ -711,6 +1066,7 @@ export function Explorer({ path = [] }: { path?: string[] }) {
   const root = path[0] || "";
   const id = path[1];
   const isTreasury = root === "governance" && id === "treasury";
+  const isProtocol = root === "about" && id === "protocol";
   const active = ["nodes"].includes(root)
     ? "nodes"
     : ["transactions", "blocks", "search", "wallets", "contracts"].includes(
@@ -746,6 +1102,7 @@ export function Explorer({ path = [] }: { path?: string[] }) {
           analytics: "Analytics & health",
           health: "Analytics & health",
           governance: isTreasury ? "Treasury" : "Governance",
+          about: "Protocol overview",
         } as Record<string, string>
       )[root] || "A clear view of the network.";
   return (
@@ -788,11 +1145,15 @@ export function Explorer({ path = [] }: { path?: string[] }) {
             description={
               detailType
                 ? "Inspect a public source record with its own identity."
+                : isProtocol
+                  ? "Product scope and evidence boundaries, stated plainly."
                 : "Public network and settlement evidence, separate from private workspace operations."
             }
           />
           {detailType ? (
             <Detail resource={detailType} id={id} />
+          ) : isProtocol ? (
+            <ProtocolOverview />
           ) : root === "nodes" ? (
             <Nodes />
           ) : root === "transactions" || root === "blocks" ? (

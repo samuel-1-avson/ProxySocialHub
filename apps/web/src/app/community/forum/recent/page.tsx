@@ -3,38 +3,26 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
-import { MessageSquare, ArrowLeft, Clock, TrendingUp, HelpCircle } from "lucide-react";
+import { MessageSquare, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { getRecentThreads, getPopularThreads, getUnansweredThreads, type ForumThread } from "@/lib/forum-api";
+import { getRecentThreads, type ForumThread } from "@/lib/forum-api";
 
 export default function ForumRecentPage() {
-    const [activeTab, setActiveTab] = useState<"recent" | "popular" | "unanswered">("recent");
     const [threads, setThreads] = useState<ForumThread[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         loadThreads();
-    }, [activeTab]);
+    }, []);
 
     const loadThreads = async () => {
         setIsLoading(true);
         setError(null);
         try {
-            let data;
-            switch (activeTab) {
-                case "recent":
-                    data = await getRecentThreads(20);
-                    break;
-                case "popular":
-                    data = await getPopularThreads(20);
-                    break;
-                case "unanswered":
-                    data = await getUnansweredThreads(20);
-                    break;
-            }
+            const data = await getRecentThreads(20);
             setThreads(data.threads);
         } catch (err) {
             setError("Failed to load threads");
@@ -49,7 +37,7 @@ export default function ForumRecentPage() {
             {/* Header */}
             <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-4">
-                    <Link href="/community/forum">
+                    <Link href="/help/forum">
                         <Button variant="ghost" size="icon">
                             <ArrowLeft className="w-5 h-5" />
                         </Button>
@@ -61,37 +49,12 @@ export default function ForumRecentPage() {
                         </p>
                     </div>
                 </div>
-                <Link href="/community/forum/new">
+                <Link href="/help/forum/new">
                     <Button>
                         <MessageSquare className="w-4 h-4 mr-2" />
                         New Thread
                     </Button>
                 </Link>
-            </div>
-
-            {/* Tabs */}
-            <div className="flex gap-2 mb-6">
-                <Button
-                    variant={activeTab === "recent" ? "default" : "outline"}
-                    onClick={() => setActiveTab("recent")}
-                >
-                    <Clock className="w-4 h-4 mr-2" />
-                    Recent
-                </Button>
-                <Button
-                    variant={activeTab === "popular" ? "default" : "outline"}
-                    onClick={() => setActiveTab("popular")}
-                >
-                    <TrendingUp className="w-4 h-4 mr-2" />
-                    Popular
-                </Button>
-                <Button
-                    variant={activeTab === "unanswered" ? "default" : "outline"}
-                    onClick={() => setActiveTab("unanswered")}
-                >
-                    <HelpCircle className="w-4 h-4 mr-2" />
-                    Unanswered
-                </Button>
             </div>
 
             {/* Content */}
@@ -113,7 +76,7 @@ export default function ForumRecentPage() {
                     <p className="text-muted-foreground mb-4">
                         Be the first to start a discussion!
                     </p>
-                    <Link href="/community/forum/new">
+                    <Link href="/help/forum/new">
                         <Button>Create Thread</Button>
                     </Link>
                 </Card>
@@ -137,7 +100,7 @@ export default function ForumRecentPage() {
                                     {/* Content */}
                                     <div className="flex-1 min-w-0">
                                         <Link
-                                            href={`/community/forum/thread/${thread.id}`}
+                                            href={`/help/forum/thread/${thread.id}`}
                                             className="text-lg font-semibold hover:text-primary transition-colors line-clamp-1"
                                         >
                                             {thread.title}
