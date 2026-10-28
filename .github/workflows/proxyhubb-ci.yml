@@ -77,6 +77,7 @@ jobs:
               - 'apps/web/**'
             docs:
               - 'apps/docs/**'
+              - 'packages/design-system/**'
             explorer:
               - 'apps/explorer/**'
               - 'packages/design-system/**'
@@ -298,6 +299,7 @@ jobs:
         npm run test:listing-display
         npm run test:order-status
         npm run test:wallet-session
+        npm run test:explorer-redirects
 
   # ==================== Docs (Next.js / MDX) ====================
   docs-check:

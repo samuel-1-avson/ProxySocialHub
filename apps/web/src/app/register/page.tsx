@@ -36,7 +36,7 @@ export default function RegisterPage() {
               <ArrowLeft className="h-4 w-4" />
               Back to home
             </Link>
-            <span className="font-data text-sm font-semibold tracking-[0.12em] uppercase">ProxyHub</span>
+            <span className="font-data text-sm font-semibold tracking-[0.12em] uppercase">ProxyHubb</span>
           </div>
         </header>
 

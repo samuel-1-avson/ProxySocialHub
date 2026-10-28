@@ -148,6 +148,7 @@ jobs:
             NEXT_PUBLIC_PROXY_ENDPOINT=${{ vars.NEXT_PUBLIC_PROXY_ENDPOINT || 'proxy.proxyhubb.com:8090' }}
             NEXT_PUBLIC_GATEWAY_URL=${{ vars.NEXT_PUBLIC_GATEWAY_URL || 'https://proxy.proxyhubb.com' }}
             NEXT_PUBLIC_APP_URL=https://proxyhubb.com
+            NEXT_PUBLIC_EXPLORER_URL=https://explorer.proxyhubb.com
             BUILD_REVISION=${{ github.sha }}
 
       - name: Upload built frontend image for production rollout
