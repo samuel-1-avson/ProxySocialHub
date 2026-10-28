@@ -344,6 +344,7 @@ export default function MarketplaceMapPage() {
                             <Globe size={10} /> Filters
                         </div>
                         <select
+                            aria-label="Proxy type"
                             value={proxyType}
                             onChange={e => setProxyType(e.target.value)}
                             className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2 text-[10px] font-black uppercase text-white"
@@ -354,6 +355,7 @@ export default function MarketplaceMapPage() {
                             <option value="datacenter">Datacenter</option>
                         </select>
                         <select
+                            aria-label="Protocol"
                             value={protocol}
                             onChange={e => setProtocol(e.target.value)}
                             className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2 text-[10px] font-black uppercase text-white"
@@ -363,6 +365,7 @@ export default function MarketplaceMapPage() {
                             <option value="socks5">SOCKS5</option>
                         </select>
                         <select
+                            aria-label="Country"
                             value={country}
                             onChange={e => setCountry(e.target.value)}
                             className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2 text-[10px] font-black uppercase text-white"
