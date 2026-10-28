@@ -137,6 +137,12 @@ enum Commands {
         #[arg(long, default_value_t = false)]
         no_browser: bool,
 
+        /// Machine-readable output: one JSON event per line (code, approved, denied,
+        /// expired, error) and nothing else. Never opens a browser. For programs driving
+        /// this command, such as the desktop app.
+        #[arg(long, default_value_t = false)]
+        json: bool,
+
         /// Overwrite an existing provider.toml
         #[arg(long, default_value_t = false)]
         force: bool,
@@ -233,6 +239,11 @@ enum Commands {
         /// Emit JSON for scripts
         #[arg(long)]
         json: bool,
+
+        /// Only look at this computer (process, local metrics, tunnel state); do not call the
+        /// Control API. Fast and offline-safe, for programs that poll every few seconds.
+        #[arg(long)]
+        local: bool,
     },
 
     /// Pre-flight checks for config, auth, gateway, and local daemon
@@ -508,9 +519,14 @@ async fn main() -> anyhow::Result<()> {
             gateway_addr,
             device_name,
             no_browser,
+            json,
             force,
             config,
         } => {
+            if json {
+                // No logging init: tracing output must not interleave with the event lines.
+                return run_pair_json(api_url, gateway_addr, device_name, force, config).await;
+            }
             init_logging(false);
             // Check before asking anyone to approve anything: a pairing mints a token
             // and a node, so failing on an existing config afterwards would waste both.
@@ -943,12 +959,21 @@ async fn main() -> anyhow::Result<()> {
             config,
             metrics_port,
             json,
+            local,
         } => {
-            init_logging(false);
+            // With --json, stdout must be the report and nothing else; logging goes to stdout.
+            if !json {
+                init_logging(false);
+            }
             let config_path = config
                 .map(std::path::PathBuf::from)
                 .unwrap_or_else(config::Config::default_config_path);
-            let report = status::collect(config_path, metrics_port).await?;
+            let mode = if local {
+                status::StatusCollectMode::LocalOnly
+            } else {
+                status::StatusCollectMode::Full
+            };
+            let report = status::collect_with_mode(config_path, metrics_port, mode).await?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
@@ -1157,10 +1182,34 @@ fn refuse_if_config_exists(config_path: &std::path::Path, force: bool) {
     }
 }
 
-/// Write the ready-to-run `provider.toml` that both `join` and `pair` produce.
-///
-/// `validate_key` re-checks the key with the Control API first; `join` does that for a key a
-/// person typed in, `pair` skips it because the key was minted a moment ago.
+/// `provider.toml` is already there and `--force` was not given.
+#[derive(Debug)]
+struct ConfigExists(std::path::PathBuf);
+
+impl std::fmt::Display for ConfigExists {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Config already exists at {}. Re-run with --force to overwrite.",
+            self.0.display()
+        )
+    }
+}
+
+impl std::error::Error for ConfigExists {}
+
+/// What `write_provider_config` put on disk, for the caller to report.
+struct WrittenConfig {
+    path: std::path::PathBuf,
+    node_id: String,
+    gateway_addr: String,
+    use_tls: bool,
+    tls_skip_verify: bool,
+    hotkey: Option<String>,
+}
+
+/// Write the ready-to-run `provider.toml` that both `join` and `pair` produce, and print the
+/// confirmation banner. See `write_provider_config` for the arguments.
 async fn install_provider_config(
     api_url: &str,
     gateway_addr: &str,
@@ -1170,6 +1219,107 @@ async fn install_provider_config(
     force: bool,
     validate_key: bool,
 ) -> anyhow::Result<()> {
+    let written = match write_provider_config(
+        api_url,
+        gateway_addr,
+        api_key,
+        node_id,
+        config,
+        force,
+        validate_key,
+    )
+    .await
+    {
+        Ok(written) => written,
+        Err(e) => match e.downcast_ref::<ConfigExists>() {
+            Some(exists) => {
+                eprintln!("{exists}");
+                std::process::exit(1);
+            }
+            None => return Err(e),
+        },
+    };
+
+    println!();
+    println!("╔══════════════════════════════════════════════════════════╗");
+    println!("║              ✓ PROVIDER CONFIG INSTALLED                 ║");
+    println!("╚══════════════════════════════════════════════════════════╝");
+    println!();
+    println!("Node ID: {}", written.node_id);
+    println!(
+        "Gateway: {} (TLS={}, skip_verify={})",
+        written.gateway_addr, written.use_tls, written.tls_skip_verify
+    );
+    if let Some(hotkey) = &written.hotkey {
+        println!("Provider hotkey: {hotkey}");
+    }
+    println!("Config written to: {}", written.path.display());
+    println!();
+    println!("Next:");
+    println!("  provider-node start");
+    Ok(())
+}
+
+/// The `pair --json` flow: every line on stdout is one event, and only the events.
+/// `approved` is written after `provider.toml` is on disk; any failure is exactly one
+/// terminal event and a non-zero exit.
+async fn run_pair_json(
+    api_url: String,
+    gateway_addr: String,
+    device_name: Option<String>,
+    force: bool,
+    config: Option<String>,
+) -> anyhow::Result<()> {
+    let mut out = std::io::stdout();
+    let outcome: anyhow::Result<pair::Event> = async {
+        let config_path = config
+            .clone()
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(paths::config_file);
+        if config_path.exists() && !force {
+            return Err(ConfigExists(config_path).into());
+        }
+        let granted = pair::run_json(&api_url, device_name, &mut out).await?;
+        // The key is shown exactly once, so it is written before anything else can fail.
+        let written = write_provider_config(
+            &api_url,
+            &gateway_addr,
+            &granted.api_key,
+            &granted.node_id,
+            config,
+            force,
+            false,
+        )
+        .await?;
+        Ok(pair::Event::Approved {
+            node_id: written.node_id,
+            config_path: written.path.display().to_string(),
+        })
+    }
+    .await;
+
+    match outcome {
+        Ok(approved) => pair::emit(&mut out, &approved)?,
+        Err(e) => {
+            let _ = pair::emit(&mut out, &pair::failure_event(&e));
+            std::process::exit(1);
+        }
+    }
+    Ok(())
+}
+
+/// Build and save `provider.toml`. Prints nothing apart from the key check when
+/// `validate_key` is set (`join` re-checks a key a person typed in; `pair` skips it because
+/// the key was minted a moment ago), so a caller can use it with machine-readable output.
+async fn write_provider_config(
+    api_url: &str,
+    gateway_addr: &str,
+    api_key: &str,
+    node_id: &str,
+    config: Option<String>,
+    force: bool,
+    validate_key: bool,
+) -> anyhow::Result<WrittenConfig> {
     if validate_key {
         println!("Authenticating with Control API…");
         let (_user_id, _jwt) = ip::validate_api_key(api_url, api_key).await?;
@@ -1179,7 +1329,9 @@ async fn install_provider_config(
     let config_path = config
         .map(std::path::PathBuf::from)
         .unwrap_or_else(paths::config_file);
-    refuse_if_config_exists(&config_path, force);
+    if config_path.exists() && !force {
+        return Err(ConfigExists(config_path).into());
+    }
 
     let host = gateway_addr
         .split(':')
@@ -1221,22 +1373,23 @@ async fn install_provider_config(
     };
     cfg.save(&config_path)?;
 
-    println!();
-    println!("╔══════════════════════════════════════════════════════════╗");
-    println!("║              ✓ PROVIDER CONFIG INSTALLED                 ║");
-    println!("╚══════════════════════════════════════════════════════════╝");
-    println!();
-    println!("Node ID: {node_id}");
-    println!("Gateway: {gateway_addr} (TLS={use_tls}, skip_verify={tls_skip_verify})");
-    if !cfg.provider_signing_key.is_empty() {
-        let signer = proofs::ProviderSigner::from_base58(&cfg.provider_signing_key)?;
-        println!("Provider hotkey: {}", signer.public_key());
-    }
-    println!("Config written to: {}", config_path.display());
-    println!();
-    println!("Next:");
-    println!("  provider-node start");
-    Ok(())
+    // The key was just generated or read back from the file, so this cannot fail in practice;
+    // if it somehow did, the config is already saved and only the hotkey line is lost.
+    let hotkey = if cfg.provider_signing_key.is_empty() {
+        None
+    } else {
+        proofs::ProviderSigner::from_base58(&cfg.provider_signing_key)
+            .ok()
+            .map(|signer| signer.public_key().to_string())
+    };
+    Ok(WrittenConfig {
+        path: config_path,
+        node_id: node_id.to_string(),
+        gateway_addr: gateway_addr.to_string(),
+        use_tls,
+        tls_skip_verify,
+        hotkey,
+    })
 }
 
 fn resolve_registration_signing_key(
@@ -1257,4 +1410,99 @@ fn resolve_registration_signing_key(
     }
 
     Ok(proofs::ProviderSigner::generate()?.secret_base58)
+}
+
+#[cfg(test)]
+mod pair_config_tests {
+    use super::*;
+
+    /// A fresh directory under the OS temp dir, removed when dropped.
+    struct TempDir(std::path::PathBuf);
+
+    impl TempDir {
+        fn new(label: &str) -> Self {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
+            let dir = std::env::temp_dir().join(format!(
+                "provider-node-test-{label}-{}-{nanos}",
+                std::process::id()
+            ));
+            std::fs::create_dir_all(&dir).unwrap();
+            TempDir(dir)
+        }
+
+        fn config(&self) -> String {
+            self.0.join("provider.toml").to_string_lossy().into_owned()
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    async fn write(config: String, key: &str, force: bool) -> anyhow::Result<WrittenConfig> {
+        write_provider_config(
+            "https://api.example.test",
+            "proxy.example.test:3128",
+            key,
+            "node-1",
+            Some(config),
+            force,
+            false,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn writes_a_loadable_config_without_printing_or_validating() {
+        let dir = TempDir::new("write");
+        let written = write(dir.config(), "key-1", false).await.unwrap();
+
+        assert_eq!(written.node_id, "node-1");
+        assert!(written.hotkey.is_some(), "a signing key is generated");
+        let loaded = config::Config::load(&dir.config()).unwrap();
+        assert_eq!(loaded.api_key, "key-1");
+        assert_eq!(loaded.node_id, "node-1");
+        assert_eq!(loaded.control_api_url, "https://api.example.test");
+        assert_eq!(loaded.gateway_addr, "proxy.example.test:3128");
+        // :3128 gateways get the :8443 failover, as `join` has always done.
+        assert_eq!(loaded.gateway_addrs, vec!["proxy.example.test:8443"]);
+    }
+
+    #[tokio::test]
+    async fn refuses_to_overwrite_without_force_and_says_so_with_a_typed_error() {
+        let dir = TempDir::new("exists");
+        write(dir.config(), "key-1", false).await.unwrap();
+
+        let err = write(dir.config(), "key-2", false).await.err().unwrap();
+        let exists = err.downcast_ref::<ConfigExists>().expect("typed error");
+        assert!(exists.to_string().contains("--force"), "{exists}");
+        // The existing file is untouched.
+        assert_eq!(
+            config::Config::load(&dir.config()).unwrap().api_key,
+            "key-1"
+        );
+    }
+
+    #[tokio::test]
+    async fn force_replaces_the_key_but_keeps_the_signing_key() {
+        let dir = TempDir::new("force");
+        write(dir.config(), "key-1", false).await.unwrap();
+        let before = config::Config::load(&dir.config())
+            .unwrap()
+            .provider_signing_key;
+        assert!(!before.is_empty());
+
+        write(dir.config(), "key-2", true).await.unwrap();
+        let after = config::Config::load(&dir.config()).unwrap();
+        assert_eq!(after.api_key, "key-2");
+        assert_eq!(
+            after.provider_signing_key, before,
+            "the hotkey must survive --force"
+        );
+    }
 }
