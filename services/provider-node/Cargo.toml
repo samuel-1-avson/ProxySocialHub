@@ -59,3 +59,6 @@ quic = ["dep:quinn"]
 
 [target."cfg(unix)".dependencies]
 nix = { version = "0.31.3", features = ["signal", "process"] }
+
+[target."cfg(windows)".dependencies]
+winreg = "0.56.0"
