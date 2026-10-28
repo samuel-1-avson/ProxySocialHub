@@ -8,6 +8,7 @@ import type { MarketplaceMapFilters } from '@/lib/api/marketplace';
 import { useMapPoints } from '@/lib/hooks/useMapPoints';
 import type { MarketplaceListingMapPin } from '@/lib/map/marketplace-map-adapters';
 import type { ExplorerListingPin } from '@/components/map/types';
+import { explorerHref } from "@/lib/navigation/workspace";
 import type { NodeGeoPoint } from '@/lib/services/explorer';
 
 const ProxyMapCanvas = dynamic(
@@ -123,7 +124,7 @@ export function NetworkMapEmbed() {
                 )}
                 {selectedNodeId && (
                     <Link
-                        href="/explorer/map"
+                        href={explorerHref("/nodes?view=map")}
                         className="rounded-lg border border-primary/30 bg-primary/10 px-3 py-1.5 text-[9px] font-bold uppercase tracking-wider text-primary backdrop-blur hover:bg-primary/20"
                     >
                         Open network map

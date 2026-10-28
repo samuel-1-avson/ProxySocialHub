@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-const explorerHref = process.env.NEXT_PUBLIC_EXPLORER_URL || "/explorer";
+import { explorerHref } from "@/lib/navigation/workspace";
 
 const destinations = [
   {
@@ -24,7 +24,7 @@ const destinations = [
     title: "Inspect network records",
     description:
       "Review the public node inventory, source health, indexed transactions, and governance records without signing in.",
-    href: explorerHref,
+    href: explorerHref(),
     label: "Open Explorer",
   },
 ];

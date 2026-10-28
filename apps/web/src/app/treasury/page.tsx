@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { GlassCard } from '@/components/ui/glass-card';
 import { getPublicTreasury, type WalletBalanceView } from '@/lib/api/treasury';
 import { ArrowLeft, ExternalLink, Wallet, Shield, Activity } from 'lucide-react';
+import { explorerHref } from "@/lib/navigation/workspace";
 
 function formatSOL(n: number) {
     return n.toLocaleString(undefined, { maximumFractionDigits: 4 });
@@ -37,7 +38,7 @@ export default function TreasuryPage() {
         <div className="min-h-screen bg-[#050508] text-white pb-24">
             <div className="max-w-5xl mx-auto px-4 pt-8">
                 <Link
-                    href="/explorer"
+                    href={explorerHref()}
                     className="inline-flex items-center gap-2 text-white/40 hover:text-white text-xs font-black uppercase tracking-widest mb-8"
                 >
                     <ArrowLeft size={14} /> Explorer
