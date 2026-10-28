@@ -10,6 +10,7 @@ import {
   FOOTER_SUPPORT_LINKS,
   ROUTES,
 } from "@/lib/navigation/routes";
+import { explorerHref } from "@/lib/navigation/workspace";
 
 /**
  * Public landing — Quiet Infrastructure.
@@ -58,12 +59,12 @@ export default function Home() {
                   >
                     Get started
                   </Link>
-                  <Link
-                    href={ROUTES.explorer}
+                  <a
+                    href={explorerHref()}
                     className="inline-flex h-12 items-center justify-center rounded-[var(--radius-md)] border border-[var(--border-strong)] bg-transparent px-8 text-base font-medium text-foreground transition-colors hover:bg-secondary"
                   >
                     Explore the network
-                  </Link>
+                  </a>
                 </>
               )}
             </div>
@@ -171,18 +172,18 @@ export default function Home() {
               Inspect reported nodes, indexed ledger records, health, and governance evidence without signing in.
             </p>
             <div className="mt-10 flex flex-wrap gap-4">
-              <Link
-                href={ROUTES.explorer}
+              <a
+                href={explorerHref()}
                 className="inline-flex h-12 items-center rounded-[var(--radius-md)] border border-[var(--border-strong)] px-6 text-base font-medium transition-colors hover:bg-secondary"
               >
                 Open explorer
-              </Link>
-              <Link
-                href={ROUTES.explorerHealth}
+              </a>
+              <a
+                href={explorerHref("/analytics")}
                 className="inline-flex h-12 items-center rounded-[var(--radius-md)] px-6 text-base font-medium text-muted-foreground transition-colors hover:text-foreground"
               >
                 Network health
-              </Link>
+              </a>
             </div>
           </div>
         </section>

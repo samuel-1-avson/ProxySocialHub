@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { explorerRedirects } from '../src/lib/navigation/explorer-redirects.mjs';
+import { explorerRedirects, matchExplorerRedirect } from '../src/lib/navigation/explorer-redirects.mjs';
 
 test('Explorer migration stays inactive until an origin is configured', () => {
   assert.deepEqual(explorerRedirects(''), []);
@@ -22,6 +22,25 @@ test('Explorer migration does not capture private actions or purchase routes', (
   const routes = explorerRedirects('https://explorer.proxyhubb.com');
   for (const source of ['/app', '/marketplace/map', '/governance', '/governance/create', '/governance/:id', '/explorer/sessions', '/explorer/earnings']) {
     assert.equal(routes.some((route) => route.source === source), false);
+  }
+});
+test('Public Explorer paths resolve onto the standalone origin', () => {
+  assert.equal(matchExplorerRedirect('', '/explorer'), null);
+  assert.equal(matchExplorerRedirect('https://explorer.proxyhubb.com', '/explorer'), 'https://explorer.proxyhubb.com/');
+  assert.equal(
+    matchExplorerRedirect('https://explorer.proxyhubb.com', '/explorer/transactions/abc'),
+    'https://explorer.proxyhubb.com/transactions/abc',
+  );
+  assert.equal(
+    matchExplorerRedirect('https://explorer.proxyhubb.com', '/explorer/map', '?country=US'),
+    'https://explorer.proxyhubb.com/nodes?view=map&country=US',
+  );
+  assert.equal(
+    matchExplorerRedirect('https://explorer.proxyhubb.com', '/explorer/nodes/compare'),
+    'https://explorer.proxyhubb.com/nodes?view=compare',
+  );
+  for (const path of ['/explorer/sessions', '/explorer/earnings', '/governance', '/governance/create', '/marketplace/map', '/app']) {
+    assert.equal(matchExplorerRedirect('https://explorer.proxyhubb.com', path), null);
   }
 });
 test('Malformed and non-HTTPS Explorer origins fail the build', () => {
