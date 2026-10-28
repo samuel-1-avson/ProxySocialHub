@@ -14,7 +14,7 @@ export default async function Page({
     "contracts",
     "governance",
   ];
-  const listRoots = [...detailRoots, "analytics", "health", "search"];
+  const listRoots = [...detailRoots, "analytics", "health", "search", "about"];
   if (
     !listRoots.includes(path[0]) ||
     path.length > 2 ||

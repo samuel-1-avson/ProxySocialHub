@@ -17,6 +17,14 @@ on:
       - 'docs/**'
       - '.gitignore'
       - 'LICENSE'
+      # Independent Explorer releases are validated and rolled by deploy.yml.
+      - 'apps/explorer/**'
+      - '.github/workflows/deploy.yml'
+      - '.github/workflows/deploy-gcp-testnet.yml'
+      - '.github/workflows/proxyhubb-ci.yml'
+      - 'scripts/gcp-roll-explorer-image.sh'
+      - 'scripts/explorer-release.compose.yml'
+      - 'config/gcp/Caddyfile.example'
   workflow_dispatch:
     inputs:
       services:

@@ -23,10 +23,14 @@ on:
       services:
         description: 'Images to publish'
         type: choice
-        options: [web, all]
+        options: [web, explorer, all]
         default: web
       deploy_web:
         description: 'Roll only the production web container after publishing'
+        type: boolean
+        default: false
+      deploy_explorer:
+        description: 'Roll the independent production Explorer after validation'
         type: boolean
         default: false
 
@@ -34,6 +38,7 @@ env:
   REGISTRY: ghcr.io
   # Live compose pulls ghcr.io/<owner>/{control-api,edge-gateway,web}
   IMAGE_OWNER: ${{ github.repository_owner }}
+  DEFAULT_VM_USER: samuelavson360
 
 jobs:
   select-services:
@@ -47,6 +52,8 @@ jobs:
         run: |
           if [ "$SERVICES" = web ]; then
             echo 'matrix={"service":[{"name":"web","context":".","dockerfile":"apps/web/Dockerfile","platforms":"linux/amd64"}]}' >> "$GITHUB_OUTPUT"
+          elif [ "$SERVICES" = explorer ]; then
+            echo 'matrix={"service":[{"name":"explorer","context":".","dockerfile":"apps/explorer/Dockerfile","platforms":"linux/amd64"}]}' >> "$GITHUB_OUTPUT"
           else
             echo 'matrix={"service":[{"name":"control-api","context":".","dockerfile":"services/control-api/Dockerfile","platforms":"linux/amd64"},{"name":"edge-gateway","context":"./services/edge-gateway","dockerfile":"Dockerfile","platforms":"linux/amd64,linux/arm64"},{"name":"provider-node","context":"./services/provider-node","dockerfile":"Dockerfile","platforms":"linux/amd64,linux/arm64"},{"name":"groth16-prover","context":"./services/groth16-prover","dockerfile":"Dockerfile","platforms":"linux/amd64"},{"name":"web","context":".","dockerfile":"apps/web/Dockerfile","platforms":"linux/amd64"}]}' >> "$GITHUB_OUTPUT"
           fi
@@ -57,6 +64,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      checks: read
     strategy:
       matrix: ${{ fromJSON(needs.select-services.outputs.matrix) }}
     steps:
@@ -65,6 +73,43 @@ jobs:
 
       - name: Set up QEMU (Multi-Arch)
         uses: docker/setup-qemu-action@v3
+
+      - name: Set up Node for Explorer validation
+        if: inputs.services == 'explorer'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/explorer/package-lock.json
+
+      - name: Require passing Explorer source secret scan
+        if: inputs.services == 'explorer'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            state=$(gh api "repos/$GH_REPO/commits/$GITHUB_SHA/check-runs?per_page=100" --jq '[.check_runs[] | select(.name == "Secrets & keypair gate")] | sort_by(.started_at) | last | .conclusion // "pending"')
+            if [[ "$state" == success ]]; then exit 0; fi
+            if [[ "$state" != pending && "$state" != null ]]; then
+              echo '::error::The source secret scan must pass before an Explorer release.'; exit 1
+            fi
+            sleep 10
+          done
+          echo '::error::No passing source secret scan was found. Run PR or main CI first.'; exit 1
+
+      - name: Validate the independent Explorer
+        if: inputs.services == 'explorer'
+        working-directory: apps/explorer
+        run: |
+          npm ci
+          npm audit --omit=dev --audit-level=high
+          npm run typecheck
+          npm test
+          npm run build
+          npx playwright install --with-deps chromium webkit
+          npm run test:e2e
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -92,16 +137,18 @@ jobs:
         with:
           context: ${{ matrix.service.context }}
           file: ${{ matrix.service.dockerfile }}
-          push: ${{ inputs.services != 'web' }}
+          push: ${{ inputs.services != 'web' && inputs.services != 'explorer' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          outputs: ${{ inputs.services == 'web' && 'type=docker,dest=/tmp/web-image.tar' || '' }}
+          outputs: ${{ (inputs.services == 'web' || inputs.services == 'explorer') && format('type=docker,dest=/tmp/{0}-image.tar', matrix.service.name) || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: ${{ matrix.service.platforms }}
           build-args: |
             NEXT_PUBLIC_PROXY_ENDPOINT=${{ vars.NEXT_PUBLIC_PROXY_ENDPOINT || 'proxy.proxyhubb.com:8090' }}
             NEXT_PUBLIC_GATEWAY_URL=${{ vars.NEXT_PUBLIC_GATEWAY_URL || 'https://proxy.proxyhubb.com' }}
+            NEXT_PUBLIC_APP_URL=https://proxyhubb.com
+            BUILD_REVISION=${{ github.sha }}
 
       - name: Upload built frontend image for production rollout
         if: ${{ inputs.services == 'web' && inputs.deploy_web }}
@@ -111,6 +158,88 @@ jobs:
           path: /tmp/web-image.tar
           if-no-files-found: error
           retention-days: 1
+
+      - name: Upload verified Explorer image
+        if: inputs.services == 'explorer' && inputs.deploy_explorer
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxyhubb-explorer-image
+          path: /tmp/explorer-image.tar
+          if-no-files-found: error
+          retention-days: 1
+
+  deploy-explorer:
+    name: Roll independent Explorer
+    needs: build
+    if: inputs.services == 'explorer' && inputs.deploy_explorer
+    runs-on: ubuntu-latest
+    concurrency:
+      group: production-explorer-roll
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: proxyhubb-explorer-image
+          path: ${{ runner.temp }}/explorer-release
+      - name: Select existing deployment credentials
+        id: auth
+        env:
+          SSH_KEY: ${{ secrets.GCP_SSH_PRIVATE_KEY || secrets.GCP_VM_SSH_KEY }}
+          SA_KEY: ${{ secrets.GCP_SA_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$SA_KEY" ]]; then
+            echo 'method=gcloud' >> "$GITHUB_OUTPUT"
+          elif [[ -n "$SSH_KEY" ]]; then
+            mkdir -p ~/.ssh
+            printf '%s\n' "$SSH_KEY" | tr -d '\r' > ~/.ssh/id_rsa
+            chmod 600 ~/.ssh/id_rsa
+            echo 'method=ssh' >> "$GITHUB_OUTPUT"
+          else
+            echo '::error::Existing GCP deployment credentials are required.'; exit 1
+          fi
+      - uses: google-github-actions/auth@v2
+        if: steps.auth.outputs.method == 'gcloud'
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      - uses: google-github-actions/setup-gcloud@v2
+        if: steps.auth.outputs.method == 'gcloud'
+      - name: Stage Explorer through GCP
+        if: steps.auth.outputs.method == 'gcloud'
+        run: |
+          set -euo pipefail
+          common=(--zone=us-central1-a --project=gen-lang-client-0022105784 --quiet --tunnel-through-iap)
+          gcloud compute scp "${common[@]}" scripts/gcp-roll-explorer-image.sh "proxyhubb-testnet:/tmp/proxyhubb-explorer-${GITHUB_SHA}.sh"
+          gcloud compute scp "${common[@]}" scripts/explorer-release.compose.yml "proxyhubb-testnet:/tmp/proxyhubb-explorer-${GITHUB_SHA}.yml"
+          gcloud compute scp "${common[@]}" "$RUNNER_TEMP/explorer-release/explorer-image.tar" "proxyhubb-testnet:/tmp/proxyhubb-explorer-${GITHUB_SHA}.tar"
+          gcloud compute ssh "${common[@]}" proxyhubb-testnet --command="sudo env EXPECTED_REVISION=$GITHUB_SHA bash /tmp/proxyhubb-explorer-${GITHUB_SHA}.sh"
+      - name: Stage Explorer over SSH
+        if: steps.auth.outputs.method == 'ssh'
+        env:
+          HOST: ${{ secrets.GCP_VM_HOST || '35.255.62.196' }}
+          VM_USER: ${{ secrets.GCP_VM_USER || env.DEFAULT_VM_USER }}
+        run: |
+          set -euo pipefail
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+          scp -o ConnectTimeout=30 scripts/gcp-roll-explorer-image.sh "$VM_USER@$HOST:/tmp/proxyhubb-explorer-${GITHUB_SHA}.sh"
+          scp -o ConnectTimeout=30 scripts/explorer-release.compose.yml "$VM_USER@$HOST:/tmp/proxyhubb-explorer-${GITHUB_SHA}.yml"
+          scp -o ConnectTimeout=30 "$RUNNER_TEMP/explorer-release/explorer-image.tar" "$VM_USER@$HOST:/tmp/proxyhubb-explorer-${GITHUB_SHA}.tar"
+          ssh -o ConnectTimeout=30 "$VM_USER@$HOST" "sudo env EXPECTED_REVISION=$GITHUB_SHA bash /tmp/proxyhubb-explorer-${GITHUB_SHA}.sh"
+      - name: Verify Explorer DNS and HTTPS
+        timeout-minutes: 20
+        run: |
+          for attempt in $(seq 1 120); do
+            if curl --fail --max-time 10 --silent --output /tmp/explorer-health.json https://explorer.proxyhubb.com/api/health && jq -e --arg revision "$GITHUB_SHA" '.service == "proxyhubb-explorer" and .revision == $revision' /tmp/explorer-health.json; then
+              curl --fail --max-time 30 --silent --output /dev/null 'https://explorer.proxyhubb.com/api/public?resource=metrics'
+              for path in / /nodes /transactions /analytics /governance /about; do
+                curl --fail --max-time 30 --silent --output /dev/null "https://explorer.proxyhubb.com$path"
+              done
+              exit 0
+            fi
+            sleep 10
+          done
+          echo '::error::Explorer is staged, but DNS/HTTPS is not reachable.'; exit 1
 
   deploy-web:
     name: Roll production frontend only
@@ -152,7 +281,7 @@ jobs:
         if: ${{ steps.release.outputs.method == 'ssh' }}
         env:
           HOST: ${{ secrets.GCP_VM_HOST || '34.68.134.20' }}
-          VM_USER: ${{ secrets.GCP_VM_USER || 'samuelavson360' }}
+          VM_USER: ${{ secrets.GCP_VM_USER || env.DEFAULT_VM_USER }}
           WEB_IMAGE: ${{ steps.release.outputs.image }}
         run: |
           set -euo pipefail
@@ -183,6 +312,7 @@ jobs:
   announce-vm-roll:
     name: Announce VM Roll Instructions
     needs: build
+    if: inputs.services != 'explorer'
     runs-on: ubuntu-latest
     steps:
       - name: Print canonical deploy path

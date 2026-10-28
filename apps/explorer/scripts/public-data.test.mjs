@@ -94,9 +94,13 @@ test("pagination stays bounded and does not accept arbitrary endpoint paths", ()
   assert.equal(
     publicResourcePath(
       "nodes",
-      new URLSearchParams({ page: "-3", url: "https://other.example" }),
+      new URLSearchParams({ page: "-3", page_size: "999999999", url: "https://other.example" }),
     ),
-    "/v1/explorer/nodes?page=1&page_size=20&active=false",
+    "/v1/explorer/nodes?page=1&page_size=100&active=false",
+  );
+  assert.equal(
+    publicResourcePath("transactions", new URLSearchParams({ page_size: "999999999" })),
+    "/v1/explorer/transactions?page=1&page_size=20",
   );
   assert.equal(
     publicResourcePath("blocks", new URLSearchParams({ page: "999999999" })),
