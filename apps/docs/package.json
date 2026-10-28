@@ -13,6 +13,7 @@
     "vendor:scalar": "node scripts/vendor-scalar.mjs"
   },
   "dependencies": {
+    "geist": "^1.8.2",
     "gray-matter": "4.0.3",
     "next": "15.5.22",
     "next-mdx-remote": "5.0.0",
