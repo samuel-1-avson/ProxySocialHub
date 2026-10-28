@@ -4,6 +4,20 @@ export type RouteKey = keyof typeof ROUTES;
 export type RoutePolicy = "public" | "authenticated" | "provider" | "admin";
 
 export const ROUTE_POLICIES: Record<RouteKey, RoutePolicy> = {
+    workspace: "authenticated",
+    workspaceConnections: "authenticated",
+    workspaceActivity: "authenticated",
+    workspaceWallet: "authenticated",
+    workspaceSettings: "authenticated",
+    workspaceSession: "authenticated",
+    seller: "provider",
+    sellerNodes: "provider",
+    sellerNodeSetup: "provider",
+    sellerNode: "provider",
+    sellerCredentials: "provider",
+    sellerListingCreate: "provider",
+    sellerListings: "provider",
+    sellerEarnings: "provider",
     home: "public",
     marketplace: "public",
     network: "public",

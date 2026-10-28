@@ -1,36 +1,46 @@
-'use client';
+"use client";
 
-import { useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
-import type { useWallet as useSolanaWallet } from '@solana/wallet-adapter-react';
-import { depositCrypto } from '@/lib/api';
-import { formatSolanaWalletError, sendSolTransfer } from '@/lib/solana-transfer';
-import { getSolscanTxUrl } from '@/lib/solscan';
-import { getErrorMessage } from '@/lib/utils';
-import type { QueryClient } from '@tanstack/react-query';
-import { DEPOSIT_FEE_BUFFER_LAMPORTS } from '../constants';
-import type { WalletResult } from '../types';
+import { useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import type { useWallet as useSolanaWallet } from "@solana/wallet-adapter-react";
+import { depositCrypto } from "@/lib/api";
+import {
+  formatSolanaWalletError,
+  sendSolTransfer,
+} from "@/lib/solana-transfer";
+import { getSolscanTxUrl } from "@/lib/solscan";
+import { getErrorMessage } from "@/lib/utils";
+import type { QueryClient } from "@tanstack/react-query";
+import { DEPOSIT_FEE_BUFFER_LAMPORTS } from "../constants";
+import { parseSolAmountLamports } from "@/lib/sol-amount";
+import type { WalletResult } from "../types";
 
 type SolanaWallet = ReturnType<typeof useSolanaWallet>;
 
-type WalletLike = {
-  linked_solana_address?: string | null;
-} | null | undefined;
+type WalletLike =
+  | {
+      linked_solana_address?: string | null;
+    }
+  | null
+  | undefined;
 
-type TreasuryConfigLike = {
-  treasury_solana?: string | null;
-  deposit_address?: string | null;
-  destination_kind?: 'treasury' | 'vault' | string | null;
-  vault_address?: string | null;
-} | null | undefined;
+type TreasuryConfigLike =
+  | {
+      treasury_solana?: string | null;
+      deposit_address?: string | null;
+      destination_kind?: "treasury" | "vault" | string | null;
+      vault_address?: string | null;
+    }
+  | null
+  | undefined;
 
 export function useWalletDeposit(opts: {
   wallet: WalletLike;
   treasuryConfig: TreasuryConfigLike;
   connected: boolean;
-  publicKey: SolanaWallet['publicKey'];
-  signTransaction: SolanaWallet['signTransaction'];
-  sendTransaction: SolanaWallet['sendTransaction'];
+  publicKey: SolanaWallet["publicKey"];
+  signTransaction: SolanaWallet["signTransaction"];
+  sendTransaction: SolanaWallet["sendTransaction"];
   processing: boolean;
   setProcessing: Dispatch<SetStateAction<boolean>>;
   setResult: Dispatch<SetStateAction<WalletResult | null>>;
@@ -49,25 +59,37 @@ export function useWalletDeposit(opts: {
     queryClient,
   } = opts;
 
-  const [depositAmount, setDepositAmount] = useState('');
-  const [depositTxHash, setDepositTxHash] = useState('');
+  const [depositAmount, setDepositAmount] = useState("");
+  const [depositTxHash, setDepositTxHash] = useState("");
   const [showManualDeposit, setShowManualDeposit] = useState(false);
   const [showDepositConfirm, setShowDepositConfirm] = useState(false);
-  const [depositConfirmAmount, setDepositConfirmAmount] = useState<number | null>(null);
+  const [depositConfirmAmount, setDepositConfirmAmount] = useState<
+    number | null
+  >(null);
+  const confirmedTransfer = useRef<{
+    amount: number;
+    signature: string;
+  } | null>(null);
 
   const creditDepositOnServer = async (amt: number, signature: string) => {
-    const res = await depositCrypto(amt, signature, 'solana');
+    const exactLamports = parseSolAmountLamports(depositAmount);
+    if (exactLamports === null || exactLamports <= 0)
+      throw new Error(
+        "Enter an exact SOL amount with at most 9 decimal places.",
+      );
+    const res = await depositCrypto(amt, signature, "solana", exactLamports);
     const solscan = res.solscan_url || getSolscanTxUrl(signature);
     setResult({
       success: true,
       message:
         res.message ||
-        `Deposit credited${res.credited_sol != null ? `: ${res.credited_sol} SOL` : ''}`,
+        `Deposit verification: ${res.status}${res.credited_sol != null ? ` · ${res.credited_sol} SOL credited` : ""}`,
       solscanUrl: solscan,
     });
-    setDepositAmount('');
-    setDepositTxHash('');
-    queryClient.invalidateQueries({ queryKey: ['wallet'] });
+    setDepositAmount("");
+    setDepositTxHash("");
+    confirmedTransfer.current = null;
+    queryClient.invalidateQueries({ queryKey: ["wallet"] });
   };
 
   // W-35: hard double-submit guard for deposit actions.
@@ -75,14 +97,21 @@ export function useWalletDeposit(opts: {
 
   const handleDepositVerify = async () => {
     if (depositInFlightRef.current) return;
-    const amt = parseFloat(depositAmount);
+    const exactLamports = parseSolAmountLamports(depositAmount);
+    const amt = exactLamports === null ? 0 : exactLamports / LAMPORTS_PER_SOL;
     const txHash = depositTxHash.trim();
     if (!amt || amt <= 0 || !txHash) {
-      setResult({ success: false, message: 'Enter deposit amount and transaction signature' });
+      setResult({
+        success: false,
+        message: "Enter deposit amount and transaction signature",
+      });
       return;
     }
     if (!wallet?.linked_solana_address) {
-      setResult({ success: false, message: 'Link a Solana wallet before verifying a deposit' });
+      setResult({
+        success: false,
+        message: "Link a Solana wallet before verifying a deposit",
+      });
       return;
     }
     depositInFlightRef.current = true;
@@ -91,7 +120,10 @@ export function useWalletDeposit(opts: {
     try {
       await creditDepositOnServer(amt, txHash);
     } catch (err: unknown) {
-      setResult({ success: false, message: getErrorMessage(err) || 'Deposit verification failed' });
+      setResult({
+        success: false,
+        message: getErrorMessage(err) || "Deposit verification failed",
+      });
     } finally {
       depositInFlightRef.current = false;
       setProcessing(false);
@@ -99,13 +131,26 @@ export function useWalletDeposit(opts: {
   };
 
   const initiateDeposit = () => {
-    const amt = parseFloat(depositAmount);
+    if (confirmedTransfer.current) {
+      setShowManualDeposit(true);
+      setResult({
+        success: false,
+        message:
+          "A transfer is already confirmed. Verify its existing transaction before sending another.",
+      });
+      return;
+    }
+    const exactLamports = parseSolAmountLamports(depositAmount);
+    const amt = exactLamports === null ? 0 : exactLamports / LAMPORTS_PER_SOL;
     if (!amt || amt <= 0) {
-      setResult({ success: false, message: 'Enter a valid deposit amount' });
+      setResult({ success: false, message: "Enter a valid deposit amount" });
       return;
     }
     if (!wallet?.linked_solana_address) {
-      setResult({ success: false, message: 'Link a Solana wallet first (Linked Wallets tab)' });
+      setResult({
+        success: false,
+        message: "Link a Solana wallet first (Linked Wallets tab)",
+      });
       return;
     }
     setDepositConfirmAmount(amt);
@@ -114,9 +159,10 @@ export function useWalletDeposit(opts: {
 
   const handleDepositSol = async () => {
     if (depositInFlightRef.current) return;
-    const amt = parseFloat(depositAmount);
+    const exactLamports = parseSolAmountLamports(depositAmount);
+    const amt = exactLamports === null ? 0 : exactLamports / LAMPORTS_PER_SOL;
     if (!amt || amt <= 0) {
-      setResult({ success: false, message: 'Enter a valid deposit amount' });
+      setResult({ success: false, message: "Enter a valid deposit amount" });
       return;
     }
     const treasury =
@@ -125,19 +171,23 @@ export function useWalletDeposit(opts: {
       setResult({
         success: false,
         message: treasuryConfig
-          ? 'Platform deposit address is not configured. Deposits are unavailable until an admin sets SOLANA_TREASURY_ADDRESS or SOLANA_DEPOSIT_VAULT_ADDRESS.'
-          : 'Deposit address is still loading — try again in a moment',
+          ? "Platform deposit address is not configured. Deposits are unavailable until an admin sets SOLANA_TREASURY_ADDRESS or SOLANA_DEPOSIT_VAULT_ADDRESS."
+          : "Deposit address is still loading — try again in a moment",
       });
       return;
     }
     if (!wallet?.linked_solana_address) {
-      setResult({ success: false, message: 'Link a Solana wallet first (Linked Wallets tab)' });
+      setResult({
+        success: false,
+        message: "Link a Solana wallet first (Linked Wallets tab)",
+      });
       return;
     }
     if (!connected || !publicKey || (!signTransaction && !sendTransaction)) {
       setResult({
         success: false,
-        message: 'Unlock your linked Solana wallet to sign the deposit, then try again',
+        message:
+          "Unlock your linked Solana wallet to sign the deposit, then try again",
       });
       return;
     }
@@ -154,12 +204,20 @@ export function useWalletDeposit(opts: {
     setProcessing(true);
     setResult(null);
     try {
-      const { getConnection } = await import('@/lib/solana');
+      const { getConnection } = await import("@/lib/solana");
+      if (confirmedTransfer.current) {
+        if (confirmedTransfer.current.amount !== amt)
+          throw new Error(
+            "Verify the original deposit amount before starting another transfer.",
+          );
+        await creditDepositOnServer(amt, confirmedTransfer.current.signature);
+        return;
+      }
       const connection = getConnection();
       const treasuryPk = new PublicKey(treasury);
-      const lamports = Math.round(amt * LAMPORTS_PER_SOL);
+      const lamports = exactLamports ?? 0;
       if (lamports <= 0) {
-        throw new Error('Amount is too small');
+        throw new Error("Amount is too small");
       }
 
       const balance = await connection.getBalance(publicKey);
@@ -172,7 +230,11 @@ export function useWalletDeposit(opts: {
         return;
       }
 
-      setResult({ success: true, message: 'Approve the transfer in your wallet…', type: 'info' });
+      setResult({
+        success: true,
+        message: "Approve the transfer in your wallet…",
+        type: "info",
+      });
       const signature = await sendSolTransfer(
         connection,
         {
@@ -181,10 +243,17 @@ export function useWalletDeposit(opts: {
           sendTransaction,
         },
         treasuryPk,
-        lamports
+        lamports,
       );
+      confirmedTransfer.current = { amount: amt, signature };
+      setDepositTxHash(signature);
+      setShowManualDeposit(true);
 
-      setResult({ success: true, message: 'Transaction confirmed — crediting balance…', type: 'info' });
+      setResult({
+        success: true,
+        message: "Transaction confirmed — crediting balance…",
+        type: "info",
+      });
       await creditDepositOnServer(amt, signature);
     } catch (err: unknown) {
       setResult({ success: false, message: formatSolanaWalletError(err) });
@@ -195,11 +264,14 @@ export function useWalletDeposit(opts: {
   };
 
   const copyTreasuryAddress = async () => {
-    const addr = treasuryConfig?.deposit_address || treasuryConfig?.treasury_solana;
+    const addr =
+      treasuryConfig?.deposit_address || treasuryConfig?.treasury_solana;
     if (!addr) return;
     await navigator.clipboard.writeText(addr);
     const label =
-      treasuryConfig?.destination_kind === 'vault' ? 'Deposit vault address' : 'Treasury address';
+      treasuryConfig?.destination_kind === "vault"
+        ? "Deposit vault address"
+        : "Treasury address";
     setResult({ success: true, message: `${label} copied` });
   };
 

@@ -32,9 +32,15 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
 
 .env*.local
+
+# This directory contains a UI route, not stored credentials.
+!src/app/provider/nodes/credentials/
+src/app/provider/nodes/credentials/*
+!src/app/provider/nodes/credentials/page.tsx

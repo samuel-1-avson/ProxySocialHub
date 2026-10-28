@@ -149,6 +149,7 @@ export async function getTransactions(limit = 20, offset = 0) {
 }
 
 export interface WithdrawSolOptions {
+    amountLamports?: number;
     nonce?: string;
     signature?: string;
     /** W-13 server-challenge nonce from requestWithdrawChallenge. */
@@ -174,7 +175,7 @@ export async function withdrawWallet(
         message?: string;
     }>('/v1/wallet/withdraw/sol', {
         amount,
-        amount_lamports: Math.round(amount * 1e9),
+        amount_lamports: opts?.amountLamports ?? Math.round(amount * 1e9),
         nonce: opts?.nonce,
         signature: opts?.signature,
         challenge_nonce: opts?.challengeNonce,
@@ -222,10 +223,10 @@ export function unlinkWallet(chain: 'solana' | 'bittensor' = 'solana') {
 /**
  * Deposit via crypto transaction (Primary deposit method)
  */
-export function depositCrypto(amount: number, txHash: string, chain: 'solana' = 'solana') {
+export function depositCrypto(amount: number, txHash: string, chain: 'solana' = 'solana', amountLamports?: number) {
     return apiPost<CryptoDepositResponse>('/v1/wallet/deposit/crypto', {
         amount,
-        amount_lamports: Math.round(amount * 1e9),
+        amount_lamports: amountLamports ?? Math.round(amount * 1e9),
         tx_hash: txHash,
         chain,
         currency: 'SOL'
