@@ -257,10 +257,10 @@ no earnings view in v1, E2E by driving the real window over WebView2 remote debu
 
 | Phase | Status |
 | --- | --- |
-| 0 Spike | not started |
-| 1 provider-node interface | not started |
-| 2 App core | not started |
+| 0 Spike | **Done.** Window + tray + sidecar run (read back over the DevTools protocol). The NSIS installer built on the third attempt (5.5 MB, not installed); the first two failed downloading the NSIS tooling from GitHub, so CI needs a retry around that step. |
+| 1 provider-node interface | **Done.** `pair --json` (1.1) and `status --json --local` with the tunnel state, pinned by contract tests (1.2). 51 provider-node tests. |
+| 2 App core | **Done.** settings, state, node driver, engine, commands: 49 tests, clippy `-D warnings` and fmt clean. The consent gate and the stale-pairing guard were proven by mutation. |
 | 3 UI | not started |
-| 4 Tray and lifecycle | not started |
+| 4 Tray and lifecycle | 4.1 and 4.2 are written and their logic tested, but the real window has not been exercised yet (close-to-tray, single instance, `--hidden`, Quit, the autostart toggle): verified in Phase 5. |
 | 5 End to end | not started |
 | 6 Packaging, CI, docs | not started |
