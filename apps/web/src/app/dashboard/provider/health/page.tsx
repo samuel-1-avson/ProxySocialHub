@@ -8,6 +8,7 @@ import {
     Loader2, Wifi, Clock, BarChart3, Cpu, MapPin
 } from 'lucide-react';
 import { getMyNodes, getNodeUptime } from '@/lib/api/provider';
+import { meanMeasurements } from '@/lib/measurements';
 import {
     PageHeading,
     Loading,
@@ -84,23 +85,18 @@ export default function HealthPage() {
     }, [nodes, uptimeQueries]);
 
     const avgApiUptime = useMemo(() => {
-        const vals = [...uptimeByNode.values()].map((v) => v.uptime_percent).filter((n) => n > 0);
+        const vals = [...uptimeByNode.values()].map((v) => v.uptime_percent).filter((n) => Number.isFinite(n));
         if (vals.length === 0) return null;
         return vals.reduce((a, b) => a + b, 0) / vals.length;
     }, [uptimeByNode]);
 
-    const avgUptime = avgApiUptime ?? (nodes.length > 0
-        ? nodes.reduce((s, n) => s + (n.uptime_percent ?? 0), 0) / nodes.length
-        : null);
-    const avgLatency = onlineNodes.length > 0
-        ? onlineNodes.reduce((s, n) => s + (n.latency_ms ?? 0), 0) / onlineNodes.length
-        : null;
-    const avgScore = nodes.length > 0
-        ? nodes.reduce((s, n) => s + (n.quality_score ?? 0), 0) / nodes.length
-        : null;
+    const avgUptime = avgApiUptime ?? meanMeasurements(nodes.map(node => node.uptime_percent)) ?? null;
+    const avgLatency = meanMeasurements(onlineNodes.map(node => node.latency_ms)) ?? null;
+    const avgScore = meanMeasurements(nodes.map(node => node.quality_score)) ?? null;
     const proofOk = nodes.filter((n) => n.latest_heartbeat_verified).length;
     const withWallet = nodes.filter((n) => Boolean(n.wallet_address)).length;
 
+    if (nodesError && !nodes.length) return <div className="ui-page"><PageHeading title="Node health" description="Node observations are unavailable." /><DataError error={nodesQueryError} retry={() => void refetchNodes()} /></div>;
     const checks: HealthCheck[] = nodesLoading
         ? [
             { id: 'nodes', label: 'Node Registration', description: 'Checking registered nodes…', status: 'loading' },

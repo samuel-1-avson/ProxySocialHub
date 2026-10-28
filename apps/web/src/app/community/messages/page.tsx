@@ -19,6 +19,7 @@ import {
     PageHeading,
     Loading,
     EmptyState,
+    DataError,
 } from "@/components/workspace/Patterns";
 import { Send, Loader2 } from "lucide-react";
 
@@ -30,6 +31,9 @@ function MessagesContent() {
     const [messages, setMessages] = useState<Message[]>([]);
     const [newMessage, setNewMessage] = useState("");
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState<unknown>();
+    const [messageError, setMessageError] = useState<{ conversationId: string; error: unknown }>();
+    const [reload, setReload] = useState(0);
     const [sending, setSending] = useState(false);
     const [sendError, setSendError] = useState("");
     const [searchQuery, setSearchQuery] = useState("");
@@ -47,6 +51,8 @@ function MessagesContent() {
 
     useEffect(() => {
         async function fetchConversations() {
+            setLoading(true);
+            setLoadError(undefined);
             try {
                 const data = await getConversations();
                 setConversations(data.conversations || []);
@@ -54,29 +60,33 @@ function MessagesContent() {
                     setSelectedConv(data.conversations[0]);
                 }
             } catch (err) {
-                console.error(err);
+                setLoadError(err);
             } finally {
                 setLoading(false);
             }
         }
         fetchConversations();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [reload]);
 
     useEffect(() => {
+        let current = true;
         async function fetchMessages() {
             if (!selectedConv) return;
             try {
                 const data = await getMessages(selectedConv.id);
+                if (!current) return;
+                setMessageError(undefined);
                 setMessages(data.messages || []);
                 setTimeout(() => {
                     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
                 }, 100);
             } catch (err) {
-                console.error(err);
+                if (current && selectedConv) setMessageError({ conversationId: selectedConv.id, error: err });
             }
         }
         fetchMessages();
+        return () => { current = false; };
     }, [selectedConv]);
 
     useEffect(() => {
@@ -105,7 +115,7 @@ function MessagesContent() {
                 const [conv] = next.splice(idx, 1);
                 next.unshift({
                     ...conv,
-                    last_message_at: payload.message!.created_at || new Date().toISOString(),
+                    last_message_at: payload.message!.created_at || conv.last_message_at,
                     last_message: payload.message,
                 });
                 return next;
@@ -180,6 +190,7 @@ function MessagesContent() {
             const name = (
                 conv.other_participant?.display_name ||
                 conv.other_participant?.username ||
+                conv.other_participant_name ||
                 ""
             ).toLowerCase();
             const preview = (conv.last_message?.content || "").toLowerCase();
@@ -289,6 +300,8 @@ function MessagesContent() {
                     <div className="mt-4 max-h-[28rem] overflow-y-auto min-w-0">
                         {loading ? (
                             <Loading label="Loading conversations…" />
+                        ) : loadError ? (
+                            <DataError error={loadError} retry={() => setReload(value => value + 1)} />
                         ) : filteredConversations.length === 0 ? (
                             <div className="py-6 space-y-3">
                                 <p className="text-sm text-muted-foreground">No conversations</p>
@@ -337,13 +350,13 @@ function MessagesContent() {
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center justify-between gap-2 mb-1">
                                             <span className="text-sm font-medium truncate">
-                                                @{conv.other_participant?.username || "unknown"}
+                                                {conv.other_participant?.username ? `@${conv.other_participant.username}` : conv.other_participant?.display_name || conv.other_participant_name || 'Unknown participant'}
                                             </span>
                                             <span className="text-sm text-muted-foreground shrink-0">
-                                                {new Date(conv.last_message_at).toLocaleDateString([], {
+                                                {conv.last_message_at && !Number.isNaN(Date.parse(conv.last_message_at)) ? new Date(conv.last_message_at).toLocaleDateString([], {
                                                     month: "short",
                                                     day: "numeric",
-                                                })}
+                                                }) : 'Time not reported'}
                                             </span>
                                         </div>
                                         <p className="text-sm text-muted-foreground truncate">
@@ -362,12 +375,13 @@ function MessagesContent() {
                 <section className="ui-surface flex-1 min-w-0 flex flex-col">
                     {selectedConv ? (
                         <>
+                            {messageError?.conversationId === selectedConv.id && <DataError error={messageError.error} />}
                             <div className="pb-4 border-b border-border min-w-0">
                                 <h2 className="text-[18px] font-semibold leading-tight">
                                     {selectedConv.other_participant?.display_name ||
-                                        selectedConv.other_participant?.username}
+                                        selectedConv.other_participant?.username || selectedConv.other_participant_name || 'Unknown participant'}
                                 </h2>
-                                <Link
+                                {(selectedConv.other_participant?.username || selectedConv.other_participant?.id) ? <Link
                                     href={`/profile/${
                                         selectedConv.other_participant?.username ||
                                         selectedConv.other_participant?.id
@@ -375,11 +389,11 @@ function MessagesContent() {
                                     className="ui-link text-sm"
                                 >
                                     View profile
-                                </Link>
+                                </Link> : <p className="ui-note">Profile unavailable</p>}
                             </div>
 
                             <div className="flex-1 overflow-y-auto py-4 space-y-4 min-h-[16rem] min-w-0">
-                                {messages.map((msg) => (
+                                {messages.filter(msg => msg.conversation_id === selectedConv.id).map((msg) => (
                                     <div
                                         key={msg.id}
                                         className={`flex ${msg.sender_id === user?.id ? "justify-end" : "justify-start"}`}

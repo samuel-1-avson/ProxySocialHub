@@ -1,6 +1,7 @@
 import bs58 from 'bs58';
 import { Transaction } from '@solana/web3.js';
 import { API_BASE_URL, fetchWithAuth } from './client';
+import { measurement } from '@/lib/measurements';
 
 export interface Proposal {
     id: string;
@@ -8,7 +9,7 @@ export interface Proposal {
     description: string;
     proposer_id: string;
     type: string;
-    status: 'active' | 'passed' | 'rejected' | 'executed' | 'failed';
+    status: 'active' | 'passed' | 'rejected' | 'executed' | 'failed' | 'unknown';
     start_time: string;
     end_time: string;
     execution_data?: string;
@@ -18,14 +19,14 @@ export interface Proposal {
     votes_against: number;
     votes_abstain: number;
     total_votes: number;
-    quorum: number;
+    quorum?: number;
     thread_id?: string;
     ipfs_hash?: string;
     actions?: unknown[];
     /** Present when the caller is authenticated and has already voted. */
     my_vote?: {
         choice: 'yes' | 'no' | string;
-        power: number;
+        power?: number;
     };
 }
 
@@ -34,14 +35,14 @@ export interface Vote {
     proposal_id: string;
     voter_id: string;
     choice: 'yes' | 'no';
-    voting_power: number;
+    voting_power?: number;
     power?: number;
     signature?: string;
     yes_votes?: number;
     no_votes?: number;
     my_vote?: {
         choice: 'yes' | 'no' | string;
-        power: number;
+        power?: number;
     };
 }
 
@@ -105,13 +106,14 @@ function normalizeMyVote(
     if (choice !== 'yes' && choice !== 'no') return undefined;
     return {
         choice,
-        power: Number(mv.power ?? 1),
+        power: measurement(mv.power),
     };
 }
 
 function normalizeProposal(raw: Record<string, unknown>): Proposal {
-    const yes = Number(raw.yes_votes ?? raw.votes_for ?? 0);
-    const no = Number(raw.no_votes ?? raw.votes_against ?? 0);
+    const yes = measurement(raw.yes_votes ?? raw.votes_for);
+    const no = measurement(raw.no_votes ?? raw.votes_against);
+    if (yes === undefined || no === undefined) throw new Error('Proposal vote measurements are unavailable.');
     const abstain = Number(raw.votes_abstain ?? 0);
     return {
         id: String(raw.id),
@@ -119,7 +121,7 @@ function normalizeProposal(raw: Record<string, unknown>): Proposal {
         description: String(raw.description ?? ''),
         proposer_id: String(raw.proposer_id ?? ''),
         type: String(raw.type ?? 'general'),
-        status: (raw.status as Proposal['status']) ?? 'active',
+        status: (raw.status as Proposal['status']) ?? 'unknown',
         start_time: String(raw.start_time ?? ''),
         end_time: String(raw.end_time ?? ''),
         execution_data:
@@ -130,7 +132,7 @@ function normalizeProposal(raw: Record<string, unknown>): Proposal {
         votes_against: no,
         votes_abstain: abstain,
         total_votes: yes + no + abstain,
-        quorum: Number(raw.quorum ?? 100),
+        quorum: measurement(raw.quorum),
         thread_id: raw.thread_id ? String(raw.thread_id) : undefined,
         ipfs_hash: raw.ipfs_hash ? String(raw.ipfs_hash) : undefined,
         my_vote: normalizeMyVote(raw.my_vote),
@@ -283,7 +285,7 @@ export async function castVote(
         if (response.ok || response.status === 202) {
             const myVote = normalizeMyVote(data.my_vote) ?? {
                 choice,
-                power: Number(data.power ?? 1),
+                power: measurement(data.power),
             };
             return {
                 id: String(data.id ?? ''),
@@ -347,7 +349,7 @@ export async function castGovernanceVote(
     if (buildData.already_voted) {
         const myVote = normalizeMyVote(buildData.my_vote) ?? {
             choice: String(buildData.choice ?? choice) === 'no' ? 'no' : 'yes',
-            power: Number(buildData.power ?? 1),
+            power: measurement(buildData.power),
         };
         // Ensure DB mirror exists for already-on-chain ballots.
         try {
@@ -446,7 +448,7 @@ export async function finalizeProposal(proposalId: string): Promise<{
         throw new Error(governanceErrorMessage(data, 'Failed to finalize proposal'));
     }
     return {
-        status: String(data.status ?? data.message ?? 'finalized'),
+        status: String(data.status ?? data.message ?? 'unknown'),
         tx_sig: typeof data.tx_sig === 'string' ? data.tx_sig : undefined,
     };
 }

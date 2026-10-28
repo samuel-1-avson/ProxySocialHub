@@ -1,5 +1,25 @@
 import { test, expect } from '@playwright/test';
 
+test('regional view uses geographic tiles and public API coordinates', async ({ page }) => {
+  // Keep automated runs off the community tile service. Production uses normal browser caching.
+  await page.route('https://tile.openstreetmap.org/**', route => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><rect width="256" height="256" fill="#e7ecef"/></svg>' }));
+  await page.route('**/api/public?**', route => route.fulfill({ json: {
+    total: 2, nodes: [
+      { node_id: 'regional-node', lat: 5, lon: 0, country: 'GH', geo_source: 'gateway', is_active: true },
+      { node_id: 'unlocated-node', country: 'GH', is_active: false },
+    ],
+  } }));
+  await page.goto('/nodes?view=map');
+  const map = page.getByRole('region', { name: 'Geographic node map' });
+  await expect(map).toBeVisible();
+  await expect(map.locator('img.leaflet-tile-loaded').first()).toHaveAttribute('src', /https:\/\/tile\.openstreetmap\.org\//);
+  await expect(map.locator('.public-node-marker')).toHaveCount(1);
+  await expect(map.locator('.leaflet-control-attribution')).toContainText('OpenStreetMap');
+  await map.locator('.public-node-marker').click();
+  await expect(map.getByRole('link', { name: 'GH · regional-node' })).toHaveAttribute('href', '/nodes/regional-node');
+  await expect(page.getByText('Positions are rounded', { exact: false })).toBeVisible();
+});
+
 test('public navigation, typed lookup, and About work without a wallet', async ({ page }) => {
   await page.goto('/search?type=wallets');
   await expect(page.getByRole('combobox', { name: 'Record type' })).toHaveValue('wallets');
