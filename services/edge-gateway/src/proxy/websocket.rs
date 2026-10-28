@@ -66,9 +66,8 @@ fn ws_accept_key(client_key: &str) -> String {
 /// Parse `?target=host:port` from the request URI query string.
 fn parse_target(query: Option<&str>) -> Option<String> {
     query?.split('&').find_map(|pair| {
-        let mut it = pair.splitn(2, '=');
-        let key = it.next()?;
-        let val = it.next()?;
+        let (key, val) = pair.split_once('=')?;
+
         if key == "target" {
             Some(val.to_string())
         } else {

@@ -30,6 +30,7 @@ func TestCreateSession_Rotating(t *testing.T) {
 
 	email := testutil.UniqueEmail("session_rotating_v3")
 	user := testutil.CreateTestUser(t, email, "buyer")
+	testutil.CreateTestProviderNode(t, testutil.CreateTestUserID(t, "provider")) // the node the session is placed on
 
 	r := setupTestRouter()
 	r.Use(authMiddlewareMock(user.ID.String(), "buyer"))
@@ -94,6 +95,7 @@ func TestCreateSession_Sticky(t *testing.T) {
 
 	email := testutil.UniqueEmail("session_sticky_v3")
 	user := testutil.CreateTestUser(t, email, "buyer")
+	testutil.CreateTestProviderNode(t, testutil.CreateTestUserID(t, "provider")) // the node the session is placed on
 
 	r := setupTestRouter()
 	r.Use(authMiddlewareMock(user.ID.String(), "buyer"))
@@ -446,19 +448,8 @@ func TestCreateSessionFromListing_SuccessLinksListingAndNode(t *testing.T) {
 	buyer := testutil.CreateTestUser(t, testutil.UniqueEmail("buyer_p2p_session"), "buyer")
 	db.DB.Model(&models.Wallet{}).Where("user_id = ?", buyer.ID).Update("balance_sol", 10.0)
 
-	node := models.Node{
-		UserID:            provider.ID,
-		ProviderUserID:    provider.ID,
-		IPAddress:         "127.0.0.1",
-		Port:              8080,
-		IsHealthy:         true,
-		ActiveConnections: 0,
-		MaxConnections:    10,
-		QualityScore:      99,
-	}
-	if err := db.DB.Create(&node).Error; err != nil {
-		t.Fatalf("failed to create node: %v", err)
-	}
+	// Sessions run on a canonical provider node; sessions.node_id is its nodes mirror.
+	_, nodeMirrorID := testutil.CreateTestProviderNode(t, provider.ID)
 
 	listing := models.ProxyListing{
 		SellerID:             provider.ID,
@@ -499,8 +490,8 @@ func TestCreateSessionFromListing_SuccessLinksListingAndNode(t *testing.T) {
 	if session.Status != models.SessionActive {
 		t.Fatalf("expected active session, got %s", session.Status)
 	}
-	if session.NodeID == nil || *session.NodeID != node.ID {
-		t.Fatalf("expected session node %s, got %v", node.ID, session.NodeID)
+	if session.NodeID == nil || *session.NodeID != nodeMirrorID {
+		t.Fatalf("expected session node %s, got %v", nodeMirrorID, session.NodeID)
 	}
 	if session.Type != models.SessionSticky {
 		t.Fatalf("expected sticky session inherited from listing, got %s", session.Type)

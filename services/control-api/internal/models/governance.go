@@ -167,8 +167,8 @@ type PendingUpgrade struct {
 	ProposalID      uuid.UUID `gorm:"type:uuid;not null" json:"proposal_id"`
 	ProgramID       string    `gorm:"type:varchar(64);not null" json:"program_id"`
 	NewVersion      string    `gorm:"type:varchar(128);not null" json:"new_version"`
-	ChangelogCID    string    `gorm:"type:varchar(100)" json:"changelog_cid"`
-	RollbackPlanCID string    `gorm:"type:varchar(100)" json:"rollback_plan_cid"`
+	ChangelogCID    string    `gorm:"column:changelog_cid;type:varchar(100)" json:"changelog_cid"`
+	RollbackPlanCID string    `gorm:"column:rollback_plan_cid;type:varchar(100)" json:"rollback_plan_cid"`
 	ScheduledAt     time.Time `gorm:"not null" json:"scheduled_at"`
 	ExecutedAt      time.Time `json:"executed_at,omitempty"`
 	Status          string    `gorm:"type:varchar(20);default:'scheduled'" json:"status"`

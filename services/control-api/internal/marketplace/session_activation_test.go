@@ -210,6 +210,7 @@ func createActivationFixture(t *testing.T) (models.Order, models.Session, models
 	if err := db.DB.Create(&node).Error; err != nil {
 		t.Fatalf("create provider node: %v", err)
 	}
+	mirrorID := testutil.CreateTestNodeMirror(t, &node)
 
 	listing := models.ProxyListing{
 		SellerID:             provider.ID,
@@ -229,7 +230,7 @@ func createActivationFixture(t *testing.T) (models.Order, models.Session, models
 	session := models.Session{
 		ID:              sessionID,
 		UserID:          buyer.ID,
-		NodeID:          &nodeID,
+		NodeID:          &mirrorID,
 		ListingID:       &listing.ID,
 		Type:            models.SessionRotating,
 		Status:          models.SessionDisabled,

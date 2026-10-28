@@ -27,9 +27,6 @@ type earningFixture struct {
 // non-escrow session served by its node.
 func newEarningFixture(t *testing.T) earningFixture {
 	t.Helper()
-	if err := db.DB.AutoMigrate(&models.ProviderEarning{}); err != nil {
-		t.Fatalf("migrate provider_earnings: %v", err)
-	}
 	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("earn-provider"), "provider")
 	buyer := testutil.CreateTestUser(t, testutil.UniqueEmail("earn-buyer"), "buyer")
 
@@ -46,9 +43,10 @@ func newEarningFixture(t *testing.T) earningFixture {
 	if err := db.DB.Create(&node).Error; err != nil {
 		t.Fatalf("create node: %v", err)
 	}
+	mirrorID := testutil.CreateTestNodeMirror(t, &node)
 	session := models.Session{
 		UserID:          buyer.ID,
-		NodeID:          &node.ID,
+		NodeID:          &mirrorID,
 		Type:            models.SessionRotating,
 		Status:          models.SessionTerminated,
 		CredentialsUser: strings.ReplaceAll(uuid.NewString(), "-", "")[:16],

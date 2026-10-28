@@ -14,10 +14,6 @@ import (
 // pending_transactions query for types nothing writes anymore.
 func TestComputeLiabilitiesLamports_P1_IncludesAllQueues(t *testing.T) {
 	testutil.SetupTestDB(t)
-	if err := db.DB.AutoMigrate(&models.PendingPayout{}, &models.BatchPayout{}, &models.PayoutRetryQueue{},
-		&models.WithdrawalPayout{}, &models.CompensationOutbox{}, &models.EscrowTransaction{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
 	testutil.CleanupTestData(t, "escrow_transactions", "orders", "users", "wallets", "pending_payouts", "batch_payouts", "payout_retry_queue",
 		"withdrawal_payout_queue", "compensation_outbox")
 
@@ -48,7 +44,7 @@ func TestComputeLiabilitiesLamports_P1_IncludesAllQueues(t *testing.T) {
 	// compensation 0.05 SOL pending
 	must(db.DB.Create(&models.CompensationOutbox{UserID: user.ID, AmountSOL: 0.05, Status: models.CompensationStatusPending, ReferenceID: "c1", Kind: models.CompensationKindWithdrawalRefund}).Error)
 	// escrow held 1.2 SOL (real FKs: seller + listing + order)
-	seller := testutil.CreateTestUser(t, testutil.UniqueEmail("recon-p1-seller"), "seller")
+	seller := testutil.CreateTestUser(t, testutil.UniqueEmail("recon-p1-seller"), "provider")
 	must(db.DB.Model(&models.Wallet{}).Where("user_id = ?", seller.ID).
 		Updates(map[string]interface{}{"balance_lamports": 0, "balance_sol": 0}).Error)
 	listing := models.ProxyListing{SellerID: seller.ID, Title: "recon", PricePerGB: 1, AvailableBandwidthGB: 10, Status: "active"}

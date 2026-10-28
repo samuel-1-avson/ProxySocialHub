@@ -7,6 +7,7 @@ mod interactive;
 mod ip;
 mod lease_policy;
 mod operator;
+mod pair;
 mod paths;
 mod process_util;
 mod proofs;
@@ -100,6 +101,41 @@ enum Commands {
             default_value = "proxy.proxyhubb.com:3128"
         )]
         gateway_addr: String,
+
+        /// Overwrite an existing provider.toml
+        #[arg(long, default_value_t = false)]
+        force: bool,
+
+        /// Write config to this path (default: platform config dir)
+        #[arg(short, long)]
+        config: Option<String>,
+    },
+
+    /// Connect this computer to your account: show a code, approve it in the dashboard
+    Pair {
+        /// Control API URL
+        #[arg(
+            long,
+            env = "PROXYHUB_API_URL",
+            default_value = "https://api.proxyhubb.com"
+        )]
+        api_url: String,
+
+        /// Primary Edge Gateway address (host:port)
+        #[arg(
+            long,
+            env = "PROXYHUB_GATEWAY_ADDR",
+            default_value = "proxy.proxyhubb.com:3128"
+        )]
+        gateway_addr: String,
+
+        /// Name shown on the approval page (default: this computer's name)
+        #[arg(long)]
+        device_name: Option<String>,
+
+        /// Print the code and link instead of opening a browser
+        #[arg(long, default_value_t = false)]
+        no_browser: bool,
 
         /// Overwrite an existing provider.toml
         #[arg(long, default_value_t = false)]
@@ -455,76 +491,48 @@ async fn main() -> anyhow::Result<()> {
             };
 
             println!("Joining existing dashboard node…");
-            println!("Authenticating with Control API…");
-            let (_user_id, _jwt) = ip::validate_api_key(&api_url, &api_key).await?;
-            println!("✓ API token accepted");
+            install_provider_config(
+                &api_url,
+                &gateway_addr,
+                &api_key,
+                &node_id,
+                config,
+                force,
+                true,
+            )
+            .await?;
+        }
 
+        Commands::Pair {
+            api_url,
+            gateway_addr,
+            device_name,
+            no_browser,
+            force,
+            config,
+        } => {
+            init_logging(false);
+            // Check before asking anyone to approve anything: a pairing mints a token
+            // and a node, so failing on an existing config afterwards would waste both.
             let config_path = config
+                .clone()
                 .map(std::path::PathBuf::from)
                 .unwrap_or_else(paths::config_file);
-            if config_path.exists() && !force {
-                eprintln!(
-                    "Config already exists at {}. Re-run with --force to overwrite.",
-                    config_path.display()
-                );
-                std::process::exit(1);
-            }
+            refuse_if_config_exists(&config_path, force);
 
-            let host = gateway_addr
-                .split(':')
-                .next()
-                .unwrap_or("proxy.proxyhubb.com")
-                .to_string();
-            let mut gateway_addrs = vec![];
-            if gateway_addr.ends_with(":3128") {
-                gateway_addrs.push(format!("{host}:8443"));
-            }
-            // J2 / production tunnel listeners are TLS (TLS_CERT_PATH). Loopback is
-            // still TLS with a self-signed cert — do not force plaintext for 127.0.0.1
-            // or yamux AUTH dies with decode EOF during the TLS handshake.
-            let use_tls = true;
-            let tls_skip_verify = host == "localhost" || host == "127.0.0.1";
-            // Preserve existing hotkey on --force unless the file has none.
-            let signing_key = if force && config_path.exists() {
-                match config::Config::load(config_path.to_str().unwrap_or("")) {
-                    Ok(existing) if !existing.provider_signing_key.trim().is_empty() => {
-                        existing.provider_signing_key
-                    }
-                    _ => resolve_registration_signing_key(None, false)?,
-                }
-            } else {
-                resolve_registration_signing_key(None, false)?
-            };
-
-            let cfg = config::Config {
-                control_api_url: api_url.clone(),
-                gateway_addr: gateway_addr.clone(),
-                gateway_addrs,
-                api_key: api_key.clone(),
-                node_id: node_id.clone(),
-                connection_type: "residential".to_string(),
-                provider_signing_key: signing_key,
-                use_tls,
-                tls_skip_verify,
-                ..config::Config::default()
-            };
-            cfg.save(&config_path)?;
-
-            println!();
-            println!("╔══════════════════════════════════════════════════════════╗");
-            println!("║              ✓ PROVIDER CONFIG INSTALLED                 ║");
-            println!("╚══════════════════════════════════════════════════════════╝");
-            println!();
-            println!("Node ID: {node_id}");
-            println!("Gateway: {gateway_addr} (TLS={use_tls}, skip_verify={tls_skip_verify})");
-            if !cfg.provider_signing_key.is_empty() {
-                let signer = proofs::ProviderSigner::from_base58(&cfg.provider_signing_key)?;
-                println!("Provider hotkey: {}", signer.public_key());
-            }
-            println!("Config written to: {}", config_path.display());
-            println!();
-            println!("Next:");
-            println!("  provider-node start");
+            let granted = pair::run(&api_url, device_name, !no_browser).await?;
+            // The key is shown exactly once, so write it before anything else can fail.
+            // Pairing just minted it, so the check `join` does for typed-in keys is skipped.
+            install_provider_config(
+                &api_url,
+                &gateway_addr,
+                &granted.api_key,
+                &granted.node_id,
+                config,
+                force,
+                false,
+            )
+            .await?;
         }
 
         Commands::Keygen { json } => {
@@ -1135,6 +1143,99 @@ fn write_pid_file(path: &std::path::Path) -> anyhow::Result<()> {
         std::fs::create_dir_all(parent)?;
     }
     std::fs::write(path, std::process::id().to_string())?;
+    Ok(())
+}
+
+/// Exit with a hint unless `provider.toml` can be (over)written.
+fn refuse_if_config_exists(config_path: &std::path::Path, force: bool) {
+    if config_path.exists() && !force {
+        eprintln!(
+            "Config already exists at {}. Re-run with --force to overwrite.",
+            config_path.display()
+        );
+        std::process::exit(1);
+    }
+}
+
+/// Write the ready-to-run `provider.toml` that both `join` and `pair` produce.
+///
+/// `validate_key` re-checks the key with the Control API first; `join` does that for a key a
+/// person typed in, `pair` skips it because the key was minted a moment ago.
+async fn install_provider_config(
+    api_url: &str,
+    gateway_addr: &str,
+    api_key: &str,
+    node_id: &str,
+    config: Option<String>,
+    force: bool,
+    validate_key: bool,
+) -> anyhow::Result<()> {
+    if validate_key {
+        println!("Authenticating with Control API…");
+        let (_user_id, _jwt) = ip::validate_api_key(api_url, api_key).await?;
+        println!("✓ API token accepted");
+    }
+
+    let config_path = config
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(paths::config_file);
+    refuse_if_config_exists(&config_path, force);
+
+    let host = gateway_addr
+        .split(':')
+        .next()
+        .unwrap_or("proxy.proxyhubb.com")
+        .to_string();
+    let mut gateway_addrs = vec![];
+    if gateway_addr.ends_with(":3128") {
+        gateway_addrs.push(format!("{host}:8443"));
+    }
+    // J2 / production tunnel listeners are TLS (TLS_CERT_PATH). Loopback is
+    // still TLS with a self-signed cert — do not force plaintext for 127.0.0.1
+    // or yamux AUTH dies with decode EOF during the TLS handshake.
+    let use_tls = true;
+    let tls_skip_verify = host == "localhost" || host == "127.0.0.1";
+    // Preserve existing hotkey on --force unless the file has none.
+    let signing_key = if force && config_path.exists() {
+        match config::Config::load(config_path.to_str().unwrap_or("")) {
+            Ok(existing) if !existing.provider_signing_key.trim().is_empty() => {
+                existing.provider_signing_key
+            }
+            _ => resolve_registration_signing_key(None, false)?,
+        }
+    } else {
+        resolve_registration_signing_key(None, false)?
+    };
+
+    let cfg = config::Config {
+        control_api_url: api_url.to_string(),
+        gateway_addr: gateway_addr.to_string(),
+        gateway_addrs,
+        api_key: api_key.to_string(),
+        node_id: node_id.to_string(),
+        connection_type: "residential".to_string(),
+        provider_signing_key: signing_key,
+        use_tls,
+        tls_skip_verify,
+        ..config::Config::default()
+    };
+    cfg.save(&config_path)?;
+
+    println!();
+    println!("╔══════════════════════════════════════════════════════════╗");
+    println!("║              ✓ PROVIDER CONFIG INSTALLED                 ║");
+    println!("╚══════════════════════════════════════════════════════════╝");
+    println!();
+    println!("Node ID: {node_id}");
+    println!("Gateway: {gateway_addr} (TLS={use_tls}, skip_verify={tls_skip_verify})");
+    if !cfg.provider_signing_key.is_empty() {
+        let signer = proofs::ProviderSigner::from_base58(&cfg.provider_signing_key)?;
+        println!("Provider hotkey: {}", signer.public_key());
+    }
+    println!("Config written to: {}", config_path.display());
+    println!();
+    println!("Next:");
+    println!("  provider-node start");
     Ok(())
 }
 

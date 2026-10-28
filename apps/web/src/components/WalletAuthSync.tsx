@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useAuth } from '@/lib/auth';
-import { clearSolanaWalletAdapterSession } from '@/lib/solana-wallet-session';
+import { bindWalletSessionClear, clearSolanaWalletAdapterSession } from '@/lib/solana-wallet-session';
 
 function playwrightTestWalletActive(): boolean {
   if (process.env.NODE_ENV === 'production') return false;
@@ -29,18 +29,7 @@ export function WalletAuthSync() {
 
   useEffect(() => {
     if (playwrightTestWalletActive()) return;
-    const onClear = () => {
-      clearSolanaWalletAdapterSession();
-      if (connected) {
-        void disconnect().catch(() => undefined);
-      }
-    };
-    window.addEventListener('proxyhubb:wallet-session-clear', onClear);
-    window.addEventListener('proxyhubb:auth-logout', onClear);
-    return () => {
-      window.removeEventListener('proxyhubb:wallet-session-clear', onClear);
-      window.removeEventListener('proxyhubb:auth-logout', onClear);
-    };
+    return bindWalletSessionClear({ isConnected: () => connected, disconnect });
   }, [connected, disconnect]);
 
   useEffect(() => {

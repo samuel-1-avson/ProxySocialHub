@@ -51,8 +51,10 @@ type SessionIntentRecord struct {
 	TargetGeo               string                 `gorm:"type:varchar(16)" json:"target_geo,omitempty"`
 	TargetISP               string                 `gorm:"type:varchar(120)" json:"target_isp,omitempty"`
 	RoutingProfile          string                 `gorm:"type:varchar(120)" json:"routing_profile,omitempty"`
-	AllowedDomains          pq.StringArray         `gorm:"type:text[]" json:"allowed_domains"`
-	BlockedDomains          pq.StringArray         `gorm:"type:text[]" json:"blocked_domains"`
+	// default matches the NOT NULL DEFAULT '{}' columns (000073): a nil slice is
+	// omitted instead of inserted as NULL.
+	AllowedDomains          pq.StringArray         `gorm:"type:text[];default:'{}'" json:"allowed_domains"`
+	BlockedDomains          pq.StringArray         `gorm:"type:text[];default:'{}'" json:"blocked_domains"`
 	RotationType            string                 `gorm:"type:varchar(32)" json:"rotation_type,omitempty"`
 	RotationIntervalSeconds int                    `gorm:"default:0" json:"rotation_interval_seconds"`
 	TimeLimitMinutes        int                    `gorm:"default:0" json:"time_limit_minutes"`

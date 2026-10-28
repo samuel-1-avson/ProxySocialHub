@@ -133,7 +133,6 @@ func NewTreasuryManager() *TreasuryManager {
 // pointer captured at NewTreasuryManager — RegisterOracleClient may run later.
 func (tm *TreasuryManager) oracleClient() *solana.OracleClient {
 	if c := solana.GetOracleClient(); c != nil {
-		tm.oracle = c
 		return c
 	}
 	return tm.oracle

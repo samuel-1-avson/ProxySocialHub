@@ -86,7 +86,13 @@ impl UsageTracker {
                 session_username
             );
             let spilled = self
-                .spill_to_control_api(session_username, bytes_up, bytes_down, None, "redis_wal_fail")
+                .spill_to_control_api(
+                    session_username,
+                    bytes_up,
+                    bytes_down,
+                    None,
+                    "redis_wal_fail",
+                )
                 .await;
             if spilled {
                 // Spill owns durability; skip in-memory accumulate to avoid double flush→report.
