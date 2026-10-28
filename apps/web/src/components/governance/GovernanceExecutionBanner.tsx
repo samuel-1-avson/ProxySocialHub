@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import {
     getGovernanceExecutionReadiness,
     type GovernanceExecutionReport,
 } from "@/lib/services/governance";
+import { Loading } from "@/components/workspace/Patterns";
 
 export function GovernanceExecutionBanner() {
     const [report, setReport] = useState<GovernanceExecutionReport | null>(null);
@@ -33,22 +34,17 @@ export function GovernanceExecutionBanner() {
     }, []);
 
     if (loading) {
-        return (
-            <div className="flex items-center gap-3 p-4 rounded-xl border border-white/10 bg-white/2 text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">
-                <Loader2 size={14} className="animate-spin" />
-                Checking on-chain governance readiness…
-            </div>
-        );
+        return <Loading label="Checking on-chain governance readiness…" />;
     }
 
     if (error) {
         return (
-            <div className="flex items-start gap-3 p-4 rounded-xl border border-amber-500/20 bg-amber-500/5 text-amber-200/90">
-                <AlertTriangle size={16} className="shrink-0 mt-0.5" />
-                <div className="space-y-1 text-[10px] font-black uppercase tracking-widest leading-relaxed">
-                    <p>Could not verify governance execution status.</p>
-                    <p className="text-muted-foreground/60 normal-case font-mono text-[11px]">{error}</p>
-                </div>
+            <div className="ui-error" role="alert">
+                <strong className="ui-inline-icon">
+                    <AlertTriangle size={17} aria-hidden="true" />
+                    Could not verify governance execution status.
+                </strong>
+                <p>{error}</p>
             </div>
         );
     }
@@ -57,39 +53,28 @@ export function GovernanceExecutionBanner() {
 
     if (report.ready) {
         return (
-            <div className="flex items-start gap-3 p-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5">
-                <CheckCircle2 size={16} className="text-emerald-500 shrink-0 mt-0.5" />
-                <div className="space-y-1 text-[10px] font-black uppercase tracking-widest text-emerald-200/90 leading-relaxed">
-                    <p>On-chain governance is active</p>
-                    <p className="text-muted-foreground/50 normal-case font-mono text-[11px] font-normal">
-                        Create and vote using your linked Solana wallet. Voting power follows your PHB
-                        balance at vote time. Quorum is measured in voting power (VP), not voter count.
-                    </p>
-                </div>
-            </div>
+            <p className="ui-note">
+                <CheckCircle2 size={14} className="inline mr-1" aria-hidden="true" />
+                On-chain governance is active. Create and vote using your linked Solana wallet. Voting
+                power follows your PHB balance at vote time. Quorum is measured in voting power (VP),
+                not voter count.
+            </p>
         );
     }
 
     return (
-        <div className="flex items-start gap-3 p-4 rounded-xl border border-rose-500/20 bg-rose-500/5">
-            <AlertTriangle size={16} className="text-rose-400 shrink-0 mt-0.5" />
-            <div className="space-y-2 text-[10px] font-black uppercase tracking-widest text-rose-200/90 leading-relaxed">
-                <p>On-chain governance is not ready ({report.status})</p>
-                <p className="text-muted-foreground/50 normal-case font-mono text-[11px] font-normal">
-                    {report.message}
-                </p>
-                {report.missing_instructions && report.missing_instructions.length > 0 && (
-                    <p className="text-muted-foreground/40 normal-case font-mono text-[10px] font-normal">
-                        Missing instructions: {report.missing_instructions.join(", ")}
-                    </p>
-                )}
-                <Link
-                    href="/dashboard/wallet"
-                    className="inline-block text-primary hover:underline normal-case font-mono text-[11px]"
-                >
-                    Link a Solana wallet before proposing or voting
-                </Link>
-            </div>
+        <div className="ui-error" role="alert">
+            <strong className="ui-inline-icon">
+                <AlertTriangle size={17} aria-hidden="true" />
+                On-chain governance is not ready ({report.status})
+            </strong>
+            <p>{report.message}</p>
+            {report.missing_instructions && report.missing_instructions.length > 0 && (
+                <p>Missing instructions: {report.missing_instructions.join(", ")}</p>
+            )}
+            <Link href="/dashboard/wallet" className="ui-link text-sm">
+                Link a Solana wallet before proposing or voting
+            </Link>
         </div>
     );
 }

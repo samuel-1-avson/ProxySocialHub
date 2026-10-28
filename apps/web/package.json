@@ -16,6 +16,7 @@
     "test:listing-display": "node scripts/listing-display-contract.mjs",
     "test:order-status": "node scripts/order-status-contract.mjs",
     "test:wallet-session": "node scripts/wallet-session-contract.mjs",
+    "test:explorer-redirects": "node --test scripts/explorer-redirects.test.mjs",
     "validate:routes": "node scripts/validate-routes.mjs",
     "start": "next start",
     "lint": "eslint",

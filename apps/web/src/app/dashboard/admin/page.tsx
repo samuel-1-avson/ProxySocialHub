@@ -14,7 +14,14 @@ import Link from "next/link";
 import { useState } from "react";
 import { ForumReportsQueue } from "@/components/admin/ForumReportsQueue";
 import { MarketplaceFunnelDashboard } from "@/components/admin/MarketplaceFunnelDashboard";
-import { AlertCircle, ArrowLeft, BarChart3, Check, Loader2, MessageSquare, Shield, X } from "lucide-react";
+import { ConfirmDialog } from "@/components/patterns/ConfirmDialog";
+import {
+    PageHeading,
+    Loading,
+    DataError,
+    EmptyState,
+} from "@/components/workspace/Patterns";
+import { Check } from "lucide-react";
 import { getErrorMessage } from "@/lib/utils";
 
 type AdminTab = "listings" | "forum" | "funnel";
@@ -25,6 +32,8 @@ export default function DashboardAdminModerationPage() {
     const queryClient = useQueryClient();
     const [tab, setTab] = useState<AdminTab>("listings");
     const [page, setPage] = useState(1);
+    const [rejectTarget, setRejectTarget] = useState<{ id: string; title: string } | null>(null);
+    const [rejectReason, setRejectReason] = useState("");
     const limit = 20;
 
     const { data, isLoading, error, refetch } = useQuery({
@@ -34,6 +43,7 @@ export default function DashboardAdminModerationPage() {
     });
 
     const approveMutation = useMutation({
+        retry: false,
         mutationFn: (id: string) => approveListing(id),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: moderationKeys.all });
@@ -42,32 +52,44 @@ export default function DashboardAdminModerationPage() {
     });
 
     const rejectMutation = useMutation({
+        retry: false,
         mutationFn: ({ id, reason }: { id: string; reason?: string }) => rejectListing(id, reason),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: moderationKeys.all });
             queryClient.invalidateQueries({ queryKey: marketplaceKeys.all });
+            setRejectTarget(null);
+            setRejectReason("");
         },
     });
 
     if (!isAuthenticated) {
         return (
-            <div className="max-w-3xl mx-auto px-4 py-16 text-center">
-                <p className="text-muted-foreground mb-4">Sign in to access admin tools.</p>
-                <Link href="/login" className="text-primary font-bold uppercase text-xs tracking-widest">
-                    Log in
-                </Link>
+            <div className="ui-page">
+                <PageHeading
+                    title="Moderation"
+                    description="Sign in to access admin tools."
+                    actions={
+                        <Link href="/login" className="ui-button">
+                            Log in
+                        </Link>
+                    }
+                />
             </div>
         );
     }
 
     if (!isAdmin) {
         return (
-            <div className="max-w-3xl mx-auto px-4 py-16 text-center space-y-4">
-                <Shield className="mx-auto text-muted-foreground/40" size={48} />
-                <p className="text-muted-foreground">Admin or moderator access is required.</p>
-                <Link href="/dashboard" className="text-primary font-bold uppercase text-xs tracking-widest">
-                    Back to dashboard
-                </Link>
+            <div className="ui-page">
+                <PageHeading
+                    title="Moderation"
+                    description="Admin or moderator access is required."
+                    actions={
+                        <Link href="/dashboard" className="ui-button secondary">
+                            Back to dashboard
+                        </Link>
+                    }
+                />
             </div>
         );
     }
@@ -77,169 +99,181 @@ export default function DashboardAdminModerationPage() {
     const totalPages = Math.max(1, Math.ceil(total / limit));
 
     return (
-        <div className="max-w-4xl mx-auto px-4 py-10 space-y-8">
-            <div>
-                <Link
-                    href="/dashboard"
-                    className="inline-flex items-center gap-2 text-[10px] font-bold text-muted-foreground hover:text-primary uppercase tracking-widest mb-3"
-                >
-                    <ArrowLeft size={12} /> Dashboard
-                </Link>
-                <h1 className="text-3xl font-black tracking-tighter uppercase italic">
-                    Moderation <span className="text-primary">console</span>
-                </h1>
-            </div>
+        <div className="ui-page">
+            <PageHeading
+                eyebrow="Admin"
+                title="Moderation"
+                description="Review marketplace listings, forum reports, and funnel health."
+                actions={
+                    <Link href="/dashboard" className="ui-button secondary">
+                        Dashboard
+                    </Link>
+                }
+            />
 
-            <div className="flex gap-2 border-b border-white/10 pb-2 flex-wrap">
+            <nav className="ui-tabs" aria-label="Moderation views">
                 <button
                     type="button"
                     onClick={() => setTab("listings")}
-                    className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest ${
-                        tab === "listings"
-                            ? "bg-primary/10 text-primary border border-primary/30"
-                            : "text-muted-foreground hover:text-foreground"
-                    }`}
+                    className={tab === "listings" ? "active" : ""}
                 >
-                    <Shield size={14} /> Listings
+                    Listings
                 </button>
                 <button
                     type="button"
                     onClick={() => setTab("forum")}
-                    className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest ${
-                        tab === "forum"
-                            ? "bg-primary/10 text-primary border border-primary/30"
-                            : "text-muted-foreground hover:text-foreground"
-                    }`}
+                    className={tab === "forum" ? "active" : ""}
                 >
-                    <MessageSquare size={14} /> Forum reports
+                    Forum reports
                 </button>
                 <button
                     type="button"
                     onClick={() => setTab("funnel")}
-                    className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest ${
-                        tab === "funnel"
-                            ? "bg-primary/10 text-primary border border-primary/30"
-                            : "text-muted-foreground hover:text-foreground"
-                    }`}
+                    className={tab === "funnel" ? "active" : ""}
                 >
-                    <BarChart3 size={14} /> Funnel
+                    Funnel
                 </button>
-            </div>
+            </nav>
 
             {tab === "forum" ? (
                 <ForumReportsQueue enabled={isAuthenticated && isAdmin} />
             ) : tab === "funnel" ? (
                 <MarketplaceFunnelDashboard mode="admin" enabled={isAuthenticated && isAdmin} />
             ) : (
-            <div data-testid="admin-listing-moderation" className="space-y-8">
-            <div>
-                <div className="flex items-center gap-2 text-primary font-bold uppercase tracking-wider text-xs mb-2">
-                    <Shield size={14} />
-                    Marketplace listings
-                </div>
-                <p className="text-sm text-muted-foreground mt-2">
-                    Approve listings before they appear on browse, search, and map when{" "}
-                    <code className="text-xs bg-white/5 px-1 rounded">MARKETPLACE_LISTING_MODERATION=enforce</code>{" "}
-                    is set on the API.
-                </p>
-            </div>
-
-            {isLoading && (
-                <div className="flex flex-col items-center py-16 gap-3">
-                    <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                    <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest">
-                        Loading queue…
+                <div data-testid="admin-listing-moderation" className="space-y-8">
+                    <p className="ui-note">
+                        Approve listings before they appear on browse, search, and map when{" "}
+                        <code className="ui-code" style={{ padding: "2px 6px", display: "inline" }}>
+                            MARKETPLACE_LISTING_MODERATION=enforce
+                        </code>{" "}
+                        is set on the API.
                     </p>
-                </div>
-            )}
 
-            {error && (
-                <div className="flex items-start gap-3 p-4 rounded-xl border border-red-500/20 bg-red-500/5 text-sm text-red-400">
-                    <AlertCircle size={18} className="shrink-0 mt-0.5" />
-                    <span>{getErrorMessage(error)}</span>
-                </div>
-            )}
+                    {isLoading && <Loading label="Loading queue…" />}
 
-            {!isLoading && !error && listings.length === 0 && (
-                <div className="text-center py-16 border border-dashed border-white/10 rounded-2xl">
-                    <p className="text-muted-foreground">No listings awaiting review.</p>
-                </div>
-            )}
+                    {error && (
+                        <DataError error={error} retry={() => void refetch()} />
+                    )}
 
-            <ul className="space-y-3">
-                {listings.map((listing) => (
-                    <li
-                        key={listing.id}
-                        className="p-4 rounded-xl border border-white/10 bg-white/[0.02] space-y-3"
-                        data-testid={`pending-listing-${listing.id}`}
-                    >
-                        <div>
-                            <h2 className="font-bold">{listing.title}</h2>
-                            <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                                {listing.description}
-                            </p>
-                            <p className="text-[10px] font-mono text-primary/80 mt-2">
-                                {listing.country} · {listing.proxy_type} · ${Number(listing.price_per_gb || 0).toFixed(4)}/GB
-                            </p>
+                    {!isLoading && !error && listings.length === 0 && (
+                        <EmptyState
+                            title="No listings awaiting review"
+                            description="New submissions will appear here when moderation is enforced."
+                        />
+                    )}
+
+                    <ul className="space-y-3">
+                        {listings.map((listing) => (
+                            <li
+                                key={listing.id}
+                                className="ui-surface space-y-3"
+                                data-testid={`pending-listing-${listing.id}`}
+                            >
+                                <div>
+                                    <h2>{listing.title}</h2>
+                                    <p className="text-sm text-muted-foreground mt-1">
+                                        {listing.description}
+                                    </p>
+                                    <p className="ui-note mt-2">
+                                        {listing.country} · {listing.proxy_type} · $
+                                        {Number(listing.price_per_gb || 0).toFixed(4)}/GB
+                                    </p>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    <button
+                                        type="button"
+                                        disabled={approveMutation.isPending}
+                                        onClick={() => approveMutation.mutate(listing.id)}
+                                        className="ui-button small"
+                                    >
+                                        <Check size={14} aria-hidden="true" /> Approve
+                                    </button>
+                                    <button
+                                        type="button"
+                                        disabled={rejectMutation.isPending}
+                                        onClick={() => {
+                                            setRejectReason("");
+                                            setRejectTarget({ id: listing.id, title: listing.title });
+                                        }}
+                                        className="ui-button small secondary"
+                                    >
+                                        Reject
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => void refetch()}
+                                        className="ui-button small ghost"
+                                    >
+                                        Refresh
+                                    </button>
+                                </div>
+                            </li>
+                        ))}
+                    </ul>
+
+                    {total > limit && (
+                        <div className="ui-pagination">
+                            <button
+                                type="button"
+                                disabled={page <= 1}
+                                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                                className="ui-button small secondary"
+                            >
+                                Previous
+                            </button>
+                            <span>
+                                {page} / {totalPages}
+                            </span>
+                            <button
+                                type="button"
+                                disabled={page >= totalPages}
+                                onClick={() => setPage((p) => p + 1)}
+                                className="ui-button small secondary"
+                            >
+                                Next
+                            </button>
                         </div>
-                        <div className="flex flex-wrap gap-2">
-                            <button
-                                type="button"
-                                disabled={approveMutation.isPending}
-                                onClick={() => approveMutation.mutate(listing.id)}
-                                className="px-4 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-1 disabled:opacity-50"
-                            >
-                                <Check size={12} /> Approve
-                            </button>
-                            <button
-                                type="button"
-                                disabled={rejectMutation.isPending}
-                                onClick={() => {
-                                    const reason = window.prompt("Rejection reason (optional):", "");
-                                    if (reason === null) return;
-                                    rejectMutation.mutate({ id: listing.id, reason: reason || undefined });
-                                }}
-                                className="px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-1 disabled:opacity-50"
-                            >
-                                <X size={12} /> Reject
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => void refetch()}
-                                className="px-4 py-2 rounded-lg border border-white/10 text-[10px] font-bold uppercase tracking-widest text-muted-foreground hover:text-foreground"
-                            >
-                                Refresh
-                            </button>
-                        </div>
-                    </li>
-                ))}
-            </ul>
-
-            {total > limit && (
-                <div className="flex justify-center items-center gap-6">
-                    <button
-                        type="button"
-                        disabled={page <= 1}
-                        onClick={() => setPage((p) => Math.max(1, p - 1))}
-                        className="text-[10px] font-black uppercase tracking-widest text-muted-foreground disabled:opacity-30"
-                    >
-                        Previous
-                    </button>
-                    <span className="text-sm font-mono">
-                        {page} / {totalPages}
-                    </span>
-                    <button
-                        type="button"
-                        disabled={page >= totalPages}
-                        onClick={() => setPage((p) => p + 1)}
-                        className="text-[10px] font-black uppercase tracking-widest text-muted-foreground disabled:opacity-30"
-                    >
-                        Next
-                    </button>
+                    )}
                 </div>
             )}
-            </div>
-            )}
+
+            <ConfirmDialog
+                open={rejectTarget !== null}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setRejectTarget(null);
+                        setRejectReason("");
+                    }
+                }}
+                title="Reject listing"
+                description={
+                    rejectTarget
+                        ? `Reject “${rejectTarget.title}”? It will not appear on browse, search, or map.`
+                        : undefined
+                }
+                confirmLabel="Reject listing"
+                cancelLabel="Keep listing"
+                destructive
+                loading={rejectMutation.isPending}
+                error={rejectMutation.error ? getErrorMessage(rejectMutation.error) : undefined}
+                onConfirm={() => {
+                    if (!rejectTarget) return;
+                    rejectMutation.mutate({
+                        id: rejectTarget.id,
+                        reason: rejectReason.trim() || undefined,
+                    });
+                }}
+            >
+                <label className="ui-field">
+                    Rejection reason (optional)
+                    <input
+                        className="ui-input w-full"
+                        value={rejectReason}
+                        onChange={(e) => setRejectReason(e.target.value)}
+                        placeholder="Optional note for the seller"
+                    />
+                </label>
+            </ConfirmDialog>
         </div>
     );
 }

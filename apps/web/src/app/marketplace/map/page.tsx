@@ -4,10 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
-import { motion } from 'framer-motion';
-import { Globe, Loader2, MapPin, Search, ShoppingCart, X } from 'lucide-react';
-import { GlassCard } from '@/components/ui/glass-card';
+import { Loader2, Search, X } from 'lucide-react';
 import { BuyListingModal } from '@/components/BuyListingModal';
+import { PageHeading } from '@/components/workspace/Patterns';
 import { CatalogProductBadge } from '@/components/marketplace/CatalogProductBadge';
 import { ListingSocialPanel } from '@/components/marketplace/ListingSocialPanel';
 import { ListingQASection } from '@/components/marketplace/ListingQASection';
@@ -30,11 +29,7 @@ const ProxyMapCanvas = dynamic(
     {
         ssr: false,
         loading: () => (
-            <div className="w-full h-full min-h-[480px] flex items-center justify-center bg-[#050508] rounded-[2rem]">
-                <span className="text-[10px] font-black text-white/20 uppercase tracking-widest animate-pulse">
-                    Loading map…
-                </span>
-            </div>
+            <div className="ui-loading" role="status">Loading map…</div>
         ),
     },
 );
@@ -227,101 +222,67 @@ export default function MarketplaceMapPage() {
     }, [handleBuy]);
 
     return (
-        <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="space-y-8 pb-24 font-mono"
-        >
-            <header className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-4 border-b border-white/5 pb-8">
-                <div>
-                    <div className="flex flex-wrap items-center gap-4 mb-4">
-                        <MarketplaceDiscoverTabs />
-                        <Link
-                            href="/community/feed"
-                            className="text-[10px] font-black text-white/25 hover:text-primary uppercase tracking-[0.3em]"
-                        >
-                            Community feed →
-                        </Link>
-                    </div>
-                    <h1 className="text-4xl font-black uppercase tracking-tighter text-white flex items-center gap-3">
-                        <MapPin className="text-emerald-400" size={32} />
-                        Marketplace map
-                    </h1>
-                    <p className="text-[11px] text-white/30 uppercase tracking-widest mt-2">
-                        Geographic view of purchasable proxies · click a pin to buy on the map
-                        {searchBBox && (
-                            <span className="text-amber-400/90"> · area filter on</span>
-                        )}
-                    </p>
-                </div>
-                <div className="flex gap-3 flex-wrap">
-                    <GlassCard className="!p-4 min-w-[80px] text-center">
-                        <div className="text-xl font-black text-white">{data?.listing_count ?? pins.length}</div>
-                        <div className="text-[8px] text-white/30 uppercase tracking-widest">Listings</div>
-                    </GlassCard>
-                    <GlassCard className="!p-4 min-w-[80px] text-center">
-                        <div className="text-xl font-black text-emerald-400">{plotted.length}</div>
-                        <div className="text-[8px] text-white/30 uppercase tracking-widest">On map</div>
-                    </GlassCard>
-                    <GlassCard className="!p-4 min-w-[80px] text-center">
-                        <div className="text-xl font-black text-primary">{data?.node_count ?? 0}</div>
-                        <div className="text-[8px] text-white/30 uppercase tracking-widest">Nodes</div>
-                    </GlassCard>
-                </div>
-            </header>
+        <div className="ui-page">
+            <MarketplaceDiscoverTabs />
+            <PageHeading
+                eyebrow="Marketplace"
+                title="Map"
+                description={
+                    searchBBox
+                        ? "Purchasable proxies in the selected map area. Choose a pin to review the offer."
+                        : "Purchasable proxies by location. Choose a pin to review the offer."
+                }
+                actions={
+                    <>
+                        <div>
+                            <div className="ui-stat-label">Listings</div>
+                            <div className="ui-stat-value">{data?.listing_count ?? pins.length}</div>
+                        </div>
+                        <div>
+                            <div className="ui-stat-label">On map</div>
+                            <div className="ui-stat-value">{plotted.length}</div>
+                        </div>
+                        <div>
+                            <div className="ui-stat-label">Nodes</div>
+                            <div className="ui-stat-value">{data?.node_count ?? 0}</div>
+                        </div>
+                    </>
+                }
+            />
 
-            <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
-                <div className="xl:col-span-3 relative">
-                    <GlassCard className="!p-0 overflow-hidden border-white/5 min-h-[520px]">
-                        {viewport != null && (areaSearchStale || !searchBBox) ? (
-                            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex gap-2">
-                                <button
-                                    type="button"
-                                    onClick={searchThisArea}
-                                    disabled={isFetching}
-                                    className="flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/20 border border-emerald-500/50 text-[10px] font-black uppercase tracking-widest text-emerald-300 hover:bg-emerald-500/30 shadow-lg disabled:opacity-50"
-                                >
-                                    {isFetching ? (
-                                        <Loader2 size={12} className="animate-spin" />
-                                    ) : (
-                                        <Search size={12} />
-                                    )}
-                                    Search this area
+            <div className="market-map">
+                <div className="market-map-stage">
+                    {viewport != null && (areaSearchStale || !searchBBox) ? (
+                        <div className="market-map-float center">
+                            <button type="button" className="ui-button small" onClick={searchThisArea} disabled={isFetching}>
+                                {isFetching ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : <Search size={14} aria-hidden="true" />}
+                                Search this area
+                            </button>
+                            {searchBBox ? (
+                                <button type="button" className="ui-button secondary small" onClick={clearAreaSearch}>
+                                    <X size={14} aria-hidden="true" />
+                                    Clear area
                                 </button>
-                                {searchBBox && (
-                                    <button
-                                        type="button"
-                                        onClick={clearAreaSearch}
-                                        className="flex items-center gap-1 px-3 py-2 rounded-full bg-white/5 border border-white/15 text-[10px] font-black uppercase tracking-widest text-white/50 hover:text-white"
-                                        title="Show all listings"
-                                    >
-                                        <X size={12} />
-                                        Clear
-                                    </button>
-                                )}
-                            </div>
-                        ) : null}
-                        {(isLoading && !data) && (
-                            <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40 backdrop-blur-sm pointer-events-none">
-                                <Loader2 className="animate-spin text-primary" size={32} />
-                            </div>
-                        )}
-                        {isFetching && data ? (
-                            <div className="absolute top-4 right-4 z-10 flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/50 border border-white/10 pointer-events-none">
-                                <Loader2 className="animate-spin text-emerald-400" size={12} />
-                                <span className="text-[9px] font-black uppercase tracking-widest text-white/50">Updating…</span>
-                            </div>
-                        ) : null}
-                        {error != null ? (
-                            <div className="absolute top-4 left-4 z-10 px-4 py-2 bg-rose-500/10 border border-rose-500/30 rounded-xl text-[10px] text-rose-400">
-                                Failed to load map data.{' '}
-                                <button type="button" onClick={() => refetch()} className="underline">
-                                    Retry
-                                </button>
-                            </div>
-                        ) : null}
-                        <div className="h-[520px] min-h-[520px]">
-                            <ProxyMapCanvas
+                            ) : null}
+                        </div>
+                    ) : null}
+                    {isLoading && !data ? (
+                        <div className="ui-loading" role="status" style={{ position: "absolute", inset: 0 }}>
+                            <Loader2 className="animate-spin" size={18} aria-hidden="true" />
+                            Loading map data…
+                        </div>
+                    ) : null}
+                    {isFetching && data ? (
+                        <div className="market-map-float end" role="status">Updating…</div>
+                    ) : null}
+                    {error != null ? (
+                        <div className="ui-error" role="alert" style={{ position: "absolute", top: 16, left: 16, zIndex: 2, maxWidth: 280 }}>
+                            <p>Map data is unavailable.</p>
+                            <button type="button" className="ui-button secondary small" onClick={() => refetch()}>Try again</button>
+                        </div>
+                    ) : null}
+                    <div className="market-map-canvas">
+                        <ProxyMapCanvas
                             nodes={nodes}
                             onSelectNode={handleSelectNode}
                             selectedNodeId={selectedNode?.node_id}
@@ -334,258 +295,128 @@ export default function MarketplaceMapPage() {
                             onBoundsChange={handleBoundsChange}
                             liveUpdates={liveUpdates}
                         />
-                        </div>
-                    </GlassCard>
+                    </div>
                 </div>
 
-                <div className="xl:col-span-1 space-y-4">
-                    <GlassCard className="!p-5 space-y-4 border-white/5">
-                        <div className="text-[9px] font-black text-white/40 uppercase tracking-widest flex items-center gap-2">
-                            <Globe size={10} /> Filters
+                <div className="market-map-side">
+                    <section className="ui-surface" aria-label="Map filters">
+                        <h2>Filters</h2>
+                        <div className="grid gap-3">
+                            <label className="ui-field">Proxy type
+                                <select aria-label="Proxy type" className="ui-select" value={proxyType} onChange={e => setProxyType(e.target.value)}>
+                                    <option value="">All types</option>
+                                    <option value="residential">Residential</option>
+                                    <option value="mobile">Mobile</option>
+                                    <option value="datacenter">Datacenter</option>
+                                </select>
+                            </label>
+                            <label className="ui-field">Protocol
+                                <select aria-label="Protocol" className="ui-select" value={protocol} onChange={e => setProtocol(e.target.value)}>
+                                    <option value="">All protocols</option>
+                                    <option value="http">HTTP</option>
+                                    <option value="socks5">SOCKS5</option>
+                                </select>
+                            </label>
+                            <label className="ui-field">Country
+                                <select aria-label="Country" className="ui-select" value={country} onChange={e => setCountry(e.target.value)}>
+                                    <option value="">All countries</option>
+                                    {countries.map(c => <option key={c} value={c}>{c}</option>)}
+                                </select>
+                            </label>
+                            <div className="grid grid-cols-2 gap-2">
+                                <label className="ui-field">Minimum price
+                                    <input className="ui-input" type="number" min="0" step="0.01" value={minPrice} aria-label="Minimum price" onChange={e => setMinPrice(e.target.value)} />
+                                </label>
+                                <label className="ui-field">Maximum price
+                                    <input className="ui-input" type="number" min="0" step="0.01" value={maxPrice} aria-label="Maximum price" onChange={e => setMaxPrice(e.target.value)} />
+                                </label>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                                <label className="ui-field">Minimum uptime
+                                    <input className="ui-input" type="number" min="0" max="100" step="1" value={minUptime} aria-label="Minimum uptime percent" onChange={e => setMinUptime(e.target.value)} />
+                                </label>
+                                <label className="ui-field">Maximum latency
+                                    <input className="ui-input" type="number" min="0" step="1" value={maxLatency} aria-label="Maximum latency milliseconds" onChange={e => setMaxLatency(e.target.value)} />
+                                </label>
+                            </div>
+                            <button
+                                type="button"
+                                className="ui-button secondary block"
+                                onClick={() => {
+                                    setProxyType('');
+                                    setProtocol('');
+                                    setCountry('');
+                                    setMinPrice('');
+                                    setMaxPrice('');
+                                    setMinUptime('');
+                                    setMaxLatency('');
+                                    setSearchBBox(null);
+                                }}
+                            >
+                                Reset filters
+                            </button>
                         </div>
-                        <select
-                            aria-label="Proxy type"
-                            value={proxyType}
-                            onChange={e => setProxyType(e.target.value)}
-                            className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2 text-[10px] font-black uppercase text-white"
-                        >
-                            <option value="">All types</option>
-                            <option value="residential">Residential</option>
-                            <option value="mobile">Mobile</option>
-                            <option value="datacenter">Datacenter</option>
-                        </select>
-                        <select
-                            aria-label="Protocol"
-                            value={protocol}
-                            onChange={e => setProtocol(e.target.value)}
-                            className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2 text-[10px] font-black uppercase text-white"
-                        >
-                            <option value="">All protocols</option>
-                            <option value="http">HTTP</option>
-                            <option value="socks5">SOCKS5</option>
-                        </select>
-                        <select
-                            aria-label="Country"
-                            value={country}
-                            onChange={e => setCountry(e.target.value)}
-                            className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2 text-[10px] font-black uppercase text-white"
-                        >
-                            <option value="">All countries</option>
-                            {countries.map(c => (
-                                <option key={c} value={c}>
-                                    {c}
-                                </option>
-                            ))}
-                        </select>
-                        <div className="grid grid-cols-2 gap-2">
-                            <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                value={minPrice}
-                                onChange={e => setMinPrice(e.target.value)}
-                                placeholder="Min price"
-                                className="min-w-0 bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2 text-[10px] font-black uppercase text-white placeholder:text-white/20"
-                            />
-                            <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                value={maxPrice}
-                                onChange={e => setMaxPrice(e.target.value)}
-                                placeholder="Max price"
-                                className="min-w-0 bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2 text-[10px] font-black uppercase text-white placeholder:text-white/20"
-                            />
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                            <input
-                                type="number"
-                                min="0"
-                                max="100"
-                                step="1"
-                                value={minUptime}
-                                onChange={e => setMinUptime(e.target.value)}
-                                placeholder="Min uptime"
-                                className="min-w-0 bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2 text-[10px] font-black uppercase text-white placeholder:text-white/20"
-                            />
-                            <input
-                                type="number"
-                                min="0"
-                                step="1"
-                                value={maxLatency}
-                                onChange={e => setMaxLatency(e.target.value)}
-                                placeholder="Max ms"
-                                className="min-w-0 bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2 text-[10px] font-black uppercase text-white placeholder:text-white/20"
-                            />
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setProxyType('');
-                                setProtocol('');
-                                setCountry('');
-                                setMinPrice('');
-                                setMaxPrice('');
-                                setMinUptime('');
-                                setMaxLatency('');
-                                setSearchBBox(null);
-                            }}
-                            className="w-full py-2 rounded-xl border border-white/10 bg-white/[0.03] text-[9px] font-black uppercase tracking-widest text-white/40 hover:text-white hover:border-white/20"
-                        >
-                            Reset filters
-                        </button>
-                    </GlassCard>
+                    </section>
 
                     {selectedCluster && selectedCluster.length > 1 ? (
-                        <GlassCard className="!p-6 space-y-4 border-amber-500/20 bg-amber-500/[0.02]">
-                            <div className="flex justify-between items-start">
-                                <span className="text-[9px] font-black text-amber-400 uppercase tracking-widest">
-                                    {selectedCluster.length} listings at this location
-                                </span>
-                                <button
-                                    type="button"
-                                    onClick={() => setSelectedCluster(null)}
-                                    className="text-white/20 hover:text-white text-xs"
-                                >
-                                    ✕
-                                </button>
+                        <section className="ui-surface">
+                            <div className="ui-section-heading">
+                                <h2>{selectedCluster.length} listings here</h2>
+                                <button type="button" className="ui-button ghost" onClick={() => setSelectedCluster(null)}>Close</button>
                             </div>
-                            <p className="text-[8px] text-white/35 uppercase tracking-wider leading-relaxed">
-                                Same node or coordinates — pick a listing below or tap one in the map popup.
-                            </p>
-                            <ul className="space-y-2 max-h-[280px] overflow-y-auto">
+                            <p className="ui-note">These listings share a location. Choose one to review.</p>
+                            <ul className="market-choice-list">
                                 {selectedCluster.map(p => (
                                     <li key={p.listing_id}>
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                setSelectedPin(p);
-                                                setSelectedCluster(null);
-                                            }}
-                                            className="w-full text-left px-3 py-2.5 rounded-lg border border-white/10 bg-white/[0.03] text-[9px] font-bold uppercase tracking-wide text-white/70 hover:border-emerald-500/40 hover:bg-emerald-500/10 hover:text-white transition-all"
-                                        >
-                                            <span className="block truncate text-white">{p.title}</span>
-                                            <span className="text-white/35">
-                                                ${p.price_per_gb.toFixed(4)}/GB · {(p.uptime_percent || 0).toFixed(1)}% up
-                                            </span>
+                                        <button type="button" onClick={() => { setSelectedPin(p); setSelectedCluster(null); }}>
+                                            <span>{p.title}</span>
+                                            <small>${p.price_per_gb.toFixed(4)}/GB · {(p.uptime_percent || 0).toFixed(1)}% uptime</small>
                                         </button>
                                     </li>
                                 ))}
                             </ul>
-                        </GlassCard>
+                        </section>
                     ) : selectedPin ? (
-                        <GlassCard className="!p-6 space-y-4 border-emerald-500/20 bg-emerald-500/[0.02]">
-                            <div className="flex justify-between items-start">
-                                <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">
-                                    Selected
-                                </span>
-                                <button
-                                    type="button"
-                                    onClick={() => setSelectedPin(null)}
-                                    className="text-white/20 hover:text-white text-xs"
-                                >
-                                    ✕
-                                </button>
+                        <section className="ui-surface">
+                            <div className="ui-section-heading">
+                                <h2>{selectedPin.title}</h2>
+                                <button type="button" className="ui-button ghost" onClick={() => setSelectedPin(null)}>Close</button>
                             </div>
-                            <h2 className="text-sm font-black text-white leading-tight">{selectedPin.title}</h2>
-                            <CatalogProductBadge product={selectedPin.catalog_product} className="mt-2" />
-                            <div className="space-y-1 text-[9px]">
-                                <div className="flex justify-between">
-                                    <span className="text-white/30">Location</span>
-                                    <span className="text-white text-right">
-                                        {[selectedPin.city, selectedPin.country].filter(Boolean).join(', ') || '—'}
-                                        <span
-                                            className={`block text-[8px] uppercase tracking-wider mt-0.5 ${
-                                                selectedPin.estimated ? 'text-amber-400/90' : 'text-emerald-400/80'
-                                            }`}
-                                        >
-                                            {geoSourceLabel(selectedPin)}
-                                        </span>
-                                    </span>
+                            <CatalogProductBadge product={selectedPin.catalog_product} />
+                            <dl className="market-kv">
+                                <div>
+                                    <dt>Location</dt>
+                                    <dd>
+                                        {[selectedPin.city, selectedPin.country].filter(Boolean).join(', ') || 'Not reported'}
+                                        <span className="ui-note" style={{ display: 'block' }}>{geoSourceLabel(selectedPin)}</span>
+                                    </dd>
                                 </div>
-                                {selectedPin.network_class && (
-                                    <div className="flex justify-between">
-                                        <span className="text-white/30">Network</span>
-                                        <span className="text-white capitalize">{selectedPin.network_class}</span>
-                                    </div>
-                                )}
-                                {selectedPin.trust_label && (
-                                    <div className="flex justify-between">
-                                        <span className="text-white/30">Trust</span>
-                                        <span className="text-cyan-300">{selectedPin.trust_label}</span>
-                                    </div>
-                                )}
-                                <div className="flex justify-between">
-                                    <span className="text-white/30">Price</span>
-                                    <span className="text-emerald-400 font-black">
-                                        ${selectedPin.price_per_gb.toFixed(4)}/GB
-                                    </span>
+                                {selectedPin.network_class ? <div><dt>Network</dt><dd style={{ textTransform: 'capitalize' }}>{selectedPin.network_class}</dd></div> : null}
+                                {selectedPin.trust_label ? <div><dt>Trust</dt><dd>{selectedPin.trust_label}</dd></div> : null}
+                                <div><dt>Price</dt><dd>${selectedPin.price_per_gb.toFixed(4)}/GB</dd></div>
+                                <div><dt>Available</dt><dd>{selectedPin.available_bandwidth_gb.toFixed(1)} GB</dd></div>
+                                <div><dt>In use</dt><dd>{selectedPin.active_sessions || 0}{selectedPin.max_concurrency ? `/${selectedPin.max_concurrency}` : ''} buyers</dd></div>
+                                <div>
+                                    <dt>Uptime</dt>
+                                    <dd>{(selectedPin.uptime_percent || 0).toFixed(1)}%{selectedPin.sla_source === 'gateway' ? ' (live)' : ''}</dd>
                                 </div>
-                                <div className="flex justify-between">
-                                    <span className="text-white/30">Available</span>
-                                    <span className="text-white">
-                                        {selectedPin.available_bandwidth_gb.toFixed(1)} GB
-                                    </span>
+                                {selectedPin.quality_score != null ? <div><dt>Quality</dt><dd>{selectedPin.quality_score.toFixed(0)}</dd></div> : null}
+                                {selectedPin.success_rate != null ? <div><dt>Success</dt><dd>{selectedPin.success_rate.toFixed(0)}%</dd></div> : null}
+                                <div>
+                                    <dt>Offer proof</dt>
+                                    <dd>{selectedPin.listing_offer_verified ? 'Provider signed' : 'Unsigned'}</dd>
                                 </div>
-                                <div className="flex justify-between">
-                                    <span className="text-white/30">In use</span>
-                                    <span className="text-emerald-400">
-                                        {selectedPin.active_sessions || 0}
-                                        {selectedPin.max_concurrency ? `/${selectedPin.max_concurrency}` : ''} buyers
-                                    </span>
-                                </div>
-                                <div className="flex justify-between">
-                                    <span className="text-white/30">Uptime</span>
-                                    <span className="text-white">
-                                        {(selectedPin.uptime_percent || 0).toFixed(1)}%
-                                        {selectedPin.sla_source === 'gateway' && (
-                                            <span className="text-emerald-500/80 ml-1">(live)</span>
-                                        )}
-                                    </span>
-                                </div>
-                                {selectedPin.quality_score != null && (
-                                    <div className="flex justify-between">
-                                        <span className="text-white/30">Quality</span>
-                                        <span className="text-white">{selectedPin.quality_score.toFixed(0)}</span>
-                                    </div>
-                                )}
-                                {selectedPin.success_rate != null && (
-                                    <div className="flex justify-between">
-                                        <span className="text-white/30">Success</span>
-                                        <span className="text-white">{selectedPin.success_rate.toFixed(0)}%</span>
-                                    </div>
-                                )}
-                                <div className="flex justify-between">
-                                    <span className="text-white/30">Offer proof</span>
-                                    <span className={selectedPin.listing_offer_verified ? 'text-cyan-300' : 'text-white/40'}>
-                                        {selectedPin.listing_offer_verified ? 'Provider signed' : 'Unsigned'}
-                                    </span>
-                                </div>
-                                {selectedPin.latency_ms != null && selectedPin.latency_ms > 0 && (
-                                    <div className="flex justify-between">
-                                        <span className="text-white/30">Latency</span>
-                                        <span className="text-white">{selectedPin.latency_ms} ms</span>
-                                    </div>
-                                )}
-                                {selectedPin.estimated && (
-                                    <p className="text-amber-400/80 text-[8px] uppercase tracking-wider pt-1">
-                                        Pin shows a regional hub area (major city), not an exact street address.
-                                    </p>
-                                )}
-                                {!selectedPin.purchasable && (
-                                    <p className="text-rose-400/80 text-[8px] uppercase tracking-wider pt-1">
-                                        This listing is not currently purchasable.
-                                    </p>
-                                )}
-                            </div>
+                                {selectedPin.latency_ms != null && selectedPin.latency_ms > 0 ? <div><dt>Latency</dt><dd>{selectedPin.latency_ms} ms</dd></div> : null}
+                            </dl>
+                            {selectedPin.estimated ? <p className="ui-note">The pin shows a regional area, not a street address.</p> : null}
+                            {!selectedPin.purchasable ? <p className="ui-note">This listing is not currently purchasable.</p> : null}
                             <button
                                 type="button"
                                 data-testid="marketplace-map-buy-btn"
+                                className="ui-button block"
                                 disabled={buyLoading || !selectedPin.purchasable}
                                 onClick={() => handleBuy(selectedPin)}
-                                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-[10px] font-black uppercase tracking-widest hover:bg-emerald-500/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                                <ShoppingCart size={14} />
                                 {buyLoading ? 'Loading…' : selectedPin.purchasable ? 'Buy bandwidth' : 'Unavailable'}
                             </button>
                             <ListingSocialPanel
@@ -594,123 +425,55 @@ export default function MarketplaceMapPage() {
                                 pricePerGb={selectedPin.price_per_gb}
                                 location={[selectedPin.city, selectedPin.country].filter(Boolean).join(', ')}
                                 compact
-                                className="border-emerald-500/10"
                             />
-                            <ListingQASection
-                                listingId={selectedPin.listing_id}
-                                compact
-                                className="border-emerald-500/10"
-                            />
-                            <Link
-                                href={`/marketplace/${selectedPin.listing_id}`}
-                                className="block text-center text-[9px] font-black text-white/40 uppercase tracking-widest hover:text-primary"
-                            >
-                                Full listing →
-                            </Link>
-                        </GlassCard>
+                            <ListingQASection listingId={selectedPin.listing_id} compact />
+                            <Link className="ui-link" href={`/marketplace/${selectedPin.listing_id}`}>Open the full listing</Link>
+                        </section>
                     ) : selectedNode ? (
-                        <GlassCard className="!p-6 space-y-4 border-primary/20 bg-primary/[0.02]">
-                            <div className="flex justify-between items-start">
-                                <span className="text-[9px] font-black text-primary uppercase tracking-widest">
-                                    Network node
-                                </span>
-                                <button
-                                    type="button"
-                                    onClick={() => setSelectedNode(null)}
-                                    className="text-white/20 hover:text-white text-xs"
-                                >
-                                    ✕
-                                </button>
+                        <section className="ui-surface">
+                            <div className="ui-section-heading">
+                                <h2>{selectedNode.title || [selectedNode.city, selectedNode.country || selectedNode.region].filter(Boolean).join(', ') || 'Network node'}</h2>
+                                <button type="button" className="ui-button ghost" onClick={() => setSelectedNode(null)}>Close</button>
                             </div>
-                            <h2 className="text-sm font-black text-white leading-tight">
-                                {selectedNode.title
-                                    || [selectedNode.city, selectedNode.country || selectedNode.region].filter(Boolean).join(', ')
-                                    || 'Network node'}
-                            </h2>
-                            <div className="space-y-1 text-[9px]">
-                                <div className="flex justify-between gap-3">
-                                    <span className="text-white/30">Status</span>
-                                    <span className={selectedNode.is_active ? 'text-emerald-400 font-black' : 'text-rose-400 font-black'}>
-                                        {selectedNode.is_active ? 'Active' : 'Offline'}
-                                    </span>
-                                </div>
-                                <div className="flex justify-between gap-3">
-                                    <span className="text-white/30">Trust</span>
-                                    <span className="text-white">
-                                        {selectedNode.trust_label
-                                            || (selectedNode.is_validator ? 'High quality' : 'Standard')}
-                                    </span>
-                                </div>
-                                {selectedNode.network_class && (
-                                    <div className="flex justify-between gap-3">
-                                        <span className="text-white/30">Network</span>
-                                        <span className="text-white capitalize">{selectedNode.network_class}</span>
-                                    </div>
-                                )}
-                                <div className="flex justify-between gap-3">
-                                    <span className="text-white/30">Location</span>
-                                    <span className="text-white text-right">
-                                        {[selectedNode.city, selectedNode.country || selectedNode.region].filter(Boolean).join(', ') || '—'}
-                                    </span>
-                                </div>
-                                {selectedNode.quality_score != null && (
-                                    <div className="flex justify-between gap-3">
-                                        <span className="text-white/30">Quality</span>
-                                        <span className="text-white">{selectedNode.quality_score.toFixed(0)}</span>
-                                    </div>
-                                )}
-                                <div className="flex justify-between gap-3">
-                                    <span className="text-white/30">Uptime</span>
-                                    <span className="text-white">{(selectedNode.uptime_percent || 0).toFixed(1)}%</span>
-                                </div>
-                                <div className="flex justify-between gap-3">
-                                    <span className="text-white/30">Sessions</span>
-                                    <span className="text-white">{selectedNode.active_sessions || 0}</span>
-                                </div>
-                            </div>
-                            <p className="text-[8px] text-white/25 uppercase tracking-widest leading-relaxed">
-                                Approximate hub location only. Select an emerald price marker to buy bandwidth.
-                            </p>
-                        </GlassCard>
+                            <dl className="market-kv">
+                                <div><dt>Status</dt><dd>{selectedNode.is_active ? 'Active' : 'Offline'}</dd></div>
+                                <div><dt>Trust</dt><dd>{selectedNode.trust_label || (selectedNode.is_validator ? 'High quality' : 'Standard')}</dd></div>
+                                {selectedNode.network_class ? <div><dt>Network</dt><dd style={{ textTransform: 'capitalize' }}>{selectedNode.network_class}</dd></div> : null}
+                                <div><dt>Location</dt><dd>{[selectedNode.city, selectedNode.country || selectedNode.region].filter(Boolean).join(', ') || 'Not reported'}</dd></div>
+                                {selectedNode.quality_score != null ? <div><dt>Quality</dt><dd>{selectedNode.quality_score.toFixed(0)}</dd></div> : null}
+                                <div><dt>Uptime</dt><dd>{(selectedNode.uptime_percent || 0).toFixed(1)}%</dd></div>
+                                <div><dt>Sessions</dt><dd>{selectedNode.active_sessions || 0}</dd></div>
+                            </dl>
+                            <p className="ui-note">This is an approximate hub location. Select a listing pin to buy bandwidth.</p>
+                        </section>
                     ) : (
-                        <GlassCard className="!p-6 text-center border-white/5">
-                            <MapPin size={28} className="mx-auto text-white/10 mb-2" />
-                            <p className="text-[9px] font-black text-white/25 uppercase tracking-widest">
-                                Select a listing or node on the map
-                            </p>
-                        </GlassCard>
+                        <section className="ui-empty">
+                            <h2>Nothing selected</h2>
+                            <p>Select a listing or node on the map.</p>
+                        </section>
                     )}
 
-                    <GlassCard className="!p-4 border-white/5 max-h-[240px] overflow-y-auto">
-                        <div className="text-[9px] font-black text-white/40 uppercase tracking-widest mb-3">
-                            In view ({viewportPins.length})
-                        </div>
-                        <ul className="space-y-2">
+                    <section className="ui-surface">
+                        <h2>In view ({viewportPins.length})</h2>
+                        <ul className="market-choice-list">
                             {viewportPins.slice(0, 20).map(p => (
                                 <li key={p.listing_id}>
                                     <button
                                         type="button"
-                                        onClick={() => {
-                                            setSelectedPin(p);
-                                            setSelectedCluster(null);
-                                        }}
-                                        className={`w-full text-left px-3 py-2 rounded-lg border text-[9px] font-bold uppercase tracking-wide transition-all ${
-                                            selectedPin?.listing_id === p.listing_id
-                                                ? 'border-emerald-500/40 bg-emerald-500/10 text-white'
-                                                : 'border-white/5 bg-white/[0.02] text-white/60 hover:border-white/15'
-                                        }`}
+                                        className={selectedPin?.listing_id === p.listing_id ? 'active' : ''}
+                                        aria-current={selectedPin?.listing_id === p.listing_id ? 'true' : undefined}
+                                        onClick={() => { setSelectedPin(p); setSelectedCluster(null); }}
                                     >
-                                        <span className="block truncate">{p.title}</span>
-                                        <span className="text-white/30">
-                                            {[p.city, p.country].filter(Boolean).join(', ') || p.country || '—'}
-                                            {' · '}
-                                            ${p.price_per_gb.toFixed(4)}/GB
-                                        </span>
+                                        <span>{p.title}</span>
+                                        <small>
+                                            {[p.city, p.country].filter(Boolean).join(', ') || p.country || 'Location not reported'}
+                                            {' · '}${p.price_per_gb.toFixed(4)}/GB
+                                        </small>
                                     </button>
                                 </li>
                             ))}
                         </ul>
-                    </GlassCard>
+                    </section>
                 </div>
             </div>
 
@@ -718,15 +481,11 @@ export default function MarketplaceMapPage() {
                 <BuyListingModal
                     listing={buyListing}
                     surface="map"
-                    onClose={() => {
-                        setBuyListing(null);
-                        setSelectedPin(null);
-                    }}
-                    onSuccess={() => {
-                        void refetch();
-                    }}
+                    onClose={() => { setBuyListing(null); setSelectedPin(null); }}
+                    onSuccess={() => { void refetch(); }}
                 />
             )}
-        </motion.div>
+        </div>
     );
+
 }

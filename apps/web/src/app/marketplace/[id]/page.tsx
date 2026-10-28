@@ -113,25 +113,15 @@ function ListingDetailContent() {
     };
 
     if (loading) {
-        return (
-            <div className="flex flex-col items-center justify-center min-h-[50vh]">
-                <Loader2 className="w-12 h-12 animate-spin text-primary" />
-                <p className="mt-4 font-mono text-sm text-muted-foreground uppercase">Loading Node Details...</p>
-            </div>
-        );
+        return <div className="ui-loading" role="status"><Loader2 className="animate-spin" size={18} aria-hidden="true" /> Loading this listing…</div>;
     }
 
     if (error || !listing) {
         return (
-            <div className="flex flex-col items-center justify-center min-h-[50vh] text-center px-4">
-                <div className="p-4 rounded-full bg-destructive/10 border border-destructive/20 mb-4">
-                    <Activity className="w-12 h-12 text-destructive" />
-                </div>
-                <h2 className="text-2xl font-mono font-bold uppercase mb-2">Node Unavailable</h2>
-                <p className="font-mono text-muted-foreground mb-6">{error || "This listing could not be found."}</p>
-                <Link href="/marketplace" className="btn-retro btn-retro-outline px-6 py-2">
-                    RETURN TO MARKET
-                </Link>
+            <div className="ui-error" role="alert">
+                <h2>Listing unavailable</h2>
+                <p>{error || "This listing could not be found."}</p>
+                <Link className="ui-button secondary" href="/marketplace">Back to marketplace</Link>
             </div>
         );
     }
@@ -151,13 +141,13 @@ function ListingDetailContent() {
                 />
             )}
 
-            <Link href="/marketplace" className="inline-flex items-center gap-2 text-xs font-mono font-bold uppercase text-muted-foreground hover:text-primary transition-colors">
-                <ArrowLeft size={14} /> Back to Market
+            <Link href="/marketplace" className="ui-link">
+                <ArrowLeft size={14} aria-hidden="true" /> Back to marketplace
             </Link>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 <div className="lg:col-span-2 space-y-6">
-                    <div className="card-retro p-8 bg-card relative overflow-hidden group">
+                    <div className="ui-surface">
                         <div className="absolute top-0 right-0 p-4 opacity-50">
                             <Signal size={120} className="text-secondary opacity-10" />
                         </div>
@@ -166,16 +156,16 @@ function ListingDetailContent() {
                             <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
                                 <div>
                                     <div className="flex items-center gap-3 mb-2">
-                                        <span className="px-2 py-0.5 rounded-sm bg-primary/10 border border-primary/20 text-primary text-[10px] uppercase font-bold tracking-wider">
+                                        <span className="ui-status neutral">
                                             {listing.proxy_type}
                                         </span>
-                                        <div className="flex items-center gap-1 text-xs font-mono font-bold text-yellow-500">
-                                            <Star size={12} className="fill-current" />
-                                            {listing.seller?.avg_rating?.toFixed(1) || "5.0"}
+                                        <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                                            <Star size={12} aria-hidden="true" />
+                                            {typeof listing.seller?.avg_rating === "number" ? listing.seller.avg_rating.toFixed(1) : "Rating not reported"}
                                         </div>
                                     </div>
                                     <div className="flex flex-wrap items-center gap-2 mb-2">
-                                        <h1 className="text-3xl md:text-4xl font-bold font-mono uppercase tracking-tight leading-none">
+                                        <h1 className="text-3xl font-semibold tracking-tight text-foreground">
                                             {displayListingTitle(listing)}
                                         </h1>
                                         <CatalogProductBadge product={listing.catalog_product} className="self-end mb-1" />
@@ -214,17 +204,17 @@ function ListingDetailContent() {
 
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
                                 <div className="p-4 bg-secondary/10 border border-border rounded-sm">
-                                    <div className="text-[10px] font-mono text-muted-foreground uppercase mb-1">Latency</div>
+                                    <div className="ui-stat-label">Latency</div>
                                     <div className="font-mono font-bold text-lg flex items-center gap-1">
                                         <Signal size={16} className="text-green-500" />
                                         {metricsMeasured ? `${listing.avg_latency_ms}ms` : 'Unmeasured'}
                                     </div>
                                 </div>
                                 <div className="p-4 bg-secondary/10 border border-border rounded-sm">
-                                    <div className="text-[10px] font-mono text-muted-foreground uppercase mb-1 flex items-center justify-between gap-2">
+                                    <div className="ui-stat-label flex items-center justify-between gap-2">
                                         <span>Uptime</span>
                                         {listing.sla_source === 'gateway' && (
-                                            <span className="text-emerald-500 text-[9px]">live</span>
+                                            <span className="ui-note">live</span>
                                         )}
                                     </div>
                                     <div className="font-mono font-bold text-lg flex items-center gap-1">
@@ -232,32 +222,30 @@ function ListingDetailContent() {
                                         {metricsMeasured ? `${listing.uptime_percent}%` : 'Unmeasured'}
                                     </div>
                                     {listing.sla_source && (
-                                        <div className="text-[9px] font-mono text-muted-foreground mt-1 uppercase">
+                                        <div className="ui-note">
                                             Source: {listing.sla_source}
                                         </div>
                                     )}
                                 </div>
                                 <div className="p-4 bg-secondary/10 border border-border rounded-sm">
-                                    <div className="text-[10px] font-mono text-muted-foreground uppercase mb-1">Success Rate</div>
+                                    <div className="ui-stat-label">Success rate</div>
                                     <div className="font-mono font-bold text-lg flex items-center gap-1">
                                         <Shield size={16} className="text-purple-500" />
                                         {metricsMeasured ? `${listing.success_rate}%` : 'Unmeasured'}
                                     </div>
                                 </div>
                                 <div className="p-4 bg-secondary/10 border border-border rounded-sm">
-                                    <div className="text-[10px] font-mono text-muted-foreground uppercase mb-1">In use</div>
+                                    <div className="ui-stat-label">In use</div>
                                     <div className="font-mono font-bold text-lg">
                                         {listing.active_sessions_count || 0}
                                         {listing.max_concurrency ? `/${listing.max_concurrency}` : ''}
                                     </div>
-                                    <div className="text-[9px] font-mono text-muted-foreground mt-1 uppercase">
-                                        Shared · other buyers can still connect
-                                    </div>
+                                    <div className="ui-note">Other buyers can still connect.</div>
                                 </div>
                             </div>
 
                             <div>
-                                <h3 className="text-sm font-bold font-mono uppercase mb-3">Description</h3>
+                                <h2>Description</h2>
                                 <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
                                     {listing.description}
                                 </p>
@@ -267,9 +255,9 @@ function ListingDetailContent() {
                 </div>
 
                 <div className="space-y-6">
-                    <div className="card-retro p-6 bg-card sticky top-24 border-l-4 border-l-primary">
+                    <div className="ui-surface">
                         <div className="flex justify-between items-baseline mb-6">
-                            <span className="text-sm font-mono uppercase text-muted-foreground">Price</span>
+                            <span className="ui-stat-label">Price</span>
                             <div className="text-right">
                                 <span className="text-4xl font-bold font-mono">{Number(listing.price_per_gb || 0).toFixed(4)}</span>
                                 <span className="text-sm text-muted-foreground font-mono"> USD/GB</span>
@@ -301,13 +289,13 @@ function ListingDetailContent() {
                         <button
                             onClick={handleBuyClick}
                             disabled={!isPurchasable(listing)}
-                            className="w-full btn-retro btn-retro-primary py-4 text-sm uppercase tracking-wider flex items-center justify-center gap-2 group mb-4"
+                            className="ui-button block"
                         >
                             <ShoppingCart className="group-hover:translate-x-1 transition-transform" size={18} />
                             {isPurchasable(listing) ? "Buy Bandwidth" : `Unavailable: ${formatListingStatus(listing.status)}`}
                         </button>
 
-                        <p className="text-[10px] text-center text-muted-foreground font-mono">
+                        <p className="ui-note">
                             Provided by <Link 
                                 href={listing.seller?.username ? `/profile/${listing.seller.username}` : '#'} 
                                 className="font-bold text-foreground hover:text-primary hover:underline transition-colors"
