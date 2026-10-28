@@ -92,15 +92,25 @@ jobs:
         with:
           context: ${{ matrix.service.context }}
           file: ${{ matrix.service.dockerfile }}
-          push: true
+          push: ${{ inputs.services != 'web' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          outputs: ${{ inputs.services == 'web' && 'type=docker,dest=/tmp/web-image.tar' || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: ${{ matrix.service.platforms }}
           build-args: |
             NEXT_PUBLIC_PROXY_ENDPOINT=${{ vars.NEXT_PUBLIC_PROXY_ENDPOINT || 'proxy.proxyhubb.com:8090' }}
             NEXT_PUBLIC_GATEWAY_URL=${{ vars.NEXT_PUBLIC_GATEWAY_URL || 'https://proxy.proxyhubb.com' }}
+
+      - name: Upload built frontend image for production rollout
+        if: ${{ inputs.services == 'web' && inputs.deploy_web }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxyhubb-web-image
+          path: /tmp/web-image.tar
+          if-no-files-found: error
+          retention-days: 1
 
   deploy-web:
     name: Roll production frontend only
@@ -112,6 +122,10 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: proxyhubb-web-image
+          path: ${{ runner.temp }}/proxyhubb-web-release
       - name: Prepare release metadata and authentication
         id: release
         env:
@@ -144,8 +158,10 @@ jobs:
           set -euo pipefail
           ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
           remote="/tmp/proxyhubb-web-${GITHUB_SHA}.sh"
+          archive="/tmp/proxyhubb-web-${GITHUB_SHA}.tar"
           scp -o ConnectTimeout=30 scripts/gcp-roll-web-image.sh "$VM_USER@$HOST:$remote"
-          ssh -o ConnectTimeout=30 "$VM_USER@$HOST" "sudo env WEB_IMAGE=$WEB_IMAGE EXPECTED_REVISION=$GITHUB_SHA bash $remote"
+          scp -o ConnectTimeout=30 "$RUNNER_TEMP/proxyhubb-web-release/web-image.tar" "$VM_USER@$HOST:$archive"
+          ssh -o ConnectTimeout=30 "$VM_USER@$HOST" "sudo env IMAGE_ARCHIVE=$archive EXPECTED_REVISION=$GITHUB_SHA bash $remote"
       - uses: google-github-actions/auth@v2
         if: ${{ steps.release.outputs.method == 'gcloud' }}
         with:
@@ -155,12 +171,14 @@ jobs:
       - name: Roll frontend through GCP
         if: ${{ steps.release.outputs.method == 'gcloud' }}
         env:
-          WEB_IMAGE: ${{ steps.release.outputs.image }}
+          IMAGE_ARCHIVE: ${{ runner.temp }}/proxyhubb-web-release/web-image.tar
         run: |
           set -euo pipefail
           remote="/tmp/proxyhubb-web-${GITHUB_SHA}.sh"
+          archive="/tmp/proxyhubb-web-${GITHUB_SHA}.tar"
           gcloud compute scp scripts/gcp-roll-web-image.sh "proxyhubb-testnet:$remote" --zone=us-central1-a --project=gen-lang-client-0022105784 --quiet
-          gcloud compute ssh proxyhubb-testnet --zone=us-central1-a --project=gen-lang-client-0022105784 --quiet --command="sudo env WEB_IMAGE=$WEB_IMAGE EXPECTED_REVISION=$GITHUB_SHA bash $remote"
+          gcloud compute scp "$IMAGE_ARCHIVE" "proxyhubb-testnet:$archive" --zone=us-central1-a --project=gen-lang-client-0022105784 --quiet
+          gcloud compute ssh proxyhubb-testnet --zone=us-central1-a --project=gen-lang-client-0022105784 --quiet --command="sudo env IMAGE_ARCHIVE=$archive EXPECTED_REVISION=$GITHUB_SHA bash $remote"
 
   announce-vm-roll:
     name: Announce VM Roll Instructions

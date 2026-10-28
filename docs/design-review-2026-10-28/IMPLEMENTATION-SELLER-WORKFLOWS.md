@@ -90,4 +90,4 @@ The Playwright command starts its own local web server and fixtures. Stop anothe
 
 ## Remaining work
 
-The next UI migration areas are wallet/settings, buyer connection lifecycle and order recovery, catalog product editing, advanced provider operations, public onboarding/landing pages, and the remaining Explorer map/comparison/measurement/governance views. Those features have not all been redesigned in this phase. The existing migration inventory remains the coverage checklist; backend integration, live devnet checks and deployment gates remain release work.
+Buyer wallet/settings, connection lifecycle and order recovery are covered by `IMPLEMENTATION-BUYER-JOURNEY.md`. The remaining Explorer views and support/community route consolidation are tracked in the current migration status in `IMPLEMENTATION.md`. Catalog product editing and advanced provider operations still need dedicated UI passes. Backend integration, live devnet checks, cross-browser/accessibility review, and deployment gates remain release work.

@@ -31,7 +31,7 @@ export function TestnetEnvironmentBanner() {
         <span className="font-medium tracking-wide">Solana {network} · Testnet</span>
         <span className="text-muted-foreground">
           {" "}
-          — test SOL only; balances can reset; single-server ops. Not mainnet, not trustless.
+          — test SOL only; balances may reset. Do not send mainnet funds.
         </span>
       </p>
     </div>

@@ -26,7 +26,7 @@ export function MarketingHeader() {
             PH
           </span>
           <span className="font-data text-sm font-semibold tracking-[0.12em] uppercase text-foreground">
-            ProxyHub
+            ProxyHubb
           </span>
         </Link>
 

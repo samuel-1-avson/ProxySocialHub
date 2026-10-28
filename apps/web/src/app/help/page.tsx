@@ -8,8 +8,8 @@ export default function HelpPage() {
             summary="Find the core paths for buying proxy bandwidth, running provider nodes, wallet setup, and community support."
             sections={[
                 {
-                    title: "This is a Solana Devnet Testnet",
-                    body: "ProxyHubb currently runs on Solana devnet with free/test SOL. Balances and inventory can reset. The stack runs on a single server (not HA). Settlement is wallet-native and escrowed on-chain, but the marketplace, discovery, and gateway are operated by the platform — not a trustless network. Do not send mainnet SOL.",
+                    title: "Test network status",
+                    body: "Use Solana Devnet only. Test SOL, balances, and inventory can reset; never send mainnet funds. The current deployment runs on a single server and is not highly available. Marketplace discovery and gateway access are operated by ProxyHubb. A complete funded purchase, verified traffic, and accepted earnings run has not yet been confirmed end to end.",
                 },
                 {
                     title: "Technical documentation",
@@ -17,7 +17,7 @@ export default function HelpPage() {
                 },
                 {
                     title: "Buying proxy bandwidth",
-                    body: "Start in the marketplace, review price, capacity, location, trust signals, and listing status, then create a session from the listing detail page. Use a Phantom (or similar) wallet set to Devnet.",
+                    body: "Start in the marketplace, review price, capacity, location, trust signals, and listing status, then create a session from the listing detail page. Use a Solana wallet set to Devnet. Payment and session states are shown in Activity and Connections.",
                 },
                 {
                     title: "Running provider nodes",

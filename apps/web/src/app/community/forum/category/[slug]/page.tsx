@@ -72,7 +72,7 @@ function CategoryPageContent() {
         return (
             <div className="text-center py-20">
                 <h1 className="text-2xl font-bold font-mono">Category not found</h1>
-                <Link href="/community/forum" className="text-primary hover:underline mt-4 inline-block">
+                <Link href="/help/forum" className="text-primary hover:underline mt-4 inline-block">
                     Back to Forum
                 </Link>
             </div>
@@ -83,7 +83,7 @@ function CategoryPageContent() {
         <div className="max-w-4xl mx-auto space-y-6">
             {/* Back Link */}
             <Link
-                href="/community/forum"
+                href="/help/forum"
                 className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors font-mono text-sm"
             >
                 <ArrowLeft className="w-4 h-4" />
@@ -110,7 +110,7 @@ function CategoryPageContent() {
                     </div>
                     {isAuthenticated && (
                         <Link
-                            href="/community/forum/new"
+                            href="/help/forum/new"
                             className="hidden sm:flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg font-bold font-mono text-sm hover:bg-primary/90 transition-colors"
                         >
                             <Plus className="w-4 h-4" />
@@ -131,7 +131,7 @@ function CategoryPageContent() {
                         </p>
                         {isAuthenticated && (
                             <Link
-                                href="/community/forum/new"
+                                href="/help/forum/new"
                                 className="inline-flex items-center gap-2 px-6 py-2 bg-primary text-primary-foreground rounded-lg font-bold font-mono text-sm hover:bg-primary/90 transition-colors"
                             >
                                 <Plus className="w-4 h-4" />
@@ -179,7 +179,7 @@ function ThreadListItem({ thread }: ThreadListItemProps) {
     const score = (thread.upvotes || 0) - (thread.downvotes || 0);
 
     return (
-        <Link href={`/community/forum/thread/${thread.id}`}>
+        <Link href={`/help/forum/thread/${thread.id}`}>
             <GlassCard className="!p-4 hover:border-primary/50 transition-all group">
                 <div className="flex items-start gap-4">
                     {/* Vote Count */}
