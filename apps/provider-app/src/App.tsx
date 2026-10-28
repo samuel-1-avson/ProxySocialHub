@@ -1,20 +1,70 @@
-// Placeholder until the real screens land (plan Phase 3): shows the derived app state.
 import { useEffect, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { loadIpc, type Ipc } from './ipc';
+import { Consent } from './screens/Consent';
+import { Connecting, Paused, Problem, Sharing } from './screens/Home';
+import { NeedsPairing, Pairing } from './screens/Pair';
+import { useApp } from './useApp';
 
 export function App() {
-  const [state, setState] = useState<string>('checking...');
+  const [ipc, setIpc] = useState<Ipc | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    invoke('app_state')
-      .then((s) => setState(JSON.stringify(s)))
-      .catch((e: unknown) => setState(`error: ${String(e)}`));
+    loadIpc()
+      .then(setIpc)
+      .catch((e: unknown) => setLoadError(String(e)));
   }, []);
 
+  if (loadError) return <main className="shell"><p role="alert">{loadError}</p></main>;
+  if (!ipc) return <main className="shell" aria-busy="true" />;
+  return <Screens ipc={ipc} />;
+}
+
+function Screens({ ipc }: { ipc: Ipc }) {
+  const app = useApp(ipc);
+  const { state } = app;
+
+  let screen: React.ReactNode;
+  if (!state) {
+    screen = <p className="muted" role="status">Starting…</p>;
+  } else {
+    switch (state.kind) {
+      case 'needs_consent':
+        screen = <Consent ipc={ipc} app={app} />;
+        break;
+      case 'needs_pairing':
+        screen = <NeedsPairing ipc={ipc} app={app} />;
+        break;
+      case 'pairing':
+        screen = <Pairing ipc={ipc} app={app} state={state} />;
+        break;
+      case 'connecting':
+        screen = <Connecting state={state} />;
+        break;
+      case 'sharing':
+        screen = <Sharing ipc={ipc} app={app} state={state} />;
+        break;
+      case 'paused':
+        screen = <Paused ipc={ipc} app={app} />;
+        break;
+      case 'problem':
+        screen = <Problem ipc={ipc} app={app} state={state} />;
+        break;
+    }
+  }
+
   return (
-    <main style={{ fontFamily: 'system-ui, sans-serif', padding: 24 }}>
-      <h1>ProxyHubb Provider</h1>
-      <p>State: {state}</p>
+    <main className="shell">
+      <header className="brand">
+        <span className="logo" aria-hidden="true">R</span>
+        <span>ProxyHubb Provider</span>
+      </header>
+      {screen}
+      {app.error && (
+        <div className="banner warn" role="alert">
+          <span>{app.error}</span>
+        </div>
+      )}
     </main>
   );
 }
