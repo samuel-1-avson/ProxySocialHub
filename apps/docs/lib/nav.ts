@@ -83,6 +83,7 @@ export const NAV: NavItem[] = [
     code: '10',
     children: [
       { href: '/docs/provider/cli', label: 'CLI' },
+      { href: '/docs/provider/app', label: 'Provider app' },
       { href: '/docs/provider/nodes', label: 'Nodes' },
     ],
   },
