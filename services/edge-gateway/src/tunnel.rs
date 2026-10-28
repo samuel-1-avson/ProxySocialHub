@@ -254,7 +254,7 @@ pub(crate) async fn handle_provider_mux_io<S>(
     let ctrl = conn.control();
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<yamux::Stream>(256);
-    let peer_addr_clone = peer_addr.clone();
+    let peer_addr_clone = peer_addr;
 
     // Spawn the background driver - It ONLY drives the connection and dispatches new streams
     tokio::spawn(async move {
@@ -291,8 +291,8 @@ pub(crate) async fn handle_provider_mux_io<S>(
     let user_id = match auth_stream.read(&mut buf).await {
         Ok(n) if n > 0 => {
             let msg = String::from_utf8_lossy(&buf[..n]);
-            if msg.starts_with("AUTH ") {
-                let token = msg[5..].trim();
+            if let Some(rest) = msg.strip_prefix("AUTH ") {
+                let token = rest.trim();
                 let validation = Validation::new(Algorithm::HS256);
                 match decode::<Claims>(
                     token,
@@ -347,8 +347,8 @@ pub(crate) async fn handle_provider_mux_io<S>(
     let caps = match cap_stream.read(&mut buf).await {
         Ok(n) if n > 0 => {
             let msg = String::from_utf8_lossy(&buf[..n]);
-            if msg.starts_with("CAPABILITY ") {
-                match serde_json::from_str::<ProviderCapabilities>(&msg[11..]) {
+            if let Some(caps_json) = msg.strip_prefix("CAPABILITY ") {
+                match serde_json::from_str::<ProviderCapabilities>(caps_json) {
                     Ok(caps) => {
                         let assigned = calculate_assigned_limits(&caps);
                         let ack = format!(

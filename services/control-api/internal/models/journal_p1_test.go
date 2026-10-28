@@ -16,7 +16,7 @@ func TestPostBalancedJournal_P1_DuplicateRefRejected(t *testing.T) {
 	testutil.SetupTestDB(t)
 	testutil.CleanupTestData(t, "ledger_journals", "ledger_journal_lines")
 
-	wid := uuid.New()
+	wid := testutil.CreateTestWalletID(t)
 	lines := []models.JournalLineSpec{
 		{AccountCode: models.AccountTreasuryCash, AmountLamports: 500},
 		{AccountCode: models.AccountUserWalletLiability, WalletID: &wid, AmountLamports: -500},

@@ -558,6 +558,163 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProviderLeaseResponse'
 
+  /v1/provider/pair/start:
+    post:
+      tags: [Provider]
+      summary: Start pairing a provider node with an account (device flow, step 1)
+      description: |
+        Called by `provider-node pair` before the node has any credentials. Returns a secret
+        `device_code` that stays on the node and a short `user_code` the owner approves in the
+        dashboard. A pairing expires after 10 minutes and can be redeemed once.
+      operationId: startProviderPairing
+      security: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                device_name: { type: string, maxLength: 100, description: Shown to the owner on the approval page }
+                platform: { type: string, maxLength: 32, example: windows }
+                arch: { type: string, maxLength: 32, example: x86_64 }
+                client_version: { type: string, maxLength: 32, example: 1.0.7 }
+      responses:
+        '201':
+          description: Pairing started
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [device_code, user_code, verification_uri, expires_in, interval]
+                properties:
+                  device_code: { type: string, description: 64 hex characters. Secret; send it only to the poll endpoint. }
+                  user_code: { type: string, example: BCDF-GHJK }
+                  verification_uri: { type: string, format: uri }
+                  verification_uri_complete: { type: string, format: uri, description: verification_uri with the code filled in }
+                  expires_in: { type: integer, example: 600 }
+                  interval: { type: integer, example: 5, description: Minimum seconds between polls }
+        '400':
+          description: Malformed JSON body
+        '429':
+          description: Too many pairing requests from this address
+
+  /v1/provider/pair/poll:
+    post:
+      tags: [Provider]
+      summary: Wait for the owner's decision and collect the credentials (device flow, step 3)
+      description: |
+        Poll no faster than the `interval` returned by start. When the owner has approved, the
+        poll that first sees the approval creates a provider token (named `Paired: <device>`,
+        no expiry, revocable) and a node, and returns `api_key`. **This is the only time the
+        key is ever returned**; later polls answer `redeemed`.
+      operationId: pollProviderPairing
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [device_code]
+              properties:
+                device_code: { type: string, description: The device_code from start }
+      responses:
+        '200':
+          description: Still waiting (`pending`) or approved and redeemed (`approved`)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, enum: [pending, approved] }
+                  interval: { type: integer, description: Present when pending }
+                  api_key: { type: string, description: Present when approved. Shown once. }
+                  node_id: { type: string, format: uuid, description: Present when approved }
+        '400':
+          description: Unknown or malformed device_code (`status` is `invalid`)
+        '403':
+          description: The owner denied the request (`status` is `denied`)
+        '410':
+          description: Expired, or already redeemed (`status` is `expired` or `redeemed`)
+        '429':
+          description: Polling too fast (`status` is `slow_down`)
+
+  /v1/provider/pair/lookup:
+    get:
+      tags: [Provider]
+      summary: Show the owner which device is asking to be paired (device flow, step 2)
+      description: |
+        Requires a signed-in session with provider access. Provider-node tokens are refused, so a
+        leaked node key cannot approve more devices. Unknown, expired and already-decided codes
+        are indistinguishable (404).
+      operationId: lookupProviderPairing
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: code
+          required: true
+          schema: { type: string, example: BCDF-GHJK }
+          description: The code shown on the device; case and the dash are ignored
+      responses:
+        '200':
+          description: The pending request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_code: { type: string }
+                  device_name: { type: string }
+                  platform: { type: string }
+                  arch: { type: string }
+                  client_version: { type: string }
+                  created_at: { type: string, format: date-time }
+                  expires_at: { type: string, format: date-time }
+        '403':
+          description: Not a provider, or called with a provider-node token
+        '404':
+          description: No pending request for that code (unknown, expired or already decided)
+
+  /v1/provider/pair/decision:
+    post:
+      tags: [Provider]
+      summary: Approve or deny a pairing request (device flow, step 2)
+      description: |
+        Same access as creating a provider token. A decision is final: a request that has been
+        approved or denied cannot be decided again. Approving does not create anything yet; the
+        credentials are minted when the device redeems the approval.
+      operationId: decideProviderPairing
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, decision]
+              properties:
+                code: { type: string, example: BCDF-GHJK }
+                decision: { type: string, enum: [approve, deny] }
+      responses:
+        '200':
+          description: Decision recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [approved, denied] }
+        '400':
+          description: Missing code, or decision is not `approve` or `deny`
+        '403':
+          description: Not a provider, or called with a provider-node token
+        '404':
+          description: No pending request for that code (unknown, expired or already decided)
+
   /v1/provider/earnings:
     get:
       tags: [Provider]

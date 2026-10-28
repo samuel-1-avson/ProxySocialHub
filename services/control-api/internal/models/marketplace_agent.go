@@ -16,7 +16,7 @@ type MarketAgent struct {
 	PricePerRun float64        `gorm:"not null" json:"price_per_run"` // Cost in credit
 	DockerImage string         `gorm:"not null" json:"docker_image"`  // Image to execute
 	Categories  []string       `gorm:"serializer:json" json:"categories"`
-	Parameters  map[string]any `gorm:"serializer:json" json:"parameters"` // JSON schema of inputs
+	Parameters  map[string]any `gorm:"serializer:json;default:'{}'" json:"parameters"` // JSON schema of inputs; column is NOT NULL DEFAULT '{}'
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
 	DeletedAt   gorm.DeletedAt `gorm:"index" json:"-"`
@@ -46,7 +46,7 @@ type AgentJob struct {
 	ID              uuid.UUID      `gorm:"type:uuid;default:uuid_generate_v4();primaryKey" json:"id"`
 	AgentInstanceID uuid.UUID      `gorm:"type:uuid;not null" json:"agent_instance_id"`
 	Status          string         `gorm:"default:'pending'" json:"status"` // pending, running, completed, failed
-	Result          map[string]any `gorm:"serializer:json" json:"result"`
+	Result          map[string]any `gorm:"serializer:json;default:'{}'" json:"result"` // column is NOT NULL DEFAULT '{}'
 	Logs            string         `gorm:"type:text" json:"logs"`
 	DurationSec     float64        `json:"duration_sec"`
 	Cost            float64        `json:"cost"`

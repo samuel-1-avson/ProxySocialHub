@@ -1,0 +1,19 @@
+# Copies the cert Caddy renews for proxy.proxyhubb.com into the edge gateways and
+# restarts them one at a time. See scripts/ops-sync-edge-tls.sh for the why.
+#
+# Install once on the VM (the script itself then follows the /opt/proxyhubb checkout):
+#   sudo install -m 644 infra/systemd/proxyhubb-edge-tls-sync.{service,timer} /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now proxyhubb-edge-tls-sync.timer
+# Check:  systemctl list-timers proxyhubb-edge-tls-sync.timer ; journalctl -u proxyhubb-edge-tls-sync
+[Unit]
+Description=Sync Caddy's renewed proxy.proxyhubb.com certificate into the edge gateways
+After=docker.service caddy.service
+Wants=docker.service
+ConditionPathExists=/opt/proxyhubb/scripts/ops-sync-edge-tls.sh
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash /opt/proxyhubb/scripts/ops-sync-edge-tls.sh
+# Exit 3 means "installed cert is close to expiry and Caddy has nothing newer" - leave
+# the unit failed so it shows up in `systemctl --failed`.
+TimeoutStartSec=15min

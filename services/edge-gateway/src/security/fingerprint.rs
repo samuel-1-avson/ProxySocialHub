@@ -399,7 +399,7 @@ fn parse_supported_groups(payload: &[u8], out: &mut Vec<u16>) {
     }
     let list_len = u16::from_be_bytes([payload[0], payload[1]]) as usize;
     for i in (0..list_len).step_by(2) {
-        if payload.len() >= 2 + i + 1 {
+        if payload.len() > 2 + i {
             let c = u16::from_be_bytes([payload[2 + i], payload[2 + i + 1]]);
             out.push(c);
         }
@@ -425,7 +425,7 @@ fn parse_signature_algorithms(payload: &[u8]) -> Vec<u16> {
     let list_len = u16::from_be_bytes([payload[0], payload[1]]) as usize;
     let mut algs = Vec::new();
     for i in (0..list_len).step_by(2) {
-        if payload.len() >= 2 + i + 1 {
+        if payload.len() > 2 + i {
             algs.push(u16::from_be_bytes([payload[2 + i], payload[2 + i + 1]]));
         }
     }
@@ -456,7 +456,7 @@ fn parse_supported_versions(payload: &[u8]) -> Vec<u16> {
     let list_len = payload[0] as usize;
     let mut versions = Vec::new();
     for i in (0..list_len).step_by(2) {
-        if payload.len() >= 1 + i + 1 {
+        if payload.len() > 1 + i {
             versions.push(u16::from_be_bytes([payload[1 + i], payload[1 + i + 1]]));
         }
     }

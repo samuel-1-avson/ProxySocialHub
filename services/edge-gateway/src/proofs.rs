@@ -205,6 +205,7 @@ pub struct P2PNodeAnnouncement {
     pub signature: String,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn build_p2p_announcement_canonical_message(
     node_id: &str,
     provider_hotkey: &str,

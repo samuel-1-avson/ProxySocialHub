@@ -53,9 +53,6 @@ func TestPayoutIdempotencyKey_SessionDerivedStableAndOrderInsensitive(t *testing
 
 func migratePayoutTables(t *testing.T) {
 	t.Helper()
-	if err := db.DB.AutoMigrate(&models.PendingPayout{}, &models.BatchPayout{}, &models.BatchPayoutItem{}, &models.PayoutRetryQueue{}); err != nil {
-		t.Fatalf("migrate payout tables: %v", err)
-	}
 }
 
 func withTestBatchProcessor(t *testing.T, batchFn func(ctx context.Context, items []models.BatchPayoutItem) (string, error)) *BatchPayoutProcessor {
@@ -81,7 +78,7 @@ func TestQueuePayout_DuplicateSessionsReturnsError(t *testing.T) {
 		return "unused", nil
 	})
 
-	providerID := uuid.New()
+	providerID := testutil.CreateTestUserID(t, "provider")
 	sessions := []string{"session-a", "session-b"}
 	if err := bp.QueuePayout(providerID, "Wallet111111111111111111111111111111111111", 1.0, sessions); err != nil {
 		t.Fatalf("first QueuePayout: %v", err)
@@ -104,7 +101,7 @@ func TestQueueProviderPayout_SecondPayoutNotSwallowed(t *testing.T) {
 	})
 
 	addr := "DevPayout11111111111111111111111111111111"
-	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("billing-atomic-payout"), "seller")
+	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("billing-atomic-payout"), "provider")
 	if err := db.DB.Model(&models.User{}).Where("id = ?", provider.ID).Update("wallet_address", addr).Error; err != nil {
 		t.Fatalf("wallet_address: %v", err)
 	}
@@ -176,7 +173,7 @@ func TestEnqueuePayoutTx_DuplicateAbortsTransaction(t *testing.T) {
 	bp := withTestBatchProcessor(t, func(ctx context.Context, items []models.BatchPayoutItem) (string, error) {
 		return "unused", nil
 	})
-	providerID := uuid.New()
+	providerID := testutil.CreateTestUserID(t, "provider")
 	key := uuid.NewString()
 
 	err := db.DB.Transaction(func(tx *gorm.DB) error {
@@ -207,7 +204,7 @@ func TestProcessPendingBatches_FailedSendKeepsRows(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		row := models.PendingPayout{
-			ProviderID:     uuid.New(),
+			ProviderID:     testutil.CreateTestUserID(t, "provider"),
 			WalletAddress:  "Wallet111111111111111111111111111111111111",
 			AmountSOL:      0.5,
 			IdempotencyKey: uuid.NewString(),

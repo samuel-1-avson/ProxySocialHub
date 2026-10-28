@@ -44,7 +44,7 @@ pub fn yamux_conns_per_node_from_env() -> usize {
     let raw = env::var("YAMUX_CONNS_PER_NODE").unwrap_or_else(|_| DEFAULT.to_string());
     match raw.trim().parse::<usize>() {
         Ok(0) => DEFAULT,
-        Ok(n) => n.min(MAX).max(1),
+        Ok(n) => n.clamp(1, MAX),
         Err(_) => {
             tracing::warn!(
                 raw = %raw,

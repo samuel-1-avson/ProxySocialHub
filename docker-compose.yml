@@ -53,6 +53,12 @@ services:
       - REDIS_PASSWORD=${REDIS_PASSWORD}
       - NATS_URL=nats://nats:4222
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set}
+      # Separate signing key for admin tokens (openssl rand -hex 32). Compose only passes
+      # variables listed here (the .env file is used for ${...} interpolation, not as
+      # env_file), so without this line the container never sees it. Empty is allowed
+      # for dev/CI: control-api then answers 503 on admin routes instead of signing with
+      # an empty key.
+      - ADMIN_JWT_SECRET=${ADMIN_JWT_SECRET:-}
       # Dedicated control-plane secret for edge-gateway -> control-api gateway routes.
       - GATEWAY_SHARED_SECRET=${GATEWAY_SHARED_SECRET:?GATEWAY_SHARED_SECRET must be set}
       - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET must be set}

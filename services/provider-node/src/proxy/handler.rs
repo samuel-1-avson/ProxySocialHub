@@ -136,6 +136,7 @@ impl ProxyHandler {
             Ok(c) => c,
             Err(e) => {
                 error!(target, error = %e, "Failed to connect to target");
+                self.stats.record_connection_failed();
                 let _ = stream
                     .write_all(format!("ERROR Connection failed: {e}\n").as_bytes())
                     .await;

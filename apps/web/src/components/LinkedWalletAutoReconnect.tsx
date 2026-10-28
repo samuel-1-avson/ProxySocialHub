@@ -46,7 +46,12 @@ export function LinkedWalletAutoReconnect() {
 
     if (attempted.current) return;
 
-    if (!wallet || wallet.readyState !== WalletReadyState.Installed) return;
+    // Installed only. "Loadable" is a web wallet or mobile deep link that exists in every
+    // browser (Solflare reports it even with no extension); connecting it from here, with no
+    // click, injected connect.solflare.com as a full-page iframe over the app (or redirected
+    // mobile users away). Those open only when the user picks them in the wallet modal.
+    const installed = wallets.filter((w) => w.readyState === WalletReadyState.Installed);
+    if (installed.length === 0) return;
 
     attempted.current = true;
     // autoConnect is the adapter's silent restoration path. Explicit wallet
