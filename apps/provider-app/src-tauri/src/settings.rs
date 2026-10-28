@@ -90,6 +90,19 @@ mod tests {
         }
     }
 
+    /// The wording the person reads lives in src/consent.ts; the version that decides whether
+    /// their earlier answer still counts lives here. If they drift apart, someone is treated as
+    /// having agreed to text they never saw.
+    #[test]
+    fn the_consent_version_in_the_ui_is_the_one_enforced_here() {
+        let ui = include_str!("../../src/consent.ts");
+        let expected = format!("export const CONSENT_VERSION = {CONSENT_VERSION};");
+        assert!(
+            ui.contains(&expected),
+            "src/consent.ts must declare `{expected}`; bump both together when the wording changes"
+        );
+    }
+
     #[test]
     fn a_new_install_has_no_consent_and_is_not_sharing() {
         let dir = TempDir::new("fresh");
