@@ -21,8 +21,25 @@ pub enum DaemonEnsureResult {
 /// Ensure a provider-node daemon is running for `config`.
 ///
 /// If a live PID file exists, returns immediately. Otherwise spawns
-/// `provider-node start --config …` detached and waits briefly for the PID file.
+/// `provider-node start --config …` detached, waits briefly for the PID file,
+/// then gives the metrics endpoint a moment so the TUI can attach.
 pub async fn ensure_running(config: &Path) -> anyhow::Result<DaemonEnsureResult> {
+    let result = ensure_started(config).await?;
+    if matches!(result, DaemonEnsureResult::Started { .. }) {
+        // Best-effort: the TUI polls this endpoint right after launch.
+        let port = Config::load(&config.to_string_lossy())
+            .map(|c| c.metrics_port)
+            .unwrap_or(9090);
+        let _ = wait_for_metrics(port, Duration::from_secs(8)).await;
+    }
+    Ok(result)
+}
+
+/// Like [`ensure_running`] but returns as soon as the daemon has a live PID file.
+///
+/// Used by `start --background` (the OS sign-in entry), where nobody is waiting on
+/// the dashboard and a lingering console window would be visible to the user.
+pub async fn ensure_started(config: &Path) -> anyhow::Result<DaemonEnsureResult> {
     if !config.is_file() {
         anyhow::bail!(
             "config not found at {} — open Dashboard → My nodes → Connect and click Setup this PC, \
@@ -48,12 +65,6 @@ pub async fn ensure_running(config: &Path) -> anyhow::Result<DaemonEnsureResult>
             paths::log_file().display()
         )
     })?;
-
-    // Best-effort: give metrics a moment so the TUI can attach.
-    let port = Config::load(&config.to_string_lossy())
-        .map(|c| c.metrics_port)
-        .unwrap_or(9090);
-    let _ = wait_for_metrics(port, Duration::from_secs(8)).await;
 
     Ok(DaemonEnsureResult::Started { pid })
 }

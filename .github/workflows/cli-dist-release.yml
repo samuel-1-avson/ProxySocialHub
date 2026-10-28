@@ -15,6 +15,11 @@ on:
         required: false
         type: boolean
         default: false
+      dry_run:
+        description: Build and sign, but do not publish a release (packaged files are kept as a workflow artifact)
+        required: false
+        type: boolean
+        default: false
   push:
     tags:
       - 'provider-v*'
@@ -80,6 +85,11 @@ jobs:
     timeout-minutes: 45
     env:
       CLI_DIST_VERSION: ${{ needs.resolve-version.outputs.version }}
+      # `secrets` cannot be read in a step `if:`, so fold the signing inputs into one flag.
+      # Azure Artifact Signing (a Public Trust certificate profile): credentials are
+      # secrets, the account/endpoint/profile names are plain repository variables.
+      WINDOWS_SIGNING_CONFIGURED: ${{ secrets.AZURE_TENANT_ID != '' && secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_CLIENT_SECRET != '' && vars.ARTIFACT_SIGNING_ENDPOINT != '' && vars.ARTIFACT_SIGNING_ACCOUNT != '' && vars.ARTIFACT_SIGNING_PROFILE != '' }}
+      REQUIRE_CODE_SIGNING: ${{ vars.REQUIRE_CODE_SIGNING }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -96,6 +106,49 @@ jobs:
           if (-not (Test-Path "cli-dist\${env:CLI_DIST_VERSION}\Launch-Provider-Console.cmd")) {
             throw "Missing Launch-Provider-Console.cmd"
           }
+
+      - name: Warn that Windows binaries are unsigned
+        if: ${{ env.WINDOWS_SIGNING_CONFIGURED != 'true' }}
+        shell: bash
+        run: |
+          if [[ "${REQUIRE_CODE_SIGNING}" == "true" ]]; then
+            echo "::error::REQUIRE_CODE_SIGNING is true but Windows signing is not configured (secrets AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET; variables ARTIFACT_SIGNING_ENDPOINT, ARTIFACT_SIGNING_ACCOUNT, ARTIFACT_SIGNING_PROFILE)"
+            exit 1
+          fi
+          echo "::warning::Windows binaries are NOT code-signed - users will see a SmartScreen warning. Configure the Azure Artifact Signing secrets/variables to sign them."
+
+      # Sign before upload so SHA256SUMS and the checksum the in-app updater verifies
+      # both describe the signed files.
+      - name: Sign Windows binaries
+        if: ${{ env.WINDOWS_SIGNING_CONFIGURED == 'true' }}
+        uses: Azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.ARTIFACT_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.ARTIFACT_SIGNING_PROFILE }}
+          files-folder: ${{ github.workspace }}\cli-dist\${{ env.CLI_DIST_VERSION }}
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Verify Windows signatures
+        if: ${{ env.WINDOWS_SIGNING_CONFIGURED == 'true' }}
+        shell: pwsh
+        run: |
+          $exes = Get-ChildItem "cli-dist\$env:CLI_DIST_VERSION" -Filter *.exe
+          if (-not $exes) { throw "No .exe files to verify" }
+          $bad = @()
+          foreach ($exe in $exes) {
+            $sig = Get-AuthenticodeSignature $exe.FullName
+            Write-Host "$($exe.Name): $($sig.Status) $($sig.SignerCertificate.Subject)"
+            if ($sig.Status -ne 'Valid') { $bad += $exe.Name }
+          }
+          if ($bad) { throw "Not validly signed: $($bad -join ', ')" }
+
       - uses: actions/upload-artifact@v4
         with:
           name: cli-dist-windows
@@ -109,6 +162,11 @@ jobs:
     timeout-minutes: 60
     env:
       CLI_DIST_VERSION: ${{ needs.resolve-version.outputs.version }}
+      # See the windows job: one flag, because `secrets` cannot be read in a step `if:`.
+      # Developer ID Application certificate (.p12, base64) + notarization via an Apple
+      # ID app-specific password.
+      MACOS_SIGNING_CONFIGURED: ${{ secrets.APPLE_CERTIFICATE_P12 != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.APPLE_SIGNING_IDENTITY != '' && secrets.APPLE_ID != '' && secrets.APPLE_APP_SPECIFIC_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
+      REQUIRE_CODE_SIGNING: ${{ vars.REQUIRE_CODE_SIGNING }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -135,6 +193,79 @@ jobs:
           build_one services/provider-node provider-node aarch64-apple-darwin "provider-node-${VERSION}-macos-arm64"
           build_one cli proxyhubb-cli aarch64-apple-darwin "provider-cli-${VERSION}-macos-arm64"
           ls -la "$DIST_DIR"
+
+      - name: Warn that macOS binaries are unsigned
+        if: ${{ env.MACOS_SIGNING_CONFIGURED != 'true' }}
+        run: |
+          if [[ "${REQUIRE_CODE_SIGNING}" == "true" ]]; then
+            echo "::error::REQUIRE_CODE_SIGNING is true but macOS signing is not configured (secrets APPLE_CERTIFICATE_P12, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID)"
+            exit 1
+          fi
+          echo "::warning::macOS binaries are NOT signed or notarized - Gatekeeper will block them for users who download them in a browser."
+
+      # Sign before upload so SHA256SUMS and the in-app updater checksum describe the
+      # signed files. Bare executables cannot be stapled, so Gatekeeper checks the
+      # notarization ticket online the first time a downloaded file is opened.
+      - name: Sign and notarize macOS binaries
+        if: ${{ env.MACOS_SIGNING_CONFIGURED == 'true' }}
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          DIST_DIR="cli-dist/${CLI_DIST_VERSION}"
+          KEYCHAIN="${RUNNER_TEMP}/proxyhubb-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          CERT="${RUNNER_TEMP}/signing-cert.p12"
+          ZIP="${RUNNER_TEMP}/notarize.zip"
+          cleanup() {
+            security delete-keychain "$KEYCHAIN" >/dev/null 2>&1 || true
+            rm -f "$CERT" "$ZIP"
+          }
+          trap cleanup EXIT
+
+          # Throwaway keychain that only lives for this job.
+          printf '%s' "$APPLE_CERTIFICATE_P12" | base64 --decode > "$CERT"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$CERT" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          # Keep the existing search list; codesign finds the identity through it.
+          # shellcheck disable=SC2046
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+
+          shopt -s nullglob
+          BINARIES=("$DIST_DIR"/provider-node-*-macos-* "$DIST_DIR"/provider-cli-*-macos-*)
+          if [[ ${#BINARIES[@]} -ne 4 ]]; then
+            echo "::error::expected 4 macOS binaries to sign, found ${#BINARIES[@]}"
+            exit 1
+          fi
+          for bin in "${BINARIES[@]}"; do
+            codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$bin"
+            codesign --verify --strict --verbose=2 "$bin"
+          done
+
+          # Notarize all four in one submission.
+          xcrun notarytool store-credentials proxyhubb-notary \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --keychain "$KEYCHAIN"
+          (cd "$DIST_DIR" && zip -j "$ZIP" "${BINARIES[@]##*/}")
+          RESULT="$(xcrun notarytool submit "$ZIP" --keychain-profile proxyhubb-notary --keychain "$KEYCHAIN" \
+            --wait --timeout 30m --output-format json)"
+          echo "$RESULT"
+          STATUS="$(printf '%s' "$RESULT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])')"
+          if [[ "$STATUS" != "Accepted" ]]; then
+            ID="$(printf '%s' "$RESULT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+            xcrun notarytool log "$ID" --keychain-profile proxyhubb-notary --keychain "$KEYCHAIN" || true
+            echo "::error::notarization finished with status '$STATUS'"
+            exit 1
+          fi
+
       - uses: actions/upload-artifact@v4
         with:
           name: cli-dist-macos
@@ -207,7 +338,16 @@ jobs:
           sha256sum * > SHA256SUMS.txt
           ls -la
 
+      - name: Keep packaged files (dry run)
+        if: ${{ github.event.inputs.dry_run == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-dist-packaged-dry-run
+          path: packaged/
+          if-no-files-found: error
+
       - name: Publish GitHub Release
+        if: ${{ github.event.inputs.dry_run != 'true' }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.resolve-version.outputs.tag }}
