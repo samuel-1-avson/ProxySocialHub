@@ -6,6 +6,7 @@
 //! - every command that touches the node runs off the UI thread;
 //! - the window's capability file grants nothing beyond `core:default`.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -33,9 +34,24 @@ const DASHBOARD_URL: &str = "https://proxyhubb.com/dashboard/provider";
 /// How often the node is checked and the window refreshed.
 const SUPERVISE_INTERVAL: Duration = Duration::from_secs(5);
 
-/// Build the core for this install: its settings live in the app's own config directory.
+/// Environment variable that pins the folder the app keeps its settings in. Tauri resolves the
+/// config folder through the Windows Known Folder API, which ignores `%APPDATA%`, so without
+/// this a test run would record consent in a real profile.
+pub const APP_DIR_ENV: &str = "PROXYHUB_APP_DIR";
+
+/// Where settings live: `PROXYHUB_APP_DIR` if set and non-empty, otherwise the app's own
+/// config directory.
+fn settings_dir_from(pinned: Option<std::ffi::OsString>, default: PathBuf) -> PathBuf {
+    match pinned.filter(|p| !p.is_empty()) {
+        Some(dir) => PathBuf::from(dir),
+        None => default,
+    }
+}
+
+/// Build the core for this install.
 pub fn build_core(app: &AppHandle) -> Result<Core, String> {
-    let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    let default = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    let dir = settings_dir_from(std::env::var_os(APP_DIR_ENV), default);
     Ok(AppCore::new(Sidecar::new(locate_sidecar()?), dir))
 }
 
@@ -173,6 +189,23 @@ pub fn set_autostart(app: AppHandle, on: bool) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use std::ffi::OsString;
+
+    #[test]
+    fn the_settings_folder_can_be_pinned_and_an_empty_pin_is_ignored() {
+        let default = PathBuf::from("/real/profile/com.proxyhubb.provider");
+        assert_eq!(
+            settings_dir_from(Some(OsString::from("/scratch/app")), default.clone()),
+            PathBuf::from("/scratch/app")
+        );
+        assert_eq!(
+            settings_dir_from(Some(OsString::new()), default.clone()),
+            default
+        );
+        assert_eq!(settings_dir_from(None, default.clone()), default);
+    }
+
     /// The window is granted `core:default` and nothing else: no shell, filesystem or
     /// arbitrary-URL capability. If you need more, change this test on purpose and say why.
     #[test]
