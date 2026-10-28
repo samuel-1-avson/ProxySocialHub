@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
+	"github.com/proxyhubb/control-api/internal/middleware"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/ratelimiter"
 	"gorm.io/gorm"
@@ -48,6 +49,10 @@ const (
 	pairingMaxPerIPPerHour = 60
 	// pairingPurgeAfter is how long past expiry a row is kept before it is deleted.
 	pairingPurgeAfter = 24 * time.Hour
+	// pairingMaxBodyBytes caps every pairing request body. The largest legitimate one is a
+	// start with four short text fields; start and poll are unauthenticated, and the
+	// control API has no global body limit (the one in main_secure.go is never built).
+	pairingMaxBodyBytes = 4 << 10
 
 	// pairedTokenTTL is how long a token minted by pairing stays valid. Zero means it never
 	// expires: a paired node runs unattended, so a key that lapsed would silently take it
@@ -66,16 +71,20 @@ var errPairingNotRedeemable = errors.New("pairing is not redeemable")
 // RegisterProviderPairingPublicRoutes registers the routes the node itself calls.
 // They are unauthenticated by design; see the package comment above.
 func RegisterProviderPairingPublicRoutes(rg *gin.RouterGroup) {
-	rg.POST("/provider/pair/start", pairingLimiter("start", 20, false), startProviderPairing)
-	rg.POST("/provider/pair/poll", pairingLimiter("poll", 300, false), pollProviderPairing)
+	rg.POST("/provider/pair/start", pairingLimiter("start", 20, false), pairingBodyLimit, startProviderPairing)
+	rg.POST("/provider/pair/poll", pairingLimiter("poll", 300, false), pairingBodyLimit, pollProviderPairing)
 }
 
 // RegisterProviderPairingRoutes registers the routes the signed-in owner calls. Mount
 // them on the provider-role group.
 func RegisterProviderPairingRoutes(rg *gin.RouterGroup) {
 	rg.GET("/provider/pair/lookup", pairingLimiter("lookup", 30, true), lookupProviderPairing)
-	rg.POST("/provider/pair/decision", pairingLimiter("decision", 30, true), decideProviderPairing)
+	rg.POST("/provider/pair/decision", pairingLimiter("decision", 30, true), pairingBodyLimit, decideProviderPairing)
 }
+
+// pairingBodyLimit makes a body over pairingMaxBodyBytes fail to decode, which each handler
+// already answers with 400 and without creating or changing anything.
+var pairingBodyLimit = middleware.RequestSizeLimiter(pairingMaxBodyBytes).Handle
 
 // pairingLimiter is a per-minute limit private to one pairing route.
 //
