@@ -2,9 +2,21 @@
 
 use std::path::PathBuf;
 
-/// Base operator directory: `~/.proxyhubb` or `%USERPROFILE%\.proxyhubb`.
+/// Environment variable that pins the state directory (PID file, logs, runtime state), for the
+/// same reasons as `PROXYHUB_CONFIG`.
+pub const STATE_DIR_ENV: &str = "PROXYHUB_STATE_DIR";
+
+/// Base operator directory: `PROXYHUB_STATE_DIR` if set, otherwise `~/.proxyhubb` or
+/// `%USERPROFILE%\.proxyhubb`.
 pub fn state_dir() -> PathBuf {
-    home_dir().join(".proxyhubb")
+    state_dir_from(std::env::var_os(STATE_DIR_ENV), home_dir())
+}
+
+fn state_dir_from(pinned: Option<std::ffi::OsString>, home: PathBuf) -> PathBuf {
+    match pinned.filter(|p| !p.is_empty()) {
+        Some(dir) => PathBuf::from(dir),
+        None => home.join(".proxyhubb"),
+    }
 }
 
 pub fn home_dir() -> PathBuf {
@@ -98,6 +110,20 @@ pub fn append_log(line: &str) {
 mod tests {
     use super::*;
     use std::ffi::OsString;
+
+    #[test]
+    fn the_state_dir_can_be_pinned_and_an_empty_pin_is_ignored() {
+        let home = PathBuf::from("/home/jane");
+        assert_eq!(
+            state_dir_from(Some(OsString::from("/scratch/state")), home.clone()),
+            PathBuf::from("/scratch/state")
+        );
+        assert_eq!(
+            state_dir_from(Some(OsString::new()), home.clone()),
+            home.join(".proxyhubb")
+        );
+        assert_eq!(state_dir_from(None, home.clone()), home.join(".proxyhubb"));
+    }
 
     #[test]
     fn the_env_override_wins_over_every_platform_candidate() {
