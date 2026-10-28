@@ -6,7 +6,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { ArrowRight, AlertCircle, Loader2 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { SolanaWalletButton } from '@/components/SolanaWalletButton';
-import { getErrorMessage } from '@/lib/utils';
+import { classifySignInError, forceDisconnectSolanaWallet } from '@/lib/solana-wallet-session';
 
 interface WalletAuthPanelProps {
     actionLabel: string;
@@ -18,7 +18,7 @@ export function WalletAuthPanel({ actionLabel, idleMessage, mode }: WalletAuthPa
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const { walletLogin } = useAuth();
-    const { connected, publicKey, signMessage } = useWallet();
+    const { connected, publicKey, signMessage, disconnect, select } = useWallet();
     const router = useRouter();
 
     const handleWalletAuth = async () => {
@@ -34,7 +34,12 @@ export function WalletAuthPanel({ actionLabel, idleMessage, mode }: WalletAuthPa
             router.push('/dashboard');
             router.refresh();
         } catch (err: unknown) {
-            setError(getErrorMessage(err) || `Wallet ${mode} failed`);
+            const { message, resetWallet } = classifySignInError(err, `Wallet ${mode} failed`);
+            setError(message);
+            if (resetWallet) {
+                // The app and the wallet extension disagree about the connection; start over.
+                await forceDisconnectSolanaWallet({ disconnect, select });
+            }
         } finally {
             setLoading(false);
         }
