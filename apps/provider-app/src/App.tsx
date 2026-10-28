@@ -1,21 +1,20 @@
-// Spike placeholder (plan step 0.2): proves the window loads and Rust can call the
-// bundled provider-node. Replaced by the real screens in Phase 3.
+// Placeholder until the real screens land (plan Phase 3): shows the derived app state.
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 
 export function App() {
-  const [version, setVersion] = useState<string>('checking...');
+  const [state, setState] = useState<string>('checking...');
 
   useEffect(() => {
-    invoke<string>('sidecar_version')
-      .then(setVersion)
-      .catch((e: unknown) => setVersion(`error: ${String(e)}`));
+    invoke('app_state')
+      .then((s) => setState(JSON.stringify(s)))
+      .catch((e: unknown) => setState(`error: ${String(e)}`));
   }, []);
 
   return (
     <main style={{ fontFamily: 'system-ui, sans-serif', padding: 24 }}>
       <h1>ProxyHubb Provider</h1>
-      <p>Bundled node: {version}</p>
+      <p>State: {state}</p>
     </main>
   );
 }
