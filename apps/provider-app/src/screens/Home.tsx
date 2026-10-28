@@ -51,12 +51,27 @@ function Footer({ ipc, app }: { ipc: Ipc; app: AppApi }) {
   );
 }
 
-export function Connecting({ state }: { state: Extract<AppState, { kind: 'connecting' }> }) {
+export function Connecting({
+  ipc,
+  app,
+  state,
+}: {
+  ipc: Ipc;
+  app: AppApi;
+  state: Extract<AppState, { kind: 'connecting' }>;
+}) {
   return (
     <section aria-labelledby="connecting-title">
       <h1 id="connecting-title">Connecting…</h1>
       <p aria-live="polite">Your computer is getting online with ProxyHubb. This usually takes a few seconds.</p>
       {state.detail && <p className="muted">Last attempt: {state.detail}</p>}
+      {/* Someone whose node cannot connect must still be able to stop it. */}
+      <div className="actions">
+        <button className="secondary" type="button" disabled={app.busy} onClick={() => void app.act(() => ipc.setSharing(false))}>
+          Pause sharing
+        </button>
+      </div>
+      <Footer ipc={ipc} app={app} />
     </section>
   );
 }
