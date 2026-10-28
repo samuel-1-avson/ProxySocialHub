@@ -408,8 +408,8 @@ services:
   # ==================== Web (Frontend) ====================
   web:
     build:
-      context: ./apps/web
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/web/Dockerfile
       args:
         - API_URL=http://control-api:8080
         - NEXT_PUBLIC_GATEWAY_URL=${GATEWAY_PUBLIC_URL:-http://localhost:8090}

@@ -1,30 +1,31 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from "react";
 import {
   ShieldCheck,
   Zap,
   Power,
   AlertCircle,
   CheckCircle,
-  Wifi,
   Copy,
   Eye,
   EyeOff,
-} from 'lucide-react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+} from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Listing,
   confirmEscrowPayment,
   createOrderWithProvisioning,
   getOrderProxyCredentials,
+  getOrder,
   initiateSmartContractPayment,
   marketplaceKeys,
   waitForOrderActive,
   type MarketplaceProxyCredentials,
-} from '@/lib/api/marketplace';
-import { getSystemConfig } from '@/lib/api/config';
-import { useAnchorWallet, useWallet } from '@solana/wallet-adapter-react';
+  type Order,
+} from "@/lib/api/marketplace";
+import { getSystemConfig } from "@/lib/api/config";
+import { useAnchorWallet, useWallet } from "@solana/wallet-adapter-react";
 import {
   initializeEscrow,
   initializeEscrowMultisig,
@@ -35,27 +36,27 @@ import {
   assertBuyerHasSolOnCluster,
   shopSolanaClusterLabel,
   WrongSolanaClusterError,
-} from '@/lib/solana';
-import { formatSolanaWalletError } from '@/lib/solana-transfer';
-import { useToast } from '@/stores';
-import { getErrorMessage } from '@/lib/utils';
-import { ApiError } from '@/lib/api/client';
-import Link from 'next/link';
-import { ROUTES } from '@/lib/navigation/routes';
+} from "@/lib/solana";
+import { formatSolanaWalletError } from "@/lib/solana-transfer";
+import { useToast } from "@/stores";
+import { getErrorMessage } from "@/lib/utils";
+import { ApiError } from "@/lib/api/client";
+import Link from "next/link";
+import { ROUTES } from "@/lib/navigation/routes";
 import {
   trackMarketplaceEvent,
   type MarketplaceFunnelSurface,
-} from '@/lib/analytics/marketplace-funnel';
-import { Modal } from '@/components/patterns/Modal';
-import { Button } from '@/components/ui/button';
-import { MoneyRailHint } from '@/components/MoneyRailHint';
-import { UnlockWalletPrompt } from '@/components/UnlockWalletPrompt';
-import { ExtensionConnectCard } from '@/components/marketplace/ExtensionConnectCard';
+} from "@/lib/analytics/marketplace-funnel";
+import { Modal } from "@/components/patterns/Modal";
+import { Button } from "@/components/ui/button";
+import { MoneyRailHint } from "@/components/MoneyRailHint";
+import { UnlockWalletPrompt } from "@/components/UnlockWalletPrompt";
+import { ExtensionConnectCard } from "@/components/marketplace/ExtensionConnectCard";
 
 async function waitForFundedEscrow(
   buyer: string,
   seller: string,
-  opts?: { timeoutMs?: number; intervalMs?: number; escrowPda?: string }
+  opts?: { timeoutMs?: number; intervalMs?: number; escrowPda?: string },
 ): Promise<boolean> {
   const timeoutMs = opts?.timeoutMs ?? 45_000;
   const intervalMs = opts?.intervalMs ?? 1500;
@@ -67,7 +68,7 @@ async function waitForFundedEscrow(
     if (
       info &&
       info.amount > 0 &&
-      (info.status === 'Pending' || info.status === 'Active') &&
+      (info.status === "Pending" || info.status === "Active") &&
       (info.expiresAt === 0 || info.expiresAt * 1000 > Date.now())
     ) {
       return true;
@@ -79,38 +80,50 @@ async function waitForFundedEscrow(
 
 interface BuyListingModalProps {
   listing: Listing;
+  existingOrder?: Order;
   onClose: () => void;
-  onSuccess: (orderId: string, credentials?: MarketplaceProxyCredentials) => void;
+  onSuccess: (
+    orderId: string,
+    credentials?: MarketplaceProxyCredentials,
+  ) => void;
   surface?: MarketplaceFunnelSurface | string;
 }
 
 export function BuyListingModal({
   listing,
+  existingOrder,
   onClose,
   onSuccess,
-  surface = 'unknown',
+  surface = "unknown",
 }: BuyListingModalProps) {
   const { publicKey } = useWallet();
   const wallet = useAnchorWallet();
   const toast = useToast();
   const queryClient = useQueryClient();
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [credentials, setCredentials] = useState<MarketplaceProxyCredentials | null>(null);
+  const paymentInFlight = useRef(false);
+  const [error, setError] = useState("");
+  const [pendingOrderId, setPendingOrderId] = useState<string | null>(
+    existingOrder?.id ?? null,
+  );
+  const [credentials, setCredentials] =
+    useState<MarketplaceProxyCredentials | null>(null);
   const [completedOrderId, setCompletedOrderId] = useState<string | null>(null);
   const [showPass, setShowPass] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
-  const [bandwidth, setBandwidth] = useState(listing.min_purchase_gb || 1);
+  const [bandwidth, setBandwidth] = useState(
+    existingOrder?.bandwidth_gb ?? (listing.min_purchase_gb || 1),
+  );
 
   const { data: systemConfig } = useQuery({
-    queryKey: ['system-config-public'],
+    queryKey: ["system-config-public"],
     queryFn: getSystemConfig,
     staleTime: 60_000,
   });
   const solPriceUsd = Number(systemConfig?.sol_price_usd || 0);
 
   useEffect(() => {
-    trackMarketplaceEvent('buy_modal_open', {
+    trackMarketplaceEvent("buy_modal_open", {
       listing_id: listing.id,
       surface,
     });
@@ -125,8 +138,12 @@ export function BuyListingModal({
     }
     return best;
   })();
-  const estimatedCostUSD = effectivePricePerGB * bandwidth;
-  const estimatedCostSOL = solPriceUsd > 0 ? estimatedCostUSD / solPriceUsd : null;
+  const estimatedCostUSD =
+    existingOrder?.total_price ??
+    existingOrder?.price_total ??
+    effectivePricePerGB * bandwidth;
+  const estimatedCostSOL =
+    solPriceUsd > 0 ? estimatedCostUSD / solPriceUsd : null;
   const bulkRateActive = effectivePricePerGB < listing.price_per_gb - 1e-12;
 
   const copyToClipboard = (text: string, key: string) => {
@@ -137,18 +154,44 @@ export function BuyListingModal({
   };
 
   const e2eMockBuy =
-    process.env.NEXT_PUBLIC_PLAYWRIGHT_E2E_MOCK_BUY === '1' ||
-    (typeof window !== 'undefined' &&
-      !!(window as Window & { __PROXYHUB_E2E_MOCK_BUY__?: boolean }).__PROXYHUB_E2E_MOCK_BUY__);
+    process.env.NODE_ENV !== "production" &&
+    (process.env.NEXT_PUBLIC_PLAYWRIGHT_E2E_MOCK_BUY === "1" ||
+      (typeof window !== "undefined" &&
+        !!(window as Window & { __PROXYHUB_E2E_MOCK_BUY__?: boolean })
+          .__PROXYHUB_E2E_MOCK_BUY__));
+
+  const finishOrder = async (orderId: string) => {
+    const credsResponse = await getOrderProxyCredentials(orderId);
+    const nextCredentials = credsResponse.proxy_credentials;
+    if (
+      !nextCredentials?.username ||
+      !nextCredentials?.password ||
+      !nextCredentials?.endpoint
+    ) {
+      throw new Error(
+        "Order created, but proxy credentials were not returned after escrow confirmation.",
+      );
+    }
+
+    setCompletedOrderId(orderId);
+    setCredentials(nextCredentials);
+    void queryClient.invalidateQueries({ queryKey: marketplaceKeys.all });
+    onSuccess(orderId, nextCredentials);
+  };
 
   const handleConnect = async () => {
+    if (paymentInFlight.current) return;
     if (!e2eMockBuy && (!wallet || !publicKey)) {
-      toast.warning('Wallet required', 'Please connect your Solana wallet first.');
+      toast.warning(
+        "Wallet required",
+        "Please connect your Solana wallet first.",
+      );
       return;
     }
 
+    paymentInFlight.current = true;
     setLoading(true);
-    setError('');
+    setError("");
     try {
       if (!e2eMockBuy) {
         await assertExpectedSolanaCluster();
@@ -156,24 +199,38 @@ export function BuyListingModal({
           await assertBuyerHasSolOnCluster(publicKey);
         }
       }
-      const orderResult = await createOrderWithProvisioning({
-        listing_id: listing.id,
-        bandwidth_gb: bandwidth,
-        session_type: listing.proxy_type === 'sticky' ? 'sticky' : 'rotating',
-      });
-      const order = orderResult.order;
+      const order = pendingOrderId
+        ? await getOrder(pendingOrderId)
+        : (
+            await createOrderWithProvisioning({
+              listing_id: listing.id,
+              bandwidth_gb: bandwidth,
+              session_type:
+                listing.proxy_type === "sticky" ? "sticky" : "rotating",
+            })
+          ).order;
+      setPendingOrderId(order.id);
+      if (order.status === "active" || order.status === "completed") {
+        await finishOrder(order.id);
+        return;
+      }
+      if (!["pending", "pending_payment"].includes(order.status)) {
+        throw new Error(
+          "Review this existing order before attempting payment again.",
+        );
+      }
 
       const params = await initiateSmartContractPayment(order.id);
-      const buyerPk = params.buyer_pubkey || publicKey?.toBase58() || '';
+      const buyerPk = params.buyer_pubkey || publicKey?.toBase58() || "";
       const sellerPk = params.seller_pubkey;
 
       let escrowTx: string | undefined;
-      const useMultisig = params.escrow_seed_kind === 'multisig';
+      const useMultisig = params.escrow_seed_kind === "multisig";
       const escrowPdaHint = params.escrow_pda;
       const ensureEscrowOnChain = async () => {
         if (e2eMockBuy) return;
         if (!buyerPk || !sellerPk) {
-          throw new Error('Missing buyer/seller wallet for escrow.');
+          throw new Error("Missing buyer/seller wallet for escrow.");
         }
         const already = escrowPdaHint
           ? await getEscrowInfoByPDA(escrowPdaHint)
@@ -181,21 +238,23 @@ export function BuyListingModal({
         if (
           already &&
           already.amount > 0 &&
-          (already.status === 'Pending' || already.status === 'Active')
+          (already.status === "Pending" || already.status === "Active")
         ) {
           return;
         }
         try {
           if (useMultisig) {
             if (!params.escrow_expires_at) {
-              throw new Error('Missing escrow_expires_at for multisig escrow init.');
+              throw new Error(
+                "Missing escrow_expires_at for multisig escrow init.",
+              );
             }
             const { tx } = await initializeEscrowMultisig(
               wallet,
               sellerPk,
               params.amount_lamports,
               params.bandwidth_gb,
-              params.escrow_expires_at
+              params.escrow_expires_at,
             );
             escrowTx = tx;
           } else {
@@ -203,7 +262,7 @@ export function BuyListingModal({
               wallet,
               sellerPk,
               params.amount_lamports,
-              params.bandwidth_gb
+              params.bandwidth_gb,
             );
             escrowTx = tx;
           }
@@ -217,7 +276,7 @@ export function BuyListingModal({
         });
         if (!funded) {
           throw new Error(
-            'Escrow transaction did not land on-chain. Approve the wallet popup, ensure you have enough SOL, then try again.'
+            "Escrow transaction did not land on-chain. Approve the wallet popup, ensure you have enough SOL, then try again.",
           );
         }
       };
@@ -242,11 +301,9 @@ export function BuyListingModal({
         await confirmEscrowPayment(order.id, escrowTx);
       } catch (confirmErr: unknown) {
         const code =
-          confirmErr instanceof ApiError
-            ? confirmErr.code
-            : undefined;
+          confirmErr instanceof ApiError ? confirmErr.code : undefined;
         const msg = getErrorMessage(confirmErr);
-        if (code === 'escrow_missing' || /escrow not found/i.test(msg)) {
+        if (code === "escrow_missing" || /escrow not found/i.test(msg)) {
           await ensureEscrowOnChain();
           await confirmEscrowPayment(order.id, escrowTx);
         } else {
@@ -258,18 +315,7 @@ export function BuyListingModal({
         timeoutMs: e2eMockBuy ? 15_000 : 60_000,
         pollIntervalMs: e2eMockBuy ? 250 : 2000,
       });
-      const credsResponse = await getOrderProxyCredentials(order.id);
-      const nextCredentials = credsResponse.proxy_credentials;
-      if (!nextCredentials) {
-        throw new Error(
-          'Order created, but proxy credentials were not returned after escrow confirmation.'
-        );
-      }
-
-      setCompletedOrderId(order.id);
-      setCredentials(nextCredentials);
-      void queryClient.invalidateQueries({ queryKey: marketplaceKeys.all });
-      onSuccess(order.id, nextCredentials);
+      await finishOrder(order.id);
     } catch (err: unknown) {
       console.error(err);
       if (err instanceof WrongSolanaClusterError || err instanceof ApiError) {
@@ -280,10 +326,11 @@ export function BuyListingModal({
         setError(
           walletMsg ||
             apiMsg ||
-            'Failed to connect. Check your on-chain SOL wallet balance (devnet).'
+            "Failed to connect. Check your on-chain SOL wallet balance (devnet).",
         );
       }
     } finally {
+      paymentInFlight.current = false;
       setLoading(false);
     }
   };
@@ -319,8 +366,8 @@ export function BuyListingModal({
             <CheckCircle size={20} aria-hidden />
           </div>
           <p className="text-sm text-muted-foreground">
-            Connect with ProxyHubb to turn on HTTP CONNECT in this browser. Credentials below are
-            for curl and other clients.
+            Connect with ProxyHubb to turn on HTTP CONNECT in this browser.
+            Credentials below are for curl and other clients.
           </p>
         </div>
 
@@ -339,16 +386,19 @@ export function BuyListingModal({
             Proxy credentials
           </p>
           <p className="text-xs text-muted-foreground">
-            HTTP CONNECT at this endpoint. Password is HMAC for the public buyer edge.
+            HTTP CONNECT at this endpoint. Password is HMAC for the public buyer
+            edge.
           </p>
           {[
-            { label: 'Endpoint', value: credentials.endpoint, key: 'endpoint' },
-            { label: 'Username', value: credentials.username, key: 'username' },
+            { label: "Endpoint", value: credentials.endpoint, key: "endpoint" },
+            { label: "Username", value: credentials.username, key: "username" },
           ].map(({ label, value, key }) => (
             <div key={key} className="flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <p className="text-xs text-muted-foreground">{label}</p>
-                <p className="break-all font-mono text-sm text-foreground">{value}</p>
+                <p className="break-all font-mono text-sm text-foreground">
+                  {value}
+                </p>
               </div>
               <button
                 type="button"
@@ -357,7 +407,11 @@ export function BuyListingModal({
                 aria-label={`Copy ${label}`}
               >
                 {copied === key ? (
-                  <CheckCircle size={14} className="text-[var(--success)]" aria-hidden />
+                  <CheckCircle
+                    size={14}
+                    className="text-[var(--success)]"
+                    aria-hidden
+                  />
                 ) : (
                   <Copy size={14} aria-hidden />
                 )}
@@ -368,7 +422,7 @@ export function BuyListingModal({
             <div className="min-w-0 flex-1">
               <p className="text-xs text-muted-foreground">Password</p>
               <p className="break-all font-mono text-sm text-foreground">
-                {showPass ? credentials.password : '••••••••••••'}
+                {showPass ? credentials.password : "••••••••••••"}
               </p>
             </div>
             <div className="flex shrink-0 gap-1">
@@ -376,19 +430,29 @@ export function BuyListingModal({
                 type="button"
                 onClick={() => setShowPass((v) => !v)}
                 className="rounded-[var(--radius-sm)] p-2 text-muted-foreground hover:bg-background hover:text-foreground"
-                aria-label={showPass ? 'Hide password' : 'Reveal password'}
+                aria-label={showPass ? "Hide password" : "Reveal password"}
                 aria-pressed={showPass}
               >
-                {showPass ? <EyeOff size={14} aria-hidden /> : <Eye size={14} aria-hidden />}
+                {showPass ? (
+                  <EyeOff size={14} aria-hidden />
+                ) : (
+                  <Eye size={14} aria-hidden />
+                )}
               </button>
               <button
                 type="button"
-                onClick={() => copyToClipboard(credentials.password, 'password')}
+                onClick={() =>
+                  copyToClipboard(credentials.password, "password")
+                }
                 className="rounded-[var(--radius-sm)] p-2 text-muted-foreground hover:bg-background hover:text-foreground"
                 aria-label="Copy password"
               >
-                {copied === 'password' ? (
-                  <CheckCircle size={14} className="text-[var(--success)]" aria-hidden />
+                {copied === "password" ? (
+                  <CheckCircle
+                    size={14}
+                    className="text-[var(--success)]"
+                    aria-hidden
+                  />
                 ) : (
                   <Copy size={14} aria-hidden />
                 )}
@@ -398,8 +462,8 @@ export function BuyListingModal({
         </div>
 
         <p className="mt-4 text-xs text-muted-foreground">
-          Configure your client as an HTTP proxy. Billing is hourly; the session ends when the
-          bandwidth quota is reached.
+          Configure your client as an HTTP proxy. Billing is hourly; the session
+          ends when the bandwidth quota is reached.
         </p>
       </Modal>
     );
@@ -411,7 +475,7 @@ export function BuyListingModal({
       onOpenChange={(open) => {
         if (!open && !loading) onClose();
       }}
-      title="Connect to node"
+      title="Review purchase"
       description={listing.title}
       testId="buy-listing-modal"
       footer={
@@ -425,41 +489,44 @@ export function BuyListingModal({
             className="w-full"
           >
             <Power size={18} className="mr-2" aria-hidden />
-            Start connection
+            Fund escrow & continue
           </Button>
           <p className="text-center text-xs text-muted-foreground">
-            You pay from your linked Solana wallet into on-chain escrow. Platform balance is not used.
-            Session ends when bandwidth quota is exhausted. This shop settles on Solana{' '}
-            {shopSolanaClusterLabel()} — set Phantom to that cluster before you pay.
+            You pay from your linked Solana wallet into on-chain escrow.
+            Platform balance is not used. Session ends when bandwidth quota is
+            exhausted. This shop settles on Solana {shopSolanaClusterLabel()} —
+            set Phantom to that cluster before you pay.
           </p>
           <MoneyRailHint rail="escrow" />
         </div>
       }
     >
       <div className="space-y-5">
-        {!publicKey && (
-          <UnlockWalletPrompt compact />
-        )}
+        {!publicKey && <UnlockWalletPrompt compact />}
         <div className="flex gap-4 rounded-[var(--radius-md)] border border-border bg-secondary p-4">
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-primary font-mono text-sm font-semibold text-primary-foreground">
-            {listing.proxy_type?.[0]?.toUpperCase() ?? 'P'}
+            {listing.proxy_type?.[0]?.toUpperCase() ?? "P"}
           </div>
           <div className="min-w-0">
-            <h3 className="truncate text-sm font-semibold text-foreground">{listing.title}</h3>
+            <h3 className="truncate text-sm font-semibold text-foreground">
+              {listing.title}
+            </h3>
             <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
               <span className="inline-flex items-center gap-1">
-                <ShieldCheck size={12} className="text-[var(--info)]" aria-hidden />
-                Verified
+                <ShieldCheck
+                  size={12}
+                  className="text-[var(--info)]"
+                  aria-hidden
+                />
+                {listing.listing_offer_verified
+                  ? "Signed offer verified"
+                  : "Offer signature not verified"}
               </span>
               <span className="inline-flex items-center gap-1 font-mono">
                 <Zap size={12} className="text-[var(--warning)]" aria-hidden />
-                {listing.sla_source && listing.sla_source !== 'listing'
-                  ? `${listing.avg_latency_ms}ms`
-                  : 'Latency unmeasured'}
-              </span>
-              <span className="inline-flex items-center gap-1">
-                <Wifi size={12} className="text-[var(--success)]" aria-hidden />
-                Ready
+                {listing.avg_latency_ms > 0
+                  ? `${listing.avg_latency_ms} ms · ${["gateway", "explorer"].includes(listing.sla_source || "") ? "measured" : "reported"}`
+                  : "Latency unmeasured"}
               </span>
             </div>
           </div>
@@ -468,20 +535,26 @@ export function BuyListingModal({
         <div className="rounded-[var(--radius-md)] border border-[color-mix(in_srgb,var(--info)_30%,var(--border))] bg-[color-mix(in_srgb,var(--info)_8%,transparent)] p-4">
           <h4 className="mb-1 flex items-center gap-2 text-sm font-semibold text-[var(--info)]">
             <AlertCircle size={14} aria-hidden />
-            Pay-as-you-go billing
+            Bandwidth held in escrow
           </h4>
           <p className="text-xs leading-relaxed text-muted-foreground">
-            Charged from your SOL wallet based on bandwidth consumed. Session auto-terminates when
+            Fund the selected bandwidth quota from your SOL wallet. Usage is
+            settled against the order escrow, and the session ends when its
             quota is exhausted.
           </p>
         </div>
 
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <label htmlFor="buy-bandwidth" className="text-xs font-medium text-muted-foreground">
+            <label
+              htmlFor="buy-bandwidth"
+              className="text-xs font-medium text-muted-foreground"
+            >
               Bandwidth quota
             </label>
-            <span className="font-mono text-sm font-semibold text-foreground">{bandwidth} GB</span>
+            <span className="font-mono text-sm font-semibold text-foreground">
+              {bandwidth} GB
+            </span>
           </div>
           <input
             id="buy-bandwidth"
@@ -489,26 +562,29 @@ export function BuyListingModal({
             min={listing.min_purchase_gb || 1}
             max={Math.min(listing.available_bandwidth_gb || 1000, 100)}
             step={1}
+            disabled={loading || Boolean(pendingOrderId)}
             value={bandwidth}
             onChange={(e) => setBandwidth(parseInt(e.target.value, 10))}
             className="w-full accent-[var(--primary)]"
           />
           <div className="flex justify-between font-mono text-xs text-muted-foreground">
             <span>Min: {listing.min_purchase_gb || 1} GB</span>
-            <span>Avail: {listing.available_bandwidth_gb || 'Unlimited'}</span>
+            <span>Avail: {listing.available_bandwidth_gb || "Unlimited"}</span>
           </div>
         </div>
 
         <div className="flex items-center justify-between rounded-[var(--radius-md)] border border-border bg-secondary p-4">
           <div>
-            <p className="mb-1 text-xs text-muted-foreground">Estimated total</p>
+            <p className="mb-1 text-xs text-muted-foreground">
+              Estimated total
+            </p>
             <p className="font-mono text-2xl font-semibold text-[var(--success)]">
               ${estimatedCostUSD.toFixed(2)}
             </p>
             <p className="mt-1 font-mono text-xs text-muted-foreground">
               {estimatedCostSOL != null
                 ? `≈ ${estimatedCostSOL.toFixed(6)} SOL escrow`
-                : 'SOL estimate pending price feed'}
+                : "SOL estimate pending price feed"}
             </p>
           </div>
           <div className="text-right">
@@ -535,6 +611,14 @@ export function BuyListingModal({
           >
             <AlertCircle size={16} aria-hidden />
             {error}
+            {pendingOrderId && (
+              <Link
+                className="underline"
+                href={`/app/activity/orders/${encodeURIComponent(pendingOrderId)}`}
+              >
+                Review existing order
+              </Link>
+            )}
           </div>
         ) : null}
       </div>

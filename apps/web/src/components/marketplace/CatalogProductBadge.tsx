@@ -17,7 +17,7 @@ export function CatalogProductBadge({ product, className = '' }: CatalogProductB
         <span
             data-testid="catalog-product-badge"
             title={product.title}
-            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-[8px] font-black uppercase tracking-widest bg-violet-500/10 border border-violet-500/25 text-violet-300 ${className}`}
+            className={`ui-tag ${className}`}
         >
             <Package size={8} aria-hidden />
             {label}
