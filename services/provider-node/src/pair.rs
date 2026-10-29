@@ -23,6 +23,15 @@ const MAX_CONSECUTIVE_POLL_ERRORS: u32 = 6;
 /// transaction, so a failed attempt consumes nothing and the next poll can still succeed (a
 /// redeploy or a database hiccup are the usual causes). About a minute at the default interval.
 const MAX_CONSECUTIVE_SERVER_ERRORS: u32 = 12;
+/// Tries at `pair/start` before giving up on the network. Lost packets and failed DNS lookups
+/// are normal on a home connection and `poll` already rides them out; one unlucky first request
+/// must not end the pairing. Only a failed connection or a 5xx is retried: a 4xx is the server
+/// saying no.
+const START_ATTEMPTS: u32 = 4;
+/// Each try gets this long, so the worst case is a bounded wait rather than minutes.
+const START_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(10);
+/// The pause before try n+1 is this times n.
+const START_RETRY_WAIT: Duration = Duration::from_secs(1);
 
 /// What a successful pairing hands back.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -212,34 +221,70 @@ async fn start(
     base: &str,
     device_name: Option<String>,
 ) -> Result<StartResponse> {
+    start_with(client, base, device_name, START_RETRY_WAIT).await
+}
+
+/// `start`, with the pause between tries injectable so tests do not sleep.
+async fn start_with(
+    client: &reqwest::Client,
+    base: &str,
+    device_name: Option<String>,
+    retry_wait: Duration,
+) -> Result<StartResponse> {
     let name = device_name
         .map(|n| n.trim().to_string())
         .filter(|n| !n.is_empty())
         .or_else(sysinfo::System::host_name)
         .unwrap_or_else(|| "Unnamed device".to_string());
+    let body = serde_json::json!({
+        "device_name": name,
+        "platform": std::env::consts::OS,
+        "arch": std::env::consts::ARCH,
+        "client_version": env!("CARGO_PKG_VERSION"),
+    });
+    let url = format!("{base}/v1/provider/pair/start");
 
-    let resp = client
-        .post(format!("{base}/v1/provider/pair/start"))
-        .json(&serde_json::json!({
-            "device_name": name,
-            "platform": std::env::consts::OS,
-            "arch": std::env::consts::ARCH,
-            "client_version": env!("CARGO_PKG_VERSION"),
-        }))
-        .send()
-        .await
-        .with_context(|| format!("could not reach the Control API at {base}"))?;
+    let mut attempt = 0u32;
+    loop {
+        attempt += 1;
+        let resp = match client
+            .post(&url)
+            .json(&body)
+            .timeout(START_ATTEMPT_TIMEOUT)
+            .send()
+            .await
+        {
+            Ok(resp) => resp,
+            // Transient: lost packets, a failed lookup, a timeout.
+            Err(_) if attempt < START_ATTEMPTS => {
+                tokio::time::sleep(retry_wait * attempt).await;
+                continue;
+            }
+            Err(e) => {
+                return Err(anyhow!(e)).with_context(|| {
+                    format!(
+                        "could not reach the Control API at {base} after {attempt} tries \
+                         (check your internet connection)"
+                    )
+                });
+            }
+        };
 
-    let status = resp.status();
-    let text = resp.text().await.unwrap_or_default();
-    if !status.is_success() {
-        let detail = serde_json::from_str::<PollBody>(&text)
-            .ok()
-            .and_then(|b| b.error)
-            .unwrap_or_else(|| text.chars().take(200).collect());
-        bail!("pairing could not start ({status}): {detail}");
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        if status.is_server_error() && attempt < START_ATTEMPTS {
+            tokio::time::sleep(retry_wait * attempt).await;
+            continue;
+        }
+        if !status.is_success() {
+            let detail = serde_json::from_str::<PollBody>(&text)
+                .ok()
+                .and_then(|b| b.error)
+                .unwrap_or_else(|| text.chars().take(200).collect());
+            bail!("pairing could not start ({status}): {detail}");
+        }
+        return serde_json::from_str(&text).context("unexpected response when starting pairing");
     }
-    serde_json::from_str(&text).context("unexpected response when starting pairing")
 }
 
 fn announce(started: &StartResponse, open_browser: bool) {
@@ -827,6 +872,117 @@ mod tests {
             err.to_string().contains("too many pairing requests"),
             "{err}"
         );
+    }
+
+    // ── starting over a flaky connection ─────────────────────────────────────
+
+    /// What the server does to each request to /start, in order. Once the script runs out it
+    /// answers normally.
+    enum StartAnswer {
+        /// Read the request, then close the connection without answering (a lost connection).
+        Drop,
+        Status(u16, &'static str),
+    }
+
+    /// Serves POST /start from a script and counts the requests it saw.
+    async fn scripted_start(script: Vec<StartAnswer>) -> (String, Arc<Mutex<u32>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let seen = Arc::new(Mutex::new(0u32));
+        let script = Arc::new(Mutex::new(VecDeque::from(script)));
+        let seen_in = seen.clone();
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut sock, _)) = listener.accept().await else {
+                    return;
+                };
+                let (script, seen) = (script.clone(), seen_in.clone());
+                tokio::spawn(async move {
+                    let _ = read_request(&mut sock).await;
+                    *seen.lock().unwrap() += 1;
+                    let next = script.lock().unwrap().pop_front();
+                    let (code, body) = match next {
+                        Some(StartAnswer::Drop) => return,
+                        Some(StartAnswer::Status(c, b)) => (c, b.to_string()),
+                        None => (201, start_json()),
+                    };
+                    let resp = format!(
+                        "HTTP/1.1 {code} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = sock.write_all(resp.as_bytes()).await;
+                    let _ = sock.shutdown().await;
+                });
+            }
+        });
+        (base, seen)
+    }
+
+    #[tokio::test]
+    async fn a_lost_connection_while_starting_is_retried() {
+        let (base, seen) = scripted_start(vec![StartAnswer::Drop, StartAnswer::Drop]).await;
+        let started = start_with(&test_client(), &base, None, Duration::ZERO)
+            .await
+            .unwrap();
+        assert_eq!(started.user_code, "BCDF-GHJK");
+        assert_eq!(*seen.lock().unwrap(), 3, "two lost, then it got through");
+    }
+
+    #[tokio::test]
+    async fn a_server_error_while_starting_is_retried() {
+        let (base, seen) = scripted_start(vec![
+            StartAnswer::Status(503, "<html>unavailable</html>"),
+            StartAnswer::Status(500, r#"{"error":"try again"}"#),
+        ])
+        .await;
+        let started = start_with(&test_client(), &base, None, Duration::ZERO)
+            .await
+            .unwrap();
+        assert_eq!(started.user_code, "BCDF-GHJK");
+        assert_eq!(*seen.lock().unwrap(), 3);
+    }
+
+    #[tokio::test]
+    async fn a_connection_that_never_works_gives_up_after_a_bounded_number_of_tries() {
+        let (base, seen) =
+            scripted_start((0..START_ATTEMPTS + 3).map(|_| StartAnswer::Drop).collect()).await;
+        let err = start_with(&test_client(), &base, None, Duration::ZERO)
+            .await
+            .unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("could not reach the Control API"), "{msg}");
+        assert!(msg.contains("check your internet connection"), "{msg}");
+        assert!(
+            msg.contains(&format!("after {START_ATTEMPTS} tries")),
+            "{msg}"
+        );
+        assert_eq!(
+            *seen.lock().unwrap(),
+            START_ATTEMPTS,
+            "retried, but not forever"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_refusal_is_never_retried() {
+        for (code, body) in [
+            (
+                429,
+                r#"{"error":"too many pairing requests from this address"}"#,
+            ),
+            (400, r#"{"error":"bad request"}"#),
+        ] {
+            let (base, seen) = scripted_start(vec![StartAnswer::Status(code, body)]).await;
+            let err = start_with(&test_client(), &base, None, Duration::ZERO)
+                .await
+                .unwrap_err();
+            assert!(err.to_string().contains("pairing could not start"), "{err}");
+            assert_eq!(
+                *seen.lock().unwrap(),
+                1,
+                "{code} is the server saying no; asking again changes nothing"
+            );
+        }
     }
 
     #[tokio::test]
