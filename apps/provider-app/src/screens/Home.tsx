@@ -67,7 +67,7 @@ export function Connecting({
       {state.detail && <p className="muted">Last attempt: {state.detail}</p>}
       {/* Someone whose node cannot connect must still be able to stop it. */}
       <div className="actions">
-        <button className="secondary" type="button" disabled={app.busy} onClick={() => void app.act(() => ipc.setSharing(false))}>
+        <button className="secondary" type="button" onClick={() => void app.act(() => ipc.setSharing(false))}>
           Pause sharing
         </button>
       </div>
@@ -111,7 +111,7 @@ export function Sharing({
         </div>
       </dl>
       <div className="actions">
-        <button className="secondary" type="button" disabled={app.busy} onClick={() => void app.act(() => ipc.setSharing(false))}>
+        <button className="secondary" type="button" onClick={() => void app.act(() => ipc.setSharing(false))}>
           Pause sharing
         </button>
       </div>
