@@ -173,18 +173,6 @@ export const initializeEscrow = async (
     /** Absolute unix expiry, or a relative duration in seconds if < year 2001. */
     expiresAtOrDurationSeconds: number = 3600 * 24
 ) => {
-    const e2eMockBuy =
-        process.env.NEXT_PUBLIC_PLAYWRIGHT_E2E_MOCK_BUY === '1' ||
-        (typeof globalThis !== 'undefined' &&
-            !!(globalThis as typeof globalThis & { __PROXYHUB_E2E_MOCK_BUY__?: boolean }).__PROXYHUB_E2E_MOCK_BUY__);
-    if (e2eMockBuy) {
-        return {
-            tx: 'e2e-mock-escrow-tx',
-            escrowPda: 'e2e-mock-escrow-pda',
-            explorerUrl: '#e2e-mock',
-        };
-    }
-
     if (!wallet) throw new Error("Wallet not connected");
     await assertExpectedSolanaCluster();
 
@@ -248,18 +236,6 @@ export const initializeEscrowMultisig = async (
     limitGb: number,
     expiresAtUnix: number
 ) => {
-    const e2eMockBuy =
-        process.env.NEXT_PUBLIC_PLAYWRIGHT_E2E_MOCK_BUY === '1' ||
-        (typeof globalThis !== 'undefined' &&
-            !!(globalThis as typeof globalThis & { __PROXYHUB_E2E_MOCK_BUY__?: boolean }).__PROXYHUB_E2E_MOCK_BUY__);
-    if (e2eMockBuy) {
-        return {
-            tx: 'e2e-mock-escrow-multisig-tx',
-            escrowPda: 'e2e-mock-escrow-multisig-pda',
-            explorerUrl: '#e2e-mock',
-        };
-    }
-
     if (!wallet) throw new Error('Wallet not connected');
     await assertExpectedSolanaCluster();
     if (!expiresAtUnix || expiresAtUnix <= Math.floor(Date.now() / 1000)) {

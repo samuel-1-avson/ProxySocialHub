@@ -128,7 +128,7 @@ export default function ProposalDetailsPage() {
 
             const myVote = cast.my_vote ?? {
                 choice: cast.choice,
-                power: cast.power ?? cast.voting_power ?? 1,
+                power: cast.power ?? cast.voting_power,
             };
 
             setProposal((prev) => {
@@ -332,7 +332,7 @@ export default function ProposalDetailsPage() {
                                     ))}
                                     <div className="pt-4 border-t border-border flex justify-between items-center text-sm text-muted-foreground">
                                         <span>Quorum target</span>
-                                        <span>{proposal.quorum.toLocaleString()}</span>
+                                        <span>{proposal.quorum?.toLocaleString() ?? 'Not reported'}</span>
                                     </div>
                                 </div>
                             </div>

@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Free OSM / Carto dark basemap when NEXT_PUBLIC_GOOGLE_MAPS_API_KEY is unset.
+ * OpenStreetMap basemap when NEXT_PUBLIC_GOOGLE_MAPS_API_KEY is unset.
  * Same pin/listing interaction contract as the Google Maps canvas.
  */
 
@@ -67,11 +67,11 @@ export default function OsmMapCanvas({
             worldCopyJump: true,
             attributionControl: true,
         });
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution:
-                '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
-            subdomains: 'abcd',
-            maxZoom: 20,
+                '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+            maxZoom: 19,
+            keepBuffer: 0,
         }).addTo(map);
 
         nodesLayerRef.current = L.layerGroup().addTo(map);

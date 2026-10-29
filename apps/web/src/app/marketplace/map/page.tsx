@@ -4,15 +4,19 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
+import { useQuery } from '@tanstack/react-query';
 import { Loader2, Search, X } from 'lucide-react';
 import { BuyListingModal } from '@/components/BuyListingModal';
 import { PageHeading } from '@/components/workspace/Patterns';
+import { measured } from '@/lib/measurements';
 import { CatalogProductBadge } from '@/components/marketplace/CatalogProductBadge';
 import { ListingSocialPanel } from '@/components/marketplace/ListingSocialPanel';
 import { ListingQASection } from '@/components/marketplace/ListingQASection';
 import { MarketplaceDiscoverTabs } from '@/components/marketplace/MarketplaceDiscoverTabs';
 import {
     getListing,
+    getListingFacets,
+    marketplaceKeys,
     type Listing,
     type MarketplaceMapFilters,
 } from '@/lib/api/marketplace';
@@ -49,8 +53,10 @@ export default function MarketplaceMapPage() {
     const [selectedNode, setSelectedNode] = useState<NodeGeoPoint | null>(null);
     const [buyListing, setBuyListing] = useState<Listing | null>(null);
     const [buyLoading, setBuyLoading] = useState(false);
+    const [buyError, setBuyError] = useState<string>();
     const [viewport, setViewport] = useState<MapBBox | null>(null);
     const [searchBBox, setSearchBBox] = useState<MapBBox | null>(null);
+    const facets = useQuery({ queryKey: marketplaceKeys.facets(), queryFn: getListingFacets, staleTime: 60_000 });
 
     useEffect(() => {
         setSearchBBox(null);
@@ -142,11 +148,13 @@ export default function MarketplaceMapPage() {
     }, [plotted, viewport]);
     const countries = useMemo(() => {
         const set = new Set<string>();
+        for (const bucket of facets.data?.countries ?? []) set.add(bucket.value);
+        if (country) set.add(country);
         for (const p of pins) {
             if (p.country) set.add(p.country);
         }
         return Array.from(set).sort();
-    }, [pins]);
+    }, [pins, country, facets.data]);
 
     const focusBounds = useMemo((): [[number, number], [number, number]] | null => {
         if (!country || plotted.length === 0) return null;
@@ -179,39 +187,13 @@ export default function MarketplaceMapPage() {
     const handleBuy = useCallback(async (pin: MarketplaceListingMapPin) => {
         if (!pin.purchasable) return;
         setBuyLoading(true);
+        setBuyError(undefined);
+        setBuyListing(null);
         try {
             const res = await getListing(pin.listing_id);
             setBuyListing(res.listing);
-        } catch {
-            setBuyListing({
-                id: pin.listing_id,
-                seller_id: pin.seller_id ?? '',
-                node_id: pin.node_id ?? '',
-                title: pin.title,
-                description: '',
-                price_per_gb: pin.price_per_gb,
-                min_purchase_gb: 1,
-                available_bandwidth_gb: pin.available_bandwidth_gb,
-                max_concurrency: 5,
-                proxy_type: pin.proxy_type as Listing['proxy_type'],
-                protocol: pin.protocol ?? 'http',
-                status: pin.status ?? 'active',
-                country: pin.country,
-                uptime_percent: pin.uptime_percent ?? 0,
-                avg_latency_ms: pin.latency_ms ?? 0,
-                success_rate: pin.success_rate ?? 0,
-                quality_score: pin.quality_score ?? 0,
-                views_count: 0,
-                saves_count: 0,
-                orders_count: 0,
-                total_sales: 0,
-                rating: 0,
-                staked_amount: 0,
-                priority_rank: 0,
-                is_priority: false,
-                created_at: new Date().toISOString(),
-                listing_offer_verified: pin.listing_offer_verified,
-            });
+        } catch (error) {
+            setBuyError(error instanceof Error ? `Current offer terms are unavailable: ${error.message}` : 'Current offer terms are unavailable. Try the offer again before checkout.');
         } finally {
             setBuyLoading(false);
         }
@@ -224,6 +206,8 @@ export default function MarketplaceMapPage() {
     return (
         <div className="ui-page">
             <MarketplaceDiscoverTabs />
+            {buyError && <p className="ui-error" role="alert">{buyError}</p>}
+            {data && <p className="ui-note">{error ? 'Showing the last reported map records; refresh is unavailable.' : isFetching ? 'Refreshing map records…' : 'Map records loaded from the marketplace.'} {data.generated_at && !Number.isNaN(Date.parse(data.generated_at)) ? `Source updated ${new Date(data.generated_at).toLocaleString()}.` : 'Source timestamp not reported.'}</p>}
             <PageHeading
                 eyebrow="Marketplace"
                 title="Map"
@@ -370,7 +354,7 @@ export default function MarketplaceMapPage() {
                                     <li key={p.listing_id}>
                                         <button type="button" onClick={() => { setSelectedPin(p); setSelectedCluster(null); }}>
                                             <span>{p.title}</span>
-                                            <small>${p.price_per_gb.toFixed(4)}/GB · {(p.uptime_percent || 0).toFixed(1)}% uptime</small>
+                                            <small>{measured(p.price_per_gb, 4, 'USD / GB')} · Uptime {measured(p.uptime_percent, 1, '%')}</small>
                                         </button>
                                     </li>
                                 ))}
@@ -393,12 +377,12 @@ export default function MarketplaceMapPage() {
                                 </div>
                                 {selectedPin.network_class ? <div><dt>Network</dt><dd style={{ textTransform: 'capitalize' }}>{selectedPin.network_class}</dd></div> : null}
                                 {selectedPin.trust_label ? <div><dt>Trust</dt><dd>{selectedPin.trust_label}</dd></div> : null}
-                                <div><dt>Price</dt><dd>${selectedPin.price_per_gb.toFixed(4)}/GB</dd></div>
-                                <div><dt>Available</dt><dd>{selectedPin.available_bandwidth_gb.toFixed(1)} GB</dd></div>
-                                <div><dt>In use</dt><dd>{selectedPin.active_sessions || 0}{selectedPin.max_concurrency ? `/${selectedPin.max_concurrency}` : ''} buyers</dd></div>
+                                <div><dt>Price</dt><dd>{measured(selectedPin.price_per_gb, 4, 'USD / GB')}</dd></div>
+                                <div><dt>Available</dt><dd>{measured(selectedPin.available_bandwidth_gb, 1, 'GB')}</dd></div>
+                                <div><dt>In use</dt><dd>{measured(selectedPin.active_sessions, 0)}{selectedPin.max_concurrency ? `/${selectedPin.max_concurrency}` : ''} buyers</dd></div>
                                 <div>
                                     <dt>Uptime</dt>
-                                    <dd>{(selectedPin.uptime_percent || 0).toFixed(1)}%{selectedPin.sla_source === 'gateway' ? ' (live)' : ''}</dd>
+                                    <dd>{measured(selectedPin.uptime_percent, 1, '%')}{selectedPin.sla_source === 'gateway' ? ' (gateway)' : ''}</dd>
                                 </div>
                                 {selectedPin.quality_score != null ? <div><dt>Quality</dt><dd>{selectedPin.quality_score.toFixed(0)}</dd></div> : null}
                                 {selectedPin.success_rate != null ? <div><dt>Success</dt><dd>{selectedPin.success_rate.toFixed(0)}%</dd></div> : null}
@@ -441,8 +425,8 @@ export default function MarketplaceMapPage() {
                                 {selectedNode.network_class ? <div><dt>Network</dt><dd style={{ textTransform: 'capitalize' }}>{selectedNode.network_class}</dd></div> : null}
                                 <div><dt>Location</dt><dd>{[selectedNode.city, selectedNode.country || selectedNode.region].filter(Boolean).join(', ') || 'Not reported'}</dd></div>
                                 {selectedNode.quality_score != null ? <div><dt>Quality</dt><dd>{selectedNode.quality_score.toFixed(0)}</dd></div> : null}
-                                <div><dt>Uptime</dt><dd>{(selectedNode.uptime_percent || 0).toFixed(1)}%</dd></div>
-                                <div><dt>Sessions</dt><dd>{selectedNode.active_sessions || 0}</dd></div>
+                                <div><dt>Uptime</dt><dd>{measured(selectedNode.uptime_percent, 1, '%')}</dd></div>
+                                <div><dt>Sessions</dt><dd>{measured(selectedNode.active_sessions, 0)}</dd></div>
                             </dl>
                             <p className="ui-note">This is an approximate hub location. Select a listing pin to buy bandwidth.</p>
                         </section>
@@ -467,7 +451,7 @@ export default function MarketplaceMapPage() {
                                         <span>{p.title}</span>
                                         <small>
                                             {[p.city, p.country].filter(Boolean).join(', ') || p.country || 'Location not reported'}
-                                            {' · '}${p.price_per_gb.toFixed(4)}/GB
+                                            {' · '}{measured(p.price_per_gb, 4, 'USD / GB')}
                                         </small>
                                     </button>
                                 </li>

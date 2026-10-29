@@ -64,7 +64,7 @@ export function globePointAltitude(p: GlobePoint): number {
 
 function listingTooltip(pin: ExplorerListingPin): string {
     const loc = [pin.country].filter(Boolean).join(', ') || '—';
-    const price = pin.price_per_gb.toFixed(4);
+    const price = pin.price_per_gb === undefined ? 'Price not reported' : `$${pin.price_per_gb.toFixed(4)}/GB`;
     const est = pin.estimated ? ' · estimated' : '';
     return `<div style="background:#0a0a15;border:1px solid rgba(16,185,129,.45);border-radius:10px;
                 padding:10px 14px;font-family:monospace;color:#fff;min-width:190px;
@@ -74,7 +74,7 @@ function listingTooltip(pin: ExplorerListingPin): string {
         </div>
         <div style="font-size:10px;color:#fff;font-weight:600;margin-bottom:6px;">${pin.title.replace(/[<>&"']/g, '')}</div>
         <div style="color:rgba(255,255,255,.45);font-size:9px;margin-bottom:2px;">📍 ${loc}</div>
-        <div style="color:rgba(255,255,255,.35);font-size:9px;">$${price}/GB · click to inspect</div>
+        <div style="color:rgba(255,255,255,.35);font-size:9px;">${price} · click to inspect</div>
     </div>`;
 }
 
