@@ -9,12 +9,6 @@ const configDir = path.dirname(fileURLToPath(import.meta.url));
 const isPlaywrightE2E = process.env.PLAYWRIGHT_E2E_AUTH_BYPASS === "1";
 const analyze = process.env.ANALYZE === "true";
 
-const walletConnectProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID?.trim();
-
-if (!walletConnectProjectId && process.env.NODE_ENV !== "test") {
-  console.warn("NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID is not set. WalletConnect-backed EVM wallets will be unavailable in the web app, but Solana wallet login still works.");
-}
-
 const nextConfig: NextConfig = {
   compress: true,
   output: "standalone",

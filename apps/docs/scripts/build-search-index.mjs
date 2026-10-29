@@ -4,6 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import matter from 'gray-matter';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONTENT_DIR = path.resolve(__dirname, '../content');
@@ -24,25 +25,6 @@ function walk(dir, prefix = []) {
     }
   }
   return files;
-}
-
-function stripFrontmatter(raw) {
-  if (!raw.startsWith('---')) return { data: {}, body: raw };
-  const end = raw.indexOf('\n---', 3);
-  if (end === -1) return { data: {}, body: raw };
-  const fm = raw.slice(3, end).trim();
-  const body = raw.slice(end + 4).replace(/^\s*\n/, '');
-  const data = {};
-  for (const line of fm.split('\n')) {
-    const m = line.match(/^(\w+):\s*(.*)$/);
-    if (!m) continue;
-    let v = m[2].trim();
-    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
-      v = v.slice(1, -1);
-    }
-    data[m[1]] = v;
-  }
-  return { data, body };
 }
 
 function toPlain(md) {
@@ -80,7 +62,8 @@ function sectionFor(slug) {
 
 const docs = walk(CONTENT_DIR).map(({ file, slug }) => {
   const raw = fs.readFileSync(file, 'utf8');
-  const { data, body } = stripFrontmatter(raw);
+  // Match the page loader, including CRLF files and quoted YAML metadata.
+  const { data, content: body } = matter(raw);
   const href = '/docs' + (slug.length ? `/${slug.join('/')}` : '');
   const title = data.title || slug[slug.length - 1] || 'Documentation';
   const description = data.description || '';
