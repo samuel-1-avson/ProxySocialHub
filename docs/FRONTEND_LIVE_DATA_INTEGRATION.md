@@ -1,6 +1,6 @@
 # Frontend live-data integration
 
-Date: 2026-10-28. Scope: the buyer/seller workspace, marketplace maps and independent Explorer. This change preserves the shared design architecture and the other frontend team's redesign. It does not add local Docker infrastructure or change the backend settlement system.
+Updated: 2026-10-29. Scope: the buyer/seller workspace, marketplace maps and independent Explorer. This change preserves the shared design architecture and the other frontend team's redesign. It does not add local Docker infrastructure or change the backend settlement system.
 
 ## Findings and changes
 
@@ -57,11 +57,17 @@ Public positions are approximate. A country/region hub is not a provider's exact
 - Eight Explorer public-data boundary tests pass.
 - Ten Explorer browser checks pass in Chromium and WebKit, including the map, theme persistence and 320px layout.
 - Five new web data-availability/integration checks plus four existing workspace regressions pass in Chromium.
-- Seven existing marketplace listing/map purchase regressions pass in Chromium.
+- All 22 existing marketplace browser checks pass in Chromium, covering map proof/filtering, map and listing purchases, catalog/browse, moderation, order credentials and agents. Four cold-render checks pass on retry; they are not first-attempt passes.
 - Measurement unit tests, route registry, provider configuration and listing-display contracts pass.
 - Focused lint passes for the new analytics/measurement/tests and revised inbox adapter. Repository-wide lint has existing debt and remains visible in CI; this report does not claim the entire lint baseline is clean.
 
-Automated tests intentionally use API fixtures and intercept community tile requests; these fixtures are test-only and are not production data. They verify failure behavior and integration contracts, not a funded on-chain purchase. Production browser verification must be recorded separately after release.
+The complete 41-check browser suite was also run on the existing cloud VM, without GitHub Actions. The marketplace specs ran separately with unchanged assertions after the first combined run reached its isolated container's memory limit. The final batches had no memory-limit hits or skipped tests. Ten Explorer checks cover Chromium and WebKit; the remaining 31 checks use Chromium.
+
+Automated tests intentionally use API fixtures and intercept community tile requests; these fixtures are test-only and are not production data. Unmatched upstream requests fail explicitly instead of receiving invented successful data. They verify failure behavior and integration contracts, not a funded on-chain purchase. Production browser verification must be recorded separately after release.
+
+The secret scan of the PR's source changes passes. Explorer's production dependency audit has no high-severity findings. The main web app retains dependency and lint debt from the existing baseline: its full dependency installation reports 24 high-severity audit findings, as well as wallet peer/deprecation warnings and a Node engine warning in the legacy 3D dependency. This release does not claim those dependencies have been remediated; upgrading them requires a separate compatibility review.
+
+The browser suite validated application revision `9aa2c6bad684bb7e103aa8878bdef990029cabc2`. The final release revision below changes only the web Dockerfile: the builder inherits the dependency stage directly, avoiding an expensive second copy of the wallet dependency tree on the cloud disk. A cloud comparison of all 3,059 tracked files confirms that all other source files are byte-identical. Both final production images were then built, type-checked and checked against the live APIs.
 
 ## Limits and remaining acceptance
 
@@ -73,6 +79,21 @@ Automated tests intentionally use API fixtures and intercept community tile requ
 
 ## Release status
 
-Source is published as [PR #78](https://github.com/samuel-1-avson/ProxySocialHub/pull/78), with DCO sign-offs under the user's configured Git identity.
+Released on 2026-10-29 at approximately 06:00 UTC from source revision [`397e4d8c6a7836305f860693489648dacb14755c`](https://github.com/samuel-1-avson/ProxySocialHub/commit/397e4d8c6a7836305f860693489648dacb14755c), published in [PR #78](https://github.com/samuel-1-avson/ProxySocialHub/pull/78). Commits include the authorized DCO sign-off under the user's configured Git identity.
 
-GitHub Actions currently refuses to start jobs because recent account payments failed or the spending limit needs increasing. This is visible on the [startup-failure run](https://github.com/samuel-1-avson/ProxySocialHub/actions/runs/40788380654). Local validation above is complete, but cloud CI and deployment have not completed. The frontend remains unreleased pending restoration of Actions and passing cloud checks. Required source checks are not bypassed.
+GitHub Actions remains blocked by account billing, so this release used the existing cloud VM directly: a checksum-verified Git archive, a resource-limited cloud builder, loopback-only candidate checks against the real APIs, and the existing frontend image rollout scripts. No local Docker or GitHub Actions jobs were used for these cloud checks or this deployment. Runtime configuration and previous images were retained for rollback. The initial builder stall and the dependency-copy bottleneck were resolved before rollout.
+
+- [Main app](https://proxyhubb.com/), its health endpoint and marketplace map return HTTP 200. The real marketplace API returned two offers and one node point during verification.
+- [Standalone Explorer](https://explorer.proxyhubb.com/nodes?view=map) and its health endpoint return HTTP 200; the health response identifies the release revision. Its public geography API returned four node records.
+- The old main-site `/explorer` entry redirects to the standalone domain.
+- [Docs](https://docs.proxyhubb.com/docs) still returns HTTP 200. Container IDs and image references for docs, backend services, gateways and databases match the pre-release snapshot.
+- Browser verification confirmed loaded OpenStreetMap tiles, live offer details, the Explorer node popup and public node-detail record, and the restored buyer tools in workspace search. These checks used the deployed public sites without fixture interception.
+
+Live image IDs:
+
+| Service | Image ID |
+| --- | --- |
+| Web | `sha256:c7622b0b12e6be97c5babe196882c23d5a937dba2965c423a4c1ade75bbddd55` |
+| Explorer | `sha256:7a85c0d900083bf8c51c001ec5e2432cdab9e31c15a7329592d8b7acb091fb42` |
+
+Both containers report healthy and carry the source revision label above. The Git archive SHA-256 is `27a7e40da20a7386480d0a0a1b76985573ca31b4331d2538baf876c7dfaaa580`. The [release receipt](releases/frontend-live-data-2026-10-29.json) records the browser results, public checks and source equivalence. GitHub check results have not been replaced or marked successful artificially.
