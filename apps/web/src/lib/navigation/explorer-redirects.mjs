@@ -1,5 +1,11 @@
 /**
- * Redirect only public record routes after the independent Explorer is enabled.
+ * Public Explorer lives on its own site. Main-site /explorer paths only redirect there.
+ * @type {string}
+ */
+export const STANDALONE_EXPLORER_ORIGIN = 'https://explorer.proxyhubb.com';
+
+/**
+ * Redirect public record routes, then any leftover /explorer path, once an origin is configured.
  * @param {string | undefined} configured
  */
 export function explorerRedirects(configured) {
@@ -25,6 +31,7 @@ export function explorerRedirects(configured) {
   for (const section of ['nodes', 'transactions', 'blocks', 'wallets', 'contracts']) {
     aliases.push([`/explorer/${section}/:id`, `/${section}/:id`]);
   }
+  aliases.push(['/explorer/:path*', '/']);
   return aliases.map(([source, target]) => ({
     source,
     destination: `${url.origin}${target}`,
@@ -41,14 +48,16 @@ export function explorerRedirects(configured) {
  * @param {string} [search]
  */
 export function matchExplorerRedirect(configured, pathname, search = '') {
-  let rules;
+  const origin = explorerOrigin(configured);
+  let rules = [];
   try {
-    rules = explorerRedirects(configured);
+    rules = explorerRedirects(origin);
   } catch {
-    return null;
+    rules = explorerRedirects(STANDALONE_EXPLORER_ORIGIN);
   }
   const pathParts = pathname.split('/').filter(Boolean);
   for (const rule of rules) {
+    if (rule.source.includes('*')) continue;
     const sourceParts = rule.source.split('/').filter(Boolean);
     if (sourceParts.length !== pathParts.length) continue;
     const params = {};
@@ -72,5 +81,22 @@ export function matchExplorerRedirect(configured, pathname, search = '') {
     });
     return destination.toString();
   }
+  if (pathname === '/explorer' || pathname.startsWith('/explorer/')) {
+    return `${origin}/`;
+  }
   return null;
+}
+
+/** @param {string | undefined} configured */
+function explorerOrigin(configured) {
+  const candidate = configured?.trim() || STANDALONE_EXPLORER_ORIGIN;
+  try {
+    const url = new URL(candidate);
+    if (url.protocol === 'https:' && url.pathname === '/' && !url.search && !url.hash && !url.username && !url.password) {
+      return url.origin;
+    }
+  } catch {
+    /* Use the dedicated Explorer host. */
+  }
+  return STANDALONE_EXPLORER_ORIGIN;
 }

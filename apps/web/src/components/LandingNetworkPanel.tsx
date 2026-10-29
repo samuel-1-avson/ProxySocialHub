@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Globe, MapPin, Radio, Server } from 'lucide-react';
 import { getMarketplaceMapPoints } from '@/lib/api/marketplace';
+import { explorerHref } from "@/lib/navigation/workspace";
 import { ROUTES } from '@/lib/navigation/routes';
 
 type NetworkSnapshot = {
@@ -54,7 +55,7 @@ export function LandingNetworkPanel() {
             <div className="grid md:grid-cols-2 min-h-[280px]">
                 {/* Product visual — self-hosted earth texture (no auth, no fake pins) */}
                 <Link
-                    href={ROUTES.explorerMap}
+                    href={explorerHref("/nodes?view=map")}
                     className="relative group min-h-[220px] md:min-h-full block overflow-hidden border-b md:border-b-0 md:border-r border-border"
                 >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -132,7 +133,7 @@ export function LandingNetworkPanel() {
                                 Browse marketplace
                             </Link>
                             <Link
-                                href={ROUTES.explorerMap}
+                                href={explorerHref("/nodes?view=map")}
                                 className="btn-retro btn-retro-primary inline-flex items-center justify-center px-4 py-2.5 text-xs"
                             >
                                 View map

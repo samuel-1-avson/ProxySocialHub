@@ -85,7 +85,7 @@ const nextConfig: NextConfig = {
   },
   async redirects() {
     return [
-      ...explorerRedirects(process.env.NEXT_PUBLIC_EXPLORER_URL),
+      ...explorerRedirects('https://explorer.proxyhubb.com'),
       {
         source: '/dashboard/settings/identity',
         destination: '/app/settings',
