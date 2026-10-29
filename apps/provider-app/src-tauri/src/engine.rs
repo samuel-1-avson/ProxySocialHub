@@ -746,6 +746,31 @@ mod tests {
         assert_eq!(node.starts.load(Ordering::SeqCst), 0);
     }
 
+    /// The consent wording changed after sharing was turned on: the saved answer is to older
+    /// text, so the person must be asked again, and until they answer nothing may start.
+    #[test]
+    fn outdated_consent_stops_the_supervisor_whatever_was_saved() {
+        let dir = TempDir::new("stale-consent");
+        settings::save(
+            &dir.0,
+            &Settings {
+                consent: Some(settings::Consent {
+                    version: settings::CONSENT_VERSION - 1,
+                    accepted_at_unix: 1,
+                }),
+                sharing_wanted: true,
+            },
+        )
+        .unwrap();
+        let node = std::sync::Arc::new(FakeNode::new());
+        let c = AppCore::new(node.clone(), dir.0.clone());
+        *node.facts.lock().unwrap() = Ok(paired_facts(false, false));
+
+        c.supervise_at(Instant::now() + Duration::from_secs(60));
+        assert_eq!(node.starts.load(Ordering::SeqCst), 0, "nothing may start");
+        assert_eq!(c.state(), AppState::NeedsConsent, "they are asked again");
+    }
+
     #[test]
     fn only_a_running_node_with_a_config_is_adopted() {
         // Not running: the person has not asked for anything, so nothing is turned on.
