@@ -1,0 +1,179 @@
+{
+  "source_revision": "a9f81bc1a444fc1866e0041f9756ea93b67b8b9b",
+  "verified_at": "2026-10-29T06:32:51.6411995+00:00",
+  "public_redirect_checks": [
+    {
+      "path": "/explorer",
+      "status": 307,
+      "location": "https://explorer.proxyhubb.com/"
+    },
+    {
+      "path": "/explorer/map?country=GH",
+      "status": 307,
+      "location": "https://explorer.proxyhubb.com/nodes?country=GH&view=map"
+    },
+    {
+      "path": "/explorer/nodes/compare",
+      "status": 307,
+      "location": "https://explorer.proxyhubb.com/nodes?view=compare"
+    },
+    {
+      "path": "/explorer/leaderboard",
+      "status": 307,
+      "location": "https://explorer.proxyhubb.com/nodes?view=rankings"
+    },
+    {
+      "path": "/explorer/nodes/2223d0c7-9fd8-4712-8bfe-c9ac7e246a3d",
+      "status": 307,
+      "location": "https://explorer.proxyhubb.com/nodes/2223d0c7-9fd8-4712-8bfe-c9ac7e246a3d"
+    },
+    {
+      "path": "/explorer/blocks/123",
+      "status": 307,
+      "location": "https://explorer.proxyhubb.com/blocks/123"
+    },
+    {
+      "path": "/explorer/sessions",
+      "status": 307,
+      "location": "https://explorer.proxyhubb.com/"
+    },
+    {
+      "path": "/explorer/earnings",
+      "status": 307,
+      "location": "https://explorer.proxyhubb.com/"
+    },
+    {
+      "path": "/explorer/unrecognized",
+      "status": 307,
+      "location": "https://explorer.proxyhubb.com/"
+    },
+    {
+      "path": "/marketplace/orders",
+      "status": 307,
+      "location": "https://proxyhubb.com/login?next=%2Fmarketplace%2Forders"
+    },
+    {
+      "path": "/app/activity",
+      "status": 307,
+      "location": "https://proxyhubb.com/login?next=%2Fapp%2Factivity"
+    },
+    {
+      "path": "/governance/create",
+      "status": 307,
+      "location": "https://proxyhubb.com/login?next=%2Fgovernance%2Fcreate"
+    }
+  ],
+  "source_comparison": {
+    "release_revision": "a9f81bc1a444fc1866e0041f9756ea93b67b8b9b",
+    "previous_revision": "397e4d8c6a7836305f860693489648dacb14755c",
+    "changed_frontend_files": [
+      "apps/web/e2e/route-policy.spec.ts",
+      "apps/web/next.config.ts",
+      "apps/web/scripts/explorer-redirects.test.mjs",
+      "apps/web/src/app/explorer/layout.tsx",
+      "apps/web/src/app/leaderboards/page.tsx",
+      "apps/web/src/app/treasury/page.tsx",
+      "apps/web/src/components/LandingNetworkPanel.tsx",
+      "apps/web/src/components/explorer/ExplorerTrustBadge.tsx",
+      "apps/web/src/components/map/mapHelpers.ts",
+      "apps/web/src/components/network/DePINPortal.tsx",
+      "apps/web/src/components/network/NetworkMapEmbed.tsx",
+      "apps/web/src/lib/navigation/explorer-redirects.mjs",
+      "apps/web/src/lib/navigation/workspace.ts",
+      "apps/web/src/middleware.ts",
+      "apps/web/src/types/explorer-redirects.d.ts"
+    ],
+    "explorer_and_design_system_unchanged": true,
+    "reason": "Include the concurrent standalone Explorer routing update from merged PR #80"
+  },
+  "candidate_checks": {
+    "redirects": [
+      {
+        "path": "/explorer",
+        "status": 307,
+        "location": "https://explorer.proxyhubb.com/"
+      },
+      {
+        "path": "/explorer/map?country=GH",
+        "status": 307,
+        "location": "https://explorer.proxyhubb.com/nodes?country=GH&view=map"
+      },
+      {
+        "path": "/explorer/nodes/compare",
+        "status": 307,
+        "location": "https://explorer.proxyhubb.com/nodes?view=compare"
+      },
+      {
+        "path": "/explorer/leaderboard",
+        "status": 307,
+        "location": "https://explorer.proxyhubb.com/nodes?view=rankings"
+      },
+      {
+        "path": "/explorer/nodes/2223d0c7-9fd8-4712-8bfe-c9ac7e246a3d",
+        "status": 307,
+        "location": "https://explorer.proxyhubb.com/nodes/2223d0c7-9fd8-4712-8bfe-c9ac7e246a3d"
+      },
+      {
+        "path": "/explorer/blocks/123",
+        "status": 307,
+        "location": "https://explorer.proxyhubb.com/blocks/123"
+      },
+      {
+        "path": "/explorer/sessions",
+        "status": 307,
+        "location": "https://explorer.proxyhubb.com/"
+      },
+      {
+        "path": "/explorer/earnings",
+        "status": 307,
+        "location": "https://explorer.proxyhubb.com/"
+      },
+      {
+        "path": "/explorer/unrecognized",
+        "status": 307,
+        "location": "https://explorer.proxyhubb.com/"
+      },
+      {
+        "path": "/marketplace/orders",
+        "status": 307,
+        "location": "/login?next=%2Fmarketplace%2Forders"
+      },
+      {
+        "path": "/app/activity",
+        "status": 307,
+        "location": "/login?next=%2Fapp%2Factivity"
+      },
+      {
+        "path": "/governance/create",
+        "status": 307,
+        "location": "/login?next=%2Fgovernance%2Fcreate"
+      }
+    ],
+    "marketplace_points": 3,
+    "marketplace_page": 200
+  },
+  "redirect_unit_tests": {
+    "failed": 0,
+    "passed": 5,
+    "runtime": "Cloud Node 20"
+  },
+  "source_archive_sha256": "94e5cb41d54ed90456ba383fa7cd75e38d8d32ddf1ef8c09e4416ebb17802f10",
+  "other_service_ids_and_images_unchanged": true,
+  "live_images": [
+    {
+      "container": "/proxyhubb-web-1",
+      "image_id": "sha256:50ed75254ae4d61fa0668b8f5dd57bf40317930fe91951743d5f359176624ef8",
+      "revision": "a9f81bc1a444fc1866e0041f9756ea93b67b8b9b",
+      "health": "healthy"
+    },
+    {
+      "container": "/proxyhubb-explorer-1",
+      "image_id": "sha256:7a85c0d900083bf8c51c001ec5e2432cdab9e31c15a7329592d8b7acb091fb42",
+      "revision": "397e4d8c6a7836305f860693489648dacb14755c",
+      "health": "healthy"
+    }
+  ],
+  "initial_live_data_browser_results": "frontend-live-data-2026-10-29.json",
+  "github_actions_used": false,
+  "local_docker_used": false
+}

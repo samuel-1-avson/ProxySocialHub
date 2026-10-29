@@ -2,6 +2,8 @@
 
 Updated: 2026-10-29. Scope: the buyer/seller workspace, marketplace maps and independent Explorer. This change preserves the shared design architecture and the other frontend team's redesign. It does not add local Docker infrastructure or change the backend settlement system.
 
+Current deployment: web source `a9f81bc1a444fc1866e0041f9756ea93b67b8b9b` and Explorer source `397e4d8c6a7836305f860693489648dacb14755c`, both healthy. Explorer's application tree is unchanged in the newer main revision. The final frontend trees match `main`; the two release receipts below distinguish the initial data integration from the subsequent routing synchronization.
+
 ## Findings and changes
 
 | Area | Finding | Result |
@@ -67,7 +69,7 @@ Automated tests intentionally use API fixtures and intercept community tile requ
 
 The secret scan of the PR's source changes passes. Explorer's production dependency audit has no high-severity findings. The main web app retains dependency and lint debt from the existing baseline: its full dependency installation reports 24 high-severity audit findings, as well as wallet peer/deprecation warnings and a Node engine warning in the legacy 3D dependency. This release does not claim those dependencies have been remediated; upgrading them requires a separate compatibility review.
 
-The browser suite validated application revision `9aa2c6bad684bb7e103aa8878bdef990029cabc2`. The final release revision below changes only the web Dockerfile: the builder inherits the dependency stage directly, avoiding an expensive second copy of the wallet dependency tree on the cloud disk. A cloud comparison of all 3,059 tracked files confirms that all other source files are byte-identical. Both final production images were then built, type-checked and checked against the live APIs.
+The browser suite validated application revision `9aa2c6bad684bb7e103aa8878bdef990029cabc2`. The initial live-data release at `397e4d8c6a7836305f860693489648dacb14755c` changes only the web Dockerfile: the builder inherits the dependency stage directly, avoiding an expensive second copy of the wallet dependency tree on the cloud disk. A cloud comparison of all 3,059 tracked files confirms that all other source files are byte-identical. Both production images were then built, type-checked and checked against the live APIs. The later routing change has its own focused verification below.
 
 ## Limits and remaining acceptance
 
@@ -89,11 +91,25 @@ GitHub Actions remains blocked by account billing, so this release used the exis
 - [Docs](https://docs.proxyhubb.com/docs) still returns HTTP 200. Container IDs and image references for docs, backend services, gateways and databases match the pre-release snapshot.
 - Browser verification confirmed loaded OpenStreetMap tiles, live offer details, the Explorer node popup and public node-detail record, and the restored buyer tools in workspace search. These checks used the deployed public sites without fixture interception.
 
-Live image IDs:
+Initial release image IDs:
 
 | Service | Image ID |
 | --- | --- |
 | Web | `sha256:c7622b0b12e6be97c5babe196882c23d5a937dba2965c423a4c1ade75bbddd55` |
 | Explorer | `sha256:7a85c0d900083bf8c51c001ec5e2432cdab9e31c15a7329592d8b7acb091fb42` |
 
-Both containers report healthy and carry the source revision label above. The Git archive SHA-256 is `27a7e40da20a7386480d0a0a1b76985573ca31b4331d2538baf876c7dfaaa580`. The [release receipt](releases/frontend-live-data-2026-10-29.json) records the browser results, public checks and source equivalence. GitHub check results have not been replaced or marked successful artificially.
+Both initial containers were healthy and carried the source revision label above. The Git archive SHA-256 is `27a7e40da20a7386480d0a0a1b76985573ca31b4331d2538baf876c7dfaaa580`. The [initial release receipt](releases/frontend-live-data-2026-10-29.json) records the browser results, public checks and source equivalence. GitHub check results have not been replaced or marked successful artificially.
+
+## Final synchronization with main
+
+PR #78 was merged normally, including the authorized sign-off. The broad automatic deployment workflow was briefly paused around that merge and restored to its previous active state; security checks and branch rules were not changed.
+
+The final Git comparison detected the other team's concurrently merged [PR #80](https://github.com/samuel-1-avson/ProxySocialHub/pull/80). Its 15 web routing/link changes make the dedicated Explorer the default destination and retire all remaining embedded Explorer entries. The combined main source at `a9f81bc1a444fc1866e0041f9756ea93b67b8b9b` was therefore rebuilt and released to the web container. Explorer and the shared design-system source are byte-identical to the initial release and did not need another rollout.
+
+- The combined web production build and TypeScript checks pass; the retired Explorer pages now use redirects rather than another public interface.
+- Five redirect unit tests pass on the cloud Node 20 runtime.
+- Twelve candidate and twelve production HTTP checks pass, covering public Explorer records, map filters, legacy catch-all routes and private workspace login guards. Query parameters are compared by value, allowing equivalent parameter orderings.
+- Browser verification confirms that `/explorer/sessions` opens the standalone Explorer and that the final marketplace remains available.
+- All other container IDs and image references, including Explorer, docs, gateways, control API and databases, still match the initial release snapshot. The previous web image is retained for rollback.
+
+The final healthy web image ID is `sha256:50ed75254ae4d61fa0668b8f5dd57bf40317930fe91951743d5f359176624ef8`; Explorer retains its image ID above. The combined source archive SHA-256 is `94e5cb41d54ed90456ba383fa7cd75e38d8d32ddf1ef8c09e4416ebb17802f10`. The [routing follow-up receipt](releases/frontend-routing-followup-2026-10-29.json) records these checks and source comparisons. This follow-up does not claim a rerun of the entire 41-check browser suite against the routing delta or a funded traffic/earnings acceptance run.
