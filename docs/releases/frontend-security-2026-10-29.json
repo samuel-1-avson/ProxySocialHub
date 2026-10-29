@@ -1,0 +1,18 @@
+{
+  "revision": "481a86e2e0ee138ec615809781cc45b02aa733a9",
+  "services": {
+    "web": {
+      "image": "sha256:b4759554880c9cf0e3b4335f49d1a8da7161dfdd01215772492d88baa3c00670",
+      "rollback_image": "sha256:50ed75254ae4d61fa0668b8f5dd57bf40317930fe91951743d5f359176624ef8",
+      "health": "healthy"
+    },
+    "docs": {
+      "image": "sha256:fa95af2fbdcbb17804a265d1279ac5f288ffc7fd28cef1adf77374b21a021ca4",
+      "rollback_image": "sha256:f138f7b6bd0fc500b3785553805e58dd67b2c8d5c33d1be0a2ea3360b6fc6943",
+      "health": "healthy"
+    }
+  },
+  "other_production_containers_unchanged": true,
+  "api_environment_restored": true,
+  "timestamp": "2026-10-29T21:56:05Z"
+}

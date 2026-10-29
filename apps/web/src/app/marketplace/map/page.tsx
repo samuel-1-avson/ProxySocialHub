@@ -213,8 +213,8 @@ export default function MarketplaceMapPage() {
                 title="Map"
                 description={
                     searchBBox
-                        ? "Purchasable proxies in the selected map area. Choose a pin to review the offer."
-                        : "Purchasable proxies by location. Choose a pin to review the offer."
+                        ? "Proxy offers in the selected map area. Choose a pin to review its terms and reported evidence."
+                        : "Proxy offers by reported location. Choose a pin to review its terms and evidence."
                 }
                 actions={
                     <>
@@ -376,22 +376,23 @@ export default function MarketplaceMapPage() {
                                     </dd>
                                 </div>
                                 {selectedPin.network_class ? <div><dt>Network</dt><dd style={{ textTransform: 'capitalize' }}>{selectedPin.network_class}</dd></div> : null}
-                                {selectedPin.trust_label ? <div><dt>Trust</dt><dd>{selectedPin.trust_label}</dd></div> : null}
+                                {selectedPin.trust_label ? <div><dt>Reported trust</dt><dd>{selectedPin.trust_label}</dd></div> : null}
                                 <div><dt>Price</dt><dd>{measured(selectedPin.price_per_gb, 4, 'USD / GB')}</dd></div>
                                 <div><dt>Available</dt><dd>{measured(selectedPin.available_bandwidth_gb, 1, 'GB')}</dd></div>
                                 <div><dt>In use</dt><dd>{measured(selectedPin.active_sessions, 0)}{selectedPin.max_concurrency ? `/${selectedPin.max_concurrency}` : ''} buyers</dd></div>
                                 <div>
-                                    <dt>Uptime</dt>
+                                    <dt>Reported uptime</dt>
                                     <dd>{measured(selectedPin.uptime_percent, 1, '%')}{selectedPin.sla_source === 'gateway' ? ' (gateway)' : ''}</dd>
                                 </div>
-                                {selectedPin.quality_score != null ? <div><dt>Quality</dt><dd>{selectedPin.quality_score.toFixed(0)}</dd></div> : null}
-                                {selectedPin.success_rate != null ? <div><dt>Success</dt><dd>{selectedPin.success_rate.toFixed(0)}%</dd></div> : null}
+                                {selectedPin.quality_score != null ? <div><dt>Reported quality</dt><dd>{selectedPin.quality_score.toFixed(0)}</dd></div> : null}
+                                {selectedPin.success_rate != null ? <div><dt>Reported success</dt><dd>{selectedPin.success_rate.toFixed(0)}%</dd></div> : null}
                                 <div>
                                     <dt>Offer proof</dt>
                                     <dd>{selectedPin.listing_offer_verified ? 'Provider signed' : 'Unsigned'}</dd>
                                 </div>
                                 {selectedPin.latency_ms != null && selectedPin.latency_ms > 0 ? <div><dt>Latency</dt><dd>{selectedPin.latency_ms} ms</dd></div> : null}
                             </dl>
+                            <p className="ui-note">Quality and uptime are reports from the source. Live connectivity requires a successful routed request.</p>
                             {selectedPin.estimated ? <p className="ui-note">The pin shows a regional area, not a street address.</p> : null}
                             {!selectedPin.purchasable ? <p className="ui-note">This listing is not currently purchasable.</p> : null}
                             <button
@@ -420,12 +421,12 @@ export default function MarketplaceMapPage() {
                                 <button type="button" className="ui-button ghost" onClick={() => setSelectedNode(null)}>Close</button>
                             </div>
                             <dl className="market-kv">
-                                <div><dt>Status</dt><dd>{selectedNode.is_active ? 'Active' : 'Offline'}</dd></div>
-                                <div><dt>Trust</dt><dd>{selectedNode.trust_label || (selectedNode.is_validator ? 'High quality' : 'Standard')}</dd></div>
+                                <div><dt>Reported status</dt><dd>{selectedNode.status || 'Not reported'}</dd></div>
+                                <div><dt>Reported trust</dt><dd>{selectedNode.trust_label || 'Not reported'}</dd></div>
                                 {selectedNode.network_class ? <div><dt>Network</dt><dd style={{ textTransform: 'capitalize' }}>{selectedNode.network_class}</dd></div> : null}
                                 <div><dt>Location</dt><dd>{[selectedNode.city, selectedNode.country || selectedNode.region].filter(Boolean).join(', ') || 'Not reported'}</dd></div>
-                                {selectedNode.quality_score != null ? <div><dt>Quality</dt><dd>{selectedNode.quality_score.toFixed(0)}</dd></div> : null}
-                                <div><dt>Uptime</dt><dd>{measured(selectedNode.uptime_percent, 1, '%')}</dd></div>
+                                {selectedNode.quality_score != null ? <div><dt>Reported quality</dt><dd>{selectedNode.quality_score.toFixed(0)}</dd></div> : null}
+                                <div><dt>Reported uptime</dt><dd>{measured(selectedNode.uptime_percent, 1, '%')}</dd></div>
                                 <div><dt>Sessions</dt><dd>{measured(selectedNode.active_sessions, 0)}</dd></div>
                             </dl>
                             <p className="ui-note">This is an approximate hub location. Select a listing pin to buy bandwidth.</p>

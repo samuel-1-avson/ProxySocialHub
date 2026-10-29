@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "test:dependency-compat": "node --test scripts/dependency-compat.test.mjs",
+    "test:map-evidence": "node --test scripts/map-evidence.test.mjs",
     "dev": "next dev -H 0.0.0.0 -p 4011",
     "dev:e2e": "next dev -H 0.0.0.0 -p 4011 --webpack",
     "build": "next build",
