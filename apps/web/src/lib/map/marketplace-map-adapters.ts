@@ -61,7 +61,7 @@ export function marketplacePointToListingPin(point: MarketplaceMapPoint): Market
         lat: point.lat,
         lon: point.lon,
         node_id: point.node_id,
-        node_active: point.status === 'active',
+        // A listing's published status does not establish provider connectivity.
         uptime_percent: measurement(point.uptime_percent),
         latency_ms: point.latency_ms,
         quality_score: point.quality_score,
