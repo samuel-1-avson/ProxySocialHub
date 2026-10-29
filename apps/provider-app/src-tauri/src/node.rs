@@ -5,11 +5,13 @@
 //! The parsing here is deliberately pure (text in, values out) so it is tested without a
 //! node; process spawning is covered by the end-to-end run.
 
+use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
 
@@ -17,6 +19,11 @@ use crate::state::{Metrics, NodeFacts};
 
 /// The only place the app sends a person's browser.
 const ALLOWED_LINK_PREFIX: &str = "https://proxyhubb.com/";
+
+/// How long `start --background` may take. It normally returns in about a second and waits at
+/// most 20 s for the node to write its PID file; this only bounds a starter that never returns,
+/// so a Resume can never hang.
+const START_TIMEOUT: Duration = Duration::from_secs(45);
 
 /// A console program started from a GUI app would flash a console window on Windows.
 pub fn quiet(cmd: &mut Command) -> &mut Command {
@@ -250,20 +257,62 @@ impl Sidecar {
         parse_status(&String::from_utf8_lossy(&out.stdout), |p| p.is_file())
     }
 
-    /// `start --background`: returns once the detached daemon is running.
+    /// Run `provider-node <args>` and wait for that process, and only that process, to exit.
+    /// Returns its status and everything it printed.
+    ///
+    /// This is not `Command::output()`. `start --background` leaves the node running as a
+    /// background daemon, and on Windows that daemon keeps the pipes `output()` reads until
+    /// they close, so `output()` returned only when the node itself stopped: Resume never
+    /// finished while sharing, the page stayed busy and Pause was greyed out. The output goes
+    /// to a file instead, so nothing waits on a handle the daemon may hold.
+    fn run_to_exit(
+        &self,
+        args: &[&str],
+        timeout: Duration,
+    ) -> std::io::Result<(ExitStatus, String)> {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let path = std::env::temp_dir().join(format!(
+            "proxyhubb-provider-{}-{nanos}.out",
+            std::process::id()
+        ));
+        let out = File::create(&path)?;
+        let err = out.try_clone()?;
+        let mut cmd = self.cmd(args);
+        cmd.stdout(Stdio::from(out)).stderr(Stdio::from(err));
+
+        let waited = (|| {
+            let mut child = cmd.spawn()?;
+            let deadline = Instant::now() + timeout;
+            loop {
+                if let Some(status) = child.try_wait()? {
+                    return Ok(status);
+                }
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "provider-node did not finish in time",
+                    ));
+                }
+                thread::sleep(Duration::from_millis(100));
+            }
+        })();
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        let _ = std::fs::remove_file(&path);
+        waited.map(|status| (status, text))
+    }
+
+    /// `start --background`: returns once the detached daemon is running. It does not wait for
+    /// the node to connect, so the caller is free again within a second or two.
     pub fn start(&self) -> Result<(), String> {
-        let out = self
-            .cmd(&["start", "--background"])
-            .output()
-            .map_err(|e| friendly_start_error(&e.to_string()))?;
-        if out.status.success() {
-            Ok(())
-        } else {
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            Err(friendly_start_error(&format!(
-                "{stderr} {}",
-                String::from_utf8_lossy(&out.stdout)
-            )))
+        match self.run_to_exit(&["start", "--background"], START_TIMEOUT) {
+            Ok((status, _)) if status.success() => Ok(()),
+            Ok((_, printed)) => Err(friendly_start_error(&printed)),
+            Err(e) => Err(friendly_start_error(&e.to_string())),
         }
     }
 
@@ -548,5 +597,67 @@ mod tests {
             assert!(msg.contains(needle), "{raw:?} -> {msg:?}");
             assert!(!msg.contains('\\') && !msg.contains(".exe"), "{msg}");
         }
+    }
+
+    // ── waiting for the starter, not for what it leaves running ──────────────
+    // `cmd` and `ping` stand in for `provider-node start --background`: a starter that returns
+    // at once and leaves a long-lived child behind holding the handles it was given.
+
+    #[cfg(windows)]
+    #[test]
+    fn a_child_left_running_does_not_keep_the_call_open() {
+        let sidecar = Sidecar::new(PathBuf::from("cmd.exe"));
+        let began = Instant::now();
+        let (status, _) = sidecar
+            .run_to_exit(
+                &["/C", "start", "/B", "ping", "-n", "6", "127.0.0.1"],
+                Duration::from_secs(30),
+            )
+            .unwrap();
+        assert!(status.success());
+        assert!(
+            began.elapsed() < Duration::from_secs(3),
+            "waited {:?} for a child that was meant to be left running",
+            began.elapsed()
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn what_the_starter_printed_and_its_exit_code_come_back() {
+        let sidecar = Sidecar::new(PathBuf::from("cmd.exe"));
+        let (status, printed) = sidecar
+            .run_to_exit(
+                &["/C", "echo hello & echo oops 1>&2 & exit 3"],
+                Duration::from_secs(10),
+            )
+            .unwrap();
+        assert_eq!(status.code(), Some(3));
+        assert!(
+            printed.contains("hello") && printed.contains("oops"),
+            "{printed:?}"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_starter_that_never_returns_is_given_up_on_after_the_timeout() {
+        let sidecar = Sidecar::new(PathBuf::from("cmd.exe"));
+        let began = Instant::now();
+        let err = sidecar
+            .run_to_exit(
+                &["/C", "ping", "-n", "8", "127.0.0.1"],
+                Duration::from_millis(700),
+            )
+            .unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::TimedOut);
+        assert!(began.elapsed() < Duration::from_secs(4));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_starter_that_cannot_be_launched_is_an_error_not_a_hang() {
+        let sidecar = Sidecar::new(PathBuf::from("Z:\\no\\such\\provider-node.exe"));
+        assert!(sidecar.start().is_err());
     }
 }
