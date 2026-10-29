@@ -44,6 +44,8 @@ The tray icon's hover text tells you the state: sharing, connecting, paused, or 
 
 The app and the [Provider CLI](/docs/provider/cli) share one node, so they always agree. If you paired with the app you can also run `provider-node status` in a terminal, and the other way round.
 
+If a node was already running when you opened the app (you started it with the CLI or the website's setup script), the app picks it up, shows it as sharing, and from then on treats it as yours to keep running, including after a restart. Stop it with **Pause sharing** in the app. Stopping it from a terminal while the app is open only makes the app start it again within a few seconds.
+
 | What | Where |
 |------|-------|
 | Node settings and keys (`provider.toml`) | `%APPDATA%\proxyhubb\provider.toml` |
