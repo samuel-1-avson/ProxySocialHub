@@ -51,3 +51,25 @@ test('Malformed and non-HTTPS Explorer origins fail the build', () => {
     assert.throws(() => explorerRedirects(origin));
   }
 });
+
+test('Encoded record identifiers survive migration without double encoding', () => {
+  assert.equal(
+    matchExplorerRedirect('', '/explorer/nodes/node%2Fpart'),
+    'https://explorer.proxyhubb.com/nodes/node%2Fpart',
+  );
+});
+
+test('Malformed record encoding falls back safely and retains query context', () => {
+  assert.equal(
+    matchExplorerRedirect('', '/explorer/nodes/%E0%A4%A', '?country=GH'),
+    'https://explorer.proxyhubb.com/?country=GH',
+  );
+});
+
+test('Retired Explorer views retain filters without capturing private workspace actions', () => {
+  assert.equal(
+    matchExplorerRedirect('', '/explorer/sessions', '?page=2'),
+    'https://explorer.proxyhubb.com/?page=2',
+  );
+  assert.equal(matchExplorerRedirect('', '/app/activity', '?tab=billing'), null);
+});
