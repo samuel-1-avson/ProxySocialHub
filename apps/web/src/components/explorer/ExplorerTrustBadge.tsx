@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ShieldCheck } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { getExplorerDecentralizationStatus } from "@/lib/services/explorer";
+import { explorerHref } from "@/lib/navigation/workspace";
 import { cn } from "@/lib/utils";
 
 type ExplorerTrustBadgeProps = {
@@ -42,7 +43,7 @@ export function ExplorerTrustBadge({ className, windowSlots = 256 }: ExplorerTru
 
     return (
         <Link
-            href="/explorer"
+            href={explorerHref()}
             className={cn(
                 "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all hover:brightness-110",
                 tone,
