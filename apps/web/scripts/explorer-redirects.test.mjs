@@ -25,7 +25,7 @@ test('Explorer migration does not capture private actions or purchase routes', (
   }
 });
 test('Public Explorer paths resolve onto the standalone origin', () => {
-  assert.equal(matchExplorerRedirect('', '/explorer'), null);
+  assert.equal(matchExplorerRedirect('', '/explorer'), 'https://explorer.proxyhubb.com/');
   assert.equal(matchExplorerRedirect('https://explorer.proxyhubb.com', '/explorer'), 'https://explorer.proxyhubb.com/');
   assert.equal(
     matchExplorerRedirect('https://explorer.proxyhubb.com', '/explorer/transactions/abc'),
@@ -39,7 +39,10 @@ test('Public Explorer paths resolve onto the standalone origin', () => {
     matchExplorerRedirect('https://explorer.proxyhubb.com', '/explorer/nodes/compare'),
     'https://explorer.proxyhubb.com/nodes?view=compare',
   );
-  for (const path of ['/explorer/sessions', '/explorer/earnings', '/governance', '/governance/create', '/marketplace/map', '/app']) {
+  for (const path of ['/explorer/sessions', '/explorer/earnings']) {
+    assert.equal(matchExplorerRedirect('https://explorer.proxyhubb.com', path), 'https://explorer.proxyhubb.com/');
+  }
+  for (const path of ['/governance', '/governance/create', '/marketplace/map', '/app']) {
     assert.equal(matchExplorerRedirect('https://explorer.proxyhubb.com', path), null);
   }
 });

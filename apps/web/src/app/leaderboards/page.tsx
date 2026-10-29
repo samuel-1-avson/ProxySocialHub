@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
-import { ROUTES } from "@/lib/navigation/routes";
+import { explorerHref } from "@/lib/navigation/workspace";
 
 /** Legacy URL — canonical leaderboard lives under Explorer. */
 export default function LeaderboardsRedirectPage() {
-    redirect(ROUTES.explorerLeaderboard);
+    redirect(explorerHref("/nodes?view=rankings"));
 }
