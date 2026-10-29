@@ -10,6 +10,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
     "test:provider-config": "node scripts/provider-config-contract.mjs",
     "test:sol-amount": "node --test scripts/sol-amount.test.mjs",
+    "test:measurements": "node --test scripts/measurements.test.mjs",
+    "test:e2e:live-data": "playwright test e2e/live-data.spec.ts --project=chromium --workers=1",
     "test:solana-transfer": "node --test scripts/solana-transfer.test.mjs",
     "test:e2e:buyer": "playwright test e2e/buyer-journey.spec.ts e2e/workspace.spec.ts e2e/marketplace-browse-buy.spec.ts e2e/marketplace-order-credentials.spec.ts --project=chromium --workers=1",
     "test:e2e:seller": "playwright test e2e/seller-workflows.spec.ts e2e/workspace.spec.ts --project=chromium --workers=1",

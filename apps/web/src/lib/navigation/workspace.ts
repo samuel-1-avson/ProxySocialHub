@@ -16,6 +16,34 @@ export interface WorkspaceDestination {
   icon: LucideIcon;
   legacyPaths: string[];
 }
+export const SHARED_WORKSPACE_TOOLS = [
+  { label: 'API keys', href: '/dashboard/settings/api-keys' },
+  { label: 'Account data & export', href: '/dashboard/settings/account' },
+  { label: 'Help forum', href: '/help/forum' },
+  { label: 'Referrals & invitations', href: '/app/settings?tab=referrals' },
+  { label: 'Governance participation', href: '/governance/create' },
+];
+export const WORKSPACE_TOOLS: Record<WorkspaceMode, Array<{ label: string; href: string }>> = {
+  buyer: [
+    { label: 'Marketplace map', href: '/marketplace/map' },
+    { label: 'Saved offers', href: '/marketplace?filter=saved' },
+    { label: 'Usage analytics', href: '/dashboard/analytics' },
+    { label: 'Billing & Access Passes', href: '/app/activity?tab=billing' },
+    { label: 'Client & SDK integration', href: '/dashboard/proxy' },
+    { label: 'Usage proof records', href: '/dashboard/trustless' },
+  ],
+  seller: [
+    { label: 'Pair a computer', href: '/dashboard/provider/pair' },
+    { label: 'Node credentials', href: '/provider/nodes/credentials' },
+    { label: 'Software downloads', href: '/dashboard/provider/cli' },
+    { label: 'Node health', href: '/dashboard/provider/health' },
+    { label: 'Performance analytics', href: '/dashboard/provider/analytics' },
+    { label: 'Service configuration', href: '/dashboard/provider/services' },
+    { label: 'Catalog products', href: '/marketplace/manage/products' },
+    { label: 'Customers', href: '/dashboard/provider/relationships' },
+    { label: 'Enterprise pooling', href: '/dashboard/provider/circle' },
+  ],
+};
 export const WORKSPACE_DESTINATIONS: Record<
   WorkspaceMode,
   WorkspaceDestination[]

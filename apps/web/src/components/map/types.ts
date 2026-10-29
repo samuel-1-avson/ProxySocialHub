@@ -18,7 +18,7 @@ export interface ExplorerListingPin {
     title: string;
     lat: number;
     lon: number;
-    price_per_gb: number;
+    price_per_gb?: number;
     country?: string;
     city?: string;
     node_id?: string;

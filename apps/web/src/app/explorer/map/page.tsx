@@ -15,6 +15,7 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { GlassCard } from '@/components/ui/glass-card';
 import { BuyListingModal } from '@/components/BuyListingModal';
+import { measured } from '@/lib/measurements';
 import type { NodeGeoPoint } from '@/lib/services/explorer';
 import { useMapPoints } from '@/lib/hooks/useMapPoints';
 import type { ExplorerListingPin } from '@/components/map/types';
@@ -70,6 +71,7 @@ export default function NodeMapPage() {
     const [searchBBox, setSearchBBox] = useState<MapBBox | null>(null);
     const [buyListing, setBuyListing] = useState<Listing | null>(null);
     const [buyLoading, setBuyLoading] = useState(false);
+    const [buyError, setBuyError] = useState<string>();
     const mapBuyEnabled = explorerMapBuyEnabled();
     const listingsPlottedOnMap = showListingsLayer;
 
@@ -197,43 +199,13 @@ export default function NodeMapPage() {
     const handleBuy = useCallback(async (pin: MarketplaceListingMapPin) => {
         if (!pin.purchasable) return;
         setBuyLoading(true);
+        setBuyError(undefined);
+        setBuyListing(null);
         try {
             const res = await getListing(pin.listing_id);
             setBuyListing(res.listing);
-        } catch {
-            setBuyListing({
-                id: pin.listing_id,
-                seller_id: pin.seller_id ?? '',
-                node_id: pin.node_id ?? '',
-                title: pin.title,
-                description: '',
-                price_per_gb: pin.price_per_gb,
-                min_purchase_gb: 1,
-                available_bandwidth_gb: pin.available_bandwidth_gb,
-                max_concurrency: 5,
-                proxy_type: (pin.proxy_type ?? 'residential') as Listing['proxy_type'],
-                protocol: pin.protocol ?? 'http',
-                status: pin.status ?? 'active',
-                country: pin.country,
-                isp: pin.isp,
-                uptime_percent: pin.uptime_percent ?? 0,
-                avg_latency_ms: 0,
-                success_rate: 100,
-                quality_score: 100,
-                views_count: 0,
-                saves_count: 0,
-                orders_count: 0,
-                total_sales: 0,
-                rating: 0,
-                staked_amount: 0,
-                priority_rank: 0,
-                is_priority: false,
-                created_at: new Date().toISOString(),
-                listing_offer_verified: pin.listing_offer_verified,
-                listing_offer_signer: pin.listing_offer_signer,
-                listing_offer_signed_at: pin.listing_offer_signed_at,
-                listing_offer_verification_error: pin.listing_offer_verification_error,
-            });
+        } catch (error) {
+            setBuyError(error instanceof Error ? error.message : 'Current offer terms are unavailable.');
         } finally {
             setBuyLoading(false);
         }
@@ -241,6 +213,7 @@ export default function NodeMapPage() {
 
     return (
         <motion.div variants={container} initial="hidden" animate="show" className="space-y-8 font-mono">
+            {buyError && <p className="ui-error" role="alert">{buyError}</p>}
 
             {/* ── Header ── */}
             <motion.header variants={item} className="flex flex-col gap-6 border-b border-border pb-8">
@@ -533,7 +506,7 @@ export default function NodeMapPage() {
                             </div>
                             <h2 className="text-sm font-black text-foreground leading-tight">{selectedListing.title}</h2>
                             <p className="text-[9px] text-muted-foreground uppercase tracking-widest">
-                                {selectedListing.country || '—'} · ${selectedListing.price_per_gb.toFixed(4)}/GB
+                                {selectedListing.country || '—'} · {measured(selectedListing.price_per_gb, 4, 'USD / GB')}
                             </p>
                             <p className="text-[8px] text-muted-foreground uppercase tracking-widest">
                                 {geoSourceLabel(selectedListing as MarketplaceListingMapPin)}
