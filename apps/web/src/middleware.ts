@@ -1,8 +1,7 @@
 
 import { type NextRequest, NextResponse } from 'next/server'
+import { matchExplorerRedirect, STANDALONE_EXPLORER_ORIGIN } from '@/lib/navigation/explorer-redirects.mjs'
 import { getRoutePolicyForPathname, isRoleAllowedForPolicy } from '@/lib/navigation/policies'
-
-const STANDALONE_EXPLORER_ORIGIN = 'https://explorer.proxyhubb.com'
 
 const accessTokenCookieName = 'proxyhubb_token'
 const refreshTokenCookieName = 'proxyhubb_refresh_token'
@@ -10,7 +9,11 @@ const e2eAuthBypassCookieName = 'proxyhubb_e2e_auth'
 const issuer = 'proxyhubb-control-api'
 
 export async function middleware(request: NextRequest) {
-    const explorerDestination = standaloneExplorerUrl(request.nextUrl.pathname, request.nextUrl.search)
+    const explorerDestination = matchExplorerRedirect(
+        STANDALONE_EXPLORER_ORIGIN,
+        request.nextUrl.pathname,
+        request.nextUrl.search,
+    )
     if (explorerDestination) {
         return NextResponse.redirect(explorerDestination, 307)
     }
@@ -53,34 +56,6 @@ export async function middleware(request: NextRequest) {
     }
 
     return NextResponse.next({ request })
-}
-
-function standaloneExplorerUrl(pathname: string, search: string): string | null {
-    if (pathname !== '/explorer' && !pathname.startsWith('/explorer/')) return null
-    const suffix = pathname.slice('/explorer'.length) || '/'
-    const mapped: Record<string, string> = {
-        '/': '/',
-        '/map': '/nodes?view=map',
-        '/leaderboard': '/nodes?view=rankings',
-        '/wallets': '/search?type=wallets',
-        '/contracts': '/search?type=contracts',
-        '/nodes/compare': '/nodes?view=compare',
-        '/about': '/about',
-        '/about/protocol': '/about',
-    }
-    const direct = ['/nodes', '/transactions', '/blocks', '/analytics', '/health', '/search']
-    let target = mapped[suffix]
-    if (!target && direct.includes(suffix)) target = suffix
-    if (!target) {
-        const detail = suffix.match(/^\/(nodes|transactions|blocks|wallets|contracts)\/([^/]+)$/)
-        if (detail) target = `/${detail[1]}/${encodeURIComponent(decodeURIComponent(detail[2]))}`
-    }
-    const url = new URL(target || '/', STANDALONE_EXPLORER_ORIGIN)
-    const incoming = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
-    incoming.forEach((value, key) => {
-        if (!url.searchParams.has(key)) url.searchParams.append(key, value)
-    })
-    return url.toString()
 }
 
 function isLocalE2EBypassRequest(request: NextRequest) {
