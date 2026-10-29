@@ -1,21 +1,20 @@
 # syntax=docker/dockerfile:1
 
-FROM node:20-alpine AS deps
+FROM node:22-alpine AS deps
 WORKDIR /repo/apps/docs
 RUN apk add --no-cache libc6-compat
 COPY apps/docs/package.json apps/docs/package-lock.json ./
 RUN npm ci
 
-FROM node:20-alpine AS builder
+FROM deps AS builder
 WORKDIR /repo/apps/docs
-COPY --from=deps /repo/apps/docs/node_modules ./node_modules
 COPY apps/docs/ ./
 COPY packages/design-system/ /repo/packages/design-system/
 COPY docs/openapi.yaml /repo/docs/openapi.yaml
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
