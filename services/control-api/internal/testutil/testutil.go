@@ -134,13 +134,7 @@ func SetupTestDB(t *testing.T) {
 				ensure(rv)
 			}
 		})
-		_ = testDB.Callback().Create().Before("gorm:create").Register("proxyhubb:default_provider_node_ip", func(tx *gorm.DB) {
-			node, ok := tx.Statement.Dest.(*models.ProviderNode)
-			if !ok || node == nil || node.IPAddress != "" {
-				return
-			}
-			node.IPAddress = "10.0.0.5"
-		})
+		_ = testDB.Callback().Create().Before("gorm:create").Register(defaultProviderNodeIPCallback, defaultProviderNodeIP)
 		if err := testDB.Exec(`
 			INSERT INTO ledger_accounts (code, name, account_type, created_at) VALUES
 			('1000', 'treasury_cash', 'asset', NOW()),
@@ -614,6 +608,38 @@ func UniqueEmail(prefix string) string {
 }
 
 // SetupTestRouter creates a gin router for testing
+const defaultProviderNodeIPCallback = "proxyhubb:default_provider_node_ip"
+
+// defaultProviderNodeIP gives a ProviderNode created without an address the placeholder
+// 10.0.0.5. provider_nodes.ip_address is inet, which rejects an empty string, so without this the
+// many tests that create a bare node would fail on a constraint they are not about.
+//
+// Production has no such hook. A ProviderNode created there without an address is inserted with
+// an empty string and the insert fails (SQLSTATE 22P02), which no test noticed because of this
+// placeholder.
+// Use WithoutProviderNodeIPDefault in a test that must see the insert as production does.
+func defaultProviderNodeIP(tx *gorm.DB) {
+	node, ok := tx.Statement.Dest.(*models.ProviderNode)
+	if !ok || node == nil || node.IPAddress != "" {
+		return
+	}
+	node.IPAddress = "10.0.0.5"
+}
+
+// WithoutProviderNodeIPDefault turns the placeholder above off for one test, so a ProviderNode
+// created without an address is inserted exactly as production inserts it. Call it after
+// SetupTestDB.
+func WithoutProviderNodeIPDefault(t *testing.T) {
+	t.Helper()
+	cb := testDB.Callback().Create()
+	if err := cb.Remove(defaultProviderNodeIPCallback); err != nil {
+		t.Fatalf("remove the provider node address placeholder: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = cb.Before("gorm:create").Register(defaultProviderNodeIPCallback, defaultProviderNodeIP)
+	})
+}
+
 func SetupTestRouter() *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
