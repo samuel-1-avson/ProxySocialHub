@@ -42,20 +42,16 @@ export function explorerRedirects(configured) {
 
 /**
  * Resolve one public Explorer path to the standalone origin.
- * Returns null when the origin is unset or the path stays on the main app.
+ * Returns null for routes that stay on the main app.
  * @param {string | undefined} configured
  * @param {string} pathname
  * @param {string} [search]
  */
 export function matchExplorerRedirect(configured, pathname, search = '') {
   const origin = explorerOrigin(configured);
-  let rules = [];
-  try {
-    rules = explorerRedirects(origin);
-  } catch {
-    rules = explorerRedirects(STANDALONE_EXPLORER_ORIGIN);
-  }
+  const rules = explorerRedirects(origin);
   const pathParts = pathname.split('/').filter(Boolean);
+  let destination;
   for (const rule of rules) {
     if (rule.source.includes('*')) continue;
     const sourceParts = rule.source.split('/').filter(Boolean);
@@ -64,27 +60,34 @@ export function matchExplorerRedirect(configured, pathname, search = '') {
     let matched = true;
     for (let index = 0; index < sourceParts.length; index += 1) {
       const token = sourceParts[index];
-      if (token.startsWith(':')) params[token.slice(1)] = pathParts[index];
-      else if (token !== pathParts[index]) {
+      if (token.startsWith(':')) {
+        try {
+          params[token.slice(1)] = decodeURIComponent(pathParts[index]);
+        } catch {
+          matched = false;
+          break;
+        }
+      } else if (token !== pathParts[index]) {
         matched = false;
         break;
       }
     }
     if (!matched) continue;
-    const destination = new URL(rule.destination);
+    destination = new URL(rule.destination);
     destination.pathname = destination.pathname.replace(/:([A-Za-z0-9_]+)/g, (_, name) =>
       encodeURIComponent(params[name] ?? ''),
     );
-    const incoming = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
-    incoming.forEach((value, key) => {
-      if (!destination.searchParams.has(key)) destination.searchParams.append(key, value);
-    });
-    return destination.toString();
+    break;
   }
-  if (pathname === '/explorer' || pathname.startsWith('/explorer/')) {
-    return `${origin}/`;
+  if (!destination && (pathname === '/explorer' || pathname.startsWith('/explorer/'))) {
+    destination = new URL('/', origin);
   }
-  return null;
+  if (!destination) return null;
+  const incoming = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
+  incoming.forEach((value, key) => {
+    if (!destination.searchParams.has(key)) destination.searchParams.append(key, value);
+  });
+  return destination.toString();
 }
 
 /** @param {string | undefined} configured */
