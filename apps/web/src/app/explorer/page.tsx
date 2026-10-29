@@ -326,7 +326,7 @@ export default function ExplorerDashboard() {
     ];
 
     // System health status color
-    const healthStatus = health?.status?.toLowerCase() || 'optimal';
+    const healthStatus = health?.status?.toLowerCase() || 'unknown';
     const healthColor = healthStatus === 'optimal' ? 'text-emerald-500' : healthStatus === 'degraded' ? 'text-yellow-500' : 'text-rose-500';
     const healthBg = healthStatus === 'optimal' ? 'bg-emerald-500/10 border-emerald-500/20' : healthStatus === 'degraded' ? 'bg-yellow-500/10 border-yellow-500/20' : 'bg-rose-500/10 border-rose-500/20';
 
@@ -445,7 +445,7 @@ export default function ExplorerDashboard() {
                             <stat.icon size={18} className={`${stat.color} opacity-40 group-hover:opacity-100 transition-opacity`} />
                             <div className="flex items-center gap-1.5 text-[8px] font-black uppercase tracking-widest text-muted-foreground">
                                 <TrendIcon trend={stat.trend} />
-                                {stat.trend !== 'flat' ? stat.trend : 'stable'}
+                                Reported
                             </div>
                         </div>
                         <div className="text-2xl font-black text-foreground tracking-tighter mb-0.5 relative z-10">
@@ -494,7 +494,7 @@ export default function ExplorerDashboard() {
                             </div>
                             <div className="space-y-1">
                                 <h3 className="text-2xl font-black uppercase tracking-tighter text-foreground">
-                                    System Status: {(health?.status || 'OPTIMAL').toUpperCase()}
+                                    System Status: {(health?.status || 'UNKNOWN').toUpperCase()}
                                 </h3>
                                 <div className="flex flex-wrap items-center gap-6 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                                     <span className="flex items-center gap-2">

@@ -12,25 +12,15 @@ import {
     type SocialUserSummary,
 } from "@/lib/api/social";
 import { apiPost } from "@/lib/api/client";
-import type { Conversation, Message, User } from "@/lib/social-api";
+import type { Conversation, Message } from "@/lib/social-api";
 
-function toSocialUser(summary?: SocialUserSummary): User | undefined {
+function toSocialUser(summary?: SocialUserSummary): Conversation['other_participant'] {
     if (!summary?.id) return undefined;
     return {
         id: summary.id,
-        email: "",
-        role: "user",
         username: summary.username,
         display_name: summary.display_name,
         avatar_url: summary.avatar_url,
-        verified: false,
-        followers_count: 0,
-        following_count: 0,
-        reviews_count: 0,
-        avg_rating: 0,
-        total_bandwidth_sold: 0,
-        trust_tier: "standard",
-        created_at: new Date().toISOString(),
     };
 }
 
@@ -38,29 +28,15 @@ export function mapApiConversation(row: ConversationWithPreview): Conversation {
     const updatedAt =
         row.last_message?.created_at ||
         row.conversation?.updated_at ||
-        row.conversation?.created_at ||
-        new Date().toISOString();
+        row.conversation?.created_at;
 
     return {
         id: row.id,
         participant1: row.conversation?.participants?.[0] ?? "",
         participant2: row.conversation?.participants?.[1] ?? "",
         last_message_at: updatedAt,
-        other_participant: toSocialUser(row.other_participant) ?? {
-            id: "",
-            email: "",
-            role: "user",
-            username: row.other_participant_name,
-            display_name: row.other_participant_name,
-            verified: false,
-            followers_count: 0,
-            following_count: 0,
-            reviews_count: 0,
-            avg_rating: 0,
-            total_bandwidth_sold: 0,
-            trust_tier: "standard",
-            created_at: updatedAt,
-        },
+        other_participant: toSocialUser(row.other_participant),
+        other_participant_name: row.other_participant_name,
         last_message: row.last_message ? mapApiMessage(row.last_message) : undefined,
         unread_count: row.unread_count,
     };
@@ -107,7 +83,7 @@ export async function startConversationNormalized(recipientId: string, message: 
         id: conversationId,
         participant1: "",
         participant2: recipientId,
-        last_message_at: new Date().toISOString(),
+        other_participant: { id: recipientId },
         unread_count: 0,
     };
 }

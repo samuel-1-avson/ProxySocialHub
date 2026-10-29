@@ -16,6 +16,8 @@ import { useRole } from "@/hooks/useRole";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import {
   WORKSPACE_DESTINATIONS,
+  WORKSPACE_TOOLS,
+  SHARED_WORKSPACE_TOOLS,
   explorerHref,
 } from "@/lib/navigation/workspace";
 import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
@@ -50,6 +52,9 @@ export function WorkspaceHeader() {
     { label: "Wallet", href: "/app/wallet" },
     { label: "Inbox", href: "/messages" },
     { label: "Help & support", href: "/help" },
+    ...WORKSPACE_TOOLS[mode],
+    ...SHARED_WORKSPACE_TOOLS,
+    ...(isAdmin ? [{ label: "Administration", href: "/dashboard/admin" }] : []),
   ];
   return (
     <>
@@ -100,7 +105,7 @@ export function WorkspaceHeader() {
           placeholder="Search destinations…"
           autoFocus
         />
-        <div className="workspace-menu-list mt-4">
+        <div className="workspace-menu-list mt-4 max-h-[55dvh] overflow-y-auto">
           {destinations
             .filter((item) =>
               item.label.toLowerCase().includes(term.toLowerCase()),
@@ -155,6 +160,14 @@ export function WorkspaceHeader() {
             <ArrowUpRight size={17} />
             Open standalone Explorer
           </a>
+          <details>
+            <summary className="ui-link cursor-pointer p-3">Tools for this workspace</summary>
+            <nav className="workspace-menu-list max-h-[35dvh] overflow-y-auto" aria-label="Workspace tools">
+              {[...WORKSPACE_TOOLS[mode], ...SHARED_WORKSPACE_TOOLS].map(tool => (
+                <Link key={tool.href} href={tool.href} onClick={() => setAccountOpen(false)}>{tool.label}</Link>
+              ))}
+            </nav>
+          </details>
           {isAdmin && (
             <Link href="/dashboard/admin" onClick={() => setAccountOpen(false)}>
               <Shield size={17} />

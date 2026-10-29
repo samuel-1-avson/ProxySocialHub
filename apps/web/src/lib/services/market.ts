@@ -65,7 +65,7 @@ export interface ProviderNode {
 
 export async function getProviderNodes(): Promise<{ nodes: ProviderNode[] }> {
     const response = await fetchWithAuth(`${API_BASE_URL}/v1/provider/nodes`);
-    if (!response.ok) return { nodes: [] };
+    if (!response.ok) throw new Error('Provider nodes are unavailable');
     return response.json();
 }
 
