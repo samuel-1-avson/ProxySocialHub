@@ -51,7 +51,7 @@ export function singleNodePopup(node: NodeGeoPoint, color: NodeColor): string {
     const location = [node.city, node.country || node.region].filter(Boolean).map(esc).join(', ') || '—';
     const typeLabel = node.trust_label
         || (node.network_class ? `${node.network_class} node` : null)
-        || (node.is_validator ? 'High quality' : 'Proxy node');
+        || 'Proxy node';
     const statusColor = node.is_active ? '#10b981' : '#ef4444';
     const statusText = esc(node.status || (node.is_active ? 'Active' : 'Offline'));
     const heading = node.title || location || 'Network node';
