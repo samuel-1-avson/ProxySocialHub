@@ -75,6 +75,11 @@ pub struct AppCore<N: NodeControl> {
     node: N,
     settings_dir: PathBuf,
     inner: Mutex<Inner>,
+    /// Held while the node is being started or stopped. A Pause that arrives while a start is
+    /// still in flight (from the tray, or a second click) waits for it and then stops the node;
+    /// without this it could stop nothing, find no node yet, and leave the node running just
+    /// after the person paused. Never held together with `inner`.
+    node_ops: Mutex<()>,
 }
 
 impl<N: NodeControl> AppCore<N> {
@@ -87,7 +92,18 @@ impl<N: NodeControl> AppCore<N> {
                 settings,
                 ..Inner::default()
             }),
+            node_ops: Mutex::new(()),
         }
+    }
+
+    fn node_start(&self) -> Result<(), String> {
+        let _one_at_a_time = self.node_ops.lock().unwrap_or_else(|e| e.into_inner());
+        self.node.start()
+    }
+
+    fn node_stop(&self) -> Result<(), String> {
+        let _one_at_a_time = self.node_ops.lock().unwrap_or_else(|e| e.into_inner());
+        self.node.stop()
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
@@ -232,7 +248,7 @@ impl<N: NodeControl> AppCore<N> {
             self.start_node();
             Ok(())
         } else {
-            self.node.stop()
+            self.node_stop()
         }
     }
 
@@ -311,7 +327,7 @@ impl<N: NodeControl> AppCore<N> {
     }
 
     fn start_node_at(&self, now: Instant) {
-        let result = self.node.start();
+        let result = self.node_start();
         let mut inner = self.lock();
         inner.last_start_attempt = Some(now);
         inner.start_failed = result.err();
@@ -321,7 +337,7 @@ impl<N: NodeControl> AppCore<N> {
     /// left alone, so the next launch resumes what the person had.
     pub fn shutdown(&self) {
         self.cancel_pairing();
-        let _ = self.node.stop();
+        let _ = self.node_stop();
     }
 }
 
@@ -340,6 +356,10 @@ mod tests {
         starts: AtomicUsize,
         stops: AtomicUsize,
         pairs: AtomicUsize,
+        /// What happened to the node, in order.
+        events: Mutex<Vec<&'static str>>,
+        /// How long a start takes to return.
+        start_delay: Mutex<Duration>,
     }
 
     impl FakeNode {
@@ -352,6 +372,8 @@ mod tests {
                 starts: AtomicUsize::new(0),
                 stops: AtomicUsize::new(0),
                 pairs: AtomicUsize::new(0),
+                events: Mutex::new(Vec::new()),
+                start_delay: Mutex::new(Duration::ZERO),
             }
         }
     }
@@ -362,10 +384,15 @@ mod tests {
             self.facts.lock().unwrap().clone()
         }
         fn start(&self) -> Result<(), String> {
+            self.events.lock().unwrap().push("start-begin");
             self.starts.fetch_add(1, Ordering::SeqCst);
+            let delay = *self.start_delay.lock().unwrap();
+            std::thread::sleep(delay);
+            self.events.lock().unwrap().push("start-end");
             self.start_result.lock().unwrap().clone()
         }
         fn stop(&self) -> Result<(), String> {
+            self.events.lock().unwrap().push("stop");
             self.stops.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }
@@ -586,6 +613,30 @@ mod tests {
         c.set_sharing(false).unwrap();
         assert_eq!(node.stops.load(Ordering::SeqCst), 1);
         assert_eq!(c.state(), AppState::Paused);
+        assert!(!settings::load(&d.0).sharing_wanted);
+    }
+
+    /// A Pause that arrives while a start is still in flight must wait for it and then stop the
+    /// node. Without the guard it ran first, found nothing to stop, and the node came up just
+    /// after the person had paused.
+    #[test]
+    fn a_pause_during_a_start_waits_for_it_and_then_stops_the_node() {
+        let (c, node, d) = consented("pause-during-start");
+        *node.facts.lock().unwrap() = Ok(paired_facts(false, false));
+        *node.start_delay.lock().unwrap() = Duration::from_millis(400);
+
+        std::thread::scope(|s| {
+            let resume = s.spawn(|| c.set_sharing(true).unwrap());
+            std::thread::sleep(Duration::from_millis(100)); // the start is now in flight
+            c.set_sharing(false).unwrap();
+            resume.join().unwrap();
+        });
+
+        assert_eq!(
+            *node.events.lock().unwrap(),
+            vec!["start-begin", "start-end", "stop"],
+            "the stop must come after the start finished"
+        );
         assert!(!settings::load(&d.0).sharing_wanted);
     }
 
