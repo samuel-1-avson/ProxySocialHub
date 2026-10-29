@@ -17,11 +17,11 @@ COPY apps/web/package.json apps/web/package-lock.json ./
 RUN npm ci
 
 # Stage 2: Builder
-FROM node:20-alpine AS builder
+FROM deps AS builder
 WORKDIR /repo/apps/web
 
-# Copy dependencies installed for the correct platform
-COPY --from=deps /repo/apps/web/node_modules ./node_modules
+# Reuse the dependency stage directly. Copying its entire node_modules tree into
+# another stage adds a costly filesystem traversal on the cloud build disk.
 
 # Copy source code
 COPY apps/web/ ./
