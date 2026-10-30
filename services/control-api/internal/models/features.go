@@ -174,6 +174,7 @@ type ProviderNode struct {
 	City              string         `gorm:"type:varchar(100)" json:"city,omitempty"`
 	Region            string         `gorm:"type:varchar(100)" json:"region,omitempty"`
 	ISP               string         `gorm:"type:varchar(100)" json:"isp,omitempty"`
+	LocationUserSet   bool           `gorm:"not null;default:false" json:"location_user_set"` // owner picked the city; gateway IP geo must not overwrite it
 	ConnectionType    string         `gorm:"type:varchar(50)" json:"connection_type,omitempty"`
 	Port              int            `gorm:"default:0" json:"port,omitempty"`
 	Protocol          string         `gorm:"type:varchar(10);default:'http'" json:"protocol,omitempty"`

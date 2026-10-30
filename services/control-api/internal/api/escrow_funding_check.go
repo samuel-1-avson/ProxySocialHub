@@ -1,8 +1,10 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 
+	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/solana"
@@ -119,4 +121,33 @@ func orderEscrowBoundElsewhere(tx *gorm.DB, escrowPDA string, orderID uuid.UUID)
 			[]models.OrderStatus{models.OrderStatusActive, models.OrderStatusDisputed}).
 		Count(&n).Error
 	return n > 0, err
+}
+
+// activePlanWithSeller returns the buyer's order that holds a legacy escrow with this
+// seller, if any. Legacy PDAs are one account per buyer/seller pair, so a second
+// purchase from the same seller cannot open until that plan ends.
+func activePlanWithSeller(tx *gorm.DB, buyerID, sellerID uuid.UUID) (*models.Order, error) {
+	var o models.Order
+	err := tx.Where("buyer_id = ? AND seller_id = ? AND status IN ? AND COALESCE(escrow_seed_kind, '') <> ?",
+		buyerID, sellerID, []models.OrderStatus{models.OrderStatusActive, models.OrderStatusDisputed}, escrowSeedKindMultisig).
+		Order("created_at DESC").First(&o).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &o, nil
+}
+
+// activePlanExistsBody is the 409 body for a purchase blocked by an existing plan.
+func activePlanExistsBody(existingOrderID *uuid.UUID) gin.H {
+	body := gin.H{
+		"error": "You already have an active plan with this provider. You can buy again when it ends.",
+		"code":  "active_plan_exists",
+	}
+	if existingOrderID != nil {
+		body["existing_order_id"] = existingOrderID.String()
+	}
+	return body
 }

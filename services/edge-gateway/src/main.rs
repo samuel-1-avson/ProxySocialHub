@@ -37,6 +37,7 @@ mod pool;
 #[cfg(feature = "pricing")]
 mod pricing; // P2-A10: Real-time Pricing Awareness (optional)
 mod proofs;
+mod provider_ping;
 mod provider_transport;
 mod proxy;
 mod qos;
@@ -518,6 +519,13 @@ async fn proxy(
             HeaderValue::from_static("text/csv"),
         );
         return Ok(resp);
+    }
+
+    // control-api liveness probe: PING down the provider tunnel (shared-secret auth).
+    if method == Method::POST {
+        if let Some(node_id) = provider_ping::node_id_from_path(path) {
+            return Ok(provider_ping::handle(state.clone(), node_id, req.headers()).await);
+        }
     }
 
     if config::pod_drain_admin_enabled() && path == "/admin/drain" && method == Method::POST {

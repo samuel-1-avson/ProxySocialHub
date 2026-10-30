@@ -825,7 +825,11 @@ func (c *OracleClient) FetchEscrow(ctx context.Context, escrowPDA sol.PublicKey)
 	var accountInfo *rpc.GetAccountInfoResult
 	err := c.withFailover(ctx, func(client *rpc.Client) error {
 		var err error
-		accountInfo, err = client.GetAccountInfo(ctx, escrowPDA)
+		if commitment := readCommitment(ctx); commitment != "" {
+			accountInfo, err = client.GetAccountInfoWithOpts(ctx, escrowPDA, &rpc.GetAccountInfoOpts{Commitment: commitment})
+		} else {
+			accountInfo, err = client.GetAccountInfo(ctx, escrowPDA)
+		}
 		return err
 	})
 	if err != nil {

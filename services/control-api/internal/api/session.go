@@ -505,8 +505,8 @@ func createSession(c *gin.Context) {
 		if user.WalletAddress != nil && *user.WalletAddress != "" {
 			buyerWallet, _ = solanaGo.PublicKeyFromBase58(*user.WalletAddress)
 		}
-		if node.Hotkey != "" {
-			sellerWallet, _ = solanaGo.PublicKeyFromBase58(node.Hotkey)
+		if payout := nodePayoutAddress(node.UserID, node.Hotkey); payout != "" {
+			sellerWallet, _ = solanaGo.PublicKeyFromBase58(payout)
 		}
 		ctx2, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -1255,7 +1255,7 @@ func createSessionFromListing(c *gin.Context) {
 		logging.Error(err).Str("session_id", session.ID.String()).Msg("Redis sync failed for P2P session")
 		c.JSON(http.StatusCreated, gin.H{
 			"session":       session,
-			"redis_warning": "Session created but Redis sync failed — contact support if proxy doesn't work",
+			"redis_warning": "Session created, but it may take a moment to work. Contact support if the proxy doesn't connect.",
 		})
 		return
 	}

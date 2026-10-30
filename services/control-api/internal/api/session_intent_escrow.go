@@ -75,7 +75,7 @@ func fundSessionIntentSolana(c *gin.Context) {
 			if pnID, err := uuid.Parse(intent.ProviderNodeID); err == nil {
 				var pn models.ProviderNode
 				if err := db.DB.First(&pn, "id = ?", pnID).Error; err == nil {
-					sellerAddr = pn.Hotkey
+					sellerAddr = nodePayoutAddress(pn.UserID, pn.Hotkey)
 					if pricePerGB <= 0 {
 						pricePerGB = pn.BasePricePerGB
 					}

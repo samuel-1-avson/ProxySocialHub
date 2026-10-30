@@ -396,6 +396,9 @@ func registerGatewayNode(c *gin.Context) {
 		} else if geoip.IsCloudHostedISP(createISP) {
 			createISP = ""
 		}
+		if canonicalNode.LocationUserSet {
+			createCountry, createCity, createRegion = canonicalNode.Country, canonicalNode.City, canonicalNode.Region
+		}
 		node := models.Node{
 			ID:                  uuid.New(),
 			UserID:              providerID,
@@ -455,9 +458,15 @@ func registerGatewayNode(c *gin.Context) {
 		}
 		// Never let control-plane / cloud MaxMind (Chicago) overwrite a good pin.
 		if !geoip.IsUntrustedGatewayGeo(req.IPAddress, req.ISP) {
-			updates["region"] = req.Region
-			updates["country_code"] = req.CountryCode
-			updates["city"] = req.City
+			if canonicalNode.LocationUserSet {
+				updates["region"] = canonicalNode.Region
+				updates["country_code"] = canonicalNode.Country
+				updates["city"] = canonicalNode.City
+			} else {
+				updates["region"] = req.Region
+				updates["country_code"] = req.CountryCode
+				updates["city"] = req.City
+			}
 			if strings.TrimSpace(req.ISP) != "" && !geoip.IsCloudHostedISP(req.ISP) {
 				updates["isp"] = req.ISP
 			}
@@ -554,8 +563,9 @@ func upsertProviderNodeFromGateway(providerID uuid.UUID, req RegisterGatewayNode
 		}
 	}
 	// Do not blank out a corrected country/city with empty gateway MaxMind fields.
-	// Also ignore US/cloud labels derived from the control-plane / cloud WAN IP.
-	if !untrustedGeo {
+	// Also ignore US/cloud labels derived from the control-plane / cloud WAN IP,
+	// and never override a city the owner picked (IP geo often says Accra for Cape Coast).
+	if !untrustedGeo && !node.LocationUserSet {
 		if strings.TrimSpace(req.CountryCode) != "" {
 			updates["country"] = req.CountryCode
 		} else if created {

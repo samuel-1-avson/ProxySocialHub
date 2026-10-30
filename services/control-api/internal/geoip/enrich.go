@@ -136,7 +136,7 @@ func enrichExplorerForProviderNode(providerNodeID string, force bool) bool {
 				}
 				// Never let IP region overwrite a declared provider region
 				// (Western North must not become Greater Accra).
-				if result.Region != "" && node.Region == "" && explorer.Region == "" &&
+				if result.Region != "" && node.Region == "" && explorer.Region == "" && !node.LocationUserSet &&
 					(country == "" || ipCountry == "" || ipCountry == country) {
 					regionHint = result.Region
 					updates["region"] = result.Region
