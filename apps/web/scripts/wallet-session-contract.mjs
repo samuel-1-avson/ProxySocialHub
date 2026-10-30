@@ -133,6 +133,10 @@ function fakeBrowser() {
     assert(mod.readRememberedWalletName() === null, 'remembered wallet starts empty');
     mod.rememberConnectedWalletName('Phantom');
     assert(mod.readRememberedWalletName() === 'Phantom', 'remembered wallet persists');
+    mod.rememberConnectedWalletName('');
+    assert(mod.readRememberedWalletName() === 'Phantom', 'empty names are not remembered');
+    mod.forgetRememberedWalletName();
+    assert(mod.readRememberedWalletName() === null, 'logout forgets the remembered wallet');
     const entries = [
         { name: 'Phantom', readyState: 'Installed' },
         { name: 'Solflare', readyState: 'Loadable' },

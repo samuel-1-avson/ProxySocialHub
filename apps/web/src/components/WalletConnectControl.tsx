@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import {
   WalletReadyState,
@@ -61,32 +61,54 @@ export function WalletConnectControl({
   const [busy, setBusy] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pendingName, setPendingName] = useState<string | null>(null);
+  const pendingSince = useRef(0);
 
   // Connect attempts started elsewhere in the provider (auto-reconnect)
-  // republish their failures here so they are never silent.
+  // republish their failures here so they are never silent. Any failure
+  // also releases a pending picker choice so the control cannot stick on
+  // "Connecting" after the provider's own auto-connect attempt settled.
   useEffect(() => {
     const onError = (event: Event) => {
       const message = (event as CustomEvent<{ message?: string }>).detail
         ?.message;
-      if (message) setError(message);
+      if (message) {
+        setError(message);
+        setPendingName(null);
+      }
     };
     window.addEventListener(WALLET_CONNECTION_ERROR_EVENT, onError);
     return () =>
       window.removeEventListener(WALLET_CONNECTION_ERROR_EVENT, onError);
   }, []);
 
-  // A successful connection makes any earlier failure stale.
+  // A successful connection makes any earlier failure stale and releases
+  // any pending picker choice, so the control always leaves "Connecting".
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (connected) setError("");
+    if (connected) setPendingName(null);
     if (connected) setPickerOpen(false);
   }, [connected]);
 
   // Finish a picker choice: selection is applied asynchronously by the
   // provider, so connect once the chosen wallet becomes the selected one.
+  // A browser extension can also report "not detected" for a moment after
+  // selection; wait for its detection to settle instead of failing fast.
   useEffect(() => {
     if (!pendingName || connected || connecting) return;
     if (wallet?.adapter.name !== pendingName) return;
+    if (
+      wallet.readyState !== WalletReadyState.Installed &&
+      wallet.readyState !== WalletReadyState.Loadable
+    ) {
+      if (pendingSince.current === 0) pendingSince.current = Date.now();
+      if (Date.now() - pendingSince.current > 20000) {
+        setPendingName(null);
+        setError(formatWalletConnectionError(new Error("Wallet not ready")));
+      }
+      return;
+    }
+    pendingSince.current = 0;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setPendingName(null);
     void connect().catch((err: unknown) => {
@@ -142,12 +164,22 @@ export function WalletConnectControl({
       return;
     }
     setPendingName(name);
+    pendingSince.current = 0;
     select(name as WalletName);
+  };
+
+  // Cancel a pending connection attempt without marking a manual
+  // disconnect, so automatic restore can still run afterwards.
+  const handleCancel = () => {
+    setPendingName(null);
+    setPickerOpen(false);
+    void disconnect().catch(() => {});
   };
 
   const handleDisconnect = async () => {
     setBusy(true);
     setError("");
+    setPendingName(null);
     try {
       await forceDisconnectSolanaWallet({ disconnect, select });
     } catch {
@@ -226,7 +258,7 @@ export function WalletConnectControl({
           <button
             className="ui-button secondary"
             disabled={busy}
-            onClick={() => void handleDisconnect()}
+            onClick={handleCancel}
           >
             Cancel
           </button>
