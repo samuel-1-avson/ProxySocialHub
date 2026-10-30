@@ -640,6 +640,95 @@ test.describe("automatic wallet transfers", () => {
       )
       .toBe("Phantom");
   });
+  test("a hung wallet connection times out visibly and recovers on retry", async ({
+    page,
+  }) => {
+    const buyer = Keypair.generate();
+    await setup(page, false, undefined, buyer);
+    // Fake installed Phantom whose first connection never settles (the
+    // real failure: later attempts then resolve silently without ever
+    // connecting or erroring). Approving "in the extension" unblocks it.
+    await page.addInitScript((pubkeyBytes: number[]) => {
+      (window as unknown as Record<string, unknown>).__PROXYHUBB_WALLET_CONNECT_TIMEOUT_MS__ = 2000;
+      const bytes = new Uint8Array(pubkeyBytes);
+      const phantom = {
+        isPhantom: true,
+        isConnected: false,
+        publicKey: null as unknown,
+        connect: async () => {
+          const w = window as unknown as Record<string, unknown>;
+          for (let i = 0; i < 600 && !w.__PHANTOM_APPROVE__; i++) {
+            await new Promise((r) => setTimeout(r, 100));
+          }
+          if (!w.__PHANTOM_APPROVE__) {
+            await new Promise(() => undefined);
+          }
+          phantom.isConnected = true;
+          phantom.publicKey = { toBytes: () => bytes.slice() };
+          return { publicKey: phantom.publicKey };
+        },
+        disconnect: async () => {
+          phantom.isConnected = false;
+          phantom.publicKey = null;
+        },
+        on: () => undefined,
+        off: () => undefined,
+        signTransaction: async (tx: unknown) => tx,
+        signAllTransactions: async (txs: unknown) => txs,
+      };
+      (window as unknown as Record<string, unknown>).isPhantomInstalled = true;
+      (window as unknown as Record<string, unknown>).phantom = {
+        solana: phantom,
+      };
+    }, Array.from(buyer.publicKey.toBytes()));
+    await page.goto(`${base}/app/wallet?tab=funds`);
+    const connectButton = page.getByRole("button", {
+      name: "Connect wallet",
+      exact: true,
+    });
+    await expect(connectButton.first()).toBeVisible({ timeout: 15_000 });
+    await connectButton.first().click();
+    // Automatic restore may already have selected the wallet (direct
+    // attempt) or left the choice to the picker; either path must go
+    // through the budgeted connect.
+    const picker = page.getByRole("dialog", { name: "Choose a wallet" });
+    if (await picker.isVisible()) {
+      await expect(picker.getByText("Detected").first()).toBeVisible({
+        timeout: 15_000,
+      });
+      await picker.getByRole("button", { name: /Phantom/ }).first().click();
+    }
+    // The hung attempt must surface a timeout, not stick on Connecting.
+    await expect(page.getByText(/did not respond/)).toBeVisible({
+      timeout: 20_000,
+    });
+    // Approve in the "extension": the wallet must connect by itself on the
+    // restored session, or at worst after one more click.
+    await page.evaluate(() => {
+      (window as unknown as Record<string, unknown>).__PHANTOM_APPROVE__ = true;
+    });
+    try {
+      await expect(
+        page.getByRole("button", { name: "Connect wallet", exact: true }),
+      ).toBeHidden({ timeout: 15_000 });
+    } catch {
+      await page
+        .getByRole("button", { name: "Connect wallet", exact: true })
+        .first()
+        .click();
+      const retry = page.getByRole("dialog", { name: "Choose a wallet" });
+      if (await retry.isVisible()) {
+        await retry.getByRole("button", { name: /Phantom/ }).first().click();
+      }
+      await expect(
+        page.getByRole("button", { name: "Connect wallet", exact: true }),
+      ).toBeHidden({ timeout: 20_000 });
+    }
+    await page.getByLabel("Deposit amount (SOL)").fill("0.1");
+    await expect(
+      page.getByRole("button", { name: "Review deposit", exact: true }),
+    ).toBeEnabled();
+  });
   test("a wallet picked in the dialog connects and enables deposit review", async ({
     page,
   }) => {

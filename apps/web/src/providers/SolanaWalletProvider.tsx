@@ -17,6 +17,7 @@ import { clusterApiUrl, Keypair, PublicKey, Transaction, VersionedTransaction } 
 import '@solana/wallet-adapter-react-ui/styles.css';
 import { WalletAuthSync } from '@/components/WalletAuthSync';
 import {
+    WALLET_SESSION_RESET_EVENT,
     emitWalletConnectionError,
     formatWalletConnectionError,
     rememberConnectedWalletName,
@@ -156,6 +157,16 @@ function WalletSelectionRecorder() {
 
 export const SolanaWalletProvider: FC<Props> = ({ children }) => {
     const [walletError, setWalletError] = useState('');
+    // Bumped when a hung attempt wedges the shared adapter flags. The keyed
+    // provider below (and every adapter it owns) is recreated, so the next
+    // attempt starts from clean flags instead of silently no-op'ing.
+    const [sessionEpoch, setSessionEpoch] = useState(0);
+
+    useEffect(() => {
+        const onReset = () => setSessionEpoch((epoch) => epoch + 1);
+        window.addEventListener(WALLET_SESSION_RESET_EVENT, onReset);
+        return () => window.removeEventListener(WALLET_SESSION_RESET_EVENT, onReset);
+    }, []);
 
     const rawNetwork = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'devnet';
     const network = rawNetwork === 'mainnet' || rawNetwork === 'mainnet-beta'
@@ -192,7 +203,10 @@ export const SolanaWalletProvider: FC<Props> = ({ children }) => {
             new PhantomWalletAdapter(),
             new SolflareWalletAdapter({ network: network as WalletAdapterNetwork }),
         ];
-    }, [enableTestWallet, testWalletSecret, network]);
+    // sessionEpoch is intentionally a dependency: a reset must recreate
+    // every adapter with clean connection flags.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [enableTestWallet, testWalletSecret, network, sessionEpoch]);
 
     useEffect(() => {
         if (!enableTestWallet || wallets.length === 0) return;
@@ -205,7 +219,19 @@ export const SolanaWalletProvider: FC<Props> = ({ children }) => {
 
     return (
         <ConnectionProvider endpoint={endpoint}>
+            {walletError && (
+                <div className="ui-error" role="alert">
+                    <p>{walletError}</p>
+                    <button
+                        className="ui-button secondary small"
+                        onClick={() => setWalletError('')}
+                    >
+                        Dismiss
+                    </button>
+                </div>
+            )}
             <WalletProvider
+                key={sessionEpoch}
                 wallets={wallets}
                 // Only silently reconnect an installed browser extension. A
                 // loadable web wallet (Solflare) must never auto-open its
@@ -225,17 +251,6 @@ export const SolanaWalletProvider: FC<Props> = ({ children }) => {
                     <PlaywrightWalletConnector />
                     <WalletSelectionRecorder />
                     <WalletAuthSync />
-                    {walletError && (
-                        <div className="ui-error" role="alert">
-                            <p>{walletError}</p>
-                            <button
-                                className="ui-button secondary small"
-                                onClick={() => setWalletError('')}
-                            >
-                                Dismiss
-                            </button>
-                        </div>
-                    )}
                     {children}
                 </WalletModalProvider>
             </WalletProvider>
