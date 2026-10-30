@@ -1019,6 +1019,43 @@
 .ui-button.block {
   width: 100%;
 }
+.wallet-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: end;
+}
+.wallet-toolbar > p { flex: 1; min-width: 180px; margin: 0 0 10px; }
+.wallet-overview-grid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(280px, 1fr); gap: 24px; align-items: start; }
+.wallet-payment { display: grid; gap: 24px; min-width: 0; border: 1px solid var(--border); }
+.wallet-payment .ui-section-heading { margin: 0; flex-wrap: wrap; }
+.wallet-balance { display: grid; gap: 6px; padding: 6px 0; }
+.wallet-balance p { margin: 0; }
+.wallet-balance-value { font-size: clamp(36px, 4vw, 52px); line-height: 1.15; font-weight: 600; letter-spacing: -1.6px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.wallet-balance-value > span { font-size: 20px; font-weight: 400; color: var(--muted-foreground); letter-spacing: 0; }
+.wallet-balance-skeleton { min-height: 60px; display: flex; align-items: center; background: var(--secondary); border-radius: 8px; max-width: 260px; padding: 12px; color: var(--muted-foreground); }
+.wallet-address { padding: 18px 0 0; border-top: 1px solid var(--border); min-width: 0; }
+.wallet-address-heading { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 10px; }
+.wallet-address-heading .ui-stat-label { margin: 0; }
+.wallet-address code, .wallet-connected-address code { display: block; overflow-wrap: anywhere; font-size: 13px; line-height: 1.8; user-select: all; }
+.wallet-address [role="status"] { display: block; min-height: 18px; margin-top: 4px; }
+.wallet-connect-step { border-top: 1px solid var(--border); padding-top: 20px; }
+.wallet-connect-step h3 { font-size: 16px; font-weight: 600; margin: 0 0 8px; }
+.wallet-connect-step p { color: var(--muted-foreground); font-size: 14px; line-height: 1.65; margin: 0 0 18px; max-width: 60ch; }
+.wallet-connect-step .wallet-connect-button { height: auto; font-family: inherit; font-size: 13px; line-height: 1.5; }
+/* Override the legacy global transparent wallet-adapter button rule. */
+.wallet-page .wallet-connect-button { background: var(--primary) !important; color: var(--primary-foreground) !important; padding: 12px 16px; border-radius: 8px; }
+.wallet-account-summary { display: grid; gap: 24px; min-width: 0; }
+.wallet-account-summary h2 { font-size: 16px; margin: 0 0 12px; font-weight: 600; }
+.wallet-account-summary .ui-note, .wallet-next-step p { font-size: 13px; line-height: 1.7; margin: 10px 0 16px; }
+.wallet-balance-explanation { font-size: 13px; line-height: 1.65; margin: 0 0 20px; }
+.wallet-order-summary { border-top: 1px solid var(--border); padding-top: 22px; margin-top: 24px; }
+.wallet-order-summary h3 { font-size: 13px; color: var(--muted-foreground); margin: 0 0 8px; }
+.wallet-order-summary > strong { font-size: 20px; font-weight: 500; }
+.wallet-next-step { padding: 0 4px; }
+.wallet-next-step p { color: var(--muted-foreground); }
+@media (max-width: 1200px) { .wallet-overview-grid { grid-template-columns: 1fr; } .wallet-account-summary { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+@media (max-width: 640px) { .wallet-account-summary { grid-template-columns: 1fr; } .wallet-toolbar > .ui-button { width: 100%; } }
 .market-map {
   display: grid;
   grid-template-columns: minmax(0, 1.8fr) minmax(260px, 0.75fr);
@@ -1026,15 +1063,17 @@
   align-items: start;
 }
 .market-map-stage {
-  position: relative;
+  position: sticky;
+  top: 90px;
+  height: clamp(420px, calc(100dvh - 160px), 720px);
   min-height: 520px;
   overflow: hidden;
   border-radius: 12px;
   background: var(--secondary);
 }
 .market-map-canvas {
-  height: 520px;
-  min-height: 520px;
+  height: 100%;
+  min-height: 420px;
 }
 .market-map-float {
   position: absolute;
@@ -1056,6 +1095,11 @@
   gap: 16px;
   min-width: 0;
 }
+.market-map-filter-summary { display: flex; justify-content: space-between; gap: 12px; align-items: center; cursor: pointer; min-height: 32px; }
+.market-map-filter-summary h2 { margin: 0; font-size: 16px; }
+.market-map-filter-summary span { color: var(--muted-foreground); font-size: 12px; }
+.market-map-filters[open] > summary { margin-bottom: 18px; }
+.market-map-filter-summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 6px; border-radius: 4px; }
 .market-kv {
   display: grid;
   gap: 8px;
@@ -1108,6 +1152,7 @@
   .market-map {
     grid-template-columns: 1fr;
   }
+  .market-map-stage { position: relative; top: auto; height: 420px; min-height: 420px; }
   .market-map-float.center {
     left: 16px;
     right: 16px;
