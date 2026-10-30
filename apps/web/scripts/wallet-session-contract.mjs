@@ -102,4 +102,27 @@ function fakeBrowser() {
     assert(mod.classifySignInError(new Error('Unexpected error'), 'x').resetWallet === false, 'only WalletSignMessageError resets');
 }
 
+// 6. Connection failures are formatted into actionable messages and emitted
+//    for the connect controls; a user-requested disconnect is not an error.
+{
+    const { win } = fakeBrowser();
+    const named = (name, message) => Object.assign(new Error(message), { name });
+    assert(/declined/.test(mod.formatWalletConnectionError(named('WalletConnectionError', 'User rejected the request.'))), 'rejection should explain the decline');
+    assert(/No Solana wallet was found/.test(mod.formatWalletConnectionError(named('WalletNotReadyError', 'Wallet not ready'))), 'missing wallet should explain installation');
+    assert(/locked or this site is not approved/.test(mod.formatWalletConnectionError(new Error('The wallet is not authorized'))), 'unauthorized should explain approval');
+    assert(/disconnected/.test(mod.formatWalletConnectionError(named('WalletDisconnectedError', 'disconnected'))), 'disconnect should explain reconnect');
+    assert(mod.formatWalletConnectionError(new Error('boom')) === 'boom', 'unknown errors pass through');
+    assert(/Wallet connection failed/.test(mod.formatWalletConnectionError(undefined)), 'empty errors use the fallback');
+
+    let seen = '';
+    const onError = (event) => { seen = event.detail.message; };
+    win.addEventListener(mod.WALLET_CONNECTION_ERROR_EVENT, onError);
+    mod.emitWalletConnectionError(new Error('User rejected the request.'));
+    assert(/declined/.test(seen), 'emitted event should carry the formatted message');
+    seen = '';
+    mod.emitWalletConnectionError(named('WalletDisconnectedError', 'disconnected'));
+    assert(seen === '', 'disconnect errors must not be emitted as connection failures');
+    win.removeEventListener(mod.WALLET_CONNECTION_ERROR_EVENT, onError);
+}
+
 console.log('wallet-session contract OK');
