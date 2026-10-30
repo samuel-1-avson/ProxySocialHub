@@ -8,10 +8,14 @@ import {
 } from "@solana/wallet-adapter-base";
 import {
   WALLET_CONNECTION_ERROR_EVENT,
+  clearLastWalletError,
   clearManualSolanaWalletDisconnect,
   forceDisconnectSolanaWallet,
   formatWalletConnectionError,
+  readLastWalletError,
   readRememberedWalletName,
+  requestWalletSessionReset,
+  writeLastWalletError,
 } from "@/lib/solana-wallet-session";
 import { Modal } from "@/components/patterns/Modal";
 import { shortWallet } from "@/components/UnlockWalletPrompt";
@@ -28,6 +32,29 @@ type Props = {
   /** Connected wallet can sign transactions (deposit approval). */
   signingReady?: boolean;
 };
+
+/** Production budget for one wallet connect attempt. */
+const CONNECT_TIMEOUT_MS = 60_000;
+
+/** Automated tests shorten the budget through this window flag. */
+function connectTimeoutMs(): number {
+  if (typeof window !== "undefined") {
+    const override = (
+      window as unknown as Record<string, unknown>
+    ).__PROXYHUBB_WALLET_CONNECT_TIMEOUT_MS__;
+    if (
+      typeof override === "number" &&
+      Number.isFinite(override) &&
+      override >= 500
+    ) {
+      return override;
+    }
+  }
+  return CONNECT_TIMEOUT_MS;
+}
+
+const sleep = (ms: number) =>
+  new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * Connect control with its own wallet picker and visible state for every
@@ -58,11 +85,27 @@ export function WalletConnectControl({
     connect,
     disconnect,
   } = useWallet();
-  const [error, setError] = useState("");
+  // The last error survives adapter-session resets (which remount this
+  // control), so a reset never wipes the message explaining it.
+  const [error, setError] = useState(() => readLastWalletError() ?? "");
   const [busy, setBusy] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pendingName, setPendingName] = useState<string | null>(null);
   const pendingSince = useRef(0);
+  const connectedRef = useRef(connected);
+  useEffect(() => {
+    connectedRef.current = connected;
+  }, [connected]);
+
+  const reportError = (message: string) => {
+    setError(message);
+    writeLastWalletError(message);
+  };
+
+  const clearError = () => {
+    setError("");
+    clearLastWalletError();
+  };
 
   // Connect attempts started elsewhere in the provider (auto-reconnect)
   // republish their failures here so they are never silent. Any failure
@@ -73,7 +116,7 @@ export function WalletConnectControl({
       const message = (event as CustomEvent<{ message?: string }>).detail
         ?.message;
       if (message) {
-        setError(message);
+        reportError(message);
         setPendingName(null);
       }
     };
@@ -82,14 +125,73 @@ export function WalletConnectControl({
       window.removeEventListener(WALLET_CONNECTION_ERROR_EVENT, onError);
   }, []);
 
+  // Watchdog: a connect attempt can hang forever (wedged extension,
+  // unanswered approval), which also wedges later attempts into silent
+  // no-ops. Whatever started it, a stuck "connecting" state always ends
+  // here with a visible error and a clean adapter session for the retry.
+  useEffect(() => {
+    if (!connecting || connected) return;
+    const budget = connectTimeoutMs();
+    const timer = setTimeout(() => {
+      if (connectedRef.current) return;
+      console.debug("[wallet] connect watchdog timed out");
+      requestWalletSessionReset();
+      reportError(
+        formatWalletConnectionError(
+          new Error(
+            "Wallet connection timed out waiting for the wallet to respond.",
+          ),
+        ),
+      );
+    }, budget);
+    return () => clearTimeout(timer);
+  }, [connecting, connected]);
+
   // A successful connection makes any earlier failure stale and releases
   // any pending picker choice, so the control always leaves "Connecting".
   useEffect(() => {
+    if (!connected) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (connected) setError("");
-    if (connected) setPendingName(null);
-    if (connected) setPickerOpen(false);
+    clearError();
+    setPendingName(null);
+    setPickerOpen(false);
   }, [connected]);
+
+  /**
+   * Connect with a budget and a settle check. Adapter connects can hang
+   * forever (wedging later attempts into silent no-ops) or resolve without
+   * connecting at all when an earlier attempt wedged the shared adapter
+   * flags. Only a confirmed connection counts; anything else resets the
+   * adapter session so the next attempt starts from clean flags, and the
+   * failure stays visible.
+   */
+  const attemptConnect = async (label: string) => {
+    let outcome: "connected" | "failed" = "failed";
+    try {
+      await connect();
+    } catch (err) {
+      // A real rejection leaves clean flags; surface it without churning
+      // the adapter session.
+      console.debug(`[wallet] ${label} failed`, err);
+      reportError(formatWalletConnectionError(err));
+      return outcome;
+    }
+    // A resolved connect is only real if the provider actually connected;
+    // adapters resolve silently when a previous attempt wedged them.
+    await sleep(500);
+    if (connectedRef.current) {
+      outcome = "connected";
+    } else {
+      console.debug(`[wallet] ${label} resolved without connecting`);
+      requestWalletSessionReset();
+      reportError(
+        formatWalletConnectionError(
+          new Error("Wallet connection did not respond."),
+        ),
+      );
+    }
+    return outcome;
+  };
 
   // Finish a picker choice: selection is applied asynchronously by the
   // provider, so connect once the chosen wallet becomes the selected one.
@@ -105,7 +207,7 @@ export function WalletConnectControl({
       if (pendingSince.current === 0) pendingSince.current = Date.now();
       if (Date.now() - pendingSince.current > 20000) {
         setPendingName(null);
-        setError(formatWalletConnectionError(new Error("Wallet not ready")));
+        reportError(formatWalletConnectionError(new Error("Wallet not ready")));
       }
       return;
     }
@@ -113,10 +215,8 @@ export function WalletConnectControl({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setPendingName(null);
     console.debug(`[wallet] connecting picked wallet ${pendingName}`);
-    void connect().catch((err: unknown) => {
-      console.debug(`[wallet] picked wallet ${pendingName} failed`, err);
-      setError(formatWalletConnectionError(err));
-    });
+    void attemptConnect(`picked wallet ${pendingName}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingName, wallet, connected, connecting, connect]);
 
   const rememberedName = readRememberedWalletName();
@@ -141,7 +241,7 @@ export function WalletConnectControl({
 
   const handleConnect = async () => {
     clearManualSolanaWalletDisconnect();
-    setError("");
+    clearError();
     if (
       !wallet ||
       (wallet.readyState !== WalletReadyState.Installed &&
@@ -150,22 +250,16 @@ export function WalletConnectControl({
       setPickerOpen(true);
       return;
     }
-    try {
-      await connect();
-    } catch (err) {
-      setError(formatWalletConnectionError(err));
-    }
+    await attemptConnect(`connect ${wallet.adapter.name}`);
   };
 
   const handlePick = (name: string) => {
     clearManualSolanaWalletDisconnect();
     console.debug(`[wallet] picked ${name}`);
-    setError("");
+    clearError();
     setPickerOpen(false);
     if (wallet?.adapter.name === name) {
-      void connect().catch((err: unknown) => {
-        setError(formatWalletConnectionError(err));
-      });
+      void attemptConnect(`picked wallet ${name}`);
       return;
     }
     setPendingName(name);
@@ -181,17 +275,18 @@ export function WalletConnectControl({
     setPendingName(null);
     setPickerOpen(false);
     console.debug("[wallet] connect cancelled by user");
+    requestWalletSessionReset();
     void forceDisconnectSolanaWallet({ disconnect, select }).catch(() => {});
   };
 
   const handleDisconnect = async () => {
     setBusy(true);
-    setError("");
+    clearError();
     setPendingName(null);
     try {
       await forceDisconnectSolanaWallet({ disconnect, select });
     } catch {
-      setError(
+      reportError(
         "Disconnect failed. Open your wallet extension and disconnect this site, then try again.",
       );
     } finally {

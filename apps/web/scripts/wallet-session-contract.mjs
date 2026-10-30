@@ -23,7 +23,8 @@ function fakeBrowser() {
     const store = new Map([['walletName', '"Phantom"'], ['walletAdapter', 'x'], ['SolanaWalletAdapter', 'y']]);
     const win = new EventTarget();
     win.localStorage = { removeItem: (k) => store.delete(k), getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
-    win.sessionStorage = { removeItem() {}, getItem: () => null, setItem() {} };
+    const session = new Map();
+    win.sessionStorage = { removeItem: (k) => session.delete(k), getItem: (k) => session.get(k) ?? null, setItem: (k, v) => session.set(k, v) };
     globalThis.window = win;
     return { win, store };
 }
@@ -147,6 +148,27 @@ function fakeBrowser() {
     assert(mod.pickAutoReconnectWallet(entries.slice(0, 2), null) === 'Phantom', 'single installed wallet is picked');
     assert(mod.pickAutoReconnectWallet([entries[1]], null) === null, 'loadable web wallet is never picked');
     assert(win.localStorage.getItem('walletName') === '"Phantom"', 'library walletName key is left untouched');
+}
+
+// 8. A hung attempt surfaces a timeout message, the last error survives
+//    adapter-session resets, and a reset can be requested by event.
+{
+    const { win } = fakeBrowser();
+    assert(
+        /did not respond/.test(mod.formatWalletConnectionError(new Error('Wallet connection timed out waiting for the wallet to respond.'))),
+        'timeout should explain the wallet did not respond',
+    );
+    assert(mod.readLastWalletError() === null, 'last error starts empty');
+    mod.writeLastWalletError('boom');
+    assert(mod.readLastWalletError() === 'boom', 'last error persists');
+    mod.clearLastWalletError();
+    assert(mod.readLastWalletError() === null, 'last error clears');
+    let resets = 0;
+    const onReset = () => { resets++; };
+    win.addEventListener(mod.WALLET_SESSION_RESET_EVENT, onReset);
+    mod.requestWalletSessionReset();
+    assert(resets === 1, 'reset request should dispatch once');
+    win.removeEventListener(mod.WALLET_SESSION_RESET_EVENT, onReset);
 }
 
 console.log('wallet-session contract OK');
