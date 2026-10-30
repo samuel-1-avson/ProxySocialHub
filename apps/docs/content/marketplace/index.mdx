@@ -7,12 +7,12 @@ Buyers discover supply via listings, create an order, fund Solana escrow, then f
 
 ## End-to-end flow
 
-1. Browse — `GET /v1/listings` (optional filters / `include=product`)
-2. Create — `POST /v1/orders` with `{ "listing_id", "bandwidth_gb" }`
-3. Pay — `POST /v1/orders/{id}/pay/solana` → sign escrow on Solana
-4. Confirm — `POST /v1/orders/{id}/confirm-escrow` (or wait for chain listener)
-5. Credentials — `GET /v1/orders/{id}/credentials`
-6. Proxy — HTTP CONNECT / SOCKS5 with returned username/password
+1. Browse: `GET /v1/listings` (optional filters / `include=product`)
+2. Create: `POST /v1/orders` with `{ "listing_id", "bandwidth_gb" }`
+3. Pay: `POST /v1/orders/{id}/pay/solana` → sign escrow on Solana
+4. Confirm: `POST /v1/orders/{id}/confirm-escrow` (or wait for chain listener)
+5. Credentials: `GET /v1/orders/{id}/credentials`
+6. Proxy: HTTP CONNECT / SOCKS5 with returned username/password
 
 ## Auth
 
@@ -23,10 +23,10 @@ Buyers discover supply via listings, create an order, fund Solana escrow, then f
 
 ## Guides
 
-- [Discovery API](/docs/marketplace/discovery) — listings, search, facets, map
-- [Orders & escrow](/docs/marketplace/orders) — FSM, pay, credentials, errors
-- [B2B sandbox purchase](/docs/marketplace/b2b) — API keys + mocked buy
-- [Access Passes](/docs/marketplace/subscriptions) — entitlements, purchase, legacy 410 routes
+- [Discovery API](/docs/marketplace/discovery): listings, search, facets, map
+- [Orders & escrow](/docs/marketplace/orders): FSM, pay, credentials, errors
+- [B2B sandbox purchase](/docs/marketplace/b2b): API keys + mocked buy
+- [Access Passes](/docs/marketplace/subscriptions): entitlements, purchase, legacy 410 routes
 - Concepts: [Escrow](/docs/concepts/escrow) · [Access paths](/docs/concepts/access-paths)
 
 UI: [Marketplace](https://proxyhubb.com/marketplace) · [Orders](https://proxyhubb.com/marketplace/orders)

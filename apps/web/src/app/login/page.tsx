@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { WalletBoundary } from '@/providers/WalletBoundary';
 import { ROUTES } from '@/lib/navigation/routes';
+import { AuthMethodDivider, GoogleSignInButton, googleSignInEnabled } from '@/components/auth/GoogleSignInButton';
 
 const WalletAuthPanel = dynamic(
   () => import('@/components/WalletAuthPanel').then((mod) => mod.WalletAuthPanel),
@@ -37,11 +38,15 @@ export default function LoginPage() {
           <div className="mb-8 text-center">
             <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Sign in</h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              Connect your Solana wallet to access the marketplace.
+              {googleSignInEnabled
+                ? 'Continue with Google, or connect your Solana wallet.'
+                : 'Connect your Solana wallet to access the marketplace.'}
             </p>
           </div>
 
           <div className="rounded-[var(--radius-lg)] border border-border bg-card p-6 sm:p-8">
+            <GoogleSignInButton text="signin_with" />
+            <AuthMethodDivider />
             <WalletAuthPanel
               mode="login"
               actionLabel="Sign in with wallet"

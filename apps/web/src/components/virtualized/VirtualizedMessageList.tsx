@@ -142,7 +142,7 @@ export function VirtualizedMessageList({
                                         {/* Content */}
                                         <div
                                             className={`
-                                                relative px-4 py-2.5 rounded-2xl group
+                                                relative px-4 py-2.5 rounded-lg group
                                                 ${isOwn
                                                     ? "bg-primary text-primary-foreground rounded-br-md"
                                                     : "bg-muted rounded-bl-md"
@@ -213,7 +213,7 @@ export function VirtualizedMessageList({
                                         </div>
 
                                         {/* Timestamp */}
-                                        <span className="text-[10px] text-muted-foreground mt-1 block">
+                                        <span className="text-xs text-muted-foreground mt-1 block">
                                             {formatDistanceToNow(new Date(createdAt), {
                                                 addSuffix: true,
                                             })}

@@ -5,6 +5,24 @@ description: Mental model for buyers, providers, settlement, and the three ways 
 
 ProxyHubb is a **Solana-settled residential proxy marketplace**. Buyers consume bandwidth through the edge gateway; providers run a tunnel daemon and earn from metered usage.
 
+<Callout type="tip" title="In plain English">
+Buyers send their web traffic through someone else's home internet so websites see that location. Providers share their spare home internet and get paid. ProxyHubb connects the two, counts the data, and makes sure payment is fair. Full tour with pictures: [How it works](/docs/how-it-works).
+</Callout>
+
+### Three ways to get a key
+
+<IdeaGrid>
+  <IdeaCard icon="ticket" title="Quick pass" label="session intent">
+    One click in the dashboard. Like a gym day pass. Great for trying things out.
+  </IdeaCard>
+  <IdeaCard icon="calendar" title="Marketplace booking" label="order">
+    Pick a provider, pay into a locked box, get a username and password.
+  </IdeaCard>
+  <IdeaCard icon="layers" title="Business fleet" label="bulk pool">
+    Many keys under one company account, for software that needs lots of connections.
+  </IdeaCard>
+</IdeaGrid>
+
 ## Roles
 
 | Role | What they do |
@@ -41,7 +59,7 @@ See [Access Passes](/docs/marketplace/subscriptions).
 
 ## Next
 
-1. [Access paths](/docs/concepts/access-paths) — intents vs orders vs pools
-2. [Escrow & orders](/docs/concepts/escrow) — marketplace lifecycle
-3. [Metering](/docs/concepts/metering) — how bytes become settlement
-4. [Architecture](/docs/architecture) — ports and request flow
+1. [Access paths](/docs/concepts/access-paths): intents vs orders vs pools
+2. [Escrow & orders](/docs/concepts/escrow): marketplace lifecycle
+3. [Metering](/docs/concepts/metering): how bytes become settlement
+4. [Architecture](/docs/architecture): ports and request flow

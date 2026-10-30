@@ -323,7 +323,7 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                         />
                         <Stat
                             label="Rating"
-                            value={profile.reviews_count > 0 ? profile.avg_rating.toFixed(1) : "—"}
+                            value={profile.reviews_count > 0 ? profile.avg_rating.toFixed(1) : "No ratings yet"}
                             detail="Average from completed orders"
                         />
                         <Stat

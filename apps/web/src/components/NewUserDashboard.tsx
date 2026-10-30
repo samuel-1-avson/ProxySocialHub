@@ -36,10 +36,10 @@ export function NewUserDashboard() {
                 className="max-w-3xl w-full text-center space-y-8"
             >
                 <div className="space-y-4">
-                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-bold uppercase tracking-widest border border-primary/20">
+                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-bold border border-primary/20">
                         Welcome to ProxyHubb
                     </div>
-                    <h1 className="text-4xl md:text-5xl font-black tracking-tight">
+                    <h1 className="text-4xl md:text-5xl font-semibold tracking-tight">
                         How will you use the network?
                     </h1>
                     <p className="text-lg text-muted-foreground max-w-xl mx-auto">
@@ -47,7 +47,7 @@ export function NewUserDashboard() {
                     </p>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left mt-12 bg-white/5 p-2 rounded-3xl border border-white/10">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left mt-12 bg-secondary p-2 rounded-lg border border-border">
                     <div className="relative group">
                         <ActionCard
                             title="I want to Use Proxies"
@@ -62,7 +62,7 @@ export function NewUserDashboard() {
                                 <motion.div 
                                     initial={{ opacity: 0 }}
                                     animate={{ opacity: 1 }}
-                                    className="absolute inset-0 bg-primary/90 backdrop-blur-sm rounded-2xl flex flex-col items-center justify-center text-primary-foreground z-10"
+                                    className="absolute inset-0 bg-primary/90 rounded-lg flex flex-col items-center justify-center text-primary-foreground z-10"
                                 >
                                     <CheckCircle2 size={48} className="mb-4 animate-bounce" />
                                     <p className="font-bold text-lg">Setting up your workspace...</p>
@@ -85,7 +85,7 @@ export function NewUserDashboard() {
                                 <motion.div 
                                     initial={{ opacity: 0 }}
                                     animate={{ opacity: 1 }}
-                                    className="absolute inset-0 bg-purple-600/90 backdrop-blur-sm rounded-2xl flex flex-col items-center justify-center text-white z-10"
+                                    className="absolute inset-0 bg-primary/90 rounded-lg flex flex-col items-center justify-center text-foreground z-10"
                                 >
                                     <CheckCircle2 size={48} className="mb-4 animate-bounce" />
                                     <p className="font-bold text-lg">Preparing your command center...</p>

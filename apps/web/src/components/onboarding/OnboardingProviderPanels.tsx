@@ -49,7 +49,7 @@ export function OnboardingApplyPanel({
   if (providerStatus?.status === "approved") {
     return (
       <div className="space-y-4">
-        <h2 className="text-lg font-bold font-mono uppercase border-b border-border pb-3">
+        <h2 className="text-lg font-bold font-mono border-b border-border pb-3">
           Provider application
         </h2>
         <p className="text-sm text-muted-foreground flex items-center gap-2">
@@ -66,7 +66,7 @@ export function OnboardingApplyPanel({
             <ArrowRight className="w-4 h-4" />
           </button>
         ) : (
-          <p className="text-xs font-mono uppercase text-muted-foreground">Advancing…</p>
+          <p className="text-xs font-mono text-muted-foreground">Advancing…</p>
         )}
       </div>
     );
@@ -75,12 +75,12 @@ export function OnboardingApplyPanel({
   if (onboarding.kyc_status !== "approved") {
     return (
       <div className="space-y-4">
-        <h2 className="text-lg font-bold font-mono uppercase border-b border-border pb-3">
+        <h2 className="text-lg font-bold font-mono border-b border-border pb-3">
           Provider application
         </h2>
         <p className="text-sm text-muted-foreground">
           KYC must be approved before you can apply. Current status:{" "}
-          <span className="font-mono uppercase">{onboarding.kyc_status}</span>
+          <span className="font-mono">{onboarding.kyc_status}</span>
         </p>
       </div>
     );
@@ -89,13 +89,13 @@ export function OnboardingApplyPanel({
   if (providerStatus?.status === "pending") {
     return (
       <div className="space-y-4">
-        <h2 className="text-lg font-bold font-mono uppercase border-b border-border pb-3">
+        <h2 className="text-lg font-bold font-mono border-b border-border pb-3">
           Provider application
         </h2>
         <p className="text-sm text-muted-foreground">
           Application submitted and pending automatic recheck. You can continue once approved, or wait here.
         </p>
-        <p className="text-xs font-mono uppercase text-muted-foreground">
+        <p className="text-xs font-mono text-muted-foreground">
           Status: pending · refreshes automatically
         </p>
       </div>
@@ -104,7 +104,7 @@ export function OnboardingApplyPanel({
 
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-bold font-mono uppercase border-b border-border pb-3">
+      <h2 className="text-lg font-bold font-mono border-b border-border pb-3">
         Provider application
       </h2>
       <ProviderApplicationForm
@@ -198,12 +198,12 @@ export function OnboardingProviderSetupPanel({
     const alreadyHasToken = (readiness?.summary.active_tokens || 0) > 0;
     return (
       <div className="space-y-5">
-        <h2 className="text-lg font-bold font-mono uppercase border-b border-border pb-3 flex items-center gap-2">
+        <h2 className="text-lg font-bold font-mono border-b border-border pb-3 flex items-center gap-2">
           <Fingerprint className="w-4 h-4 text-primary" />
           Create provider token
         </h2>
         <p className="text-sm text-muted-foreground">
-          Tokens authenticate your node daemon. The raw secret is shown once — copy it now.
+          Tokens authenticate your node daemon. The raw secret is shown once. Copy it now.
         </p>
         {alreadyHasToken && !createdToken ? (
           <button
@@ -211,12 +211,12 @@ export function OnboardingProviderSetupPanel({
             className="btn-retro btn-retro-primary inline-flex items-center gap-2 px-4 py-2.5 text-sm"
             onClick={() => void completeStep("token", { existing: true })}
           >
-            Token already exists — continue
+            Token already exists. Continue
             <ArrowRight className="w-4 h-4" />
           </button>
         ) : (
           <div className="space-y-3">
-            <label className="block text-[10px] font-mono uppercase text-muted-foreground">Token name</label>
+            <label className="block text-xs font-mono text-muted-foreground">Token name</label>
             <input
               value={tokenName}
               onChange={(e) => setTokenName(e.target.value)}
@@ -239,7 +239,7 @@ export function OnboardingProviderSetupPanel({
         )}
         {createdToken && (
           <div className="border border-border bg-background p-4 space-y-2">
-            <p className="text-[10px] font-mono uppercase text-muted-foreground">Raw token (copy once)</p>
+            <p className="text-xs font-mono text-muted-foreground">Raw token (copy once)</p>
             <code className="block text-xs break-all font-mono select-all">{createdToken.token}</code>
           </div>
         )}
@@ -255,7 +255,7 @@ export function OnboardingProviderSetupPanel({
     const alreadyHasNode = (readiness?.summary.nodes || 0) > 0;
     return (
       <div className="space-y-5">
-        <h2 className="text-lg font-bold font-mono uppercase border-b border-border pb-3 flex items-center gap-2">
+        <h2 className="text-lg font-bold font-mono border-b border-border pb-3 flex items-center gap-2">
           <Server className="w-4 h-4 text-primary" />
           Register node
         </h2>
@@ -268,19 +268,19 @@ export function OnboardingProviderSetupPanel({
             className="btn-retro btn-retro-primary inline-flex items-center gap-2 px-4 py-2.5 text-sm"
             onClick={() => void completeStep("node", { existing: true })}
           >
-            Node already registered — continue
+            Node already registered. Continue
             <ArrowRight className="w-4 h-4" />
           </button>
         ) : (
           <div className="space-y-3">
-            <label className="block text-[10px] font-mono uppercase text-muted-foreground">Node name</label>
+            <label className="block text-xs font-mono text-muted-foreground">Node name</label>
             <input
               value={nodeName}
               onChange={(e) => setNodeName(e.target.value)}
               className="w-full border border-border bg-background px-3 py-2.5 font-mono text-sm"
               placeholder="home-node-1"
             />
-            <label className="block text-[10px] font-mono uppercase text-muted-foreground">
+            <label className="block text-xs font-mono text-muted-foreground">
               Country
               {normalizeCountryCode(providerStatus?.detected_geo?.country) &&
               normalizeCountryCode(nodeCountry) ===
@@ -295,11 +295,11 @@ export function OnboardingProviderSetupPanel({
                 setNodeCountry(e.target.value.toUpperCase());
               }}
               maxLength={2}
-              className="w-full border border-border bg-background px-3 py-2.5 font-mono text-sm uppercase"
+              className="w-full border border-border bg-background px-3 py-2.5 font-mono text-sm"
               placeholder="e.g. GH"
             />
-            <p className="text-[10px] font-mono text-muted-foreground">
-              Detected from your connection when possible. City is optional — set it later for finer map routing.
+            <p className="text-xs font-mono text-muted-foreground">
+              Detected from your connection when possible. City is optional. Set it later for finer map routing.
             </p>
             <button
               type="button"
@@ -329,14 +329,14 @@ export function OnboardingProviderSetupPanel({
 
   return (
     <div className="space-y-5">
-      <h2 className="text-lg font-bold font-mono uppercase border-b border-border pb-3 flex items-center gap-2">
+      <h2 className="text-lg font-bold font-mono border-b border-border pb-3 flex items-center gap-2">
         <Wifi className="w-4 h-4 text-primary" />
         Go online
       </h2>
       <p className="text-sm text-muted-foreground">
         Install the provider CLI, configure your token, and keep the daemon running until a heartbeat lands.
       </p>
-      <div className="border border-border bg-background p-4 text-xs font-mono uppercase tracking-wide space-y-1">
+      <div className="border border-border bg-background p-4 text-xs font-mono space-y-1">
         <p>Online nodes: {onlineCount}</p>
         <p>Ready for traffic: {readiness?.summary.ready_for_traffic ? "yes" : "no"}</p>
       </div>

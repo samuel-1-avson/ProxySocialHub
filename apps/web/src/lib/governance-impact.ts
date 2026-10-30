@@ -38,10 +38,10 @@ export async function previewGovernanceImpact(
 export function impactRiskColor(level: string): string {
     switch (level) {
         case 'high':
-            return 'text-rose-400 border-rose-500/30 bg-rose-500/10';
+            return 'text-destructive border-destructive/30 bg-destructive/10';
         case 'medium':
-            return 'text-amber-400 border-amber-500/30 bg-amber-500/10';
+            return 'text-warning border-warning/30 bg-warning/10';
         default:
-            return 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10';
+            return 'text-success border-success/30 bg-success/10';
     }
 }

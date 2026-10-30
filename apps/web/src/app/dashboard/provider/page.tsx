@@ -40,24 +40,24 @@ function ProviderApplicationStatusCard({
     if (status === 'pending') {
         return (
             <div className="max-w-xl mx-auto py-20 px-4">
-                <div className="glass-card border-amber-500/20 bg-amber-500/5 p-8 space-y-6 text-center">
-                    <div className="w-16 h-16 mx-auto rounded-full bg-amber-500/15 border border-amber-500/30 flex items-center justify-center">
-                        <Activity className="w-8 h-8 text-amber-400" />
+                <div className="glass-card border-warning/20 bg-warning/5 p-8 space-y-6 text-center">
+                    <div className="w-16 h-16 mx-auto rounded-full bg-warning/15 border border-warning/30 flex items-center justify-center">
+                        <Activity className="w-8 h-8 text-warning" />
                     </div>
                     <div className="space-y-2">
-                        <div className="text-[10px] font-mono uppercase tracking-[0.3em] text-amber-400">Provider Application</div>
-                        <h1 className="text-2xl font-black uppercase tracking-tight">Automatic Verification In Progress</h1>
+                        <div className="text-xs font-mono text-warning">Provider Application</div>
+                        <h1 className="text-2xl font-semibold tracking-tight">Automatic Verification In Progress</h1>
                         <p className="text-sm text-muted-foreground max-w-md mx-auto">
                             {statusReason || 'Your provider application is queued for decentralized verification. The system will keep rechecking objective constraints until it can make a final decision automatically.'}
                         </p>
                     </div>
                     {submittedAt && (
-                        <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-[11px] font-mono text-muted-foreground">
+                        <div className="rounded-lg border border-border bg-secondary px-4 py-3 text-xs font-mono text-muted-foreground">
                             Submitted: {submittedAt}
                         </div>
                     )}
-                    <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-left">
-                        <p className="text-[11px] font-mono uppercase text-amber-400 mb-2">What Happens Next</p>
+                    <div className="rounded-lg border border-warning/20 bg-warning/10 p-4 text-left">
+                        <p className="text-xs font-mono text-warning mb-2">What Happens Next</p>
                         <p className="text-sm text-muted-foreground">
                             No human review is required. Once the linked wallet and on-chain balance checks satisfy the provider rules, the account is promoted automatically and this page will switch into the provider workspace.
                         </p>
@@ -70,13 +70,13 @@ function ProviderApplicationStatusCard({
     if (status === 'approved') {
         return (
             <div className="max-w-xl mx-auto py-20 px-4">
-                <div className="glass-card border-emerald-500/20 bg-emerald-500/5 p-8 space-y-6 text-center">
-                    <div className="w-16 h-16 mx-auto rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center">
-                        <ShieldCheck className="w-8 h-8 text-emerald-400" />
+                <div className="glass-card border-success/20 bg-success/5 p-8 space-y-6 text-center">
+                    <div className="w-16 h-16 mx-auto rounded-full bg-success/15 border border-success/30 flex items-center justify-center">
+                        <ShieldCheck className="w-8 h-8 text-success" />
                     </div>
                     <div className="space-y-2">
-                        <div className="text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-400">Provider Application</div>
-                        <h1 className="text-2xl font-black uppercase tracking-tight">Application Approved</h1>
+                        <div className="text-xs font-mono text-success">Provider Application</div>
+                        <h1 className="text-2xl font-semibold tracking-tight">Application Approved</h1>
                         <p className="text-sm text-muted-foreground max-w-md mx-auto">
                             The application has been approved automatically. The dashboard is refreshing your session so the provider workspace can unlock without a fresh login.
                         </p>
@@ -88,13 +88,13 @@ function ProviderApplicationStatusCard({
 
     return (
         <div className="max-w-xl mx-auto py-20 px-4 space-y-6">
-            <div className="glass-card border-red-500/20 bg-red-500/5 p-8 space-y-6 text-center">
-                <div className="w-16 h-16 mx-auto rounded-full bg-red-500/15 border border-red-500/30 flex items-center justify-center">
-                    <AlertCircle className="w-8 h-8 text-red-400" />
+            <div className="glass-card border-destructive/20 bg-destructive/5 p-8 space-y-6 text-center">
+                <div className="w-16 h-16 mx-auto rounded-full bg-destructive/15 border border-destructive/30 flex items-center justify-center">
+                    <AlertCircle className="w-8 h-8 text-destructive" />
                 </div>
                 <div className="space-y-2">
-                    <div className="text-[10px] font-mono uppercase tracking-[0.3em] text-red-400">Provider Application</div>
-                    <h1 className="text-2xl font-black uppercase tracking-tight">Application Rejected</h1>
+                    <div className="text-xs font-mono text-destructive">Provider Application</div>
+                    <h1 className="text-2xl font-semibold tracking-tight">Application Rejected</h1>
                     <p className="text-sm text-muted-foreground max-w-md mx-auto">
                         {statusReason || 'The latest automatic evaluation found that one or more provider constraints are not satisfied yet. Correct the issue and submit again below.'}
                     </p>
@@ -195,7 +195,7 @@ export default function ProviderDashboard() {
             {/* Header */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 mb-8">
                 <div>
-                    <div className="flex items-center gap-2 text-primary font-bold uppercase tracking-wider text-xs mb-2">
+                    <div className="flex items-center gap-2 text-primary font-bold text-xs mb-2">
                         <Server size={14} />
                         Provider Workspace
                     </div>
@@ -256,7 +256,7 @@ export default function ProviderDashboard() {
                 {/* Node List Preview */}
                 <div className="lg:col-span-2 space-y-6">
                     <div className="glass-card flex flex-col min-h-[400px]">
-                        <div className="p-6 border-b border-white/5 flex justify-between items-center">
+                        <div className="p-6 border-b border-border flex justify-between items-center">
                             <h3 className="font-bold flex items-center gap-2">
                                 <Cpu size={18} className="text-primary" />
                                 Active Nodes
@@ -268,8 +268,8 @@ export default function ProviderDashboard() {
                         
                         <div className="flex-1 p-0 flex flex-col">
                             {nodes.length === 0 ? (
-                                <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-white/5 m-4 rounded-xl border border-dashed border-white/10">
-                                    <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mb-4">
+                                <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-secondary m-4 rounded-lg border border-dashed border-border">
+                                    <div className="w-16 h-16 bg-secondary rounded-full flex items-center justify-center mb-4">
                                         <Server className="h-8 w-8 text-muted-foreground/50" />
                                     </div>
                                     <h4 className="text-lg font-bold mb-2">No nodes registered yet</h4>
@@ -277,7 +277,7 @@ export default function ProviderDashboard() {
                                         Share your bandwidth and start earning SOL by deploying your first edge node.
                                     </p>
                                     <div className="flex gap-3">
-                                        <Link href="/dashboard/provider/setup" className="px-5 py-2.5 bg-primary hover:bg-primary/90 text-primary-foreground font-bold rounded-xl transition-colors flex items-center gap-2">
+                                        <Link href="/dashboard/provider/setup" className="px-5 py-2.5 bg-primary hover:bg-primary/90 text-primary-foreground font-bold rounded-lg transition-colors flex items-center gap-2">
                                             <Plus size={16} /> Add Node
                                         </Link>
                                     </div>
@@ -285,7 +285,7 @@ export default function ProviderDashboard() {
                             ) : (
                                 <div className="overflow-x-auto">
                                     <table className="w-full text-sm text-left">
-                                        <thead className="text-xs text-muted-foreground uppercase bg-white/5 border-b border-white/5">
+                                        <thead className="text-xs text-muted-foreground bg-secondary border-b border-border">
                                             <tr>
                                                 <th className="px-6 py-4 font-medium">Node Name</th>
                                                 <th className="px-6 py-4 font-medium">Tier</th>
@@ -296,16 +296,16 @@ export default function ProviderDashboard() {
                                         </thead>
                                         <tbody>
                                             {nodes.slice(0, 5).map((node: NodeRegistration) => (
-                                                <tr key={node.id} className="border-b border-white/5 hover:bg-white/5 transition-colors group">
+                                                <tr key={node.id} className="border-b border-border hover:bg-secondary transition-colors group">
                                                     <td className="px-6 py-4 font-medium text-foreground flex items-center gap-3">
-                                                        <div className={`w-2 h-2 rounded-full ${node.status === 'online' ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                                                        <div className={`w-2 h-2 rounded-full ${node.status === 'online' ? 'bg-success' : 'bg-destructive'}`} />
                                                         {node.name}
                                                     </td>
                                                     <td className="px-6 py-4">
-                                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                                                            node.current_tier === 'Gold' ? 'bg-amber-500/20 text-amber-500 border border-amber-500/30' :
-                                                            node.current_tier === 'Silver' ? 'bg-slate-300/20 text-slate-300 border border-slate-300/30' :
-                                                            'bg-orange-700/20 text-orange-400 border border-orange-700/30'
+                                                        <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                                                            node.current_tier === 'Gold' ? 'bg-warning/20 text-warning border border-warning/30' :
+                                                            node.current_tier === 'Silver' ? 'bg-muted/20 text-muted-foreground border border-border' :
+                                                            'bg-warning/20 text-warning border border-warning/30'
                                                         }`}>
                                                             {node.current_tier || 'Bronze'}
                                                         </span>
@@ -315,11 +315,11 @@ export default function ProviderDashboard() {
                                                     </td>
                                                     <td className="px-6 py-4">
                                                         <div className="flex items-center gap-2">
-                                                            <div className="w-12 h-1.5 bg-white/5 rounded-full overflow-hidden">
+                                                            <div className="w-12 h-1.5 bg-secondary rounded-full overflow-hidden">
                                                                 <div 
                                                                     className={`h-full rounded-full ${
-                                                                        (node.quality_score || 0) >= 90 ? 'bg-emerald-500' :
-                                                                        (node.quality_score || 0) >= 70 ? 'bg-blue-500' : 'bg-orange-500'
+                                                                        (node.quality_score || 0) >= 90 ? 'bg-success' :
+                                                                        (node.quality_score || 0) >= 70 ? 'bg-info' : 'bg-warning'
                                                                     }`}
                                                                     style={{ width: `${node.quality_score || 0}%` }}
                                                                 />
@@ -339,7 +339,7 @@ export default function ProviderDashboard() {
                                         </tbody>
                                     </table>
                                     {nodes.length > 5 && (
-                                        <div className="p-4 text-center border-t border-white/5">
+                                        <div className="p-4 text-center border-t border-border">
                                             <span className="text-xs text-muted-foreground font-medium">
                                                 +{nodes.length - 5} more nodes hidden
                                             </span>
@@ -363,29 +363,29 @@ export default function ProviderDashboard() {
                     />
                     
                     <div className="grid grid-cols-2 gap-4">
-                        <Link href="/dashboard/provider/cli" className="glass-card p-5 hover:bg-white/10 transition-colors flex flex-col items-center justify-center text-center gap-2 group">
-                            <div className="p-3 rounded-xl bg-blue-500/10 text-blue-400 group-hover:scale-110 transition-transform">
+                        <Link href="/dashboard/provider/cli" className="glass-card p-5 hover:bg-secondary transition-colors flex flex-col items-center justify-center text-center gap-2 group">
+                            <div className="p-3 rounded-lg bg-info/10 text-info group-hover:scale-110 transition-transform">
                                 <FileCode size={20} />
                             </div>
                             <span className="text-xs font-bold mt-1">CLI Tools</span>
                         </Link>
                         
-                        <Link href="/dashboard/provider/tokens" className="glass-card p-5 hover:bg-white/10 transition-colors flex flex-col items-center justify-center text-center gap-2 group">
-                            <div className="p-3 rounded-xl bg-amber-500/10 text-amber-500 group-hover:scale-110 transition-transform">
+                        <Link href="/dashboard/provider/tokens" className="glass-card p-5 hover:bg-secondary transition-colors flex flex-col items-center justify-center text-center gap-2 group">
+                            <div className="p-3 rounded-lg bg-warning/10 text-warning group-hover:scale-110 transition-transform">
                                 <Fingerprint size={20} />
                             </div>
                             <span className="text-xs font-bold mt-1">API Tokens</span>
                         </Link>
 
-                        <Link href="/dashboard/provider/health" className="glass-card p-5 hover:bg-white/10 transition-colors flex flex-col items-center justify-center text-center gap-2 group">
-                            <div className="p-3 rounded-xl bg-emerald-500/10 text-emerald-500 group-hover:scale-110 transition-transform">
+                        <Link href="/dashboard/provider/health" className="glass-card p-5 hover:bg-secondary transition-colors flex flex-col items-center justify-center text-center gap-2 group">
+                            <div className="p-3 rounded-lg bg-success/10 text-success group-hover:scale-110 transition-transform">
                                 <ShieldCheck size={20} />
                             </div>
                             <span className="text-xs font-bold mt-1">Health</span>
                         </Link>
                         
-                        <Link href="/dashboard/provider/earnings" className="glass-card p-5 hover:bg-white/10 transition-colors flex flex-col items-center justify-center text-center gap-2 group">
-                            <div className="p-3 rounded-xl bg-primary/10 text-primary group-hover:scale-110 transition-transform">
+                        <Link href="/dashboard/provider/earnings" className="glass-card p-5 hover:bg-secondary transition-colors flex flex-col items-center justify-center text-center gap-2 group">
+                            <div className="p-3 rounded-lg bg-primary/10 text-primary group-hover:scale-110 transition-transform">
                                 <Wallet size={20} />
                             </div>
                             <span className="text-xs font-bold mt-1">Payouts</span>
@@ -406,20 +406,20 @@ function ProviderReadinessPanel({ readiness }: { readiness?: ProviderReadinessRe
     return (
         <div className={`glass-card p-5 border ${
             isReady
-                ? 'border-emerald-500/20 bg-emerald-500/5'
+                ? 'border-success/20 bg-success/5'
                 : hasAction
-                ? 'border-amber-500/20 bg-amber-500/5'
-                : 'border-blue-500/20 bg-blue-500/5'
+                ? 'border-warning/20 bg-warning/5'
+                : 'border-info/20 bg-info/5'
         }`}>
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                 <div className="space-y-1">
-                    <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    <div className="flex items-center gap-2 text-xs font-bold text-muted-foreground">
                         {isReady ? (
-                            <CheckCircle2 size={14} className="text-emerald-400" />
+                            <CheckCircle2 size={14} className="text-success" />
                         ) : hasAction ? (
-                            <AlertTriangle size={14} className="text-amber-400" />
+                            <AlertTriangle size={14} className="text-warning" />
                         ) : (
-                            <CircleDot size={14} className="text-blue-400" />
+                            <CircleDot size={14} className="text-info" />
                         )}
                         Provider readiness
                     </div>
@@ -437,7 +437,7 @@ function ProviderReadinessPanel({ readiness }: { readiness?: ProviderReadinessRe
                 {next?.action_href && (
                     <Link
                         href={next.action_href}
-                        className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-primary/90 transition-colors"
+                        className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-xs font-bold hover:bg-primary/90 transition-colors"
                     >
                         {next.action_label || 'Continue setup'}
                         <ArrowRight size={14} />
@@ -448,18 +448,18 @@ function ProviderReadinessPanel({ readiness }: { readiness?: ProviderReadinessRe
             {checks.length > 0 && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 mt-4">
                     {checks.map((check) => (
-                        <div key={check.id} className="rounded-xl bg-black/20 border border-white/10 px-3 py-2 min-h-[72px]">
+                        <div key={check.id} className="rounded-lg bg-secondary border border-border px-3 py-2 min-h-[72px]">
                             <div className="flex items-center gap-2">
                                 {check.status === 'complete' ? (
-                                    <CheckCircle2 size={13} className="text-emerald-400 shrink-0" />
+                                    <CheckCircle2 size={13} className="text-success shrink-0" />
                                 ) : check.status === 'action_required' ? (
-                                    <AlertTriangle size={13} className="text-amber-400 shrink-0" />
+                                    <AlertTriangle size={13} className="text-warning shrink-0" />
                                 ) : (
-                                    <CircleDot size={13} className="text-blue-400 shrink-0" />
+                                    <CircleDot size={13} className="text-info shrink-0" />
                                 )}
-                                <p className="text-[11px] font-bold uppercase tracking-wide truncate">{check.label}</p>
+                                <p className="text-xs font-bold truncate">{check.label}</p>
                             </div>
-                            <p className="text-[10px] text-muted-foreground mt-1 line-clamp-2">{check.message}</p>
+                            <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{check.message}</p>
                         </div>
                     ))}
                 </div>
@@ -474,31 +474,31 @@ function NewProviderLanding({ readiness }: { readiness?: ProviderReadinessRespon
             <ProviderReadinessPanel readiness={readiness} />
             <div className="flex flex-col md:flex-row gap-12 items-center">
                 <div className="flex-1 space-y-6">
-                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary border border-primary/20 text-[10px] font-black uppercase tracking-widest">
+                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary border border-primary/20 text-xs font-semibold">
                         <Zap size={12} /> Provider workspace
                     </div>
-                    <h1 className="text-4xl md:text-5xl font-black font-sans tracking-tight leading-none italic uppercase">
+                    <h1 className="text-4xl md:text-5xl font-semibold font-sans tracking-tight leading-none">
                         Add your <span className="text-primary">first node</span>
                     </h1>
                     <p className="text-lg text-muted-foreground leading-relaxed max-w-xl">
-                        Create a token, download config from Setup, start the CLI — then confirm the node goes online in My nodes. Do not run register again after the wizard.
+                        Create a token, download config from Setup, start the CLI. Then confirm the node goes online in My nodes. Do not run register again after the wizard.
                     </p>
                     <div className="flex flex-wrap gap-4 pt-4">
-                        <Link href="/dashboard/provider/setup" className="px-8 py-4 bg-primary hover:bg-primary/90 text-primary-foreground font-bold rounded-2xl transition-all flex items-center gap-3">
+                        <Link href="/dashboard/provider/setup" className="px-8 py-4 bg-primary hover:bg-primary/90 text-primary-foreground font-bold rounded-lg transition-all flex items-center gap-3">
                             <Plus size={20} /> Deploy Your First Node
                         </Link>
-                        <Link href="/dashboard/provider/tokens" className="px-8 py-4 bg-white/5 hover:bg-white/10 text-amber-500 border border-amber-500/20 font-bold rounded-2xl transition-all flex items-center gap-3">
+                        <Link href="/dashboard/provider/tokens" className="px-8 py-4 bg-secondary hover:bg-secondary text-warning border border-warning/20 font-bold rounded-lg transition-all flex items-center gap-3">
                             <Fingerprint size={20} /> Manage API Tokens
                         </Link>
-                        <Link href="/dashboard/provider/cli" className="px-8 py-4 bg-white/5 hover:bg-white/10 text-blue-400 border border-blue-500/20 font-bold rounded-2xl transition-all flex items-center gap-3">
+                        <Link href="/dashboard/provider/cli" className="px-8 py-4 bg-secondary hover:bg-secondary text-info border border-info/20 font-bold rounded-lg transition-all flex items-center gap-3">
                             <Terminal size={20} /> CLI Setup
                         </Link>
                     </div>
                 </div>
                 <div className="w-full md:w-80 space-y-4">
-                    <div className="glass-card p-6 border-emerald-500/20 bg-emerald-500/5">
+                    <div className="glass-card p-6 border-success/20 bg-success/5">
                         <div className="flex items-center gap-3 mb-4">
-                            <div className="p-2 rounded-lg bg-emerald-500/20 text-emerald-400">
+                            <div className="p-2 rounded-lg bg-success/20 text-success">
                                 <TrendingUp size={18} />
                             </div>
                             <h3 className="font-bold">Golden path</h3>
@@ -506,24 +506,24 @@ function NewProviderLanding({ readiness }: { readiness?: ProviderReadinessRespon
                         <ol className="space-y-2 text-xs text-muted-foreground list-decimal list-inside">
                             <li>Setup wizard → create token + node</li>
                             <li>Download provider.toml (production URLs)</li>
-                            <li>CLI: start / service — not a second register</li>
+                            <li>CLI: start / service, not a second register</li>
                             <li>My nodes shows online within ~2 minutes</li>
                         </ol>
                     </div>
                     <div className="glass-card p-6">
                         <h3 className="font-bold mb-4 flex items-center gap-2 text-sm">
-                            <ShieldCheck size={16} className="text-blue-400" />
+                            <ShieldCheck size={16} className="text-info" />
                             Provider Benefits
                         </h3>
                         <ul className="space-y-3">
                             {[
                                 "Privacy-preserving architecture",
-                                "Oracle-attested usage anchors",
+                                "Signed usage records",
                                 "Manual on-chain claim when ready",
                                 "Enterprise-grade security"
                             ].map((item, idx) => (
                                 <li key={idx} className="text-xs flex items-center gap-2 text-muted-foreground">
-                                    <div className="w-1.5 h-1.5 rounded-full bg-blue-500/50" />
+                                    <div className="w-1.5 h-1.5 rounded-full bg-info/50" />
                                     {item}
                                 </li>
                             ))}
@@ -532,7 +532,7 @@ function NewProviderLanding({ readiness }: { readiness?: ProviderReadinessRespon
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 pt-12 border-t border-white/5">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 pt-12 border-t border-border">
                 <StepCard num="01" title="Setup + token" desc="Run the setup wizard once to create an API token and a single node row." icon={Fingerprint} />
                 <StepCard num="02" title="Download CLI" desc="Install provider-node for your OS, then start with the downloaded provider.toml." icon={Terminal} />
                 <StepCard num="03" title="Go online" desc="Confirm My nodes shows online, then track earnings on Income." icon={Coins} />
@@ -544,9 +544,9 @@ function NewProviderLanding({ readiness }: { readiness?: ProviderReadinessRespon
 function StepCard({ num, title, desc, icon: Icon }: { num: string, title: string, desc: string, icon: LucideIcon }) {
     return (
         <div className="relative group">
-            <span className="absolute -top-6 -left-2 text-6xl font-black text-white/5 group-hover:text-primary/10 transition-colors z-0 select-none">{num}</span>
+            <span className="absolute -top-6 -left-2 text-6xl font-semibold text-muted-foreground group-hover:text-primary/10 transition-colors z-0 select-none">{num}</span>
             <div className="relative z-10 space-y-4">
-                <div className="w-12 h-12 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-muted-foreground group-hover:text-primary group-hover:border-primary/30 transition-all">
+                <div className="w-12 h-12 rounded-lg bg-secondary border border-border flex items-center justify-center text-muted-foreground group-hover:text-primary group-hover:border-primary/30 transition-all">
                     <Icon size={24} strokeWidth={1.5} />
                 </div>
                 <h3 className="text-lg font-bold">{title}</h3>

@@ -37,7 +37,7 @@ function formatApiErrorMessage(error: Record<string, unknown>): string {
     }
     if (error.limit_type != null && typeof error.remaining === 'number') {
         const window = String(error.limit_type);
-        return `${base} — about ${error.remaining.toFixed(2)} SOL left on your ${window} limit`;
+        return `${base}. About ${error.remaining.toFixed(2)} SOL left on your ${window} limit`;
     }
     if (typeof error.reason === 'string' && error.reason.trim()) {
         return `${base} ${error.reason}`;

@@ -16,7 +16,7 @@ export function NetworkShell({ children }: NetworkShellProps) {
         <div className="min-h-[calc(100vh-4rem)]" data-testid="network-shell">
             <div className="container mx-auto px-4 py-8">
                 <div className="mb-6">
-                    <h1 className="text-3xl font-black tracking-tighter uppercase italic">
+                    <h1 className="text-3xl font-semibold tracking-tight">
                         Proxy <span className="text-primary">network</span>
                     </h1>
                     <p className="text-sm text-muted-foreground mt-2 max-w-2xl">
@@ -27,20 +27,20 @@ export function NetworkShell({ children }: NetworkShellProps) {
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div className="lg:col-span-2 space-y-4">
-                        <div className="rounded-2xl border border-white/10 bg-white/[0.02] overflow-hidden min-h-[420px] flex flex-col">
+                        <div className="rounded-lg border border-border bg-secondary overflow-hidden min-h-[420px] flex flex-col">
                             <NetworkMapEmbed />
                         </div>
                         <p className="text-center">
                             <Link
                                 href="/marketplace/map"
-                                className="text-[10px] font-bold uppercase tracking-wider text-primary hover:underline"
+                                className="text-xs font-bold text-primary hover:underline"
                             >
                                 Open marketplace map for full discovery →
                             </Link>
                         </p>
                         {children}
                     </div>
-                    <aside className="rounded-2xl border border-white/10 bg-white/[0.02] p-5 h-fit lg:sticky lg:top-24">
+                    <aside className="rounded-lg border border-border bg-secondary p-5 h-fit lg:sticky lg:top-24">
                         <ActivityRail />
                     </aside>
                 </div>

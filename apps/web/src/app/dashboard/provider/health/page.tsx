@@ -321,24 +321,24 @@ export default function HealthPage() {
                                                         <MapPin size={13} aria-hidden="true" />
                                                         {node.city ? `${node.city}, ` : ''}{node.country}
                                                     </span>
-                                                ) : '—'}
+                                                ) : 'Not measured'}
                                             </td>
                                             <td>
                                                 <span className="ui-inline-icon">
                                                     <Clock size={13} aria-hidden="true" />
-                                                    {(hist?.uptime_percent ?? node.uptime_percent)?.toFixed(1) ?? '—'}%
+                                                    {(hist?.uptime_percent ?? node.uptime_percent)?.toFixed(1) ?? 'Not measured'}%
                                                 </span>
                                             </td>
                                             <td>
                                                 <span className="ui-inline-icon">
                                                     <Wifi size={13} aria-hidden="true" />
-                                                    {node.latency_ms != null ? `${node.latency_ms}ms` : '—'}
+                                                    {node.latency_ms != null ? `${node.latency_ms}ms` : 'Not measured'}
                                                 </span>
                                             </td>
                                             <td>
                                                 <span className="ui-inline-icon">
                                                     <BarChart3 size={13} aria-hidden="true" />
-                                                    {node.quality_score?.toFixed(0) ?? '—'}
+                                                    {node.quality_score?.toFixed(0) ?? 'Not measured'}
                                                 </span>
                                             </td>
                                             <td>
@@ -347,7 +347,7 @@ export default function HealthPage() {
                                                     {node.active_connections ?? 0} conn
                                                 </span>
                                             </td>
-                                            <td>{hist ? `${hist.checks_24h} checks` : '—'}</td>
+                                            <td>{hist ? `${hist.checks_24h} checks` : 'None yet'}</td>
                                             <td>
                                                 <Link href="/dashboard/provider/nodes" className="ui-link">
                                                     Manage
@@ -372,7 +372,7 @@ export default function HealthPage() {
                             <p>• Use <Link href="/dashboard/provider/setup" className="ui-link">Setup</Link> then <code>provider-node start</code> (not a second register).</p>
                         )}
                         {offlineNodes.length > 0 && (
-                            <p>• {offlineNodes.length} node(s) offline/pending — open My nodes → Connect and start the CLI.</p>
+                            <p>• {offlineNodes.length} node(s) offline/pending. Open My nodes → Connect and start the CLI.</p>
                         )}
                         {withWallet < nodes.length && nodes.length > 0 && (
                             <p>• Link a Solana wallet in <Link href="/dashboard/settings" className="ui-link">Settings</Link> so payout wallets auto-bind for claims.</p>

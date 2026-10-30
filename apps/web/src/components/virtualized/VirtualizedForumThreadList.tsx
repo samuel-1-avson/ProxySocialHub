@@ -68,7 +68,7 @@ export function VirtualizedForumThreadList({
                     <div
                         key={thread.id}
                         ref={isLast ? lastItemRef : null}
-                        className="group bg-card rounded-xl border p-5 hover:border-primary/50 transition-colors"
+                        className="group bg-card rounded-lg border p-5 hover:border-primary/50 transition-colors"
                     >
                         <div className="flex gap-4">
                             {/* Vote buttons */}
@@ -112,7 +112,7 @@ export function VirtualizedForumThreadList({
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-start gap-2">
                                     {thread.is_pinned && (
-                                        <Pin className="w-4 h-4 text-amber-500 mt-1" />
+                                        <Pin className="w-4 h-4 text-warning mt-1" />
                                     )}
                                     <Link
                                         href={`/community/forum/thread/${thread.id}`}

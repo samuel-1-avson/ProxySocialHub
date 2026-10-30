@@ -87,20 +87,20 @@ export function SellerEarnings() {
           value={
             summary.data
               ? `${amount(summary.data.last_30_days_sol, 6)} SOL`
-              : "—"
+              : "…"
           }
           detail="Recorded earnings for the period"
         />
         <Stat
           label="Pending"
           value={
-            summary.data ? `${amount(summary.data.pending_sol, 6)} SOL` : "—"
+            summary.data ? `${amount(summary.data.pending_sol, 6)} SOL` : "…"
           }
           detail="Separate from payable and paid funds"
         />
         <Stat
           label="Paid lifetime"
-          value={summary.data ? `${amount(summary.data.paid_sol, 6)} SOL` : "—"}
+          value={summary.data ? `${amount(summary.data.paid_sol, 6)} SOL` : "…"}
           detail="Completed payments in provider records"
         />
       </section>

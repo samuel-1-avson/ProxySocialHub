@@ -40,7 +40,9 @@ export function ProviderApplicationForm({
     const minBalanceLabel = `${minBalance} ${balanceTokenLabel}`;
     const linkedWalletBalance = typeof wallet?.on_chain_sol === 'number' ? wallet.on_chain_sol : undefined;
     const hasOnChainBalance = typeof linkedWalletBalance === 'number';
-    const hasEnoughSol = hasOnChainBalance ? linkedWalletBalance >= minBalance : true;
+    // Google sign-in providers get a ProxyHubb wallet; the SOL balance rule doesn't apply to them.
+    const managedWallet = !!user?.managed_wallet?.address;
+    const hasEnoughSol = managedWallet || (hasOnChainBalance ? linkedWalletBalance >= minBalance : true);
     const detectedGeo = providerStatus?.detected_geo;
     const applicationGeo = providerStatus?.application;
     const detectedISP = applicationGeo?.isp && applicationGeo.isp !== 'Unknown ISP'
@@ -96,24 +98,24 @@ export function ProviderApplicationForm({
         );
 
         const accentClass = applicationStatus === 'approved'
-            ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400'
+            ? 'bg-success/20 border-success/30 text-success'
             : applicationStatus === 'pending'
-                ? 'bg-amber-500/20 border-amber-500/30 text-amber-400'
-                : 'bg-red-500/20 border-red-500/30 text-red-400';
+                ? 'bg-warning/20 border-warning/30 text-warning'
+                : 'bg-destructive/20 border-destructive/30 text-destructive';
 
         return (
             <GlassCard className="text-center py-10 space-y-4 animate-in fade-in zoom-in duration-500">
                 <div className={`w-16 h-16 mx-auto rounded-full flex items-center justify-center border ${accentClass}`}>
                     {applicationStatus === 'approved' ? (
-                        <CheckCircle2 size={32} className="text-emerald-400" />
+                        <CheckCircle2 size={32} className="text-success" />
                     ) : applicationStatus === 'pending' ? (
-                        <Loader2 size={32} className="text-amber-400 animate-spin" />
+                        <Loader2 size={32} className="text-warning animate-spin" />
                     ) : (
-                        <AlertCircle size={32} className="text-red-400" />
+                        <AlertCircle size={32} className="text-destructive" />
                     )}
                 </div>
                 <div>
-                    <h2 className="text-xl font-bold font-mono uppercase tracking-tighter">{title}</h2>
+                    <h2 className="text-xl font-bold font-mono tracking-tight">{title}</h2>
                     <p className="text-sm text-muted-foreground max-w-sm mx-auto mt-2">
                         {description}
                     </p>
@@ -125,21 +127,21 @@ export function ProviderApplicationForm({
     return (
         <GlassCard className={embedded
             ? "max-w-xl mx-auto border-border bg-card"
-            : "max-w-xl mx-auto border-emerald-500/20 bg-emerald-500/5"
+            : "max-w-xl mx-auto border-success/20 bg-success/5"
         }>
             <div className="space-y-8 p-2">
                 <div>
-                    <div className={`flex items-center gap-2 font-bold uppercase tracking-widest text-[10px] mb-2 ${embedded ? 'text-primary' : 'text-primary'}`}>
+                    <div className={`flex items-center gap-2 font-bold text-xs mb-2 ${embedded ? 'text-primary' : 'text-primary'}`}>
                         <ShieldCheck size={14} />
                         Automated Onboarding
                     </div>
-                    <h2 className={`text-2xl font-black font-sans uppercase italic tracking-tight ${embedded ? 'font-mono not-italic' : ''}`}>
+                    <h2 className={`text-2xl font-semibold font-sans tracking-tight ${embedded ? 'font-mono not-italic' : ''}`}>
                         Become a Provider
                     </h2>
                     <p className="text-sm text-muted-foreground mt-1">
                         Submit your bandwidth capacity and the system will decide automatically from objective on-chain constraints.
                     </p>
-                    <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mt-3">
+                    <p className="text-xs font-mono text-muted-foreground mt-3">
                         Active Solana network: {solanaNetwork}
                     </p>
                 </div>
@@ -147,11 +149,11 @@ export function ProviderApplicationForm({
                 <div className="space-y-6">
                     {/* Auto-Detection Status */}
                     <div className="grid grid-cols-2 gap-3">
-                        <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/5 flex flex-col gap-2 relative overflow-hidden group">
+                        <div className="p-4 rounded-lg bg-secondary border border-border flex flex-col gap-2 relative overflow-hidden group">
                             <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity">
                                 <Globe size={40} />
                             </div>
-                            <span className="text-[10px] font-mono uppercase font-bold text-muted-foreground">ISP & Location</span>
+                            <span className="text-xs font-mono font-bold text-muted-foreground">ISP & Location</span>
                             <div className="flex items-center gap-2">
                                 {providerStatusLoading ? (
                                     <>
@@ -160,49 +162,56 @@ export function ProviderApplicationForm({
                                     </>
                                 ) : hasDetectedGeo ? (
                                     <>
-                                        <CheckCircle2 size={12} className="text-emerald-500" />
-                                        <span className="text-xs font-bold text-emerald-500 truncate">{detectedISP || 'Network detected'}</span>
+                                        <CheckCircle2 size={12} className="text-success" />
+                                        <span className="text-xs font-bold text-success truncate">{detectedISP || 'Network detected'}</span>
                                     </>
                                 ) : (
                                     <>
-                                        <AlertCircle size={12} className="text-amber-500" />
-                                        <span className="text-xs font-bold text-amber-500">Unavailable</span>
+                                        <AlertCircle size={12} className="text-warning" />
+                                        <span className="text-xs font-bold text-warning">Unavailable</span>
                                     </>
                                 )}
                             </div>
                             {!providerStatusLoading && hasDetectedGeo && (
-                                <p className="text-[10px] text-muted-foreground font-mono truncate">
+                                <p className="text-xs text-muted-foreground font-mono truncate">
                                     {detectedLocation || 'Location pending'}
                                 </p>
                             )}
                         </div>
-                        <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/5 flex flex-col gap-2 relative overflow-hidden group">
+                        <div className="p-4 rounded-lg bg-secondary border border-border flex flex-col gap-2 relative overflow-hidden group">
                             <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity">
                                 <Wallet size={40} />
                             </div>
-                            <span className="text-[10px] font-mono uppercase font-bold text-muted-foreground">Linked Wallet Balance</span>
+                            <span className="text-xs font-mono font-bold text-muted-foreground">
+                                {managedWallet ? 'Payout Wallet' : 'Linked Wallet Balance'}
+                            </span>
                             <div className="flex items-center gap-2">
-                                {walletLoading ? (
+                                {managedWallet ? (
+                                    <>
+                                        <CheckCircle2 size={12} className="text-success" />
+                                        <span className="text-xs font-bold text-success">ProxyHubb wallet ready</span>
+                                    </>
+                                ) : walletLoading ? (
                                     <Loader2 size={12} className="animate-spin text-muted-foreground" />
                                 ) : !hasLinkedWallet ? (
                                     <>
-                                        <AlertCircle size={12} className="text-amber-500" />
-                                        <span className="text-xs font-bold text-amber-500">Link wallet first</span>
+                                        <AlertCircle size={12} className="text-warning" />
+                                        <span className="text-xs font-bold text-warning">Link wallet first</span>
                                     </>
                                 ) : !hasOnChainBalance ? (
                                     <>
-                                        <AlertCircle size={12} className="text-amber-500" />
-                                        <span className="text-xs font-bold text-amber-500">Awaiting {solanaNetwork} check</span>
+                                        <AlertCircle size={12} className="text-warning" />
+                                        <span className="text-xs font-bold text-warning">Awaiting {solanaNetwork} check</span>
                                     </>
                                 ) : hasEnoughSol ? (
                                     <>
-                                        <CheckCircle2 size={12} className="text-emerald-500" />
-                                        <span className="text-xs font-bold text-emerald-500">{linkedWalletBalance?.toFixed(3)} {balanceTokenLabel}</span>
+                                        <CheckCircle2 size={12} className="text-success" />
+                                        <span className="text-xs font-bold text-success">{linkedWalletBalance?.toFixed(3)} {balanceTokenLabel}</span>
                                     </>
                                 ) : (
                                     <>
-                                        <AlertCircle size={12} className="text-red-400" />
-                                        <span className="text-xs font-bold text-red-500">{linkedWalletBalance?.toFixed(3)} / {minBalanceLabel}</span>
+                                        <AlertCircle size={12} className="text-destructive" />
+                                        <span className="text-xs font-bold text-destructive">{linkedWalletBalance?.toFixed(3)} / {minBalanceLabel}</span>
                                     </>
                                 )}
                             </div>
@@ -210,58 +219,68 @@ export function ProviderApplicationForm({
                     </div>
 
                     <div className="space-y-1.5">
-                        <label className="text-[10px] font-mono uppercase font-bold text-muted-foreground flex items-center gap-2">
-                            <Zap size={12} className="text-amber-500" />
+                        <label className="text-xs font-mono font-bold text-muted-foreground flex items-center gap-2">
+                            <Zap size={12} className="text-warning" />
                             Estimated Upload Bandwidth
                         </label>
                         <Input 
                             placeholder="e.g. 1Gbps Fiber, 500Mbps Starlink"
                             value={bandwidth}
                             onChange={(e) => setBandwidth(e.target.value)}
-                            className="h-12 bg-white/5 border-white/10 rounded-xl focus:ring-primary/50"
+                            className="h-12 bg-secondary border-border rounded-lg focus:ring-primary/50"
                         />
                     </div>
 
                     {!hasLinkedWallet && (
-                        <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 flex gap-3 items-start">
-                            <AlertCircle size={18} className="text-amber-500 shrink-0 mt-0.5" />
+                        <div className="p-4 rounded-lg bg-warning/10 border border-warning/20 flex gap-3 items-start">
+                            <AlertCircle size={18} className="text-warning shrink-0 mt-0.5" />
                             <div className="space-y-1">
-                                <p className="text-xs font-bold text-amber-500 uppercase font-mono">Wallet Required</p>
-                                <p className="text-[11px] text-muted-foreground">You must link a Solana wallet in Settings before applying.</p>
+                                <p className="text-xs font-bold text-warning font-mono">Wallet Required</p>
+                                <p className="text-xs text-muted-foreground">You must link a Solana wallet in Settings before applying.</p>
                             </div>
                         </div>
                     )}
 
                     {hasLinkedWallet && hasOnChainBalance && !hasEnoughSol && !walletLoading && (
-                        <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 flex gap-3 items-start">
-                            <AlertCircle size={18} className="text-red-500 shrink-0 mt-0.5" />
+                        <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/20 flex gap-3 items-start">
+                            <AlertCircle size={18} className="text-destructive shrink-0 mt-0.5" />
                             <div className="space-y-1">
-                                <p className="text-xs font-bold text-red-500 uppercase font-mono">Insufficient Funds</p>
-                                <p className="text-[11px] text-muted-foreground">A minimum of {minBalanceLabel} is required in your linked wallet before automatic provider approval can succeed. Development stacks use devnet SOL by default.</p>
+                                <p className="text-xs font-bold text-destructive font-mono">Insufficient Funds</p>
+                                <p className="text-xs text-muted-foreground">A minimum of {minBalanceLabel} is required in your linked wallet before automatic provider approval can succeed. Development stacks use devnet SOL by default.</p>
                             </div>
                         </div>
                     )}
 
-                    {hasLinkedWallet && !walletLoading && !hasOnChainBalance && (
-                        <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 flex gap-3 items-start">
-                            <AlertCircle size={18} className="text-amber-500 shrink-0 mt-0.5" />
+                    {managedWallet && (
+                        <div className="p-4 rounded-lg bg-success/10 border border-success/20 flex gap-3 items-start">
+                            <CheckCircle2 size={18} className="text-success shrink-0 mt-0.5" />
                             <div className="space-y-1">
-                                <p className="text-xs font-bold text-amber-500 uppercase font-mono">Balance Check Pending</p>
-                                <p className="text-[11px] text-muted-foreground">The linked wallet is required for provider verification. The backend will validate your {balanceTokenLabel} balance when you submit and recheck automatically if verification is temporarily unavailable.</p>
+                                <p className="text-xs font-bold text-success font-mono">No crypto needed</p>
+                                <p className="text-xs text-muted-foreground">Your earnings go to your ProxyHubb wallet. You can cash them out to Mobile Money from the Wallet page.</p>
+                            </div>
+                        </div>
+                    )}
+
+                    {hasLinkedWallet && !walletLoading && !hasOnChainBalance && !managedWallet && (
+                        <div className="p-4 rounded-lg bg-warning/10 border border-warning/20 flex gap-3 items-start">
+                            <AlertCircle size={18} className="text-warning shrink-0 mt-0.5" />
+                            <div className="space-y-1">
+                                <p className="text-xs font-bold text-warning font-mono">Balance Check Pending</p>
+                                <p className="text-xs text-muted-foreground">The linked wallet is required for provider verification. The backend will validate your {balanceTokenLabel} balance when you submit and recheck automatically if verification is temporarily unavailable.</p>
                             </div>
                         </div>
                     )}
                 </div>
 
                 {mutation.isError && (
-                    <div className="flex items-center gap-2 p-3 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-[11px] font-mono">
+                    <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-xs font-mono">
                         <AlertCircle size={14} />
                         {errorMessage}
                     </div>
                 )}
 
                 <Button 
-                    className="w-full h-14 rounded-2xl bg-primary hover:bg-emerald-500 text-white font-black uppercase italic tracking-widest  disabled:opacity-50 disabled:grayscale transition-all"
+                    className="w-full h-14 rounded-lg bg-primary hover:bg-success text-primary-foreground font-semibold disabled:opacity-50 disabled:grayscale transition-all"
                     disabled={!bandwidth || !hasLinkedWallet || !hasEnoughSol || mutation.isPending}
                     onClick={() => mutation.mutate()}
                 >

@@ -18,7 +18,7 @@ export function SkipLink({ href = '#main-content', children = 'Skip to main cont
     return (
         <a
             href={href}
-            className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-[200] focus:bg-primary focus:text-primary-foreground focus:px-4 focus:py-2 focus:rounded-sm focus:font-mono focus:text-sm focus:font-bold focus:shadow-lg focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-[200] focus:bg-primary focus:text-primary-foreground focus:px-4 focus:py-2 focus:rounded-sm focus:font-mono focus:text-sm focus:font-bold focus:shadow-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
         >
             {children}
         </a>

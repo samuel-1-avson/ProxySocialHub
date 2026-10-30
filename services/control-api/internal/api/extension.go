@@ -93,7 +93,7 @@ func finishExtensionPair(c *gin.Context) {
 	}
 	code := strings.TrimSpace(req.Code)
 	extID := strings.ToLower(strings.TrimSpace(req.ExtensionID))
-	if code == "" || !middleware.ValidChromeExtensionID(extID) {
+	if code == "" || !middleware.ValidExtensionID(extID) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "code and a valid extension_id are required"})
 		return
 	}

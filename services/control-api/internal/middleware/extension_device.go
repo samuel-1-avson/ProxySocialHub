@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -14,15 +15,37 @@ import (
 
 const AuthTypeExtensionDevice = "extension_device"
 
-// ChromeExtensionOriginAllowed is true for chrome-extension://<32 a-p id>.
-func ChromeExtensionOriginAllowed(origin string) bool {
-	const prefix = "chrome-extension://"
+// ExtensionOriginAllowed is true for chrome-extension://<32 a-p id> and
+// moz-extension://<uuid> (Firefox gives each install its own random UUID origin).
+func ExtensionOriginAllowed(origin string) bool {
 	origin = strings.TrimSpace(origin)
-	if !strings.HasPrefix(origin, prefix) {
+	if id, ok := strings.CutPrefix(origin, "chrome-extension://"); ok {
+		return ValidChromeExtensionID(strings.TrimSuffix(id, "/"))
+	}
+	if id, ok := strings.CutPrefix(origin, "moz-extension://"); ok {
+		_, err := uuid.Parse(strings.TrimSuffix(id, "/"))
+		return err == nil
+	}
+	return false
+}
+
+// geckoEmailID is AMO's email-style add-on id, e.g. extension@proxyhubb.com.
+var geckoEmailID = regexp.MustCompile(`^[a-zA-Z0-9._-]*@[a-zA-Z0-9._-]+$`)
+
+// ValidExtensionID accepts the runtime.id of a Chrome/Edge extension or of a
+// Firefox add-on ("name@domain" or "{uuid}", at most 80 chars per AMO).
+func ValidExtensionID(id string) bool {
+	if ValidChromeExtensionID(id) {
+		return true
+	}
+	if len(id) == 0 || len(id) > 80 {
 		return false
 	}
-	id := strings.TrimSuffix(strings.TrimPrefix(origin, prefix), "/")
-	return ValidChromeExtensionID(id)
+	if strings.HasPrefix(id, "{") && strings.HasSuffix(id, "}") {
+		_, err := uuid.Parse(id[1 : len(id)-1])
+		return err == nil
+	}
+	return geckoEmailID.MatchString(id)
 }
 
 // ValidChromeExtensionID is a Chrome/Edge unpacked or CWS id (32 chars, a-p).
@@ -61,7 +84,7 @@ func ExtensionDeviceActive(deviceID, extensionID string) bool {
 	if err != nil {
 		return false
 	}
-	if !ValidChromeExtensionID(strings.TrimSpace(extensionID)) {
+	if !ValidExtensionID(strings.TrimSpace(extensionID)) {
 		return false
 	}
 	var row models.ExtensionDevice

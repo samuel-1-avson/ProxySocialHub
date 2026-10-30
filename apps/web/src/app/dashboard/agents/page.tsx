@@ -59,7 +59,7 @@ export default function AgentsConsolePage() {
         setActionError(null);
         if (
             !confirm(
-                `Provision ${agent.name}? This is experimental — no wallet charge and jobs cannot run until Docker execution ships.`,
+                `Provision ${agent.name}? This is experimental. No wallet charge and jobs cannot run until Docker execution ships.`,
             )
         ) {
             return;
@@ -80,7 +80,7 @@ export default function AgentsConsolePage() {
         return (
             <div className="flex flex-col items-center justify-center py-40 gap-6">
                 <Loader2 className="w-10 h-10 animate-spin text-primary" />
-                <p className="font-mono text-[10px] uppercase font-black tracking-[0.4em] text-muted-foreground animate-pulse">
+                <p className="font-mono text-xs font-semibold text-muted-foreground animate-pulse">
                     Loading agent console…
                 </p>
             </div>
@@ -93,25 +93,25 @@ export default function AgentsConsolePage() {
             animate={{ opacity: 1 }}
             className="space-y-10 pb-20 font-mono"
         >
-            <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 border-b border-white/5 pb-8">
+            <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 border-b border-border pb-8">
                 <div className="space-y-3">
-                    <div className="flex items-center gap-2 text-amber-400 text-[10px] font-black uppercase tracking-[0.3em]">
+                    <div className="flex items-center gap-2 text-warning text-xs font-semibold">
                         <AlertTriangle size={12} /> Experimental
                     </div>
-                    <h1 className="text-4xl font-black uppercase tracking-tighter text-foreground">
+                    <h1 className="text-4xl font-semibold tracking-tight text-foreground">
                         Agent console
                     </h1>
-                    <p className="text-muted-foreground text-[11px] max-w-xl opacity-70 uppercase tracking-tight leading-relaxed">
-                        Registry and provisional rent only. Payment, escrow, and job EXECUTE are not live —
-                        removed from Market until runtime ships.
+                    <p className="text-muted-foreground text-xs max-w-xl opacity-70 tracking-tight leading-relaxed">
+                        Registry and provisional rent only. Payment, escrow, and job EXECUTE are not live.
+                        Removed from Market until runtime ships.
                     </p>
                 </div>
 
-                <div className="flex items-center gap-2 bg-white/2 p-1 rounded-2xl border border-white/5">
+                <div className="flex items-center gap-2 bg-secondary p-1 rounded-lg border border-border">
                     <button
                         type="button"
                         onClick={() => setActiveTab('catalog')}
-                        className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                        className={`px-5 py-2.5 rounded-lg text-xs font-semibold transition-all ${
                             activeTab === 'catalog'
                                 ? 'bg-primary text-primary-foreground'
                                 : 'text-muted-foreground/40 hover:text-foreground'
@@ -122,7 +122,7 @@ export default function AgentsConsolePage() {
                     <button
                         type="button"
                         onClick={() => setActiveTab('instances')}
-                        className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                        className={`px-5 py-2.5 rounded-lg text-xs font-semibold transition-all ${
                             activeTab === 'instances'
                                 ? 'bg-primary text-primary-foreground'
                                 : 'text-muted-foreground/40 hover:text-foreground'
@@ -134,7 +134,7 @@ export default function AgentsConsolePage() {
             </div>
 
             <div
-                className="rounded-2xl border border-amber-500/25 bg-amber-500/10 px-5 py-4 text-[11px] font-bold uppercase tracking-widest text-amber-100/90 leading-relaxed"
+                className="rounded-lg border border-warning/25 bg-warning/10 px-5 py-4 text-xs font-bold text-warning/90 leading-relaxed"
                 role="status"
             >
                 Phase C: Market agent pages redirect here. Do not treat listed prices as billable. Job
@@ -143,7 +143,7 @@ export default function AgentsConsolePage() {
 
             {actionError && (
                 <div
-                    className="rounded-2xl border border-red-500/25 bg-red-500/10 px-5 py-4 text-[11px] font-bold text-red-200"
+                    className="rounded-lg border border-destructive/25 bg-destructive/10 px-5 py-4 text-xs font-bold text-destructive"
                     role="alert"
                 >
                     {actionError}
@@ -160,9 +160,9 @@ export default function AgentsConsolePage() {
                         className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
                     >
                         {marketAgents.length === 0 ? (
-                            <div className="col-span-full text-center py-24 border border-dashed border-white/10 rounded-3xl">
+                            <div className="col-span-full text-center py-24 border border-dashed border-border rounded-lg">
                                 <Bot className="w-12 h-12 text-muted-foreground/20 mx-auto mb-4" />
-                                <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground/50">
+                                <p className="text-xs font-semibold text-muted-foreground/50">
                                     No catalog agents seeded
                                 </p>
                             </div>
@@ -173,28 +173,28 @@ export default function AgentsConsolePage() {
                                     className="!p-6 flex flex-col h-full hover:border-primary/30 transition-all"
                                 >
                                     <div className="flex justify-between items-start mb-6">
-                                        <div className="p-3 rounded-xl bg-primary/10 text-primary border border-primary/20">
+                                        <div className="p-3 rounded-lg bg-primary/10 text-primary border border-primary/20">
                                             <Cpu size={22} />
                                         </div>
-                                        <span className="px-2 py-1 rounded-md border border-white/10 text-[9px] font-black uppercase tracking-widest text-muted-foreground/60">
+                                        <span className="px-2 py-1 rounded-md border border-border text-xs font-semibold text-muted-foreground/60">
                                             {agent.category || 'agent'}
                                         </span>
                                     </div>
-                                    <h3 className="text-lg font-black uppercase tracking-tight mb-2">
+                                    <h3 className="text-lg font-semibold tracking-tight mb-2">
                                         {agent.name}
                                     </h3>
-                                    <p className="text-[11px] text-muted-foreground/50 leading-relaxed mb-6 flex-1">
+                                    <p className="text-xs text-muted-foreground/50 leading-relaxed mb-6 flex-1">
                                         {agent.description || 'No description'}
                                     </p>
-                                    <div className="pt-4 border-t border-white/5 flex items-center justify-between gap-3">
-                                        <div className="text-[10px] font-black text-primary/80 tracking-wider">
+                                    <div className="pt-4 border-t border-border flex items-center justify-between gap-3">
+                                        <div className="text-xs font-semibold text-primary/80">
                                             {agentPriceLabel(agent)}
                                         </div>
                                         <button
                                             type="button"
                                             onClick={() => void handleRent(agent)}
                                             disabled={!!rentingId}
-                                            className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-widest hover:border-primary/40 disabled:opacity-50"
+                                            className="px-4 py-2 rounded-lg bg-secondary border border-border text-xs font-semibold hover:border-primary/40 disabled:opacity-50"
                                         >
                                             {rentingId === agent.id ? (
                                                 <Loader2 size={14} className="animate-spin" />
@@ -219,39 +219,39 @@ export default function AgentsConsolePage() {
                             myAgents.map((instance) => (
                                 <GlassCard
                                     key={instance.id}
-                                    className="!p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 border-white/5"
+                                    className="!p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 border-border"
                                 >
                                     <div className="flex items-center gap-4 min-w-0">
-                                        <div className="w-12 h-12 rounded-xl bg-black/40 border border-white/5 flex items-center justify-center text-primary shrink-0">
+                                        <div className="w-12 h-12 rounded-lg bg-secondary border border-border flex items-center justify-center text-primary shrink-0">
                                             <Bot size={24} />
                                         </div>
                                         <div className="min-w-0">
-                                            <h3 className="text-base font-black uppercase tracking-tight truncate">
+                                            <h3 className="text-base font-semibold tracking-tight truncate">
                                                 {instance.agent?.name ||
                                                     instance.market_agent?.name ||
                                                     `Instance ${instance.id.slice(0, 8)}`}
                                             </h3>
-                                            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50 mt-1">
+                                            <p className="text-xs font-semibold text-muted-foreground/50 mt-1">
                                                 {instance.status} ·{' '}
                                                 {new Date(instance.created_at).toLocaleString()}
                                             </p>
                                         </div>
                                     </div>
-                                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/40 md:text-right max-w-xs">
-                                        EXECUTE disabled — Docker runtime not implemented
+                                    <p className="text-xs font-bold text-muted-foreground/40 md:text-right max-w-xs">
+                                        EXECUTE disabled: Docker runtime not implemented
                                     </p>
                                 </GlassCard>
                             ))
                         ) : (
-                            <div className="text-center py-24 border border-dashed border-white/10 rounded-3xl">
+                            <div className="text-center py-24 border border-dashed border-border rounded-lg">
                                 <Sparkles className="w-10 h-10 text-primary/30 mx-auto mb-4" />
-                                <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground/50 mb-6">
+                                <p className="text-xs font-semibold text-muted-foreground/50 mb-6">
                                     No instances yet
                                 </p>
                                 <button
                                     type="button"
                                     onClick={() => setActiveTab('catalog')}
-                                    className="px-6 py-3 rounded-xl border border-primary/25 text-primary text-[10px] font-black uppercase tracking-widest"
+                                    className="px-6 py-3 rounded-lg border border-primary/25 text-primary text-xs font-semibold"
                                 >
                                     Open catalog
                                 </button>

@@ -9,7 +9,7 @@ import { SkipLink } from "@/components/Accessibility";
 import { TestnetEnvironmentBanner } from "@/components/TestnetEnvironmentBanner";
 
 export const metadata: Metadata = {
-  title: "ProxyHubb — Proxy marketplace and network explorer",
+  title: "ProxyHubb | Proxy marketplace and network explorer",
   description:
     "Discover proxy capacity, manage provider listings, and inspect public network records.",
 };

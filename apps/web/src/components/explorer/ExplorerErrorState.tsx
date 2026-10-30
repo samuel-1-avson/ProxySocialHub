@@ -38,25 +38,25 @@ export function ExplorerErrorState({ error, entity, backHref, backLabel }: Explo
             `Failed to load ${entity.toLowerCase()} details. Try again in a moment.`;
 
     const iconClass = notFound
-        ? 'text-white/30'
+        ? 'text-muted-foreground'
         : network
-          ? 'text-amber-400'
-          : 'text-rose-400';
+          ? 'text-warning'
+          : 'text-destructive';
 
     return (
         <div className="min-h-[50vh] flex items-center justify-center font-mono px-4">
             <div className="text-center space-y-5 max-w-md">
                 <Icon size={40} className={`mx-auto ${iconClass}`} />
-                <h1 className="text-2xl font-black text-white uppercase tracking-tighter">{title}</h1>
-                <p className="text-white/40 text-[11px] uppercase tracking-widest leading-relaxed">{description}</p>
+                <h1 className="text-2xl font-semibold text-foreground tracking-tight">{title}</h1>
+                <p className="text-muted-foreground text-xs leading-relaxed">{description}</p>
                 {apiError?.status && apiError.status >= 500 && (
-                    <p className="text-[9px] font-black text-white/20 uppercase tracking-widest">
+                    <p className="text-xs font-semibold text-muted-foreground">
                         Reference: HTTP {apiError.status}
                     </p>
                 )}
                 <Link
                     href={backHref}
-                    className="inline-block text-primary hover:text-primary/80 text-[10px] font-black uppercase tracking-widest"
+                    className="inline-block text-primary hover:text-primary/80 text-xs font-semibold"
                 >
                     {backLabel}
                 </Link>

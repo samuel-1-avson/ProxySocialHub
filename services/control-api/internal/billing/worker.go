@@ -375,15 +375,29 @@ func markProviderEarningPaid(sessionID uuid.UUID) {
 	}
 }
 
-// evaluateEscrowCustodialGate decides marketplace escrow settle behavior when
-// PROXYHUB_REQUIRE_ESCROW_PDA is enabled.
+// evaluateEscrowCustodialGate decides marketplace escrow settle behavior.
 //
 //	skip=true  — order is on-chain escrow; do not touch balance_sol
 //	refuse=true — marketplace order exists without PDA (or order lookup failed);
 //	              never fall through to custodial debit
 //	both false — no marketplace order (PAYG / other); continue to session-PDA or custodial
+//
+// With PROXYHUB_REQUIRE_ESCROW_PDA off, an escrow-backed order is still skipped:
+// the escrow settles on chain, so a custodial debit would charge the buyer twice
+// and credit the provider twice. Only the refuse cases need the flag.
 func evaluateEscrowCustodialGate(session *models.Session) (skip bool, refuse bool, reason string) {
 	if !decentralization.RequireEscrowPDAEnabled() {
+		if session == nil || db.DB == nil {
+			return false, false, ""
+		}
+		var order models.Order
+		err := db.DB.Select("id", "escrow_pda", "payment_method").
+			Where("session_id = ?", session.ID).
+			Order("updated_at DESC").
+			First(&order).Error
+		if err == nil && (order.PaymentMethod == "solana_escrow" || strings.TrimSpace(order.EscrowPDA) != "") {
+			return true, false, "order_escrow_pda"
+		}
 		return false, false, ""
 	}
 	if session == nil {

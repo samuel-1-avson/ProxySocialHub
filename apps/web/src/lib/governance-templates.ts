@@ -85,9 +85,9 @@ export const GOVERNANCE_TEMPLATES: GovernanceTemplate[] = [
                 type: 'select',
                 required: true,
                 options: [
-                    { value: 'off', label: 'Off — monitoring only' },
-                    { value: 'warn', label: 'Warn — flag violations' },
-                    { value: 'enforce', label: 'Enforce — block non-compliant gateways' },
+                    { value: 'off', label: 'Off: monitoring only' },
+                    { value: 'warn', label: 'Warn: flag violations' },
+                    { value: 'enforce', label: 'Enforce: block non-compliant gateways' },
                 ],
             },
             { key: 'reason', label: 'Rationale', type: 'textarea', required: true },

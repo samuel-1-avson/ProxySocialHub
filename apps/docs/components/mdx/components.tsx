@@ -8,6 +8,7 @@ import { HomeStrip, PathCard, RoleGrid, StripLink } from './path-card';
 import { HomeHero } from './home-hero';
 import { EnvRow, EnvTable } from './env-table';
 import { KbdHint } from './kbd-hint';
+import { Flow, FlowStep, IdeaCard, IdeaGrid, MoneyFlow } from './diagrams';
 
 function heading(level: 2 | 3) {
   const Tag = `h${level}` as 'h2' | 'h3';
@@ -58,6 +59,11 @@ export const mdxComponents: MDXComponents = {
   EnvTable,
   EnvRow,
   KbdHint,
+  Flow,
+  FlowStep,
+  MoneyFlow,
+  IdeaGrid,
+  IdeaCard,
   h2: heading(2),
   h3: heading(3),
   pre: Pre,

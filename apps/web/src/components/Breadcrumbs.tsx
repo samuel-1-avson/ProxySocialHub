@@ -10,7 +10,7 @@ export function Breadcrumbs() {
     const paths = pathname === "/" ? [] : pathname.split("/").filter(Boolean);
 
     return (
-        <nav className="flex items-center space-x-2 text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-4">
+        <nav className="flex items-center space-x-2 text-xs font-mono text-muted-foreground mb-4">
             <Link href={ROUTES.dashboard} className="flex items-center hover:text-primary transition-colors">
                 <Home size={12} className="mr-2" />
                 SYSTEM

@@ -16,9 +16,9 @@ interface StatCardProps {
 
 const variantStyles = {
     default: "text-muted-foreground",
-    success: "text-emerald-500",
-    warning: "text-amber-500",
-    error: "text-red-500",
+    success: "text-success",
+    warning: "text-warning",
+    error: "text-destructive",
     brand: "text-primary",
 };
 
@@ -35,26 +35,26 @@ export function StatCard({
         <motion.div 
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="p-6 rounded-2xl glass-card relative overflow-hidden group"
+            className="p-6 rounded-lg glass-card relative overflow-hidden group"
         >
             <div className={`absolute top-0 right-0 w-32 h-32 bg-gradient-radial opacity-10 blur-2xl rounded-full translate-x-10 -translate-y-10 transition-transform group-hover:scale-150 ${
-                variant === 'success' ? 'from-emerald-500 to-transparent' : 
-                variant === 'warning' ? 'from-amber-500 to-transparent' : 
-                variant === 'error' ? 'from-red-500 to-transparent' : 
+                variant === 'success' ? 'from-success to-transparent' : 
+                variant === 'warning' ? 'from-warning to-transparent' : 
+                variant === 'error' ? 'from-destructive to-transparent' : 
                 variant === 'brand' ? 'from-primary to-transparent' : 
                 'from-white/20 to-transparent'
             }`} />
             
             <div className="flex justify-between items-start mb-4 relative z-10">
                 <h3 className="text-sm font-medium text-muted-foreground">{title}</h3>
-                <div className={`p-2 rounded-xl bg-white/5 ${variantStyles[variant]}`}>
+                <div className={`p-2 rounded-lg bg-secondary ${variantStyles[variant]}`}>
                     <Icon size={20} strokeWidth={1.5} />
                 </div>
             </div>
             
             <div className="relative z-10">
                 {loading ? (
-                    <div className="h-10 w-24 bg-white/10 animate-pulse rounded-lg mb-1" />
+                    <div className="h-10 w-24 bg-secondary animate-pulse rounded-lg mb-1" />
                 ) : (
                     <div className="text-3xl font-bold font-sans tracking-tight text-foreground">{value}</div>
                 )}
@@ -65,7 +65,7 @@ export function StatCard({
                         <span className="text-xs text-muted-foreground truncate">{subtitle}</span>
                     )}
                     {loading && (
-                        <div className="h-4 w-32 bg-white/5 animate-pulse rounded" />
+                        <div className="h-4 w-32 bg-secondary animate-pulse rounded" />
                     )}
                 </div>
             </div>

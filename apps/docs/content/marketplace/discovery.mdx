@@ -1,6 +1,6 @@
 ---
 title: Discovery API
-description: Canonical listings discovery — browse, search, facets, collections, map.
+description: Canonical listings discovery: browse, search, facets, collections, map.
 ---
 
 Canonical buyer discovery is **`GET /v1/listings`** (plus related `/v1/listings/*` helpers). Prefer these over deprecated `GET /v1/services`.
@@ -24,7 +24,7 @@ Authorization: Bearer <jwt>
 | `min_rating`, `min_quality_score`, `min_success_rate`, `min_uptime_percent`, `min_bandwidth_mbps` | Quality gates |
 | `seller_id` | Filter by provider |
 | `sort_by`, `sort_order` | Sort |
-| `include` | `product` \| `catalog` \| `catalog_product` — embed catalog product |
+| `include` | `product` \| `catalog` \| `catalog_product`: embed catalog product |
 
 ### Response shape
 
@@ -49,7 +49,7 @@ Authorization: Bearer <jwt>
 | GET | `/v1/listings/{id}` | Detail |
 | GET | `/v1/marketplace/map` | Map points (`include_catalog=true` or `include=product`) |
 
-`GET /v1/listings/geo` is deprecated — use `/v1/marketplace/map`.
+`GET /v1/listings/geo` is deprecated: use `/v1/marketplace/map`.
 
 ## Catalog product embed
 

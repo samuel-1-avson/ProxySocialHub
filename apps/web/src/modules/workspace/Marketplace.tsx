@@ -299,7 +299,7 @@ export function Marketplace() {
               >
                 <div>
                   <div className="ui-row-identity">
-                    <span className="ui-region">{listing.country || "—"}</span>
+                    <span className="ui-region">{listing.country || "Unknown"}</span>
                     <div>
                       <h2>{displayListingTitle(listing)}</h2>
                       <CatalogProductBadge product={listing.catalog_product} />

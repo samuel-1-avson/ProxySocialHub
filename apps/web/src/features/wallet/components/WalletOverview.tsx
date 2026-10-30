@@ -57,13 +57,13 @@ export function WalletOverview({
       className="space-y-8"
     >
       {isLocalSolanaRpc && (
-        <div className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 text-[10px] font-mono text-amber-100/90 leading-relaxed space-y-2">
-          <p className="font-black uppercase tracking-widest text-amber-400">
-            Local validator — not public devnet
+        <div className="p-4 rounded-lg border border-warning/30 bg-warning/10 text-xs font-mono text-warning/90 leading-relaxed space-y-2">
+          <p className="font-semibold text-warning">
+            Local test network
           </p>
           <p>
             Platform balance is custodial. Linked wallet balance follows Phantom&apos;s RPC (
-            <span className="text-amber-300">http://127.0.0.1:8899</span>).
+            <span className="text-warning">http://127.0.0.1:8899</span>).
           </p>
           {localRpcHint}
         </div>
@@ -80,39 +80,39 @@ export function WalletOverview({
             <Zap size={120} className="text-primary" />
           </div>
           <div className="flex justify-between items-center mb-2">
-            <p className="text-[10px] font-mono font-black text-primary uppercase tracking-[0.2em]">
+            <p className="text-xs font-mono font-semibold text-primary">
               Platform balance
             </p>
             <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center border border-primary/20">
               <TrendingUp size={14} className="text-primary" />
             </div>
           </div>
-          <p className="text-[10px] text-muted-foreground/70 mb-4 leading-relaxed">
-            Custodial SOL for deposits, withdrawals, and platform ledger activity — not marketplace
-            escrow.
+          <p className="text-xs text-muted-foreground/70 mb-4 leading-relaxed">
+            Custodial SOL for deposits, withdrawals, and platform ledger activity. Marketplace
+            purchases don&apos;t use it.
           </p>
-          <div className="text-5xl font-black font-mono tracking-tighter flex items-center gap-3">
+          <div className="text-5xl font-semibold font-mono tracking-tight flex items-center gap-3">
             {Number(wallet?.balance_sol ?? 0).toFixed(4)}
-            <span className="text-xl opacity-40 font-black">SOL</span>
+            <span className="text-xl opacity-40 font-semibold">SOL</span>
           </div>
           <div className="mt-6 flex flex-wrap gap-2">
             <button
               type="button"
               onClick={onGoToDeposit}
-              className="btn-retro btn-retro-primary !px-4 !py-2 text-[10px] uppercase font-black tracking-widest"
+              className="btn-retro btn-retro-primary !px-4 !py-2 text-xs font-semibold"
             >
               Deposit
             </button>
             <button
               type="button"
               onClick={onGoToWithdraw}
-              className="btn-retro btn-retro-outline !px-4 !py-2 text-[10px] uppercase font-black tracking-widest"
+              className="btn-retro btn-retro-outline !px-4 !py-2 text-xs font-semibold"
             >
               Withdraw
             </button>
           </div>
-          <div className="mt-6 flex items-center gap-2 text-[9px] font-mono font-black text-emerald-500/80 bg-emerald-500/5 px-3 py-1.5 rounded-full border border-emerald-500/10 w-fit uppercase tracking-widest">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+          <div className="mt-6 flex items-center gap-2 text-xs font-mono font-semibold text-success/80 bg-success/5 px-3 py-1.5 rounded-full border border-success/10 w-fit">
+            <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse"></span>
             {isLocalSolanaRpc
               ? 'Local ledger'
               : `Ledger · Solana ${isDevnet ? 'Devnet' : 'Mainnet'}`}
@@ -121,33 +121,33 @@ export function WalletOverview({
 
         <motion.div
           whileHover={{ y: -5 }}
-          className="glass-card p-8 border-emerald-500/20 bg-emerald-500/5 group relative overflow-hidden"
+          className="glass-card p-8 border-success/20 bg-success/5 group relative overflow-hidden"
         >
           <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:scale-110 group-hover:opacity-10 transition-all duration-500">
-            <Wallet size={120} className="text-emerald-500" />
+            <Wallet size={120} className="text-success" />
           </div>
           <div className="flex justify-between items-center mb-2">
-            <p className="text-[10px] font-mono font-black text-emerald-500 uppercase tracking-[0.2em]">
+            <p className="text-xs font-mono font-semibold text-success">
               Linked Solana wallet
             </p>
-            <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20">
-              <Wallet size={14} className="text-emerald-500" />
+            <div className="w-8 h-8 rounded-lg bg-success/10 flex items-center justify-center border border-success/20">
+              <Wallet size={14} className="text-success" />
             </div>
           </div>
-          <p className="text-[10px] text-muted-foreground/70 mb-4 leading-relaxed">
+          <p className="text-xs text-muted-foreground/70 mb-4 leading-relaxed">
             On-chain address for marketplace escrow, Access Pass mint, and withdrawals destination.
             {connected ? ' Browser wallet unlocked.' : ' Unlock in browser to sign.'}
           </p>
           {linked ? (
             <>
-              <p className="font-mono text-sm text-white/80 break-all">{shortWallet(linked, 6, 6)}</p>
-              <div className="mt-4 text-3xl font-black font-mono tracking-tighter flex items-center gap-3">
+              <p className="font-mono text-sm text-foreground break-all">{shortWallet(linked, 6, 6)}</p>
+              <div className="mt-4 text-3xl font-semibold font-mono tracking-tight flex items-center gap-3">
                 {linkedWalletBalance !== null
                   ? `${Number(linkedWalletBalance).toFixed(4)}`
-                  : '—'}
-                <span className="text-xl opacity-40 font-black">SOL</span>
+                  : 'Unavailable'}
+                <span className="text-xl opacity-40 font-semibold">SOL</span>
               </div>
-              <p className="text-[9px] font-mono text-muted-foreground/50 mt-2 uppercase tracking-widest">
+              <p className="text-xs font-mono text-muted-foreground/50 mt-2">
                 On-chain balance · {isDevnet ? 'devnet' : 'mainnet'}
                 {isLocalSolanaRpc ? ` · ${solanaRpcUrl}` : ''}
               </p>
@@ -155,17 +155,17 @@ export function WalletOverview({
           ) : (
             <p className="text-sm text-muted-foreground">No address linked yet.</p>
           )}
-          <div className="mt-6 flex items-center gap-2 text-[9px] font-mono font-black text-emerald-500/80 bg-emerald-500/5 px-3 py-1.5 rounded-full border border-emerald-500/10 w-fit uppercase tracking-widest">
-            <Activity size={12} className="text-emerald-500" />
+          <div className="mt-6 flex items-center gap-2 text-xs font-mono font-semibold text-success/80 bg-success/5 px-3 py-1.5 rounded-full border border-success/10 w-fit">
+            <Activity size={12} className="text-success" />
             {linked ? (connected ? 'Unlocked' : 'Linked · locked') : 'Not linked'}
           </div>
         </motion.div>
       </div>
 
-      <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-[10px] text-muted-foreground/80 leading-relaxed">
-        <span className="font-black uppercase tracking-widest text-white/50">Rails · </span>
-        Primary path: marketplace buys fund <strong className="text-white/70">on-chain escrow</strong> from your{' '}
-        <strong className="text-white/70">linked wallet</strong>. Platform deposit is optional (staking / referrals /
+      <div className="rounded-lg border border-border bg-secondary px-4 py-3 text-xs text-muted-foreground/80 leading-relaxed">
+        <span className="font-semibold text-muted-foreground">Rails · </span>
+        Primary path: marketplace buys fund <strong className="text-foreground">on-chain escrow</strong> from your{' '}
+        <strong className="text-foreground">linked wallet</strong>. Platform deposit is optional (staking / referrals /
         dust). Withdraw moves platform balance back to the linked address.
       </div>
 
@@ -175,14 +175,14 @@ export function WalletOverview({
           animate={{ opacity: 1, y: 0 }}
           className="glass-card p-8 border-primary/30 bg-primary/5 flex flex-col md:flex-row items-center gap-6"
         >
-          <div className="w-14 h-14 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
+          <div className="w-14 h-14 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
             <LinkIcon size={24} className="text-primary" />
           </div>
           <div className="flex-1 text-center md:text-left">
-            <p className="text-xs font-black font-mono uppercase tracking-widest text-primary mb-1">
+            <p className="text-xs font-semibold font-mono text-primary mb-1">
               Link a Solana address
             </p>
-            <p className="text-[10px] font-mono text-muted-foreground/70 leading-relaxed">
+            <p className="text-xs font-mono text-muted-foreground/70 leading-relaxed">
               You&apos;re signed in. Link Phantom/Solflare so deposits, withdrawals, and marketplace
               escrow use your on-chain identity.
             </p>
@@ -191,7 +191,7 @@ export function WalletOverview({
             whileHover={{ scale: 1.04 }}
             whileTap={{ scale: 0.97 }}
             onClick={onGoToLinkedWallets}
-            className="btn-retro shrink-0 !px-6 !py-3 glass-card border-primary/40 hover:border-primary text-[10px] uppercase font-black tracking-widest flex items-center gap-2"
+            className="btn-retro shrink-0 !px-6 !py-3 glass-card border-primary/40 hover:border-primary text-xs font-semibold flex items-center gap-2"
           >
             <Zap size={12} className="text-primary" />
             Link address

@@ -1,6 +1,6 @@
 ---
 title: Node.js SDK
-description: npm install @proxyhubb/sdk — Connect intents, credentials, and pools.
+description: npm install @proxyhubb/sdk: Connect intents, credentials, and pools.
 ---
 
 ```bash
@@ -53,7 +53,7 @@ const client = new ProxyHubClient({
 });
 
 const created = await client.createProviderToken({ name: "edge-01", nodeId: "NODE_UUID" });
-// created.token is plaintext once — store it securely
+// created.token is plaintext once: store it securely
 
 const node = await client.createProviderNode({ name: "my-node", connectionType: "residential" });
 const connect = await client.getNodeConnect(node.id);

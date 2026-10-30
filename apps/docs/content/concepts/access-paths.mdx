@@ -1,6 +1,6 @@
 ---
 title: Access paths
-description: Session intents, marketplace order credentials, and bulk pools — when to use each.
+description: Session intents, marketplace order credentials, and bulk pools: when to use each.
 ---
 
 All three paths terminate on the same buyer edge: **`proxy.proxyhubb.com:8090`** (HTTP CONNECT or SOCKS5). What changes is **how you authenticate** and **how capacity is billed / gated**.
@@ -20,11 +20,11 @@ All three paths terminate on the same buyer edge: **`proxy.proxyhubb.com:8090`**
 
 1. `POST /v1/sessions/intent` with JWT (`rotating` or `sticky`)
 2. CONNECT with username `session-intent` and the returned token
-3. Entitlements (Access Pass / plan) still apply — quota errors possible
+3. Entitlements (Access Pass / plan) still apply: quota errors possible
 
 Guides: [Buyer quickstart](/docs/quickstart/buyer) · [Session intents](/docs/buyer/connect)
 
-**Do not** create intents with a buyer API key — expect **403**.
+**Do not** create intents with a buyer API key: expect **403**.
 
 ## Marketplace orders
 

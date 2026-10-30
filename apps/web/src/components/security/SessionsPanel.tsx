@@ -122,22 +122,22 @@ export default function SessionsPanel() {
             {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
-                    <h3 className="text-sm font-bold font-mono uppercase">Active Sessions</h3>
-                    <p className="text-[10px] font-mono text-muted-foreground">
+                    <h3 className="text-sm font-bold font-mono">Active Sessions</h3>
+                    <p className="text-xs font-mono text-muted-foreground">
                         {sessions.length} DEVICE{sessions.length !== 1 ? 'S' : ''} CONNECTED
                     </p>
                 </div>
                 <div className="flex gap-2">
                     <button
                         onClick={loadSessions}
-                        className="btn-retro btn-retro-outline py-1.5 px-3 text-[10px] flex items-center gap-1.5"
+                        className="btn-retro btn-retro-outline py-1.5 px-3 text-xs flex items-center gap-1.5"
                     >
                         <RefreshCw size={12} /> REFRESH
                     </button>
                     {sessions.length > 1 && (
                         <button
                             onClick={revokeAllSessions}
-                            className="btn-retro bg-destructive/10 text-destructive border-destructive/20 py-1.5 px-3 text-[10px] flex items-center gap-1.5 hover:bg-destructive/20"
+                            className="btn-retro bg-destructive/10 text-destructive border-destructive/20 py-1.5 px-3 text-xs flex items-center gap-1.5 hover:bg-destructive/20"
                         >
                             <Trash2 size={12} /> REVOKE ALL
                         </button>
@@ -171,12 +171,12 @@ export default function SessionsPanel() {
                                                 {session.browser || 'Unknown'} • {session.os || 'Unknown'}
                                             </span>
                                             {isCurrent && (
-                                                <span className="px-1.5 py-0.5 bg-primary text-primary-foreground text-[9px] font-mono font-bold rounded-sm">
-                                                    THIS DEVICE
+                                                <span className="px-1.5 py-0.5 bg-primary text-primary-foreground text-xs font-mono font-bold rounded-sm">
+                                                    This device
                                                 </span>
                                             )}
                                         </div>
-                                        <div className="flex items-center gap-3 mt-1 text-[10px] font-mono text-muted-foreground">
+                                        <div className="flex items-center gap-3 mt-1 text-xs font-mono text-muted-foreground">
                                             <span className="flex items-center gap-1">
                                                 <MapPin size={10} />
                                                 {session.ip_address}
@@ -204,7 +204,7 @@ export default function SessionsPanel() {
                                     </button>
                                 )}
                             </div>
-                            <div className="mt-3 pt-3 border-t border-border/50 text-[9px] font-mono text-muted-foreground/60">
+                            <div className="mt-3 pt-3 border-t border-border/50 text-xs font-mono text-muted-foreground/60">
                                 Session created: {formatDate(session.created_at)}
                             </div>
                         </div>
@@ -215,7 +215,7 @@ export default function SessionsPanel() {
             {sessions.length === 0 && !loading && (
                 <div className="text-center py-12 text-muted-foreground">
                     <Monitor size={32} className="mx-auto mb-3 opacity-30" />
-                    <p className="font-mono text-xs">NO ACTIVE SESSIONS</p>
+                    <p className="font-mono text-xs">No active sessions</p>
                 </div>
             )}
         </div>

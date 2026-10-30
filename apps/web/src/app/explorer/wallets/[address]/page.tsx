@@ -63,7 +63,7 @@ export default function WalletInspectorPage() {
                 <div className="flex items-center gap-4">
                     <Link
                         href="/explorer"
-                        className="flex items-center gap-2 text-[10px] font-black text-muted-foreground hover:text-primary transition-colors uppercase tracking-[0.3em]"
+                        className="flex items-center gap-2 text-xs font-semibold text-muted-foreground hover:text-primary transition-colors"
                     >
                         <ArrowLeft size={14} /> Back to Grid
                     </Link>
@@ -76,11 +76,11 @@ export default function WalletInspectorPage() {
                     <div className="relative z-10">
                         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-8">
                             <div className="flex items-start gap-4">
-                                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-primary/50 flex items-center justify-center text-primary-foreground shadow-lg shadow-primary/20">
+                                <div className="w-16 h-16 rounded-lg bg-gradient-to-br from-primary to-primary/50 flex items-center justify-center text-primary-foreground shadow-sm">
                                     <Fingerprint size={28} />
                                 </div>
                                 <div>
-                                    <div className="text-[10px] font-black text-primary uppercase tracking-[0.5em] mb-1">Wallet Address</div>
+                                    <div className="text-xs font-semibold text-primary mb-1">Wallet Address</div>
                                     <div className="flex items-center gap-3">
                                         <span className="font-mono text-foreground break-all text-lg font-bold tracking-tight">{address}</span>
                                         <button
@@ -104,36 +104,36 @@ export default function WalletInspectorPage() {
                             </div>
 
                             <div className="text-right">
-                                <p className="text-[9px] font-black text-muted-foreground uppercase tracking-[0.3em] mb-1">Total Balance</p>
+                                <p className="text-xs font-semibold text-muted-foreground mb-1">Total Balance</p>
                                 {loadingWallet ? (
                                     <div className="h-10 w-40 bg-muted animate-pulse rounded ml-auto" />
                                 ) : (
-                                    <div className="text-4xl font-black text-foreground tracking-tighter">
+                                    <div className="text-4xl font-semibold text-foreground tracking-tight">
                                         {wallet?.balance_sol?.toLocaleString()} <span className="text-xl text-muted-foreground">SOL</span>
                                     </div>
                                 )}
-                                <p className="text-[10px] text-muted-foreground mt-1">Native Solana balance</p>
+                                <p className="text-xs text-muted-foreground mt-1">Native Solana balance</p>
                             </div>
                         </div>
 
                         {/* Stats Grid */}
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-8 pt-8 border-t border-border">
-                            <div className="bg-muted rounded-xl p-4 border border-border">
-                                <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mb-1">Platform Credit</p>
+                            <div className="bg-muted rounded-lg p-4 border border-border">
+                                <p className="text-xs font-semibold text-muted-foreground mb-1">Platform Credit</p>
                                 <p className="font-mono text-lg font-bold">{wallet?.balance_platform?.toFixed(2) || '0.00'}</p>
                             </div>
-                            <div className="bg-muted rounded-xl p-4 border border-border">
-                                <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mb-1">Transactions</p>
+                            <div className="bg-muted rounded-lg p-4 border border-border">
+                                <p className="text-xs font-semibold text-muted-foreground mb-1">Transactions</p>
                                 <p className="font-mono text-lg font-bold">{wallet?.transaction_count?.toLocaleString() || '0'}</p>
                             </div>
-                            <div className="bg-muted rounded-xl p-4 border border-border">
-                                <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mb-1">First Seen</p>
+                            <div className="bg-muted rounded-lg p-4 border border-border">
+                                <p className="text-xs font-semibold text-muted-foreground mb-1">First Seen</p>
                                 <p className="font-mono text-sm text-muted-foreground">
                                     {wallet?.first_activity ? formatDistanceToNow(new Date(wallet.first_activity), { addSuffix: true }) : '-'}
                                 </p>
                             </div>
-                            <div className="bg-muted rounded-xl p-4 border border-border">
-                                <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mb-1">Last Activity</p>
+                            <div className="bg-muted rounded-lg p-4 border border-border">
+                                <p className="text-xs font-semibold text-muted-foreground mb-1">Last Activity</p>
                                 <p className="font-mono text-sm text-muted-foreground">
                                     {wallet?.last_activity ? formatDistanceToNow(new Date(wallet.last_activity), { addSuffix: true }) : '-'}
                                 </p>
@@ -146,7 +146,7 @@ export default function WalletInspectorPage() {
             {/* Transactions List */}
             <div className="space-y-6">
                 <div className="flex items-center justify-between">
-                    <h2 className="text-xl font-black uppercase tracking-tighter text-foreground flex items-center gap-3">
+                    <h2 className="text-xl font-semibold tracking-tight text-foreground flex items-center gap-3">
                         <ArrowRightLeft size={20} className="text-primary" /> Transaction History
                     </h2>
                 </div>
@@ -155,7 +155,7 @@ export default function WalletInspectorPage() {
                     <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse">
                             <thead>
-                                <tr className="bg-muted text-muted-foreground text-[10px] uppercase tracking-[0.2em] font-black">
+                                <tr className="bg-muted text-muted-foreground text-xs font-semibold">
                                     <th className="px-6 py-4">Tx Hash</th>
                                     <th className="px-6 py-4">Method</th>
                                     <th className="px-6 py-4">To</th>
@@ -175,7 +175,7 @@ export default function WalletInspectorPage() {
                                         <td colSpan={5} className="px-6 py-16 text-center">
                                             <div className="flex flex-col items-center gap-3">
                                                 <Layers size={32} className="text-muted-foreground" />
-                                                <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.3em]">
+                                                <p className="text-xs font-semibold text-muted-foreground">
                                                     No transactions found
                                                 </p>
                                             </div>
@@ -185,21 +185,21 @@ export default function WalletInspectorPage() {
                                     transactions?.transactions?.map((tx: any) => (
                                         <tr key={tx.tx_hash} className="hover:bg-surface-hover transition-colors">
                                             <td className="px-6 py-4">
-                                                <Link href={`/explorer/transactions/${tx.tx_hash}`} className="font-mono text-primary hover:text-primary/80 text-[10px] font-bold">
+                                                <Link href={`/explorer/transactions/${tx.tx_hash}`} className="font-mono text-primary hover:text-primary/80 text-xs font-bold">
                                                     {tx.tx_hash?.slice(0, 12)}...
                                                 </Link>
                                             </td>
                                             <td className="px-6 py-4">
-                                                <span className="px-3 py-1 rounded-lg text-[9px] font-black bg-muted text-muted-foreground border border-border uppercase tracking-wider">
+                                                <span className="px-3 py-1 rounded-lg text-xs font-semibold bg-muted text-muted-foreground border border-border">
                                                     {tx.tx_type}
                                                 </span>
                                             </td>
                                             <td className="px-6 py-4">
-                                                <div className={`flex items-center gap-2 font-mono text-[10px] ${tx.to_address === address ? 'text-emerald-500' : 'text-muted-foreground'}`}>
+                                                <div className={`flex items-center gap-2 font-mono text-xs ${tx.to_address === address ? 'text-success' : 'text-muted-foreground'}`}>
                                                     {tx.to_address === address ? (
-                                                        <span className="px-1.5 py-0.5 rounded text-[8px] font-black bg-emerald-500/20 text-emerald-500">IN</span>
+                                                        <span className="px-1.5 py-0.5 rounded text-xs font-semibold bg-success/20 text-success">IN</span>
                                                     ) : (
-                                                        <span className="px-1.5 py-0.5 rounded text-[8px] font-black bg-yellow-500/20 text-yellow-500">OUT</span>
+                                                        <span className="px-1.5 py-0.5 rounded text-xs font-semibold bg-warning/20 text-warning">OUT</span>
                                                     )}
                                                     <Link href={`/explorer/wallets/${tx.to_address}`} className="hover:text-foreground truncate max-w-[120px]">
                                                         {tx.to_address?.slice(0, 8)}...
@@ -209,7 +209,7 @@ export default function WalletInspectorPage() {
                                             <td className="px-6 py-4 text-right">
                                                 <div className="font-mono text-foreground font-bold">{tx.amount?.toFixed(4)} {tx.currency}</div>
                                             </td>
-                                            <td className="px-6 py-4 text-right text-[11px] text-muted-foreground">
+                                            <td className="px-6 py-4 text-right text-xs text-muted-foreground">
                                                 {tx.timestamp ? formatDistanceToNow(new Date(tx.timestamp), { addSuffix: true }) : '-'}
                                             </td>
                                         </tr>
@@ -221,7 +221,7 @@ export default function WalletInspectorPage() {
 
                     {/* Pagination */}
                     <div className="p-6 bg-muted flex items-center justify-between border-t border-border">
-                        <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">
+                        <p className="text-xs font-semibold text-muted-foreground">
                             Page <span className="text-foreground">{txPage}</span>
                         </p>
                         <div className="flex gap-2">

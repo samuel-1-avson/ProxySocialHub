@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -84,49 +85,88 @@ func initiateSolanaPayment(c *gin.Context) {
 		return
 	}
 
+	intent, problem := prepareOrderEscrow(c.Request.Context(), &order, "api.orders.pay_solana", true)
+	if problem != nil {
+		c.JSON(problem.Status, problem.Body)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"program_id":             solana.ProgramID,
+		"escrow_pda":             intent.PDA.String(),
+		"buyer_pubkey":           intent.Buyer.String(),
+		"seller_pubkey":          intent.Seller.String(),
+		"amount_lamports":        intent.AmountLamports,
+		"amount_sol":             intent.AmountSOL,
+		"bandwidth_gb":           order.BandwidthGB,
+		"escrow_bandwidth_units": solana.LimitUnitsFromGiB(order.BandwidthGB),
+		"oracle_pubkey":          intent.OraclePubkey.String(),
+		"escrow_already_funded":  intent.AlreadyFunded,
+		"on_chain_escrow_status": intent.OnChainStatus,
+		"escrow_seed_kind":       intent.SeedKind,
+		"escrow_expires_at":      intent.ExpiresAt,
+	})
+}
+
+// orderEscrowIntent is the escrow an order will be funded into: who pays, who is
+// paid, the PDA and the SOL amount quoted from the order's USD total.
+type orderEscrowIntent struct {
+	Buyer          sol.PublicKey
+	Seller         sol.PublicKey
+	PDA            sol.PublicKey
+	AmountSOL      float64
+	AmountLamports uint64
+	SeedKind       string
+	ExpiresAt      int64
+	OraclePubkey   sol.PublicKey
+	AlreadyFunded  bool
+	OnChainStatus  string
+}
+
+// prepareOrderEscrow quotes the order in SOL, derives the escrow PDA and moves the
+// order to pending_payment. checkBalance runs the H-02 buyer balance precheck; the
+// fiat path skips it because the managed wallet is funded after the quote.
+func prepareOrderEscrow(ctx context.Context, order *models.Order, fsmSource string, checkBalance bool) (*orderEscrowIntent, *escrowConfirmProblem) {
+	fail := func(status int, body gin.H) (*orderEscrowIntent, *escrowConfirmProblem) {
+		return nil, &escrowConfirmProblem{Status: status, Body: body}
+	}
+
 	// Fetch Buyer's Linked Wallet
 	var buyerWallet models.LinkedWallet
-	if err := db.DB.Where("user_id = ? AND chain = ? AND is_primary = true", buyerID, models.ChainSolana).First(&buyerWallet).Error; err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Please link a Solana wallet first"})
-		return
+	if err := db.DB.Where("user_id = ? AND chain = ? AND is_primary = true", order.BuyerID, models.ChainSolana).First(&buyerWallet).Error; err != nil {
+		return fail(http.StatusBadRequest, gin.H{"error": "Please link a Solana wallet first"})
 	}
 
 	// Fetch Seller's Linked Wallet
 	var sellerWallet models.LinkedWallet
 	if err := db.DB.Where("user_id = ? AND chain = ? AND is_primary = true", order.SellerID, models.ChainSolana).First(&sellerWallet).Error; err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Seller has not linked a Solana wallet. Cannot use smart contract payment."})
-		return
+		return fail(http.StatusBadRequest, gin.H{"error": "Seller has not linked a Solana wallet. Cannot use smart contract payment."})
 	}
 
 	// Validate Addresses
 	buyerPubKey, err := sol.PublicKeyFromBase58(buyerWallet.Address)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid buyer wallet address"})
-		return
+		return fail(http.StatusInternalServerError, gin.H{"error": "Invalid buyer wallet address"})
 	}
 	sellerPubKey, err := sol.PublicKeyFromBase58(sellerWallet.Address)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid seller wallet address"})
-		return
+		return fail(http.StatusInternalServerError, gin.H{"error": "Invalid seller wallet address"})
 	}
 
 	oracle := solana.GetOracle()
 	if oracle == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Solana Oracle not configured"})
-		return
+		return fail(http.StatusServiceUnavailable, gin.H{"error": "Solana Oracle not configured"})
 	}
 
 	// Calculate Amount in SOL
 	// Assuming Order.TotalPrice is USD (or whatever listing currency was)
 	// We need Listing to know currency? Assuming USD for safe smart contract logic.
-	solPrice, err := prices.GetSOLPrice(c.Request.Context())
+	solPrice, err := prices.GetSOLPrice(ctx)
 	if err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Failed to fetch SOL price"})
-		return
+		return fail(http.StatusServiceUnavailable, gin.H{"error": "Failed to fetch SOL price"})
 	}
 	if solPrice <= 0 {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Invalid SOL price: price feed returned zero"})
-		return
+		return fail(http.StatusServiceUnavailable, gin.H{"error": "Invalid SOL price: price feed returned zero"})
 	}
 
 	// Safety buffer: 1.05x to account for fluctuations? Or fixed USD value?
@@ -145,40 +185,38 @@ func initiateSolanaPayment(c *gin.Context) {
 		var derErr error
 		pda, _, derErr = oracle.GetEscrowMultiSigPDA(buyerPubKey, sellerPubKey, escrowExpiresAt)
 		if derErr != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to derive multisig escrow PDA"})
-			return
+			return fail(http.StatusInternalServerError, gin.H{"error": "Failed to derive multisig escrow PDA"})
 		}
 	} else {
 		var derErr error
 		pda, _, derErr = oracle.GetEscrowPDA(buyerPubKey, sellerPubKey)
 		if derErr != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to derive PDA"})
-			return
+			return fail(http.StatusInternalServerError, gin.H{"error": "Failed to derive PDA"})
 		}
 	}
 	if pda.IsZero() {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Derived escrow PDA is empty"})
-		return
+		return fail(http.StatusInternalServerError, gin.H{"error": "Derived escrow PDA is empty"})
 	}
 
 	// H-02: Verify buyer has sufficient on-chain SOL balance before recording the PDA.
 	// Without this check the DB row would reference an escrow that can never be funded.
 	// When the RPC is rate-limited (common on public devnet), skip the precheck and let
 	// the wallet transaction be the funding gate — SessionActivator still requires on-chain init.
-	buyerOnChainLamports, err := oracle.GetBalance(c.Request.Context(), buyerPubKey)
-	if err != nil {
-		logging.Warn().
-			Err(err).
-			Str("buyer", buyerPubKey.String()).
-			Str("order_id", order.ID.String()).
-			Msg("pay/solana: on-chain balance precheck unavailable; proceeding (wallet is funding gate)")
-	} else if buyerOnChainLamports < amountLamports {
-		c.JSON(http.StatusPaymentRequired, gin.H{
-			"error":     "Insufficient on-chain SOL balance",
-			"required":  amountSOL,
-			"available": float64(buyerOnChainLamports) / 1e9,
-		})
-		return
+	if checkBalance {
+		buyerOnChainLamports, err := oracle.GetBalance(ctx, buyerPubKey)
+		if err != nil {
+			logging.Warn().
+				Err(err).
+				Str("buyer", buyerPubKey.String()).
+				Str("order_id", order.ID.String()).
+				Msg("pay/solana: on-chain balance precheck unavailable; proceeding (wallet is funding gate)")
+		} else if buyerOnChainLamports < amountLamports {
+			return fail(http.StatusPaymentRequired, gin.H{
+				"error":     "Insufficient on-chain SOL balance",
+				"required":  amountSOL,
+				"available": float64(buyerOnChainLamports) / 1e9,
+			})
+		}
 	}
 
 	// Update Order with Intent — move to pending_payment so the order is not
@@ -193,17 +231,19 @@ func initiateSolanaPayment(c *gin.Context) {
 		"escrow_seed_kind":   seedKind,
 		"escrow_expires_at":  escrowExpiresAt,
 	}
-	if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusPendingPayment, "api.orders.pay_solana", extras); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
+	if err := fsm.TransitionOrder(db.DB, order, models.OrderStatusPendingPayment, fsmSource, extras); err != nil {
+		return fail(http.StatusBadRequest, gin.H{"error": err.Error()})
 	}
 	order.EscrowPDA = pda.String()
 	order.EscrowSeedKind = seedKind
 	order.EscrowExpiresAt = escrowExpiresAt
+	order.BuyerWallet = buyerWallet.Address
+	order.SellerWallet = sellerWallet.Address
+	order.AmountLockedSOL = amountSOL
 
-	funnel.Record(c.Request.Context(), funnel.RecordParams{
+	funnel.Record(ctx, funnel.RecordParams{
 		EventName: models.FunnelEscrowInitiated,
-		UserID:    &buyerID,
+		UserID:    &order.BuyerID,
 		ListingID: &order.ListingID,
 		OrderID:   &order.ID,
 		Surface:   "api",
@@ -216,7 +256,7 @@ func initiateSolanaPayment(c *gin.Context) {
 	// Legacy PDA is one account per buyer/seller pair. Multisig PDAs include expires_at.
 	escrowAlreadyFunded := false
 	onChainStatus := ""
-	if existing, fetchErr := oracle.FetchEscrow(c.Request.Context(), pda); fetchErr == nil && existing != nil {
+	if existing, fetchErr := oracle.FetchEscrow(ctx, pda); fetchErr == nil && existing != nil {
 		onChainStatus = existing.Status.String()
 		if (existing.Status == solana.EscrowPending || existing.Status == solana.EscrowActive) &&
 			existing.Amount > 0 &&
@@ -225,21 +265,18 @@ func initiateSolanaPayment(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"program_id":             solana.ProgramID,
-		"escrow_pda":             pda.String(),
-		"buyer_pubkey":           buyerWallet.Address,
-		"seller_pubkey":          sellerWallet.Address,
-		"amount_lamports":        amountLamports,
-		"amount_sol":             amountSOL,
-		"bandwidth_gb":           order.BandwidthGB,
-		"escrow_bandwidth_units": solana.LimitUnitsFromGiB(order.BandwidthGB),
-		"oracle_pubkey":          oracle.GetOraclePublicKey().String(),
-		"escrow_already_funded":  escrowAlreadyFunded,
-		"on_chain_escrow_status": onChainStatus,
-		"escrow_seed_kind":       seedKind,
-		"escrow_expires_at":      escrowExpiresAt,
-	})
+	return &orderEscrowIntent{
+		Buyer:          buyerPubKey,
+		Seller:         sellerPubKey,
+		PDA:            pda,
+		AmountSOL:      amountSOL,
+		AmountLamports: amountLamports,
+		SeedKind:       seedKind,
+		ExpiresAt:      escrowExpiresAt,
+		OraclePubkey:   oracle.GetOraclePublicKey(),
+		AlreadyFunded:  escrowAlreadyFunded,
+		OnChainStatus:  onChainStatus,
+	}, nil
 }
 
 // createOrder creates a new order (purchase)
@@ -333,6 +370,18 @@ func createOrder(c *gin.Context) {
 				"error": "Link a Solana wallet before creating a marketplace order. Payment uses on-chain SOL escrow.",
 				"code":  "linked_wallet_required",
 			})
+			return
+		}
+	}
+
+	if !sandboxBuy {
+		existing, err := activePlanWithSeller(db.DB, buyerID, listing.SellerID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check existing plans"})
+			return
+		}
+		if existing != nil {
+			c.JSON(http.StatusConflict, activePlanExistsBody(&existing.ID))
 			return
 		}
 	}
@@ -916,7 +965,17 @@ func cancelOrder(c *gin.Context) {
 		return
 	}
 
-	if orderNeedsEscrowResolutionBeforeCancel(order) {
+	unfunded := false
+	if order.Status == models.OrderStatusPendingPayment {
+		var problem gin.H
+		unfunded, problem = pendingOrderUnfunded(c.Request.Context(), &order)
+		if problem != nil {
+			c.JSON(http.StatusConflict, problem)
+			return
+		}
+	}
+
+	if !unfunded && orderNeedsEscrowResolutionBeforeCancel(order) {
 		c.JSON(http.StatusConflict, gin.H{
 			"error":      "Escrow-backed orders require refund, settlement, or dispute resolution before cancellation",
 			"status":     order.Status,
@@ -940,22 +999,78 @@ func cancelOrder(c *gin.Context) {
 		return
 	}
 
-	// Deactivate linked session if present and revoke Redis credentials so
-	// CONNECT cannot keep using cancelled-order sessions (backlog 1.2).
-	if order.SessionID != nil {
-		var session models.Session
-		if err := db.DB.First(&session, "id = ?", order.SessionID).Error; err == nil {
-			_ = db.DB.Model(&session).Update("status", models.SessionTerminated).Error
-			if session.CredentialsUser != "" {
-				_ = redisClient.DeleteSession(session.CredentialsUser)
-				_ = redisClient.DeleteUsage(session.CredentialsUser)
-			}
-		} else {
-			db.DB.Model(&models.Session{}).
-				Where("id = ?", order.SessionID).
-				Update("status", models.SessionTerminated)
-		}
-	}
+	terminateOrderSession(&order)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Order cancelled successfully"})
+}
+
+// terminateOrderSession deactivates a cancelled order's session and revokes its Redis
+// credentials so CONNECT cannot keep using it (backlog 1.2).
+func terminateOrderSession(order *models.Order) {
+	if order.SessionID == nil {
+		return
+	}
+	var session models.Session
+	if err := db.DB.First(&session, "id = ?", order.SessionID).Error; err == nil {
+		_ = db.DB.Model(&session).Update("status", models.SessionTerminated).Error
+		if session.CredentialsUser != "" {
+			_ = redisClient.DeleteSession(session.CredentialsUser)
+			_ = redisClient.DeleteUsage(session.CredentialsUser)
+		}
+	} else {
+		db.DB.Model(&models.Session{}).
+			Where("id = ?", order.SessionID).
+			Update("status", models.SessionTerminated)
+	}
+}
+
+// pendingOrderUnfunded reports whether a pending_payment order never got its own
+// escrow, so cancelling it cannot strand funds. A card payment already received
+// returns a problem instead: that order is being finished, not abandoned.
+func pendingOrderUnfunded(ctx context.Context, order *models.Order) (bool, gin.H) {
+	paymentInProgress := gin.H{
+		"error": "We already received your payment and are finishing this order.",
+		"code":  "payment_in_progress",
+	}
+	if fiatPaymentInProgress(order.ID) {
+		return false, paymentInProgress
+	}
+	var quoted []models.FiatPayment
+	db.DB.Where("order_id = ? AND status = ?", order.ID, models.FiatPaymentQuoted).Find(&quoted)
+	for i := range quoted {
+		paid, err := closeUnpaidCheckout(ctx, &quoted[i], "checkout cancelled by buyer")
+		if err != nil {
+			return false, gin.H{"error": "Could not check the payment with Paystack. Try again shortly."}
+		}
+		if paid {
+			return false, paymentInProgress
+		}
+	}
+	if order.EscrowPDA == "" {
+		return true, nil
+	}
+	pda, err := sol.PublicKeyFromBase58(order.EscrowPDA)
+	if err != nil {
+		return true, nil
+	}
+	// The PDA is shared per buyer/seller: an escrow held by another order is not this one's.
+	if bound, err := orderEscrowBoundElsewhere(db.DB, order.EscrowPDA, order.ID); err == nil && bound {
+		return true, nil
+	}
+	funded, known := pendingEscrowFunded(ctx, pda)
+	return known && !funded, nil
+}
+
+// pendingEscrowFunded reports whether the escrow at pda holds funds. known is false
+// when the chain could not be read, so callers never treat an RPC failure as unfunded.
+var pendingEscrowFunded = func(ctx context.Context, pda sol.PublicKey) (funded, known bool) {
+	oracle := solana.GetOracle()
+	if oracle == nil {
+		return false, false
+	}
+	e, err := oracle.FetchEscrow(ctx, pda)
+	if err != nil {
+		return false, strings.Contains(strings.ToLower(err.Error()), "not found")
+	}
+	return e != nil && e.Amount > 0 && (e.Status == solana.EscrowPending || e.Status == solana.EscrowActive), true
 }

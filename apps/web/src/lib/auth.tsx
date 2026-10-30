@@ -1,8 +1,9 @@
 
 'use client';
 
-import { createContext, useCallback, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useCallback, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import bs58 from 'bs58';
 import { captureReferralCodeFromSearch, clearReferralCode, peekReferralCode } from '@/lib/referral';
 
@@ -285,6 +286,8 @@ export interface WalletUser {
   verified?: boolean;
   display_name?: string;
   created_at?: string;
+  /** Set when ProxyHubb created and holds this user's wallet (Google sign-up). */
+  managed_wallet?: { address: string; chain: string };
 }
 
 function mapApiUser(apiUser: any): WalletUser {
@@ -299,6 +302,7 @@ function mapApiUser(apiUser: any): WalletUser {
     verified: apiUser.verified,
     display_name: apiUser.display_name,
     created_at: apiUser.created_at,
+    managed_wallet: apiUser.managed_wallet,
   };
 }
 
@@ -309,6 +313,8 @@ export interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   walletLogin: (address: string, signer: any) => Promise<void>;
+  /** Sign in with a Google Identity Services ID token (credential). */
+  googleLogin: (credential: string) => Promise<void>;
   logout: () => Promise<void>;
   getAccessToken: () => Promise<string | null>;
   refreshUser: () => Promise<WalletUser | null>;
@@ -320,10 +326,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<WalletUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     captureReferralCodeFromSearch();
   }, []);
+
+  // Cached queries (wallet, orders, history) are not keyed by user. When the signed-in
+  // account changes, drop everything so one account never sees another's data.
+  const lastUserIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const current = user?.id ?? null;
+    const previous = lastUserIdRef.current;
+    lastUserIdRef.current = current;
+    if (!previous || previous === current) return;
+    if (current) {
+      void queryClient.resetQueries();
+    } else {
+      queryClient.clear();
+    }
+  }, [user?.id, queryClient]);
 
   const refreshUser = useCallback(async (): Promise<WalletUser | null> => {
     try {
@@ -447,6 +469,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const googleLogin = async (credential: string) => {
+    try {
+      captureReferralCodeFromSearch();
+      const referralCode = peekReferralCode();
+
+      const loginRes = await fetch(apiUrl('/v1/auth/google'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          credential,
+          ...(referralCode ? { referral_code: referralCode } : {}),
+        }),
+        credentials: 'include',
+      });
+
+      const loginData = await parseJsonResponse<{ token?: string; refresh_token?: string; user?: WalletUser; error?: string }>(loginRes, 'Google login');
+      if (!loginRes.ok) {
+        throw new Error(loginData.error || 'Google sign-in failed');
+      }
+
+      const { token, refresh_token: refreshToken } = loginData;
+      if (!token) {
+        throw new Error('Google login response missing token');
+      }
+
+      persistAuthTokens(token, refreshToken);
+      clearReferralCode();
+      // /auth/me carries managed_wallet, which the login payload does not.
+      await refreshUser();
+    } catch (err) {
+      console.error("Google login error:", err);
+      throw err;
+    }
+  };
+
   const logout = async () => {
     try {
       await fetch(apiUrl('/v1/auth/logout'), { method: 'POST', credentials: 'include' });
@@ -454,6 +511,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Best-effort cookie clear; local state still wiped below.
     }
     clearStoredAuth();
+    queryClient.clear();
     setUser(null);
     try {
       const { clearSolanaWalletAdapterSession, forgetRememberedWalletName } = await import('@/lib/solana-wallet-session');
@@ -471,7 +529,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, isAuthenticated: !!user, walletLogin, logout, getAccessToken, refreshUser }}>
+    <AuthContext.Provider value={{ user, isLoading, isAuthenticated: !!user, walletLogin, googleLogin, logout, getAccessToken, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

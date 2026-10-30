@@ -1,0 +1,29 @@
+# Overlay for testing the local stack from another machine (see start.ps1).
+# Paths are relative to the repo root because docker-compose.yml is the first -f file.
+services:
+  web:
+    build:
+      args:
+        # Empty = the browser calls the API and WebSockets on whatever address
+        # the site was opened from, so the ngrok address never gets baked in.
+        NEXT_PUBLIC_API_URL: ""
+        NEXT_PUBLIC_WS_URL: ""
+        # "Add to Chrome/Firefox" links to the test builds start.ps1 serves.
+        NEXT_PUBLIC_EXTENSION_TEST_DOWNLOAD: "1"
+    environment:
+      NEXT_PUBLIC_API_URL: ""
+      NEXT_PUBLIC_WS_URL: ""
+
+  tunnel-edge:
+    image: caddy:2.8.4-alpine
+    ports:
+      - "127.0.0.1:8088:80"
+    volumes:
+      - ./scripts/tunnel/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./scripts/tunnel/out:/srv:ro
+    depends_on:
+      - web
+      - control-api
+    networks:
+      - backend
+    restart: unless-stopped

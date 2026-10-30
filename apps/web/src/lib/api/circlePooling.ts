@@ -254,10 +254,10 @@ export function formatCurrency(amount: number, currency = 'SOL'): string {
 }
 
 export function getUtilizationColor(percent: number): string {
-    if (percent < 50) return 'text-emerald-400';
-    if (percent < 75) return 'text-yellow-400';
-    if (percent < 90) return 'text-orange-400';
-    return 'text-red-400';
+    if (percent < 50) return 'text-success';
+    if (percent < 75) return 'text-warning';
+    if (percent < 90) return 'text-warning';
+    return 'text-destructive';
 }
 
 export function getUtilizationLabel(percent: number): string {

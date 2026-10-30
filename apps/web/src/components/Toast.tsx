@@ -17,10 +17,10 @@ const icons = {
 };
 
 const styles = {
-    success: 'bg-green-500/10 border-green-500/30 text-green-500',
+    success: 'bg-success/10 border-success/30 text-success',
     error: 'bg-destructive/10 border-destructive/30 text-destructive',
-    warning: 'bg-amber-500/10 border-amber-500/30 text-amber-500',
-    info: 'bg-blue-500/10 border-blue-500/30 text-blue-500',
+    warning: 'bg-warning/10 border-warning/30 text-warning',
+    info: 'bg-info/10 border-info/30 text-info',
 };
 
 function ToastItem({ notification }: { notification: Notification }) {
@@ -38,7 +38,7 @@ function ToastItem({ notification }: { notification: Notification }) {
     return (
         <div
             className={`
-                flex items-start gap-3 p-4 rounded-sm border shadow-lg backdrop-blur-sm
+                flex items-start gap-3 p-4 rounded-sm border shadow-sm 
                 transform transition-all duration-150 ease-out
                 ${styles[notification.type]}
                 ${isExiting ? 'opacity-0 translate-x-4' : 'opacity-100 translate-x-0'}

@@ -43,7 +43,7 @@ function ForumSubNavContent() {
                         key={href}
                         href={href}
                         prefetch={false}
-                        className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-mono font-bold uppercase tracking-wide transition-colors ${
+                        className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-mono font-bold transition-colors ${
                             active
                                 ? "bg-primary text-primary-foreground"
                                 : "bg-secondary/30 text-muted-foreground hover:bg-secondary/50 hover:text-foreground"

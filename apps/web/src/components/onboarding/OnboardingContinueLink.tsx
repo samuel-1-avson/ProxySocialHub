@@ -42,12 +42,12 @@ export function OnboardingContinueLink({
   if (variant === "card") {
     return (
       <div className={`border border-border bg-card p-5 space-y-3 ${className}`}>
-        <div className="flex items-center gap-2 text-primary font-mono text-[10px] font-bold uppercase tracking-widest">
+        <div className="flex items-center gap-2 text-primary font-mono text-xs font-bold">
           <ListChecks size={14} />
           Setup incomplete
         </div>
         <p className="text-sm text-muted-foreground">
-          Pick up where you left off — next step: <span className="font-mono text-foreground">{step}</span>
+          Pick up where you left off. Next step: <span className="font-mono text-foreground">{step}</span>
         </p>
         <Link
           href={ROUTES.onboarding}
@@ -66,7 +66,7 @@ export function OnboardingContinueLink({
       <Link href={ROUTES.onboarding} onClick={onClick} className={className}>
         <button
           type="button"
-          className="btn-retro btn-retro-outline px-4 py-2 text-[10px] flex items-center gap-2 border-primary/50 text-primary"
+          className="btn-retro btn-retro-outline px-4 py-2 text-xs flex items-center gap-2 border-primary/50 text-primary"
         >
           <ListChecks size={14} />
           {label.toUpperCase()}
@@ -79,7 +79,7 @@ export function OnboardingContinueLink({
     <Link
       href={ROUTES.onboarding}
       onClick={onClick}
-      className={`text-xs font-mono uppercase tracking-wider text-primary hover:underline ${className}`}
+      className={`text-xs font-mono text-primary hover:underline ${className}`}
     >
       {label}
     </Link>
