@@ -4,7 +4,6 @@ import { useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import {
   Connection,
   PublicKey,
@@ -13,7 +12,7 @@ import {
 } from "@solana/web3.js";
 import { useQuery } from "@tanstack/react-query";
 import { getWalletTransactionsPage, getWithdrawals } from "@/lib/api/wallet";
-import { forceDisconnectSolanaWallet } from "@/lib/solana-wallet-session";
+import { WalletConnectControl } from "@/components/WalletConnectControl";
 import { WalletFunds } from "@/features/wallet/components/WalletFunds";
 import { explorerHref } from "@/lib/navigation/workspace";
 import { useWorkspaceStore } from "@/lib/store/workspace-store";
@@ -330,43 +329,15 @@ export function BuyerWallet() {
               <div className="wallet-connect-step">
                 <h3>{connectionTitle}</h3>
                 <p>{connectionDescription}</p>
-                {differentWallet && (
-                  <p className="wallet-connected-address">
-                    Browser wallet: <code>{adapter.publicKey?.toBase58()}</code>
-                  </p>
-                )}
-                <div className="ui-actions">
-                  <WalletMultiButton className="ui-button wallet-connect-button">
-                    {adapter.connected
-                      ? "Wallet options"
-                      : adapter.connecting
-                        ? "Connecting…"
-                        : "Connect wallet"}
-                  </WalletMultiButton>
-                  {adapter.connected && (
-                    <button
-                      className="ui-button secondary"
-                      disabled={processing}
-                      onClick={() =>
-                        void forceDisconnectSolanaWallet({
-                          disconnect: adapter.disconnect,
-                          select: adapter.select,
-                        })
-                      }
-                    >
-                      Disconnect wallet
-                    </button>
-                  )}
-                  {adapter.connected && !matching && (
-                    <button
-                      className="ui-button"
-                      disabled={processing || !wallet || !adapter.signMessage}
-                      onClick={() => void linking.handleLinkSolana()}
-                    >
-                      Sign to link this wallet
-                    </button>
-                  )}
-                  {address && (
+                <WalletConnectControl
+                  linkedAddress={address}
+                  canLink={Boolean(adapter.signMessage)}
+                  onLink={() => void linking.handleLinkSolana()}
+                  processing={processing}
+                  signingReady={Boolean(adapter.signTransaction)}
+                />
+                {address && (
+                  <div className="ui-actions">
                     <button
                       className="ui-button ghost"
                       disabled={processing}
@@ -374,8 +345,8 @@ export function BuyerWallet() {
                     >
                       Unlink address…
                     </button>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
               <div className="wallet-address">
                 <div className="wallet-address-heading">
