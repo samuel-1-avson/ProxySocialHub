@@ -145,6 +145,12 @@ func handleKYCWebhook(c *gin.Context) {
 		if user.WalletAddress == nil || *user.WalletAddress == "" {
 			internalStatus = models.KYCStatusPending
 			// P2: Update user message/reason in production
+		} else if _, managed := managedWalletAddress(user.ID, user.WalletAddress); managed {
+			// ProxyHubb-managed wallet (Google sign-in): identity KYC still applies,
+			// but there is no user-funded SOL to check.
+			internalStatus = models.KYCStatusApproved
+			user.TrustTier = models.TrustTierVerified
+			writeKYCAttestationAsync(*user.WalletAddress, solana.KYCTierVerified, solana.KYCStatusApprovedOnChain)
 		} else {
 			// Check on-chain balance
 			// CONFIG-001: Read KYC minimum balance from on-chain ProgramConfig PDA.
@@ -291,7 +297,8 @@ func recheckKYC(c *gin.Context) {
 	}
 
 	balanceSOL := solana.LamportsToSOL(balanceLamports)
-	if balanceSOL < minBalanceSOL {
+	_, managed := managedWalletAddress(user.ID, user.WalletAddress)
+	if balanceSOL < minBalanceSOL && !managed {
 		c.JSON(http.StatusPaymentRequired, gin.H{
 			"error":           "Insufficient on-chain SOL balance for KYC approval",
 			"required_sol":    minBalanceSOL,

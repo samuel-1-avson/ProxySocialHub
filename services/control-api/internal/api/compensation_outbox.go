@@ -219,7 +219,7 @@ func applyWithdrawalCompensation(entry *models.CompensationOutbox) error {
 			return nil // already applied
 		}
 		if err := models.CreditWalletLocked(tx, &wallet, entry.AmountSOL, models.LedgerKindWithdrawalFailedRefund, entry.ReferenceID,
-			"Compensating refund (outbox retry) — balance restored after on-chain withdraw failure"); err != nil {
+			"Refund: withdrawal failed on-chain, balance restored"); err != nil {
 			return err
 		}
 		// W-33: compensating reversal, never DELETE spending history.
@@ -438,8 +438,8 @@ func applyP2PCompensation(entry *models.CompensationOutbox) error {
 		// Reverse P2P: skip per-leg treasury journals, then one balanced reverse journal
 		// (same pattern as settleP2POnChain compensating path).
 		skip := models.LedgerOpts{JournalKind: "skip"}
-		senderDesc := "Compensating P2P refund (outbox retry) — sender restored"
-		recipientDesc := "Compensating P2P debit (outbox retry) — recipient corrected"
+		senderDesc := "Refund: transfer reversed, sender balance restored"
+		recipientDesc := "Correction: transfer reversed, recipient balance adjusted"
 		if err := models.CreditWalletLockedOpts(tx, senderWallet, entry.AmountSOL, models.LedgerKindP2PFailedRefund,
 			entry.ReferenceID, senderDesc, skip); err != nil {
 			return err

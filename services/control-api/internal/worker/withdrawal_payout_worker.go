@@ -227,7 +227,7 @@ func failAndRefundWithdrawal(row models.WithdrawalPayout, reason string) {
 			return err
 		}
 		if existingRefunds == 0 {
-			desc := "Queued withdrawal failed: " + truncateErr(reason, 120) + " — balance restored"
+			desc := "Queued withdrawal failed: " + truncateErr(reason, 120) + ". Your balance was restored."
 			if err := models.CreditWalletLocked(tx, &wallet, row.AmountSOL, models.LedgerKindWithdrawalFailedRefund, row.Reference, desc); err != nil {
 				return err
 			}

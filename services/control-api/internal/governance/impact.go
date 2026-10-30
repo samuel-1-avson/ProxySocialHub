@@ -55,7 +55,7 @@ func countActiveListings() int64 {
 
 func formatInterfaceValue(v interface{}) string {
 	if v == nil {
-		return "—"
+		return "Not set"
 	}
 	switch x := v.(type) {
 	case string:
@@ -96,7 +96,7 @@ func BuildImpactPreview(ctx context.Context, proposalType models.ProposalType, r
 	if trimmed == "" || trimmed == "null" || trimmed == "{}" {
 		switch proposalType {
 		case models.ProposalTypeGeneral:
-			preview.Summary = "Advisory signal only — no automatic on-chain execution."
+			preview.Summary = "Advisory only. Nothing runs on-chain automatically."
 			preview.Lines = append(preview.Lines,
 				ImpactLine{Label: "Execution", Value: "None"},
 				ImpactLine{Label: "Active listings", Value: strconv.FormatInt(preview.AffectedCounts.ActiveListings, 10), Hint: "Marketplace supply at vote time"},
@@ -109,7 +109,7 @@ func BuildImpactPreview(ctx context.Context, proposalType models.ProposalType, r
 
 	switch proposalType {
 	case models.ProposalTypeGeneral:
-		preview.Summary = "Advisory signal only — no automatic on-chain execution."
+		preview.Summary = "Advisory only. Nothing runs on-chain automatically."
 		preview.Lines = append(preview.Lines, ImpactLine{Label: "Execution", Value: "None"})
 		return preview, nil
 
@@ -142,10 +142,10 @@ func BuildImpactPreview(ctx context.Context, proposalType models.ProposalType, r
 			ImpactLine{Label: "Active listings", Value: strconv.FormatInt(preview.AffectedCounts.ActiveListings, 10)},
 		)
 		if transfer.Amount > balanceSOL && balanceSOL > 0 {
-			preview.Warnings = append(preview.Warnings, "Transfer exceeds current combined treasury balance — execution may fail.")
+			preview.Warnings = append(preview.Warnings, "Transfer is larger than the treasury balance, so it may fail.")
 		}
 		if transfer.Amount >= 50 {
-			preview.Warnings = append(preview.Warnings, "Large outbound transfer — confirm recipient and multisig policy.")
+			preview.Warnings = append(preview.Warnings, "Large transfer. Check the recipient and the multisig policy.")
 		}
 		return preview, nil
 
@@ -226,7 +226,7 @@ func BuildImpactPreview(ctx context.Context, proposalType models.ProposalType, r
 			return nil, err
 		}
 		preview.RiskLevel = "high"
-		preview.Summary = "Program upgrade — affects all escrow and governance instructions."
+		preview.Summary = "Program upgrade. It affects all escrow and governance actions."
 		preview.Lines = append(preview.Lines,
 			ImpactLine{Label: "Program ID", Value: upgrade.ProgramID},
 			ImpactLine{Label: "New version", Value: upgrade.NewVersion},
@@ -236,7 +236,7 @@ func BuildImpactPreview(ctx context.Context, proposalType models.ProposalType, r
 		return preview, nil
 
 	default:
-		preview.Summary = "Unknown proposal type — review execution payload manually."
+		preview.Summary = "Unknown proposal type. Review what it will do by hand."
 		preview.RiskLevel = "medium"
 		return preview, nil
 	}
