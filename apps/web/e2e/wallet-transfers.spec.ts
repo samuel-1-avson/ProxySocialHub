@@ -23,7 +23,7 @@ type State = {
   badChallenge: boolean;
   cooldown: boolean;
 };
-async function setup(page: Page, connected = true) {
+async function setup(page: Page, connected = true, linkedOverride?: string) {
   const buyer = Keypair.generate();
   const address = buyer.publicKey.toBase58();
   const blockhash = Keypair.generate().publicKey.toBase58();
@@ -125,7 +125,7 @@ async function setup(page: Page, connected = true) {
       return json({
         wallet: {
           id: "automatic-wallet",
-          linked_solana_address: address,
+          linked_solana_address: linkedOverride ?? address,
           balance_sol: state.balance,
           solana_network: "devnet",
           created_at: "2026-10-30T00:00:00Z",
@@ -503,5 +503,73 @@ test.describe("automatic wallet transfers", () => {
     }
     expect(state.broadcasts).toBe(0);
     expect(state.withdrawalBodies).toHaveLength(0);
+  });
+  test("shows the different connected wallet and keeps deposits disabled until it matches", async ({
+    page,
+  }) => {
+    const other = Keypair.generate().publicKey.toBase58();
+    const { address } = await setup(page, true, other);
+    await page.goto(`${base}/app/wallet?tab=funds`);
+    await expect(page.getByText(/A different wallet is connected/)).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Disconnect & reconnect", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Link this wallet", exact: true }),
+    ).toBeVisible();
+    await page.getByLabel("Deposit amount (SOL)").fill("0.1");
+    await expect(
+      page.getByRole("button", { name: "Review deposit", exact: true }),
+    ).toBeDisabled();
+    await expect(
+      page.getByText("Connect your linked wallet above to enable deposit review."),
+    ).toBeVisible();
+    expect(address).not.toBe(other);
+  });
+  test("a rejected wallet connection is shown next to the connect control", async ({
+    page,
+  }) => {
+    await setup(page, false);
+    // Fake installed Phantom/Solflare extensions whose user declines the
+    // connection request, standing in for the real extension boundary.
+    await page.addInitScript(() => {
+      const rejecting = {
+        isConnected: false,
+        publicKey: null,
+        connect: async () => {
+          throw Object.assign(new Error("User rejected the request."), { code: 4001 });
+        },
+        disconnect: async () => undefined,
+        on: () => undefined,
+        off: () => undefined,
+        signMessage: async () => {
+          throw new Error("not connected");
+        },
+        signTransaction: async (tx: unknown) => tx,
+        signAndSendTransaction: async () => {
+          throw new Error("not connected");
+        },
+      };
+      (window as unknown as Record<string, unknown>).isPhantomInstalled = true;
+      (window as unknown as Record<string, unknown>).phantom = {
+        solana: { ...rejecting, isPhantom: true },
+      };
+      (window as unknown as Record<string, unknown>).solflare = {
+        ...rejecting,
+        isSolflare: true,
+      };
+    });
+    await page.goto(`${base}/app/wallet?tab=funds`);
+    await page
+      .getByRole("button", { name: "Connect wallet", exact: true })
+      .first()
+      .click();
+    await page.getByRole("button", { name: /Phantom/ }).first().click();
+    await expect(
+      page.getByText(/You declined the request in your wallet/).first(),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Connect wallet", exact: true }).first(),
+    ).toBeVisible();
   });
 });
