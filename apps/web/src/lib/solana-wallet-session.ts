@@ -119,6 +119,15 @@ export function readRememberedWalletName(): string | null {
   }
 }
 
+export function forgetRememberedWalletName(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(LAST_WALLET_NAME_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 /**
  * Decide which wallet auto-reconnect may pick when none is selected.
  *
