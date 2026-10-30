@@ -134,7 +134,6 @@ func SetupTestDB(t *testing.T) {
 				ensure(rv)
 			}
 		})
-		_ = testDB.Callback().Create().Before("gorm:create").Register(defaultProviderNodeIPCallback, defaultProviderNodeIP)
 		if err := testDB.Exec(`
 			INSERT INTO ledger_accounts (code, name, account_type, created_at) VALUES
 			('1000', 'treasury_cash', 'asset', NOW()),
