@@ -55,6 +55,25 @@ test.describe('marketplace map proof badges', () => {
         await expect(page.getByText('Live connectivity requires a successful routed request.', { exact: false })).toBeVisible();
     });
 
+    test('keeps the map visible while inspecting an offer and clears the selection when filtering', async ({ page }) => {
+        await page.setViewportSize({ width: 1440, height: 850 });
+        await stubMarketplaceListingDetail(page);
+        await page.goto(`${BASE_URL}/marketplace/map?listing=${verifiedMapListingId}`);
+        await expect(page.getByRole('heading', { name: verifiedMapPoint.title, level: 2 })).toBeVisible();
+        const country = page.getByRole('combobox', { name: 'Country' });
+        await expect(country).toBeHidden();
+        await page.mouse.wheel(0, 500);
+        await expect.poll(async () => {
+            const box = await page.getByTestId('proxy-map-canvas').boundingBox();
+            return Boolean(box && box.y >= 0 && box.y < 200 && box.height > 300);
+        }).toBe(true);
+        await page.getByText('Filters', { exact: true }).click();
+        await expect(country).toBeVisible();
+        await country.selectOption('US');
+        await expect(page.getByRole('heading', { name: 'Nothing selected', exact: true })).toBeVisible();
+        await expect(page.getByRole('heading', { name: verifiedMapPoint.title, level: 2 })).toHaveCount(0);
+    });
+
     test('sends country filter on map refetch', async ({ page }) => {
         const mapUrls: string[] = [];
         await page.route('**/v1/marketplace/map**', async (route) => {

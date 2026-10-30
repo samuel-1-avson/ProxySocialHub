@@ -16,6 +16,7 @@ import { getWalletTransactionsPage, getWithdrawals } from "@/lib/api/wallet";
 import { forceDisconnectSolanaWallet } from "@/lib/solana-wallet-session";
 import { parseSolAmountLamports } from "@/lib/sol-amount";
 import { explorerHref } from "@/lib/navigation/workspace";
+import { useWorkspaceStore } from "@/lib/store/workspace-store";
 import {
   useWalletPageData,
   useWalletDeposit,
@@ -43,6 +44,9 @@ export function BuyerWallet() {
   const adapter = useWallet();
   const { connection } = useConnection();
   const orders = useOrders();
+  const workspace = useWorkspaceStore((state) => state.preferredWorkspace);
+  const [copiedAddress, setCopiedAddress] = useState<string>();
+  const [copyError, setCopyError] = useState("");
   const [inspection, setInspection] = useState<Cluster>(
     page.solanaNetwork as Cluster,
   );
@@ -112,6 +116,7 @@ export function BuyerWallet() {
     },
     enabled: Boolean(address),
     staleTime: 30_000,
+    refetchInterval: 30_000,
     retry: 1,
   });
   const history = useQuery({
@@ -128,6 +133,7 @@ export function BuyerWallet() {
   const matching = Boolean(
     address && adapter.publicKey?.toBase58() === address && adapter.connected,
   );
+  const differentWallet = Boolean(address && adapter.connected && !matching);
   const configuredNetwork = inspection === page.solanaNetwork;
   const validDeposit = (parseSolAmountLamports(deposit.depositAmount) ?? 0) > 0;
   const validWithdraw =
@@ -141,25 +147,52 @@ export function BuyerWallet() {
     wallet && configuredNetwork && !ledgerMismatch && !processing,
   );
   const linkedStatus = matching
-    ? "Connected · address matches"
-    : address
+    ? "Connected"
+    : differentWallet
+      ? "Different wallet connected"
+      : address
       ? "Wallet linked · not connected"
       : "No wallet linked";
+  const connectionTitle = matching
+    ? "Your wallet is connected"
+    : differentWallet
+      ? "Connect your linked wallet"
+      : address
+        ? "Reconnect to approve payments"
+        : "Connect your payment wallet";
+  const connectionDescription = matching
+    ? "You will review and approve each payment in your wallet."
+    : differentWallet
+      ? "The browser wallet does not match your account address. Switch wallets, or sign to link this one instead."
+      : address
+        ? "Your address is saved. Connect the same wallet in this browser when you want to sign a payment."
+        : "Choose a Solana wallet, then sign a message to link its address to your account.";
+  const balanceRefreshing = chainBalance.isFetching || page.loading;
+  async function copyAddress() {
+    if (!address) return;
+    setCopyError("");
+    try {
+      await navigator.clipboard.writeText(address);
+      setCopiedAddress(address);
+    } catch {
+      setCopyError("Copy is unavailable. Select and copy the displayed address.");
+    }
+  }
   return (
-    <div className="ui-page">
+    <div className="ui-page wallet-page">
       <PageHeading
         title="Wallet"
         eyebrow="Account utility"
-        description="Your connected wallet, account funds, and order escrow have distinct purposes."
+        description="Your payment wallet, balance, and account transfers in one place."
         actions={
-          <Link className="ui-button secondary" href="/app/activity">
-            Orders & billing →
+          <Link className="ui-button secondary" href={workspace === "seller" ? "/provider/earnings" : "/app/activity"}>
+            {workspace === "seller" ? "View earnings" : "Orders & billing"} →
           </Link>
         }
       />
       <nav className="ui-tabs" aria-label="Wallet views">
         {[
-          ["overview", "Overview & linking"],
+          ["overview", "Your wallet"],
           ["funds", "Account funds"],
           ["history", "Activity"],
         ].map(([key, label]) => (
@@ -173,7 +206,7 @@ export function BuyerWallet() {
           </Link>
         ))}
       </nav>
-      <div className="ui-actions">
+      <div className="wallet-toolbar">
         <label className="ui-field">
           Balance network
           <select
@@ -186,11 +219,11 @@ export function BuyerWallet() {
             <option value="mainnet-beta">Mainnet</option>
           </select>
         </label>
-        <p className="ui-note">
-          Purchases and account transfers settle on{" "}
-          <strong>{page.solanaNetwork}</strong>. Changing this balance view does
-          not change settlement.
-        </p>
+        <p className="ui-note">Payments use <strong>{page.solanaNetwork}</strong>. This selector only changes the balance you view.</p>
+        <button className="ui-button secondary small" disabled={balanceRefreshing || !user} onClick={() => {
+          void queryClient.invalidateQueries({ queryKey: ["wallet", user?.id] });
+          if (address) void chainBalance.refetch();
+        }}>{balanceRefreshing ? "Refreshing…" : "Refresh balances"}</button>
       </div>
       {!configuredNetwork && (
         <p className="ui-attention" role="status">
@@ -231,56 +264,26 @@ export function BuyerWallet() {
       )}
       {tab === "overview" && (
         <>
-          <section className="ui-stats">
-            <Stat
-              label="Account funds"
-              value={wallet ? `${amount(wallet.balance_sol, 9)} SOL` : "—"}
-              detail="Custodial account ledger; separate from escrow"
-            />
-            <Stat
-              label="Linked wallet balance"
-              value={
-                chainBalance.isSuccess
-                  ? `${amount(chainBalance.data, 9)} SOL`
-                  : "—"
-              }
-              detail={`On-chain observation · ${inspection}`}
-            />
-            <Stat
-              label="Active order escrow"
-              value={
-                orders.isSuccess
-                  ? `${orders.data.filter((order) => order.status === "active").length} orders`
-                  : "—"
-              }
-              detail="Inspect each order for its payment record"
-            />
-          </section>
-          {chainBalance.isError && (
-            <DataError
-              error={chainBalance.error}
-              retry={() => void chainBalance.refetch()}
-            />
-          )}
-          <section className="ui-surface ui-page">
+          <div className="wallet-overview-grid">
+          <section className="ui-surface wallet-payment" aria-labelledby="payment-wallet-title">
             <div className="ui-section-heading">
-              <h2>Solana wallet</h2>
-              <Status tone={matching ? "good" : "neutral"}>
-                {linkedStatus}
-              </Status>
+              <h2 id="payment-wallet-title">Your payment wallet</h2>
+              <Status tone={matching ? "good" : differentWallet ? "warning" : "neutral"}>{linkedStatus}</Status>
             </div>
-            <dl className="ui-detail-list">
-              <div>
-                <dt>Linked account address</dt>
-                <dd>{address || "Not linked"}</dd>
-              </div>
-              <div>
-                <dt>Connected address</dt>
-                <dd>{adapter.publicKey?.toBase58() || "Not connected"}</dd>
-              </div>
-            </dl>
-            <div className="ui-actions">
-              <WalletMultiButton />
+            <div className="wallet-balance">
+              <span className="ui-stat-label">Linked wallet balance</span>
+              {address && chainBalance.isPending ? <span className="wallet-balance-skeleton" role="status">Loading balance…</span> :
+                <div className="wallet-balance-value">{chainBalance.isSuccess ? amount(chainBalance.data, 9) : "—"} <span>SOL</span></div>}
+              <p className="ui-note">{address ? `On-chain balance · ${inspection}${page.isDevnet && configuredNetwork ? " · Test funds" : ""}` : "Link a wallet to see its on-chain balance."}</p>
+              {chainBalance.isSuccess && <p className="ui-note">Updated {new Date(chainBalance.dataUpdatedAt).toLocaleTimeString(undefined, {hour: "2-digit", minute: "2-digit"})}</p>}
+            </div>
+            {chainBalance.isError && <DataError error={chainBalance.error} retry={() => void chainBalance.refetch()} />}
+            <div className="wallet-connect-step">
+              <h3>{connectionTitle}</h3>
+              <p>{connectionDescription}</p>
+              {differentWallet && <p className="wallet-connected-address">Browser wallet: <code>{adapter.publicKey?.toBase58()}</code></p>}
+              <div className="ui-actions">
+              <WalletMultiButton className="ui-button wallet-connect-button">{adapter.connected ? "Wallet options" : adapter.connecting ? "Connecting…" : "Connect wallet"}</WalletMultiButton>
               {adapter.connected && (
                 <button
                   className="ui-button secondary"
@@ -314,11 +317,12 @@ export function BuyerWallet() {
                 </button>
               )}
             </div>
-            <p className="ui-note">
-              Linking signs an account-verification challenge. Marketplace
-              escrow is funded from this wallet during checkout; account
-              deposits are a separate action.
-            </p>
+            </div>
+            <div className="wallet-address">
+              <div className="wallet-address-heading"><span className="ui-stat-label">Linked account address</span>{address && <button className="ui-button secondary small" onClick={() => void copyAddress()}>{copiedAddress === address ? "Copied" : "Copy address"}</button>}</div>
+              <code>{address || "No address linked yet"}</code>
+              <span className="ui-note" role="status">{copyError || (copiedAddress === address && address ? "Address copied to clipboard." : "")}</span>
+            </div>
             {page.withdrawalSecurity?.withdrawal_cooldown_active && (
               <p className="ui-note">
                 A withdrawal-address cooldown is active until{" "}
@@ -331,17 +335,28 @@ export function BuyerWallet() {
               </p>
             )}
           </section>
-          <section className="ui-attention">
-            <h3>Buying bandwidth</h3>
-            <p>
-              Open an offer, review its quota, and fund that order’s escrow.
-              Account funds are not substituted for the linked wallet’s on-chain
-              SOL.
-            </p>
-            <Link className="ui-link" href="/marketplace">
-              Browse proxies →
-            </Link>
-          </section>
+          <aside className="wallet-account-summary" aria-label="Account balances and payments">
+            <section className="ui-surface">
+              <h2>Account funds</h2>
+              <div className="ui-stat-value">{wallet ? `${amount(wallet.balance_sol, 9)} SOL` : "—"}</div>
+              <p className="ui-note">Deposits for supported account services. These funds are separate from your wallet and order payments.</p>
+              {wallet?.balance_sol === 0 && <p className="wallet-balance-explanation">A zero account balance does not mean your linked wallet is empty.</p>}
+              <Link className="ui-link" href="/app/wallet?tab=funds">Manage account funds →</Link>
+              <div className="wallet-order-summary">
+                <h3>Order payments</h3>
+                <strong>{orders.isSuccess ? `${orders.data.filter((order) => order.status === "active").length} orders` : "—"}</strong>
+                <p className="ui-note">Active orders. Each order has its own escrow and payment record.</p>
+                {orders.isError && <p className="ui-note" role="status">Order count is unavailable.</p>}
+                <Link className="ui-link" href="/app/activity">View orders & billing →</Link>
+              </div>
+            </section>
+            <section className="wallet-next-step">
+              <h2>{workspace === "seller" ? "Receiving earnings" : "Buying bandwidth"}</h2>
+              <p>{workspace === "seller" ? "Review your payout destination, settlement records, and available earnings in your seller workspace." : "Choose an offer, review the order, then approve its escrow payment in your wallet. You do not need to deposit into account funds first."}</p>
+              <Link className="ui-button secondary" href={workspace === "seller" ? "/provider/earnings" : "/marketplace"}>{workspace === "seller" ? "Review payouts" : "Browse proxies"} →</Link>
+            </section>
+          </aside>
+          </div>
         </>
       )}
       {tab === "funds" && (
