@@ -134,13 +134,6 @@ func SetupTestDB(t *testing.T) {
 				ensure(rv)
 			}
 		})
-		_ = testDB.Callback().Create().Before("gorm:create").Register("proxyhubb:default_provider_node_ip", func(tx *gorm.DB) {
-			node, ok := tx.Statement.Dest.(*models.ProviderNode)
-			if !ok || node == nil || node.IPAddress != "" {
-				return
-			}
-			node.IPAddress = "10.0.0.5"
-		})
 		if err := testDB.Exec(`
 			INSERT INTO ledger_accounts (code, name, account_type, created_at) VALUES
 			('1000', 'treasury_cash', 'asset', NOW()),
