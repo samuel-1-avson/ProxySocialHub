@@ -1,8 +1,9 @@
-import { getApiBase, setApiBase } from '../lib/config';
+import { BROWSER_NAME, IS_FIREFOX, getApiBase, setApiBase } from '../lib/config';
 import { getSignedInLabel, loadBootstrap, pairFinish, type Bootstrap } from '../lib/auth';
 import type { ConnectStatus } from '../lib/connect';
 import { switchAction, switchButtonLabel } from '../lib/reliability';
 
+const headlineEl = document.getElementById('headline') as HTMLHeadingElement;
 const statusEl = document.getElementById('status') as HTMLParagraphElement;
 const proxyEl = document.getElementById('proxy-control') as HTMLParagraphElement;
 const errorEl = document.getElementById('error') as HTMLParagraphElement;
@@ -19,8 +20,7 @@ const recheckBtn = document.getElementById('recheck') as HTMLButtonElement;
 const expiryEl = document.getElementById('expiry') as HTMLParagraphElement;
 const switchNoteEl = document.getElementById('switch-note') as HTMLParagraphElement;
 const incognitoEl = document.getElementById('incognito') as HTMLParagraphElement;
-const webrtcShieldStatusEl = document.getElementById('webrtc-shield-status') as HTMLElement | null;
-const webrtcShieldLabelEl = document.getElementById('webrtc-shield-label') as HTMLElement | null;
+const pairPanel = document.getElementById('pair-panel') as HTMLElement;
 
 let lastStatus: ConnectStatus = { state: 'off' };
 let lastLevel = '';
@@ -61,7 +61,7 @@ function fillOrders(boot: Bootstrap, selectedId?: string) {
   if (ready.length === 0) {
     const opt = document.createElement('option');
     opt.value = '';
-    opt.textContent = 'No active orders';
+    opt.textContent = 'No active proxies yet';
     orderEl.append(opt);
     updateConnectButton();
     return;
@@ -80,15 +80,32 @@ function fillOrders(boot: Bootstrap, selectedId?: string) {
 
 function describeState(status: ConnectStatus, level: string) {
   if (status.state === 'on' && level === 'controlled_by_this_extension') {
-    return `On · ${status.endpoint ?? 'proxy.proxyhubb.com:8090'}`;
+    headlineEl.textContent = 'Proxy is on';
+    return status.listingTitle ? `Using ${status.listingTitle}` : '';
   }
   if (status.state === 'lost') {
-    return 'Connection lost. Turn off, then on again.';
+    headlineEl.textContent = 'Connection dropped';
+    return 'Turn it off, then on again.';
   }
+  headlineEl.textContent = 'Proxy is off';
   if (level === 'controlled_by_other_extensions') {
-    return 'Another extension controls Chrome proxy. Disable it, then Turn on.';
+    return `Another extension is controlling ${BROWSER_NAME}'s proxy. Turn that one off first.`;
   }
-  return `Off · Chrome proxy: ${level}`;
+  return '';
+}
+
+/** Turns worker error text into something a buyer can act on. */
+function friendlyError(raw: string): string {
+  if (/no egress IP|verify failed/i.test(raw)) {
+    return "Couldn't reach the internet through the proxy. Check that the order is still active, then try again.";
+  }
+  if (/another extension/i.test(raw)) {
+    return `Another extension is controlling ${BROWSER_NAME}'s proxy. Turn that one off first.`;
+  }
+  if (/failed to fetch|networkerror/i.test(raw)) {
+    return "Can't reach ProxyHubb right now. Check your internet and try again.";
+  }
+  return raw;
 }
 
 function renderExpiry(status: ConnectStatus) {
@@ -105,36 +122,32 @@ function renderVerify(status: ConnectStatus) {
   const rtt = typeof snapshot.rttMs === 'number' ? `${snapshot.rttMs}ms` : null;
   if (status.state === 'on' && snapshot.healthy && snapshot.ip) {
     verifyEl.classList.add('ok');
-    const hairpin = snapshot.hairpin ? 'same machine as provider' : null;
-    verifyEl.textContent = [`Healthy · ${snapshot.ip}`, rtt, snapshot.protocol, hairpin].filter(Boolean).join(' · ');
+    const hairpin = snapshot.hairpin ? '(same network as the provider)' : null;
+    verifyEl.textContent = [`Your IP now: ${snapshot.ip}`, rtt, hairpin].filter(Boolean).join(' · ');
     return;
   }
   if (snapshot.error) {
     verifyEl.classList.add('bad');
-    verifyEl.textContent = [`Failed · ${snapshot.error}`, snapshot.ip, rtt].filter(Boolean).join(' · ');
-    return;
-  }
-  if (snapshot.phase === 'disconnected' && snapshot.ip) {
-    const home = snapshot.baselineIp && snapshot.baselineIp !== snapshot.ip ? `home ${snapshot.baselineIp}` : 'home';
-    verifyEl.textContent = [`Off · ${snapshot.ip}`, home, rtt].filter(Boolean).join(' · ');
+    verifyEl.textContent = friendlyError(snapshot.error);
     return;
   }
   if (snapshot.ip) {
-    verifyEl.textContent = `Home IP ${snapshot.ip}`;
+    verifyEl.textContent = `Your IP: ${snapshot.ip}`;
     return;
   }
   verifyEl.textContent = '';
 }
 
 async function renderIncognitoNote() {
+  const howTo = IS_FIREFOX
+    ? 'To use it in private windows, allow ProxyHubb in private windows in Firefox add-on settings.'
+    : 'To use it in Incognito, turn on "Allow in Incognito" for ProxyHubb on chrome://extensions.';
   if (!chrome.extension?.isAllowedIncognitoAccess) {
-    incognitoEl.textContent = 'Private windows: enable Allow in incognito on chrome://extensions.';
+    incognitoEl.textContent = howTo;
     return;
   }
   const allowed = await chrome.extension.isAllowedIncognitoAccess();
-  incognitoEl.textContent = allowed
-    ? 'Incognito: allowed (same proxy as regular windows).'
-    : 'Private windows: enable Allow in incognito on chrome://extensions.';
+  incognitoEl.textContent = allowed ? '' : howTo;
 }
 
 async function refreshStatus() {
@@ -149,8 +162,9 @@ async function refreshStatus() {
   otherExtensionControls = worker.levelOfControl === 'controlled_by_other_extensions';
 
   if (!label) {
-    statusEl.textContent = 'Not signed in. Pair from an order page or paste a code.';
+    statusEl.textContent = 'Open your order on ProxyHubb and click "Turn on proxy". Or paste a pairing code below.';
     connectPanel.hidden = true;
+    pairPanel.hidden = false;
     proxyEl.textContent = describeState(worker.status, worker.levelOfControl);
     renderVerify(worker.status);
     renderExpiry(worker.status);
@@ -158,12 +172,13 @@ async function refreshStatus() {
   }
 
   connectPanel.hidden = false;
+  pairPanel.hidden = true;
   try {
     const boot = await loadBootstrap();
     statusEl.textContent = `Signed in as ${boot.user.label || label}`;
     fillOrders(boot, worker.status.orderId);
   } catch {
-    statusEl.textContent = `Signed in as ${label} (API unreachable — Turn off still works)`;
+    statusEl.textContent = `Signed in as ${label} (can't reach ProxyHubb right now, but Turn off still works)`;
     if (worker.status.orderId) {
       orderEl.replaceChildren();
       const opt = document.createElement('option');
@@ -176,12 +191,6 @@ async function refreshStatus() {
   proxyEl.textContent = describeState(worker.status, worker.levelOfControl);
   renderVerify(worker.status);
   renderExpiry(worker.status);
-  if (webrtcShieldLabelEl) {
-    webrtcShieldLabelEl.textContent =
-      worker.status.state === 'on'
-        ? '🛡️ WebRTC IP Leak Shield: Active'
-        : '🛡️ WebRTC Shield: Idle (Enables on Connect)';
-  }
   updateConnectButton();
 }
 
@@ -197,7 +206,7 @@ pairBtn.addEventListener('click', async () => {
     statusEl.textContent = `Signed in as ${session.user.label || session.user.email}`;
     await refreshStatus();
   } catch (err) {
-    showError(err instanceof Error ? err.message : 'Pairing failed');
+    showError(err instanceof Error ? friendlyError(err.message) : 'Pairing failed. Get a new code and try again.');
   }
 });
 
@@ -205,11 +214,11 @@ connectBtn.addEventListener('click', async () => {
   showError('');
   const orderId = orderEl.value;
   if (!orderId) {
-    showError('Buy a listing first, then pair again.');
+    showError('Buy a proxy on ProxyHubb first.');
     return;
   }
   if (otherExtensionControls) {
-    showError('Another extension controls Chrome proxy.');
+    showError(`Another extension is controlling ${BROWSER_NAME}'s proxy. Turn that one off first.`);
     return;
   }
   connectBtn.disabled = true;
@@ -219,7 +228,7 @@ connectBtn.addEventListener('click', async () => {
     await sendWorker({ type: 'connect', orderId, listingTitle: title });
     await refreshStatus();
   } catch (err) {
-    showError(err instanceof Error ? err.message : 'Connect failed');
+    showError(err instanceof Error ? friendlyError(err.message) : 'Could not turn on the proxy.');
     await refreshStatus();
   } finally {
     updateConnectButton();
@@ -235,7 +244,7 @@ disconnectBtn.addEventListener('click', async () => {
     await sendWorker({ type: 'disconnect' });
     await refreshStatus();
   } catch (err) {
-    showError(err instanceof Error ? err.message : 'Disconnect failed');
+    showError(err instanceof Error ? friendlyError(err.message) : 'Could not turn off the proxy.');
     await refreshStatus();
   } finally {
     disconnectBtn.disabled = false;
@@ -250,7 +259,7 @@ recheckBtn.addEventListener('click', async () => {
     await sendWorker({ type: 'verify' });
     await refreshStatus();
   } catch (err) {
-    showError(err instanceof Error ? err.message : 'Verify failed');
+    showError(err instanceof Error ? friendlyError(err.message) : 'Could not check your IP.');
     await refreshStatus();
   } finally {
     recheckBtn.disabled = false;

@@ -94,7 +94,7 @@ function CategoryPageContent() {
             <GlassCard className="!p-6">
                 <div className="flex items-start justify-between gap-4">
                     <div className="flex items-start gap-4">
-                        <div className="w-14 h-14 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                        <div className="w-14 h-14 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
                             <Hash className="w-7 h-7 text-primary" />
                         </div>
                         <div>
@@ -192,12 +192,12 @@ function ThreadListItem({ thread }: ThreadListItemProps) {
                     <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                             {thread.is_pinned && (
-                                <span className="px-2 py-0.5 bg-primary/10 text-primary text-[10px] font-bold font-mono rounded">
+                                <span className="px-2 py-0.5 bg-primary/10 text-primary text-xs font-bold font-mono rounded">
                                     PINNED
                                 </span>
                             )}
                             {thread.is_locked && (
-                                <span className="px-2 py-0.5 bg-red-500/10 text-red-500 text-[10px] font-bold font-mono rounded">
+                                <span className="px-2 py-0.5 bg-destructive/10 text-destructive text-xs font-bold font-mono rounded">
                                     LOCKED
                                 </span>
                             )}

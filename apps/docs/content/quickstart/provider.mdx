@@ -5,7 +5,18 @@ description: Join with a provider token, start the tunnel, and confirm the node 
 
 Goal: a provider node shows **online** in the dashboard and passes `proxyhubb-cli doctor`.
 
-Do **not** confuse provider tunnel port **3128** with buyer CONNECT port **8090**.
+## What you're about to do
+
+You'll install a small app that shares your spare home internet with ProxyHubb buyers. Once it's running, your computer keeps a line open to ProxyHubb, and you earn whenever a buyer's traffic goes through your connection.
+
+<Flow caption="Your computer is a 'node'; 'online' means buyers can use it.">
+  <FlowStep icon="download" title="Download & join">Get the app and your settings file, linked to your account</FlowStep>
+  <FlowStep icon="checklist" title="Doctor">Run the self-check: is everything plugged in?</FlowStep>
+  <FlowStep icon="power" title="Start">Open the line to ProxyHubb</FlowStep>
+  <FlowStep icon="signal" title="Online">Show up as available: and start earning</FlowStep>
+</Flow>
+
+Do **not** confuse provider tunnel port **3128** with buyer CONNECT port **8090**. Think of them as two different doors on the same building: providers use door 3128, buyers use door 8090.
 
 ## Prerequisites
 
@@ -37,7 +48,7 @@ Use `--node-id` when the dashboard already created the node.
 proxyhubb-cli doctor --config provider.toml
 ```
 
-**Success looks like:** config valid, control API reachable, gateway address resolved — no fatal errors.
+**Success looks like:** config valid, control API reachable, gateway address resolved: no fatal errors.
 
 ## 3. Start the tunnel
 
@@ -55,7 +66,7 @@ Or run the daemon directly:
 
 1. Open **My nodes** in the dashboard.
 2. Confirm the node status is **online** (browser “ping” alone is not a tunnel).
-3. Keep `provider.toml` private — it holds auth and the usage **proof signing** key.
+3. Keep `provider.toml` private: it holds auth and the usage **proof signing** key.
 
 ## Common blockers
 

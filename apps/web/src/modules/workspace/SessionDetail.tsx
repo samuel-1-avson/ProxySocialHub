@@ -81,7 +81,7 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
               <Stat
                 label="Reported usage"
                 value={
-                  bytes != null ? `${amount(bytes / 1024 ** 3, 4)} GB` : "—"
+                  bytes != null ? `${amount(bytes / 1024 ** 3, 4)} GB` : "None yet"
                 }
                 detail="Server counters; separate from client connection state"
               />
@@ -99,7 +99,7 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
                 value={
                   usage.data?.cost_sol != null
                     ? `${amount(usage.data.cost_sol, 9)} SOL`
-                    : "—"
+                    : "None yet"
                 }
                 detail="No estimate substituted when unavailable"
               />

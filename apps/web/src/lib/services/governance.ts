@@ -89,10 +89,10 @@ function governanceErrorMessage(payload: Record<string, unknown>, fallback: stri
             : typeof payload.detail === 'string'
               ? payload.detail
               : '';
-    const withDetails = details && !friendly.includes(details) ? `${friendly} — ${details}` : friendly;
+    const withDetails = details && !friendly.includes(details) ? `${friendly}: ${details}` : friendly;
     const exec = payload.governance_execution as GovernanceExecutionReport | undefined;
     if (exec?.message) {
-        return `${withDetails} — ${exec.message}`;
+        return `${withDetails}: ${exec.message}`;
     }
     return withDetails;
 }

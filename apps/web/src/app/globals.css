@@ -4,7 +4,7 @@
 @import "../../../../packages/design-system/explorer.css";
 
 /* ===========================================
-   ProxyHub — Quiet Infrastructure
+   ProxyHubb: Quiet Infrastructure
    Design system tokens (FRONTEND_RECONSTRUCTION_PLAN §10–11)
    =========================================== */
 
@@ -249,8 +249,7 @@ h3 {
 }
 
 .blinking-cursor::after {
-  content: "|";
-  animation: blink 1s step-start infinite;
+  content: none;
 }
 
 @keyframes blink {
@@ -270,5 +269,5 @@ h3 {
 }
 
 .animate-float {
-  animation: float 6s ease-in-out infinite;
+  animation: none;
 }

@@ -356,7 +356,7 @@ fn verify_credential_password(expected_hex: &str, password: &str) -> bool {
     constant_time_eq(computed.as_bytes(), expected_hex.as_bytes())
 }
 
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
     }

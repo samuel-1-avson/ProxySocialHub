@@ -88,8 +88,12 @@ test.describe('Wallet Authentication Flow', () => {
         await expect(page.locator('input[type="email"]')).not.toBeVisible();
         await expect(page.locator('input[type="password"]')).not.toBeVisible();
 
-        // Verify NO OAuth buttons
-        await expect(page.getByText(/google/i)).not.toBeVisible();
+        // Google sign-in is the only OAuth option, and only when the build has a client ID.
+        if (process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID) {
+            await expect(page.getByText(/continue with google/i).first()).toBeVisible();
+        } else {
+            await expect(page.getByText(/google/i)).not.toBeVisible();
+        }
         await expect(page.getByText(/github/i)).not.toBeVisible();
     });
 

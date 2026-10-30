@@ -15,7 +15,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useMemo, useState } from "react";
-import { ArrowLeft, Package } from "lucide-react";
+import { ArrowLeft, ChevronDown, Package } from "lucide-react";
 import { formatListingTotalUSD } from "@/lib/listing-price";
 import { type ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/patterns/DataTable";
@@ -39,6 +39,7 @@ export default function MarketplaceOrdersPage() {
   const { isAuthenticated } = useAuth();
   const queryClient = useQueryClient();
   const [cancelTarget, setCancelTarget] = useState<Order | null>(null);
+  const [showPast, setShowPast] = useState(false);
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: marketplaceKeys.orders("all"),
@@ -55,6 +56,11 @@ export default function MarketplaceOrdersPage() {
   });
 
   const orders = data ?? [];
+  // Live plans and payments still settling come first; finished and cancelled orders are history.
+  const current = orders.filter((o) =>
+    ["active", "disputed", "pending", "pending_payment"].includes(o.status)
+  );
+  const past = orders.filter((o) => !current.includes(o));
 
   const columns = useMemo<ColumnDef<Order, unknown>[]>(
     () => [
@@ -150,60 +156,102 @@ export default function MarketplaceOrdersPage() {
         >
           <ArrowLeft size={12} aria-hidden /> Discover
         </Link>
-        <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-primary">
+        <div className="mb-2 flex items-center gap-2 text-xs font-medium text-primary">
           <Package size={14} aria-hidden />
           Buyer
         </div>
         <h1 className="text-2xl font-semibold tracking-tight">Orders</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Track purchases, escrow status, and linked sessions.
+          Your proxy plans and past purchases.
         </p>
       </div>
 
-      <DataTable
-        columns={columns}
-        data={orders}
-        loading={isLoading}
-        error={error ? getErrorMessage(error) : null}
-        onRetry={() => void refetch()}
-        emptyTitle="No orders yet"
-        emptyDescription="Browse the marketplace to purchase proxy access."
-        emptyActionLabel="Browse marketplace"
-        onEmptyAction={() => {
-          window.location.href = ROUTES.marketplace;
-        }}
-        getRowId={(row) => row.id}
-        renderMobileCard={(order) => (
-          <div className="space-y-3">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <p className="font-medium">{order.listing?.title ?? "Marketplace order"}</p>
-                <p className="font-mono text-xs text-muted-foreground">
-                  {order.bandwidth_gb} GB · {formatListingTotalUSD(orderTotal(order))}
-                </p>
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-foreground">Active plans</h2>
+        <DataTable
+          columns={columns}
+          data={current}
+          loading={isLoading}
+          error={error ? getErrorMessage(error) : null}
+          onRetry={() => void refetch()}
+          emptyTitle="No active plans"
+          emptyDescription="Buy bandwidth from a provider to get a proxy login."
+          emptyActionLabel="Browse marketplace"
+          onEmptyAction={() => {
+            window.location.href = ROUTES.marketplace;
+          }}
+          getRowId={(row) => row.id}
+          renderMobileCard={(order) => (
+            <div className="space-y-3">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="font-medium">{order.listing?.title ?? "Marketplace order"}</p>
+                  <p className="font-mono text-xs text-muted-foreground">
+                    {order.bandwidth_gb} GB · {formatListingTotalUSD(orderTotal(order))}
+                  </p>
+                </div>
+                <StatusBadge
+                  status={statusVariant(order.status)}
+                  label={orderStatusLabel(order.status)}
+                />
               </div>
-              <StatusBadge
-                status={statusVariant(order.status)}
-                label={orderStatusLabel(order.status)}
-              />
+              <div className="flex flex-wrap gap-2">
+                {orderCancelEligible(order.status) ? (
+                  <Button type="button" size="sm" variant="outline" onClick={() => setCancelTarget(order)}>
+                    Cancel
+                  </Button>
+                ) : null}
+                <Link
+                  href={ROUTES.marketplaceOrder(order.id)}
+                  className="inline-flex h-8 items-center rounded-[var(--radius-md)] border border-border px-3 text-xs font-medium hover:bg-secondary"
+                  data-testid={`order-credentials-link-${order.id}`}
+                >
+                  {orderCredentialsEligible(order.status) ? "Credentials" : "View"}
+                </Link>
+              </div>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {orderCancelEligible(order.status) ? (
-                <Button type="button" size="sm" variant="outline" onClick={() => setCancelTarget(order)}>
-                  Cancel
-                </Button>
-              ) : null}
-              <Link
-                href={ROUTES.marketplaceOrder(order.id)}
-                className="inline-flex h-8 items-center rounded-[var(--radius-md)] border border-border px-3 text-xs font-medium hover:bg-secondary"
-                data-testid={`order-credentials-link-${order.id}`}
-              >
-                {orderCredentialsEligible(order.status) ? "Credentials" : "View"}
-              </Link>
-            </div>
-          </div>
-        )}
-      />
+          )}
+        />
+      </section>
+
+      {past.length > 0 ? (
+        <section className="space-y-3">
+          <button
+            type="button"
+            onClick={() => setShowPast((v) => !v)}
+            className="inline-flex items-center gap-2 text-sm font-semibold text-foreground"
+            aria-expanded={showPast}
+          >
+            Past orders ({past.length})
+            <ChevronDown
+              size={16}
+              className={`transition-transform ${showPast ? "rotate-180" : ""}`}
+              aria-hidden
+            />
+          </button>
+          {showPast ? (
+            <DataTable
+              columns={columns}
+              data={past}
+              getRowId={(row) => row.id}
+              renderMobileCard={(order) => (
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="font-medium">{order.listing?.title ?? "Marketplace order"}</p>
+                    <p className="font-mono text-xs text-muted-foreground">
+                      {order.bandwidth_gb} GB · {formatListingTotalUSD(orderTotal(order))}
+                    </p>
+                  </div>
+                  <StatusBadge
+                    status={statusVariant(order.status)}
+                    label={orderStatusLabel(order.status)}
+                  />
+                </div>
+              )}
+            />
+          ) : null}
+        </section>
+      ) : null}
 
       <ConfirmDialog
         open={!!cancelTarget}
@@ -213,7 +261,7 @@ export default function MarketplaceOrdersPage() {
         title="Cancel order"
         description={
           cancelTarget
-            ? `Cancel “${cancelTarget.listing?.title ?? "this order"}”? Escrow may be refunded per order terms.`
+            ? `Cancel “${cancelTarget.listing?.title ?? "this order"}”? It hasn't been paid, so nothing is charged.`
             : undefined
         }
         confirmLabel="Cancel order"

@@ -1,10 +1,10 @@
 ---
 title: API reference
-description: Interactive OpenAPI for Control API /v1 — auth, hosts, and Try It.
+description: Interactive OpenAPI for Control API /v1: auth, hosts, and Try It.
 full: true
 ---
 
-Live contract for the Control API (`/v1`). The interactive viewer below loads from [`/openapi.yaml`](/openapi.yaml) — full-bleed Try It, theme-synced with docs.
+Live contract for the Control API (`/v1`). The interactive viewer below loads from [`/openapi.yaml`](/openapi.yaml): full-bleed Try It, theme-synced with docs.
 
 ## Hosts
 
@@ -13,7 +13,7 @@ Live contract for the Control API (`/v1`). The interactive viewer below loads fr
   <EnvRow role="Local" value="http://localhost:8080" />
 </EnvTable>
 
-Buyer traffic is **not** on this host — use `proxy.proxyhubb.com:8090` (CONNECT / SOCKS5). See [Buyer proxy](/docs/buyer/proxy).
+Buyer traffic is **not** on this host. Use `proxy.proxyhubb.com:8090` (CONNECT / SOCKS5). See [Buyer proxy](/docs/buyer/proxy).
 
 ## Authentication
 
@@ -27,11 +27,11 @@ Mint partner keys with a JWT via `POST /v1/bulk/api-keys`. Public login is walle
 
 ## Suggested first calls
 
-1. `GET /v1/auth/me` — confirm JWT
-2. `POST /v1/sessions/intent` — rotating Connect token
-3. `GET /v1/listings?country=US` — browse supply
+1. `GET /v1/auth/me`: confirm JWT
+2. `POST /v1/sessions/intent`: rotating Connect token
+3. `GET /v1/listings?country=US`: browse supply
 4. `POST /v1/orders` → credentials after escrow
-5. `POST /v1/bulk/api-keys` / `POST /v1/bulk/pools` — partner paths
+5. `POST /v1/bulk/api-keys` / `POST /v1/bulk/pools`: partner paths
 
 In Scalar, set **Auth** to Bearer JWT (or API key) before using **Try Request**. Request/response examples are populated for auth, intents, listings, orders, sandbox-buy, credentials, and bulk pools/keys. Default server should be `https://api.proxyhubb.com`.
 

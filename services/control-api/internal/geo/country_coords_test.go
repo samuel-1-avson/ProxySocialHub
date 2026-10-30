@@ -39,6 +39,15 @@ func TestSanitizeMapPlaceDropsForeignHubCity(t *testing.T) {
 	}
 }
 
+func TestApplyMapCoordsMatchesCityTypedWithoutSpace(t *testing.T) {
+	for _, typed := range []string{"Capecoast", "cape-coast", "CAPE  COAST"} {
+		lat, lon, src := ApplyMapCoords(0, 0, "GH", typed, "Unknown", "node:x")
+		if src != "region_hub" || lat != 5.1053 || lon != -1.2466 {
+			t.Fatalf("%q: expected Cape Coast hub, got src=%q lat=%v lon=%v", typed, src, lat, lon)
+		}
+	}
+}
+
 func TestApplyListingCoordsSnapsToRegionalHub(t *testing.T) {
 	lat, lon, ok := ApplyListingCoords(6.72, -1.61, "GH", "", "node:x")
 	if !ok || lat != 6.6885 {

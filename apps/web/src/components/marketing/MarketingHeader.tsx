@@ -14,7 +14,7 @@ export function MarketingHeader() {
   const { user, isLoading } = useAuth();
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border bg-background/90 backdrop-blur-md">
+    <header className="sticky top-0 z-50 border-b border-border bg-background/90">
       <div className="mx-auto flex h-14 max-w-[1120px] items-center justify-between gap-4 px-4 sm:px-6">
         <Link href={ROUTES.home} className="flex items-center gap-2.5 group">
           <span className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] bg-primary text-primary-foreground font-data text-sm font-bold tracking-tight">

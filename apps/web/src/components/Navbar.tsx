@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { ModeToggle } from "@/components/ModeToggle";
-import { Bell, Menu, X, Home, ShoppingBag, MessageSquare, User, Wallet } from "lucide-react";
+import { Bell, Menu, X, Home, Wallet } from "lucide-react";
 import { AlertCenter } from "@/components/AlertCenter";
 import { NotificationCenter } from "@/components/NotificationCenter";
 import { PRIMARY_AUTH_NAV, PRIMARY_PUBLIC_NAV, ROUTES } from "@/lib/navigation/routes";
@@ -27,14 +27,14 @@ export function Navbar({ showAuth = true }: NavbarProps) {
     ];
 
     return (
-        <nav className="sticky top-0 z-50 bg-background/95 backdrop-blur-sm border-b border-border">
+        <nav className="sticky top-0 z-50 bg-background/95 border-b border-border">
             <div className="container mx-auto flex items-center justify-between py-3 px-4">
                 {/* Logo */}
                 <Link href={ROUTES.home} className="flex items-center gap-3 group">
-                    <div className="w-10 h-10 rounded-sm flex items-center justify-center bg-primary text-primary-foreground border-2 border-foreground shadow-[4px_4px_0px_var(--foreground)] group-active:shadow-none group-active:translate-x-[4px] group-active:translate-y-[4px] transition-all">
+                    <div className="w-10 h-10 rounded-sm flex items-center justify-center bg-primary text-primary-foreground border-2 border-foreground group-active:shadow-none group-active:translate-x-[4px] group-active:translate-y-[4px] transition-all">
                         <span className="font-bold text-lg font-mono">PS</span>
                     </div>
-                    <span className="text-xl font-bold tracking-tighter font-mono text-foreground hidden sm:inline group-hover:underline decoration-2 underline-offset-4 decoration-primary uppercase">
+                    <span className="text-xl font-bold tracking-tight font-mono text-foreground hidden sm:inline group-hover:underline decoration-2 underline-offset-4 decoration-primary">
                         ProxyHubb
                     </span>
                 </Link>
@@ -76,7 +76,7 @@ export function Navbar({ showAuth = true }: NavbarProps) {
                         <>
                             {!user ? (
                                 <div className="hidden sm:flex items-center gap-4 ml-4">
-                                    <Link href={ROUTES.login} className="text-sm font-mono font-medium text-muted-foreground hover:text-foreground transition-colors uppercase tracking-widest">
+                                    <Link href={ROUTES.login} className="text-sm font-mono font-medium text-muted-foreground hover:text-foreground transition-colors">
                                         Login
                                     </Link>
                                     <Link href={ROUTES.register}>
@@ -88,9 +88,9 @@ export function Navbar({ showAuth = true }: NavbarProps) {
                             ) : (
                                 <div className="flex items-center gap-4 ml-4">
                                     <Link href={ROUTES.dashboard} className="hidden sm:block">
-                                        <button className="btn-retro btn-retro-outline px-4 py-2 text-[10px] flex items-center gap-2 border-primary/50 text-primary">
+                                        <button className="btn-retro btn-retro-outline px-4 py-2 text-xs flex items-center gap-2 border-primary/50 text-primary">
                                             <Home size={14} />
-                                            SYSTEM DASHBOARD
+                                            System dashboard
                                         </button>
                                     </Link>
                                     <Link href={ROUTES.profile} className="w-9 h-9 rounded-sm overflow-hidden border border-border hover:border-primary shadow-sm transition-colors">
@@ -119,7 +119,7 @@ export function Navbar({ showAuth = true }: NavbarProps) {
 
             {/* Mobile Menu */}
             {mobileMenuOpen && (
-                <div className="md:hidden border-t border-border bg-background absolute left-0 right-0 shadow-lg">
+                <div className="md:hidden border-t border-border bg-background absolute left-0 right-0 shadow-sm">
                     <div className="container px-4 py-4 space-y-2">
                         {navItems.map((item) => (
                             <Link
@@ -166,37 +166,6 @@ export function Navbar({ showAuth = true }: NavbarProps) {
                 </div>
             )}
         </nav>
-    );
-}
-
-// Bottom Navigation for Mobile
-export function BottomNav() {
-    const pathname = usePathname();
-    const isActive = (path: string) => pathname === path || pathname?.startsWith(path + "/");
-
-    const items = [
-        { href: ROUTES.communityFeed, label: "FEED", icon: <Home className="w-5 h-5" /> },
-        { href: ROUTES.marketplace, label: "MARKET", icon: <ShoppingBag className="w-5 h-5" /> },
-        { href: ROUTES.communityMessages, label: "CHATS", icon: <MessageSquare className="w-5 h-5" /> },
-        { href: ROUTES.profile, label: "ME", icon: <User className="w-5 h-5" /> },
-    ];
-
-    return (
-        <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-card pb-safe-bottom">
-            <div className="flex justify-around items-center h-16">
-                {items.map((item) => (
-                    <Link
-                        key={item.href}
-                        href={item.href}
-                        className={`flex flex-col items-center justify-center w-full h-full space-y-1 transition-colors ${isActive(item.href) ? "text-primary" : "text-muted-foreground hover:text-foreground"
-                            }`}
-                    >
-                        {item.icon}
-                        <span className="text-[10px] font-mono font-medium">{item.label}</span>
-                    </Link>
-                ))}
-            </div>
-        </div>
     );
 }
 

@@ -35,7 +35,7 @@ function ScoreRing({ score }: { score: number }) {
                     strokeLinecap="round"
                 />
             </svg>
-            <span className="absolute inset-0 flex items-center justify-center text-[10px] font-black text-foreground">
+            <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold text-foreground">
                 {pct}
             </span>
         </div>
@@ -52,7 +52,7 @@ function SuccessToast({ message, onClose }: { message: string; onClose: () => vo
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
-            className="fixed bottom-8 right-8 z-50 px-6 py-4 rounded-2xl bg-emerald-500 text-black text-xs font-black uppercase tracking-wider shadow-2xl flex items-center gap-3"
+            className="fixed bottom-8 right-8 z-50 px-6 py-4 rounded-lg bg-success text-black text-xs font-semibold shadow-sm flex items-center gap-3"
         >
             <Check size={16} /> {message}
         </motion.div>
@@ -204,7 +204,7 @@ export function SmartMatchWidget() {
             <motion.div
                 initial={{ opacity: 0, scale: 0.98 }}
                 animate={{ opacity: 1, scale: 1, transition: { duration: 0.5, staggerChildren: 0.1 } }}
-                className="group relative overflow-hidden rounded-[3rem] bg-card backdrop-blur-3xl border border-border p-1 shadow-2xl"
+                className="group relative overflow-hidden rounded-[3rem] bg-card border border-border p-1 shadow-sm"
             >
                 {/* Background neural grid */}
                 <div
@@ -220,33 +220,33 @@ export function SmartMatchWidget() {
                         {/* Header */}
                         <div className="space-y-4">
                             <div className="flex items-center gap-3">
-                                <div className="p-2.5 rounded-xl bg-primary/10 border border-primary/20 shadow-lg shadow-primary/10">
+                                <div className="p-2.5 rounded-lg bg-primary/10 border border-primary/20 shadow-sm">
                                     <BrainCircuit className="text-primary" size={20} />
                                 </div>
                                 <div className="space-y-0.5">
-                                    <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-muted-foreground">Neural Engine V4</h3>
+                                    <h3 className="text-xs font-semibold text-muted-foreground">Neural Engine V4</h3>
                                     <div className="flex items-center gap-2">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                        <span className="text-[9px] font-black uppercase tracking-widest text-emerald-600">Core Online</span>
+                                        <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
+                                        <span className="text-xs font-semibold text-success">Core Online</span>
                                     </div>
                                 </div>
                             </div>
                             <div className="space-y-2">
-                                <h2 className="text-3xl font-black uppercase tracking-tighter text-foreground leading-none">Smart Match</h2>
-                                <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest leading-relaxed">
+                                <h2 className="text-3xl font-semibold tracking-tight text-foreground leading-none">Smart Match</h2>
+                                <p className="text-xs font-semibold text-muted-foreground leading-relaxed">
                                     AI-powered provider selection with real-time scoring.
                                 </p>
                             </div>
                         </div>
 
                         {/* Mode toggle */}
-                        <div className="flex gap-2 p-1 bg-background border border-border rounded-2xl">
+                        <div className="flex gap-2 p-1 bg-background border border-border rounded-lg">
                             {(['smart', 'classic'] as Mode[]).map((m) => (
                                 <button
                                     key={m}
                                     onClick={() => { setMode(m); setShowResults(false); setMatchError(null); }}
-                                    className={`flex-1 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${mode === m
-                                        ? 'bg-primary text-primary-foreground shadow-lg'
+                                    className={`flex-1 py-2.5 rounded-lg text-xs font-semibold transition-all ${mode === m
+                                        ? 'bg-primary text-primary-foreground shadow-sm'
                                         : 'text-muted-foreground hover:text-foreground'
                                         }`}
                                 >
@@ -256,13 +256,13 @@ export function SmartMatchWidget() {
                         </div>
 
                         {!isAuthenticated && (
-                            <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 space-y-3">
-                                <p className="text-[10px] font-black uppercase tracking-widest text-amber-200/90 leading-relaxed">
+                            <div className="rounded-lg border border-warning/20 bg-warning/10 p-4 space-y-3">
+                                <p className="text-xs font-semibold text-warning/90 leading-relaxed">
                                     Sign in to run Smart Match. Guests can still browse Discover listings below.
                                 </p>
                                 <Link
                                     href={loginHref}
-                                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-[10px] font-black uppercase tracking-[0.3em] text-primary-foreground"
+                                    className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-3 text-xs font-semibold text-primary-foreground"
                                 >
                                     <LogIn size={14} /> Sign in to match
                                 </Link>
@@ -270,14 +270,14 @@ export function SmartMatchWidget() {
                         )}
 
                         {matchError && (
-                            <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 space-y-2" role="alert">
-                                <p className="text-[10px] font-black uppercase tracking-widest text-red-300 leading-relaxed">
+                            <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-4 space-y-2" role="alert">
+                                <p className="text-xs font-semibold text-destructive leading-relaxed">
                                     {matchError}
                                 </p>
                                 {needsAuth && (
                                     <Link
                                         href={loginHref}
-                                        className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-primary hover:underline"
+                                        className="inline-flex items-center gap-2 text-xs font-semibold text-primary hover:underline"
                                     >
                                         <LogIn size={12} /> Go to login
                                     </Link>
@@ -290,7 +290,7 @@ export function SmartMatchWidget() {
                             <div className="space-y-4">
                                 <div className="grid grid-cols-1 gap-2.5">
                                     {!isAuthenticated ? (
-                                        <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground py-8 text-center leading-relaxed">
+                                        <p className="text-xs font-semibold text-muted-foreground py-8 text-center leading-relaxed">
                                             Sign in to load use-case presets.
                                         </p>
                                     ) : !useCases.length ? (
@@ -301,19 +301,19 @@ export function SmartMatchWidget() {
                                         <button
                                             key={uc.id}
                                             onClick={() => setSelectedUseCase(uc.id)}
-                                            className={`group relative p-4 rounded-2xl text-left transition-all duration-300 border flex items-center gap-4 ${selectedUseCase === uc.id
-                                                ? 'bg-primary/10 border-primary/30 shadow-lg shadow-primary/5'
+                                            className={`group relative p-4 rounded-lg text-left transition-all duration-300 border flex items-center gap-4 ${selectedUseCase === uc.id
+                                                ? 'bg-primary/10 border-primary/30 shadow-sm '
                                                 : 'bg-background border-transparent hover:bg-surface-hover hover:border-border'
                                                 }`}
                                         >
-                                            <div className={`p-2 rounded-lg transition-all ${selectedUseCase === uc.id ? 'bg-primary text-primary-foreground shadow-lg' : 'bg-muted text-muted-foreground'}`}>
+                                            <div className={`p-2 rounded-lg transition-all ${selectedUseCase === uc.id ? 'bg-primary text-primary-foreground shadow-sm' : 'bg-muted text-muted-foreground'}`}>
                                                 <Hexagon size={14} />
                                             </div>
                                             <div className="flex-1 min-w-0">
-                                                <div className={`font-black text-[11px] uppercase tracking-wider ${selectedUseCase === uc.id ? 'text-foreground' : 'text-muted-foreground'}`}>
+                                                <div className={`font-semibold text-xs ${selectedUseCase === uc.id ? 'text-foreground' : 'text-muted-foreground'}`}>
                                                     {uc.name.replace('_', ' ')}
                                                 </div>
-                                                <div className="text-[8px] font-black uppercase tracking-widest text-muted-foreground mt-0.5 truncate">
+                                                <div className="text-xs font-semibold text-muted-foreground mt-0.5 truncate">
                                                     {uc.description}
                                                 </div>
                                             </div>
@@ -322,7 +322,7 @@ export function SmartMatchWidget() {
                                 </div>
 
                                 <div className="space-y-2">
-                                    <div className="flex justify-between items-center text-[9px] font-black text-muted-foreground uppercase tracking-[0.2em]">
+                                    <div className="flex justify-between items-center text-xs font-semibold text-muted-foreground">
                                         <span>Trust Threshold</span>
                                         <span className="text-primary">{minScore}%</span>
                                     </div>
@@ -336,7 +336,7 @@ export function SmartMatchWidget() {
                                 {!isAuthenticated ? (
                                     <Link
                                         href={loginHref}
-                                        className="w-full py-4 rounded-2xl bg-primary text-primary-foreground font-black text-[10px] uppercase tracking-[0.4em] flex items-center justify-center gap-3 transition-all hover:shadow-[0_0_30px_rgba(16,185,129,0.3)]"
+                                        className="w-full py-4 rounded-lg bg-primary text-primary-foreground font-semibold text-xs flex items-center justify-center gap-3 transition-all"
                                     >
                                         <LogIn size={16} />
                                         Sign in to match
@@ -345,7 +345,7 @@ export function SmartMatchWidget() {
                                     <button
                                         onClick={handleClassicMatch}
                                         disabled={!selectedUseCase || analyzing}
-                                        className="w-full py-4 rounded-2xl bg-primary text-primary-foreground font-black text-[10px] uppercase tracking-[0.4em] flex items-center justify-center gap-3 transition-all hover:shadow-[0_0_30px_rgba(16,185,129,0.3)] active:scale-[0.98] disabled:opacity-50"
+                                        className="w-full py-4 rounded-lg bg-primary text-primary-foreground font-semibold text-xs flex items-center justify-center gap-3 transition-all active:scale-[0.98] disabled:opacity-50"
                                     >
                                         {analyzing ? <Loader2 className="animate-spin" size={16} /> : <Zap size={16} />}
                                         {analyzing ? 'Scanning...' : 'Run Classic Match'}
@@ -359,11 +359,11 @@ export function SmartMatchWidget() {
                             <div className="space-y-4">
                                 {/* Use case */}
                                 <div className="space-y-1.5">
-                                    <label className="text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground">Use Case</label>
+                                    <label className="text-xs font-semibold text-muted-foreground">Use Case</label>
                                     <select
                                         value={useCase}
                                         onChange={(e) => setUseCase(e.target.value)}
-                                        className="w-full bg-background border border-border text-[10px] font-black rounded-xl px-4 py-3 outline-none focus:border-primary/40 text-foreground appearance-none cursor-pointer"
+                                        className="w-full bg-background border border-border text-xs font-semibold rounded-lg px-4 py-3 outline-none focus:border-primary/40 text-foreground appearance-none cursor-pointer"
                                     >
                                         <option value="web_scraping">Web Scraping</option>
                                         <option value="social_media">Social Media</option>
@@ -376,19 +376,19 @@ export function SmartMatchWidget() {
                                 {/* Geo + Session type */}
                                 <div className="grid grid-cols-2 gap-3">
                                     <div className="space-y-1.5">
-                                        <label className="text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground">Country</label>
+                                        <label className="text-xs font-semibold text-muted-foreground">Country</label>
                                         <input
                                             type="text" placeholder="US" maxLength={2}
                                             value={geo} onChange={(e) => setGeo(e.target.value.toUpperCase())}
-                                            className="w-full bg-background border border-border text-[10px] font-black rounded-xl px-4 py-3 outline-none focus:border-primary/40 text-foreground placeholder:text-muted-foreground"
+                                            className="w-full bg-background border border-border text-xs font-semibold rounded-lg px-4 py-3 outline-none focus:border-primary/40 text-foreground placeholder:text-muted-foreground"
                                         />
                                     </div>
                                     <div className="space-y-1.5">
-                                        <label className="text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground">Session</label>
+                                        <label className="text-xs font-semibold text-muted-foreground">Session</label>
                                         <select
                                             value={sessionType}
                                             onChange={(e) => setSessionType(e.target.value)}
-                                            className="w-full bg-background border border-border text-[10px] font-black rounded-xl px-4 py-3 outline-none focus:border-primary/40 text-foreground appearance-none cursor-pointer"
+                                            className="w-full bg-background border border-border text-xs font-semibold rounded-lg px-4 py-3 outline-none focus:border-primary/40 text-foreground appearance-none cursor-pointer"
                                         >
                                             <option value="rotating">Rotating</option>
                                             <option value="sticky">Sticky</option>
@@ -399,19 +399,19 @@ export function SmartMatchWidget() {
                                 {/* Price + Bandwidth */}
                                 <div className="grid grid-cols-2 gap-3">
                                     <div className="space-y-1.5">
-                                        <label className="text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground">Max USD/GB</label>
+                                        <label className="text-xs font-semibold text-muted-foreground">Max USD/GB</label>
                                         <input
                                             type="number" placeholder="0.10" min="0" step="0.01"
                                             value={maxPrice} onChange={(e) => setMaxPrice(e.target.value)}
-                                            className="w-full bg-background border border-border text-[10px] font-black rounded-xl px-4 py-3 outline-none focus:border-primary/40 text-foreground placeholder:text-muted-foreground"
+                                            className="w-full bg-background border border-border text-xs font-semibold rounded-lg px-4 py-3 outline-none focus:border-primary/40 text-foreground placeholder:text-muted-foreground"
                                         />
                                     </div>
                                     <div className="space-y-1.5">
-                                        <label className="text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground">Bandwidth GB</label>
+                                        <label className="text-xs font-semibold text-muted-foreground">Bandwidth GB</label>
                                         <input
                                             type="number" placeholder="10" min="0"
                                             value={bandwidth} onChange={(e) => setBandwidth(e.target.value)}
-                                            className="w-full bg-background border border-border text-[10px] font-black rounded-xl px-4 py-3 outline-none focus:border-primary/40 text-foreground placeholder:text-muted-foreground"
+                                            className="w-full bg-background border border-border text-xs font-semibold rounded-lg px-4 py-3 outline-none focus:border-primary/40 text-foreground placeholder:text-muted-foreground"
                                         />
                                     </div>
                                 </div>
@@ -419,30 +419,30 @@ export function SmartMatchWidget() {
                                 {/* Uptime + Latency */}
                                 <div className="grid grid-cols-2 gap-3">
                                     <div className="space-y-1.5">
-                                        <label className="text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground">Min Uptime %</label>
+                                        <label className="text-xs font-semibold text-muted-foreground">Min Uptime %</label>
                                         <input
                                             type="number" placeholder="95" min="0" max="100"
                                             value={minUptime} onChange={(e) => setMinUptime(e.target.value)}
-                                            className="w-full bg-background border border-border text-[10px] font-black rounded-xl px-4 py-3 outline-none focus:border-primary/40 text-foreground placeholder:text-muted-foreground"
+                                            className="w-full bg-background border border-border text-xs font-semibold rounded-lg px-4 py-3 outline-none focus:border-primary/40 text-foreground placeholder:text-muted-foreground"
                                         />
                                     </div>
                                     <div className="space-y-1.5">
-                                        <label className="text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground">Max Latency ms</label>
+                                        <label className="text-xs font-semibold text-muted-foreground">Max Latency ms</label>
                                         <input
                                             type="number" placeholder="300" min="0"
                                             value={maxLatency} onChange={(e) => setMaxLatency(e.target.value)}
-                                            className="w-full bg-background border border-border text-[10px] font-black rounded-xl px-4 py-3 outline-none focus:border-primary/40 text-foreground placeholder:text-muted-foreground"
+                                            className="w-full bg-background border border-border text-xs font-semibold rounded-lg px-4 py-3 outline-none focus:border-primary/40 text-foreground placeholder:text-muted-foreground"
                                         />
                                     </div>
                                 </div>
 
                                 {/* Required tier */}
                                 <div className="space-y-1.5">
-                                    <label className="text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground">Required Tier</label>
+                                    <label className="text-xs font-semibold text-muted-foreground">Required Tier</label>
                                     <select
                                         value={requiredTier}
                                         onChange={(e) => setRequiredTier(e.target.value)}
-                                        className="w-full bg-background border border-border text-[10px] font-black rounded-xl px-4 py-3 outline-none focus:border-primary/40 text-foreground appearance-none cursor-pointer"
+                                        className="w-full bg-background border border-border text-xs font-semibold rounded-lg px-4 py-3 outline-none focus:border-primary/40 text-foreground appearance-none cursor-pointer"
                                     >
                                         <option value="any">Any Tier</option>
                                         <option value="Bronze">Bronze</option>
@@ -454,7 +454,7 @@ export function SmartMatchWidget() {
                                 {!isAuthenticated ? (
                                     <Link
                                         href={loginHref}
-                                        className="w-full group relative overflow-hidden py-4 rounded-2xl bg-primary text-primary-foreground font-black text-[10px] uppercase tracking-[0.4em] flex items-center justify-center gap-3 transition-all hover:shadow-[0_0_30px_rgba(16,185,129,0.3)]"
+                                        className="w-full group relative overflow-hidden py-4 rounded-lg bg-primary text-primary-foreground font-semibold text-xs flex items-center justify-center gap-3 transition-all"
                                     >
                                         <LogIn size={16} />
                                         Sign in to Smart Match
@@ -463,9 +463,9 @@ export function SmartMatchWidget() {
                                     <button
                                         onClick={handleSmartMatch}
                                         disabled={analyzing}
-                                        className="w-full group relative overflow-hidden py-4 rounded-2xl bg-primary text-primary-foreground font-black text-[10px] uppercase tracking-[0.4em] flex items-center justify-center gap-3 transition-all hover:shadow-[0_0_30px_rgba(16,185,129,0.3)] active:scale-[0.98] disabled:opacity-50"
+                                        className="w-full group relative overflow-hidden py-4 rounded-lg bg-primary text-primary-foreground font-semibold text-xs flex items-center justify-center gap-3 transition-all active:scale-[0.98] disabled:opacity-50"
                                     >
-                                        <div className="absolute inset-0 bg-white/20 translate-x-[-200%] group-hover:translate-x-[200%] transition-transform duration-1000" />
+                                        <div className="absolute inset-0 bg-secondary translate-x-[-200%] group-hover:translate-x-[200%] transition-transform duration-1000" />
                                         {analyzing ? <Loader2 className="animate-spin" size={16} /> : <Target size={16} />}
                                         {analyzing ? 'Analyzing...' : 'Find Best Providers'}
                                     </button>
@@ -480,15 +480,15 @@ export function SmartMatchWidget() {
                         {/* Header overlay */}
                         <div className="absolute top-0 inset-x-0 p-8 flex justify-between items-start z-30 pointer-events-none">
                             <div className="flex gap-4">
-                                <div className="px-3 py-1.5 rounded-lg bg-muted border border-border text-muted-foreground text-[9px] font-black uppercase tracking-widest flex items-center gap-2 backdrop-blur-md">
+                                <div className="px-3 py-1.5 rounded-lg bg-muted border border-border text-muted-foreground text-xs font-semibold flex items-center gap-2">
                                     <Globe size={12} className="animate-pulse" /> Mesh Signal: Secure
                                 </div>
                             </div>
                             <div className="flex flex-col items-end gap-1">
-                                <div className="text-[14px] font-black tracking-tighter text-muted-foreground">
+                                <div className="text-sm font-semibold tracking-tight text-muted-foreground">
                                     {new Date().toLocaleTimeString([], { hour12: false })}
                                 </div>
-                                <div className="text-[8px] font-black text-muted-foreground uppercase tracking-[0.3em]">Temporal Registry</div>
+                                <div className="text-xs font-semibold text-muted-foreground">Temporal Registry</div>
                             </div>
                         </div>
 
@@ -516,16 +516,16 @@ export function SmartMatchWidget() {
                                                 transition={{ duration: 15, repeat: Infinity, ease: 'linear' }}
                                                 className="absolute -inset-10 border border-primary/10 rounded-full"
                                             />
-                                            <div className="w-24 h-24 mx-auto rounded-3xl bg-muted border border-border flex items-center justify-center relative shadow-2xl backdrop-blur-3xl group">
+                                            <div className="w-24 h-24 mx-auto rounded-lg bg-muted border border-border flex items-center justify-center relative shadow-sm group">
                                                 <div className="absolute inset-0 bg-primary/10 blur-2xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
                                                 <Radar className="w-10 h-10 text-primary opacity-30" />
                                             </div>
                                         </div>
                                         <div className="space-y-4">
-                                            <h4 className="text-xl font-black uppercase tracking-tighter text-foreground opacity-80">
+                                            <h4 className="text-xl font-semibold tracking-tight text-foreground opacity-80">
                                                 {isAuthenticated ? 'Command Ready' : 'Browse First'}
                                             </h4>
-                                            <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.4em] leading-relaxed">
+                                            <p className="text-xs font-semibold text-muted-foreground leading-relaxed">
                                                 {!isAuthenticated
                                                     ? 'Sign in to run Smart Match, or scroll to Discover listings as a guest.'
                                                     : mode === 'smart'
@@ -550,16 +550,16 @@ export function SmartMatchWidget() {
                                             <motion.div
                                                 animate={{ rotate: 360 }}
                                                 transition={{ duration: 1.5, repeat: Infinity, ease: 'linear' }}
-                                                className="absolute inset-0 border-t-2 border-primary rounded-full shadow-[0_-10px_30px_rgba(16,185,129,0.4)]"
+                                                className="absolute inset-0 border-t-2 border-primary rounded-full"
                                             />
                                             <motion.div
                                                 animate={{ rotate: -360 }}
                                                 transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
                                                 className="absolute inset-8 border-b-2 border-primary/20 rounded-full"
                                             />
-                                            <div className="absolute inset-0 flex flex-col items-center justify-center bg-card rounded-full backdrop-blur-sm">
-                                                <div className="text-3xl font-black tracking-tighter text-foreground animate-pulse">Scanning</div>
-                                                <div className="text-[9px] font-black text-primary/60 uppercase tracking-[0.5em] mt-2">Grid Protocol</div>
+                                            <div className="absolute inset-0 flex flex-col items-center justify-center bg-card rounded-full">
+                                                <div className="text-3xl font-semibold tracking-tight text-foreground animate-pulse">Scanning</div>
+                                                <div className="text-xs font-semibold text-primary/60 mt-2">Grid Protocol</div>
                                             </div>
                                         </div>
 
@@ -570,9 +570,9 @@ export function SmartMatchWidget() {
                                                 { label: 'Tier', value: '…' },
                                                 { label: 'Score', value: '…' },
                                             ].map((stat, i) => (
-                                                <div key={i} className="p-4 rounded-2xl bg-muted border border-border space-y-1">
-                                                    <div className="text-[8px] font-black text-muted-foreground uppercase tracking-widest">{stat.label}</div>
-                                                    <div className="text-[11px] font-black tracking-tight text-primary/80 animate-pulse">{stat.value}</div>
+                                                <div key={i} className="p-4 rounded-lg bg-muted border border-border space-y-1">
+                                                    <div className="text-xs font-semibold text-muted-foreground">{stat.label}</div>
+                                                    <div className="text-xs font-semibold tracking-tight text-primary/80 animate-pulse">{stat.value}</div>
                                                 </div>
                                             ))}
                                         </div>
@@ -589,15 +589,15 @@ export function SmartMatchWidget() {
                                     >
                                         <div className="flex items-center justify-between mb-6 pb-4 border-b border-border">
                                             <div className="flex items-center gap-4">
-                                                <div className="p-2 rounded-lg bg-emerald-500 text-black">
+                                                <div className="p-2 rounded-lg bg-success text-black">
                                                     <Check size={16} />
                                                 </div>
                                                 <div>
-                                                    <h4 className="text-base font-black tracking-tighter text-foreground">
+                                                    <h4 className="text-base font-semibold tracking-tight text-foreground">
                                                         {smartResults.length} Provider{smartResults.length !== 1 ? 's' : ''} Matched
                                                     </h4>
                                                     {explanation && (
-                                                        <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest mt-0.5">
+                                                        <p className="text-xs font-semibold text-muted-foreground mt-0.5">
                                                             {explanation}
                                                         </p>
                                                     )}
@@ -605,7 +605,7 @@ export function SmartMatchWidget() {
                                             </div>
                                             <button
                                                 onClick={() => setShowResults(false)}
-                                                className="text-[9px] font-black uppercase text-muted-foreground hover:text-foreground transition-colors tracking-[0.3em]"
+                                                className="text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
                                             >
                                                 New Search
                                             </button>
@@ -614,7 +614,7 @@ export function SmartMatchWidget() {
                                         {smartResults.length === 0 ? (
                                             <div className="flex-1 flex flex-col items-center justify-center gap-6 opacity-40">
                                                 <Filter size={40} className="text-muted-foreground" />
-                                                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                                                <p className="text-xs font-semibold text-muted-foreground">
                                                     No providers match your criteria. Try relaxing the filters.
                                                 </p>
                                             </div>
@@ -623,7 +623,7 @@ export function SmartMatchWidget() {
                                                 {smartResults.map((r, idx) => (
                                                     <div
                                                         key={idx}
-                                                        className="relative p-5 rounded-3xl bg-card border border-border hover:border-primary/30 hover:bg-surface-hover transition-all duration-300 group flex flex-col gap-4"
+                                                        className="relative p-5 rounded-lg bg-card border border-border hover:border-primary/30 hover:bg-surface-hover transition-all duration-300 group flex flex-col gap-4"
                                                     >
                                                         {/* Score ring + title */}
                                                         <div className="flex items-start gap-4">
@@ -631,7 +631,7 @@ export function SmartMatchWidget() {
                                                             <div className="flex-1 min-w-0">
                                                                 <Link
                                                                     href={`/marketplace/${r.listing_id}`}
-                                                                    className="text-[11px] font-black text-foreground group-hover:text-primary transition-colors truncate block"
+                                                                    className="text-xs font-semibold text-foreground group-hover:text-primary transition-colors truncate block"
                                                                 >
                                                                     {r.title || 'Provider Node'}
                                                                 </Link>
@@ -640,7 +640,7 @@ export function SmartMatchWidget() {
                                                                         tier={(r.provider_tier || 'unverified') as ProviderTier}
                                                                     />
                                                                     {r.country && (
-                                                                        <span className="text-[8px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-1">
+                                                                        <span className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
                                                                             <Globe size={9} /> {r.country}
                                                                         </span>
                                                                     )}
@@ -650,30 +650,30 @@ export function SmartMatchWidget() {
 
                                                         {/* Metrics row */}
                                                         <div className="grid grid-cols-3 gap-2 text-center">
-                                                            <div className="p-2 rounded-xl bg-muted border border-border">
-                                                                <div className="text-[8px] font-black text-muted-foreground uppercase tracking-widest flex items-center justify-center gap-1">
+                                                            <div className="p-2 rounded-lg bg-muted border border-border">
+                                                                <div className="text-xs font-semibold text-muted-foreground flex items-center justify-center gap-1">
                                                                     <Clock size={8} /> Latency
                                                                 </div>
-                                                                <div className="text-[11px] font-black text-foreground mt-0.5">{r.avg_latency_ms}ms</div>
+                                                                <div className="text-xs font-semibold text-foreground mt-0.5">{r.avg_latency_ms}ms</div>
                                                             </div>
-                                                            <div className="p-2 rounded-xl bg-muted border border-border">
-                                                                <div className="text-[8px] font-black text-muted-foreground uppercase tracking-widest flex items-center justify-center gap-1">
+                                                            <div className="p-2 rounded-lg bg-muted border border-border">
+                                                                <div className="text-xs font-semibold text-muted-foreground flex items-center justify-center gap-1">
                                                                     <Activity size={8} /> Uptime
                                                                 </div>
-                                                                <div className="text-[11px] font-black text-foreground mt-0.5">{Number(r.uptime_percent || 0).toFixed(1)}%</div>
+                                                                <div className="text-xs font-semibold text-foreground mt-0.5">{Number(r.uptime_percent || 0).toFixed(1)}%</div>
                                                             </div>
-                                                            <div className="p-2 rounded-xl bg-muted border border-border">
-                                                                <div className="text-[8px] font-black text-muted-foreground uppercase tracking-widest flex items-center justify-center gap-1">
+                                                            <div className="p-2 rounded-lg bg-muted border border-border">
+                                                                <div className="text-xs font-semibold text-muted-foreground flex items-center justify-center gap-1">
                                                                     <Wifi size={8} /> USD/GB
                                                                 </div>
-                                                                <div className="text-[11px] font-black text-foreground mt-0.5">{Number(r.price_per_gb || 0).toFixed(6)}</div>
+                                                                <div className="text-xs font-semibold text-foreground mt-0.5">{Number(r.price_per_gb || 0).toFixed(6)}</div>
                                                             </div>
                                                         </div>
 
                                                         {/* Action */}
                                                         <button
                                                             onClick={() => handleConnect(r.listing_id)}
-                                                            className="w-full py-2.5 rounded-2xl bg-primary/10 border border-primary/20 text-primary text-[9px] font-black uppercase tracking-widest hover:bg-primary hover:text-primary-foreground transition-all flex items-center justify-center gap-2"
+                                                            className="w-full py-2.5 rounded-lg bg-primary/10 border border-primary/20 text-primary text-xs font-semibold hover:bg-primary hover:text-primary-foreground transition-all flex items-center justify-center gap-2"
                                                         >
                                                             <Zap size={12} /> View listing
                                                         </button>
@@ -683,7 +683,7 @@ export function SmartMatchWidget() {
                                         )}
 
                                         {matchRequestId && (
-                                            <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest mt-2">
+                                            <p className="text-xs font-semibold text-muted-foreground mt-2">
                                                 Request ID: {matchRequestId.slice(0, 8)}…
                                             </p>
                                         )}
@@ -700,19 +700,19 @@ export function SmartMatchWidget() {
                                     >
                                         <div className="flex items-center justify-between mb-10 pb-6 border-b border-border">
                                             <div className="flex items-center gap-4">
-                                                <div className="p-2 rounded-lg bg-emerald-500 text-black">
+                                                <div className="p-2 rounded-lg bg-success text-black">
                                                     <Check size={16} />
                                                 </div>
                                                 <div>
-                                                    <h4 className="text-xl font-black tracking-tighter text-foreground">Results Indexed</h4>
-                                                    <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">
+                                                    <h4 className="text-xl font-semibold tracking-tight text-foreground">Results Indexed</h4>
+                                                    <p className="text-xs font-semibold text-muted-foreground">
                                                         {classicRecs.length} Strategic Matches Found
                                                     </p>
                                                 </div>
                                             </div>
                                             <button
                                                 onClick={() => setShowResults(false)}
-                                                className="text-[9px] font-black uppercase text-muted-foreground hover:text-foreground transition-colors tracking-[0.3em]"
+                                                className="text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
                                             >
                                                 New Analysis
                                             </button>
@@ -721,22 +721,22 @@ export function SmartMatchWidget() {
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 overflow-y-auto pr-4 custom-scrollbar flex-1 pb-10">
                                             {classicRecs.map((rec, idx) => (
                                                 <Link key={idx} href={`/marketplace/${rec.listing?.id}`} className="group">
-                                                    <div className="relative p-6 rounded-3xl bg-card border border-border hover:border-primary/40 hover:bg-surface-hover transition-all duration-300">
+                                                    <div className="relative p-6 rounded-lg bg-card border border-border hover:border-primary/40 hover:bg-surface-hover transition-all duration-300">
                                                         <div className="absolute left-6 top-0 w-12 h-1 bg-primary/40 rounded-full scale-x-0 group-hover:scale-x-100 transition-transform origin-left" />
                                                         <div className="flex justify-between items-start gap-4 mb-4">
                                                             <div className="space-y-1">
-                                                                <div className="text-[11px] font-black text-foreground group-hover:text-primary transition-colors truncate">
+                                                                <div className="text-xs font-semibold text-foreground group-hover:text-primary transition-colors truncate">
                                                                     {rec.listing?.title || 'High Performance Node'}
                                                                 </div>
                                                                 {rec.reasons?.slice(0, 1).map((r, i) => (
-                                                                    <span key={i} className="text-[8px] font-black text-primary/60 uppercase tracking-widest">{r}</span>
+                                                                    <span key={i} className="text-xs font-semibold text-primary/60">{r}</span>
                                                                 ))}
                                                             </div>
                                                             <div className="text-right">
-                                                                <div className="text-2xl font-black tracking-tighter text-foreground">
-                                                                    {Number(rec.score * 100).toFixed(0)}<span className="text-[10px] text-muted-foreground ml-0.5">%</span>
+                                                                <div className="text-2xl font-semibold tracking-tight text-foreground">
+                                                                    {Number(rec.score * 100).toFixed(0)}<span className="text-xs text-muted-foreground ml-0.5">%</span>
                                                                 </div>
-                                                                <div className="text-[7px] font-black text-muted-foreground uppercase tracking-widest">Match</div>
+                                                                <div className="text-[7px] font-semibold text-muted-foreground">Match</div>
                                                             </div>
                                                         </div>
                                                         <div className="flex items-center justify-between pt-4 border-t border-border">
@@ -744,7 +744,7 @@ export function SmartMatchWidget() {
                                                                 <div className="w-5 h-5 rounded-lg bg-muted border border-border flex items-center justify-center">
                                                                     <Wifi size={10} className="text-muted-foreground" />
                                                                 </div>
-                                                                <span className="text-[9px] font-black text-muted-foreground">${Number(rec.listing?.price_per_gb || 0).toFixed(4)}/GB</span>
+                                                                <span className="text-xs font-semibold text-muted-foreground">${Number(rec.listing?.price_per_gb || 0).toFixed(4)}/GB</span>
                                                             </div>
                                                             <ChevronRight size={14} className="text-muted-foreground group-hover:text-primary group-hover:translate-x-1 transition-all" />
                                                         </div>
@@ -762,7 +762,7 @@ export function SmartMatchWidget() {
                         <div className="absolute bottom-0 inset-x-0 p-8 pt-0 z-30 flex justify-between items-end gap-10">
                             <div className="flex-1 flex items-center gap-10 p-4 border-t border-border">
                                 <div className="space-y-1">
-                                    <div className="text-[8px] font-black text-muted-foreground uppercase tracking-[0.3em]">Neural Load</div>
+                                    <div className="text-xs font-semibold text-muted-foreground">Neural Load</div>
                                     <div className="flex gap-1">
                                         {[1, 1, 1, 1, 0.5, 0.2, 0.1].map((v, i) => (
                                             <div key={i} className="w-2 h-4 bg-muted rounded-sm overflow-hidden border border-border">
@@ -776,18 +776,18 @@ export function SmartMatchWidget() {
                                     </div>
                                 </div>
                                 <div className="hidden lg:block space-y-1">
-                                    <div className="text-[8px] font-black text-muted-foreground uppercase tracking-[0.3em]">Network Feed</div>
-                                    <div className="text-[9px] font-black flex items-center gap-2 text-muted-foreground truncate max-w-[200px]">
+                                    <div className="text-xs font-semibold text-muted-foreground">Network Feed</div>
+                                    <div className="text-xs font-semibold flex items-center gap-2 text-muted-foreground truncate max-w-[200px]">
                                         <Activity size={10} className="text-primary/40 animate-pulse" />
                                         Synchronizing Sector-7G... OK
                                     </div>
                                 </div>
                             </div>
                             <div className="flex gap-3">
-                                <div className="p-3 rounded-2xl bg-muted border border-border text-muted-foreground">
+                                <div className="p-3 rounded-lg bg-muted border border-border text-muted-foreground">
                                     <Command size={18} />
                                 </div>
-                                <div className="p-3 rounded-2xl bg-primary/20 border border-primary/20 text-primary">
+                                <div className="p-3 rounded-lg bg-primary/20 border border-primary/20 text-primary">
                                     <Terminal size={18} />
                                 </div>
                             </div>

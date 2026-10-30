@@ -78,7 +78,7 @@ export function WalletFunds({
             <p className="ui-note">Available to withdraw</p>
           </div>
           <strong className="ui-stat-value">
-            {wallet ? `${amount(wallet.balance_sol, 9)} SOL` : "—"}
+            {wallet ? `${amount(wallet.balance_sol, 9)} SOL` : "…"}
           </strong>
         </div>
         <nav className="wallet-transfer-switch" aria-label="Transfer type">

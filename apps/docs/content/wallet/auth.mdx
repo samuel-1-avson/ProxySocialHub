@@ -41,7 +41,7 @@ curl -sS -X POST https://api.proxyhubb.com/v1/auth/wallet/login \
   }'
 ```
 
-Store `access_token` and `refresh_token` securely. Typical `expires_in` is on the order of **3600** seconds — always read the response field.
+Store `access_token` and `refresh_token` securely. Typical `expires_in` is on the order of **3600** seconds. Always read the response field.
 
 ## Refresh
 
@@ -64,7 +64,7 @@ Mint keys: dashboard **Settings → API keys** or `POST /v1/bulk/api-keys` **wit
 
 | Symptom | Fix |
 |---------|-----|
-| `401` on Control API | Expired/missing JWT — refresh or re-login |
+| `401` on Control API | Expired/missing JWT: refresh or re-login |
 | Intent create `403` with API key | Use wallet JWT for session intents |
 | Challenge/login fails | Wrong address, stale nonce, or signature over a modified message |
 

@@ -34,7 +34,7 @@ const SDK_MATRIX = [
         id: 'python',
         name: 'Python',
         icon: 'Py',
-        bg: 'hover:bg-blue-500/10',
+        bg: 'hover:bg-info/10',
         install: 'pip install proxyhubb',
         docs: 'https://docs.proxyhubb.com/docs/sdks/python',
         registry: 'https://pypi.org/project/proxyhubb/',
@@ -43,7 +43,7 @@ const SDK_MATRIX = [
         id: 'nodejs',
         name: 'Node.js',
         icon: 'JS',
-        bg: 'hover:bg-emerald-500/10',
+        bg: 'hover:bg-success/10',
         install: 'npm install @proxyhubb/sdk',
         docs: 'https://docs.proxyhubb.com/docs/sdks/nodejs',
         registry: 'https://www.npmjs.com/package/@proxyhubb/sdk',
@@ -52,7 +52,7 @@ const SDK_MATRIX = [
         id: 'golang',
         name: 'Golang',
         icon: 'Go',
-        bg: 'hover:bg-cyan-500/10',
+        bg: 'hover:bg-info/10',
         install: 'go get github.com/samuel-1-avson/ProxySocialHub/sdks/go@v0.2.0',
         docs: 'https://docs.proxyhubb.com/docs/sdks/go',
         registry: 'https://pkg.go.dev/github.com/samuel-1-avson/ProxySocialHub/sdks/go',
@@ -95,9 +95,9 @@ export default function ProxyPage() {
 
     const tiers = [
         { id: 'any', name: 'Any Tier', icon: Globe, color: 'text-muted-foreground', border: 'border-border', bg: 'bg-muted' },
-        { id: 'Bronze', name: 'Bronze', icon: Shield, color: 'text-orange-400', border: 'border-orange-500/20', bg: 'bg-orange-500/10' },
-        { id: 'Silver', name: 'Silver', icon: CheckCircle, color: 'text-slate-300', border: 'border-slate-500/20', bg: 'bg-slate-500/10' },
-        { id: 'Gold', name: 'Gold', icon: Zap, color: 'text-amber-700 dark:text-amber-400', border: 'border-amber-500/20', bg: 'bg-amber-500/10' },
+        { id: 'Bronze', name: 'Bronze', icon: Shield, color: 'text-warning', border: 'border-warning/20', bg: 'bg-warning/10' },
+        { id: 'Silver', name: 'Silver', icon: CheckCircle, color: 'text-muted-foreground', border: 'border-border', bg: 'bg-muted/10' },
+        { id: 'Gold', name: 'Gold', icon: Zap, color: 'text-warning dark:text-warning', border: 'border-warning/20', bg: 'bg-warning/10' },
     ];
 
     const { data: allSessions = [], isLoading: loading, isError: sessionsError, error: sessionsQueryError, refetch: refetchSessions } = useQuery({
@@ -253,7 +253,7 @@ export default function ProxyPage() {
                 <div>
                     <div className="ui-stat-label">Gateway endpoint</div>
                     <div className="ui-stat-value text-[18px] break-all">{PROXY_ENDPOINT}</div>
-                    <div className="ui-stat-detail">HTTP CONNECT / SOCKS5 only — see docs/buyer-proxy.md</div>
+                    <div className="ui-stat-detail">HTTP CONNECT / SOCKS5 only. See docs/buyer-proxy.md</div>
                     <button
                         type="button"
                         onClick={() => copyToClipboard(PROXY_ENDPOINT, 'endpoint')}

@@ -1,13 +1,16 @@
 {
   "name": "extension",
   "private": true,
-  "version": "0.6.1",
+  "version": "0.7.0",
   "scripts": {
     "build": "node scripts/build.mjs",
+    "build:firefox": "node scripts/build.mjs --firefox",
     "pack": "node scripts/pack.mjs",
+    "pack:firefox": "node scripts/pack.mjs --firefox",
+    "lint:firefox": "node scripts/build.mjs --firefox --store && npx --yes web-ext@8 lint --source-dir dist-firefox",
     "watch": "node scripts/build.mjs --watch",
     "typecheck": "tsc --noEmit",
-    "test": "node scripts/test-hmac.mjs && node scripts/test-verify.mjs && node scripts/test-reliability.mjs && tsc --noEmit"
+    "test": "node scripts/test-hmac.mjs && node scripts/test-verify.mjs && node scripts/test-reliability.mjs && node scripts/test-bridge.mjs && tsc --noEmit"
   },
   "devDependencies": {
     "@types/chrome": "^0.1.4",

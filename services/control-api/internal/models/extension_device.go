@@ -10,7 +10,7 @@ import (
 type ExtensionDevice struct {
 	ID               uuid.UUID  `gorm:"type:uuid;primaryKey;default:uuid_generate_v4()" json:"id"`
 	UserID           uuid.UUID  `gorm:"type:uuid;not null;uniqueIndex:idx_ext_dev_user_ext" json:"user_id"`
-	ExtensionID      string     `gorm:"size:32;not null;uniqueIndex:idx_ext_dev_user_ext" json:"extension_id"`
+	ExtensionID      string     `gorm:"size:128;not null;uniqueIndex:idx_ext_dev_user_ext" json:"extension_id"`
 	Name             string     `gorm:"size:100" json:"name"`
 	RefreshTokenHash string     `gorm:"size:64" json:"-"`
 	RefreshExpiresAt *time.Time `json:"refresh_expires_at,omitempty"`

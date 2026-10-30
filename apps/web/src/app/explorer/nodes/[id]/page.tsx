@@ -72,12 +72,12 @@ export default function NodeDetailPage() {
                 <div className="flex items-center gap-4">
                     <Link
                         href="/explorer/nodes"
-                        className="flex items-center gap-2 text-[10px] font-black text-muted-foreground hover:text-primary transition-colors uppercase tracking-[0.3em]"
+                        className="flex items-center gap-2 text-xs font-semibold text-muted-foreground hover:text-primary transition-colors"
                     >
                         <ArrowLeft size={14} /> All Nodes
                     </Link>
                     <span className="text-muted-foreground">/</span>
-                    <span className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.3em] truncate max-w-[200px]">{nodeId}</span>
+                    <span className="text-xs font-semibold text-muted-foreground truncate max-w-[200px]">{nodeId}</span>
                 </div>
 
                 <GlassCard className="p-8 relative overflow-hidden border-border bg-card">
@@ -86,35 +86,35 @@ export default function NodeDetailPage() {
                     <div className="relative z-10">
                         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-8">
                             <div className="flex items-start gap-4">
-                                <div className={`w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg ${
+                                <div className={`w-16 h-16 rounded-lg flex items-center justify-center shadow-sm ${
                                     node?.is_active
-                                        ? 'bg-gradient-to-br from-emerald-500 to-emerald-600 shadow-emerald-500/20'
+                                        ? 'bg-gradient-to-br from-success to-success '
                                         : 'bg-muted shadow-none'
                                 }`}>
                                     {node?.is_validator
-                                        ? <Shield size={28} className={node?.is_active ? 'text-white' : 'text-muted-foreground'} />
-                                        : <Server size={28} className={node?.is_active ? 'text-white' : 'text-muted-foreground'} />}
+                                        ? <Shield size={28} className={node?.is_active ? 'text-foreground' : 'text-muted-foreground'} />
+                                        : <Server size={28} className={node?.is_active ? 'text-foreground' : 'text-muted-foreground'} />}
                                 </div>
                                 <div>
-                                    <div className="text-[10px] font-black text-primary uppercase tracking-[0.5em] mb-1">
+                                    <div className="text-xs font-semibold text-primary mb-1">
                                         Grid Telemetry // Node
                                     </div>
                                     {isLoading ? (
                                         <div className="h-8 w-64 bg-muted animate-pulse rounded" />
                                     ) : (
-                                        <h1 className="text-2xl font-black text-foreground tracking-tighter break-all">
+                                        <h1 className="text-2xl font-semibold text-foreground tracking-tight break-all">
                                             {node?.name || nodeId}
                                         </h1>
                                     )}
                                     <div className="flex flex-wrap items-center gap-3 mt-2">
                                         {node?.is_validator && (
-                                            <span className="px-2 py-0.5 rounded-lg text-[8px] font-black bg-primary/10 text-primary border border-primary/20 uppercase tracking-wider">
+                                            <span className="px-2 py-0.5 rounded-lg text-xs font-semibold bg-primary/10 text-primary border border-primary/20">
                                                 Validator
                                             </span>
                                         )}
                                         {node && (
-                                            <span className={`flex items-center gap-1 text-[8px] font-black uppercase tracking-wider ${
-                                                node.is_active ? 'text-emerald-500' : 'text-muted-foreground'
+                                            <span className={`flex items-center gap-1 text-xs font-semibold ${
+                                                node.is_active ? 'text-success' : 'text-muted-foreground'
                                             }`}>
                                                 {node.is_active
                                                     ? <><CheckCircle size={10} /> Online</>
@@ -123,7 +123,7 @@ export default function NodeDetailPage() {
                                             </span>
                                         )}
                                         {node?.version && (
-                                            <span className="text-[8px] font-black text-muted-foreground uppercase tracking-wider">
+                                            <span className="text-xs font-semibold text-muted-foreground">
                                                 v{node.version}
                                             </span>
                                         )}
@@ -134,16 +134,16 @@ export default function NodeDetailPage() {
                             {/* Quality Score */}
                             {!isLoading && node && (
                                 <div className="text-right">
-                                    <p className="text-[9px] font-black text-muted-foreground uppercase tracking-[0.3em] mb-1">Quality Score</p>
+                                    <p className="text-xs font-semibold text-muted-foreground mb-1">Quality Score</p>
                                     <div className="flex items-center gap-2 justify-end">
-                                        <Star size={20} className="text-yellow-500" />
-                                        <span className="text-4xl font-black text-foreground tracking-tighter">
+                                        <Star size={20} className="text-warning" />
+                                        <span className="text-4xl font-semibold text-foreground tracking-tight">
                                             {(node.quality_score || 0).toFixed(1)}
                                         </span>
                                         <span className="text-lg text-muted-foreground">/100</span>
                                     </div>
                                     {node.last_heartbeat && (
-                                        <p className="text-[9px] text-muted-foreground mt-1 flex items-center gap-1 justify-end">
+                                        <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1 justify-end">
                                             <Clock size={9} />
                                             {formatDistanceToNow(new Date(node.last_heartbeat), { addSuffix: true })}
                                         </p>
@@ -158,29 +158,29 @@ export default function NodeDetailPage() {
             {isLoading ? (
                 <div className="space-y-4">
                     {Array.from({ length: 4 }).map((_, i) => (
-                        <div key={i} className="h-32 bg-card animate-pulse border border-border rounded-2xl" />
+                        <div key={i} className="h-32 bg-card animate-pulse border border-border rounded-lg" />
                     ))}
                 </div>
             ) : node ? (
                 <>
                     {/* Performance Metrics */}
                     <motion.section variants={itemVariants} className="space-y-4">
-                        <h2 className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.4em] px-2 flex items-center gap-2">
+                        <h2 className="text-xs font-semibold text-muted-foreground px-2 flex items-center gap-2">
                             <Activity size={10} /> Performance
                         </h2>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                             {[
-                                { label: 'Uptime', value: `${(node.uptime_percent || 0).toFixed(2)}%`, icon: CheckCircle, color: node.uptime_percent > 95 ? 'text-emerald-500' : node.uptime_percent > 80 ? 'text-yellow-500' : 'text-rose-500' },
-                                { label: 'Latency', value: `${(node.latency_ms || 0).toFixed(0)} ms`, icon: Zap, color: node.latency_ms < 50 ? 'text-emerald-500' : node.latency_ms < 150 ? 'text-yellow-500' : 'text-rose-500' },
-                                { label: 'Success Rate', value: formatSuccessRate(node.success_rate, 2), icon: Star, color: successRatePercent(node.success_rate) > 95 ? 'text-emerald-500' : successRatePercent(node.success_rate) > 80 ? 'text-yellow-500' : 'text-rose-500' },
+                                { label: 'Uptime', value: `${(node.uptime_percent || 0).toFixed(2)}%`, icon: CheckCircle, color: node.uptime_percent > 95 ? 'text-success' : node.uptime_percent > 80 ? 'text-warning' : 'text-destructive' },
+                                { label: 'Latency', value: `${(node.latency_ms || 0).toFixed(0)} ms`, icon: Zap, color: node.latency_ms < 50 ? 'text-success' : node.latency_ms < 150 ? 'text-warning' : 'text-destructive' },
+                                { label: 'Success Rate', value: formatSuccessRate(node.success_rate, 2), icon: Star, color: successRatePercent(node.success_rate) > 95 ? 'text-success' : successRatePercent(node.success_rate) > 80 ? 'text-warning' : 'text-destructive' },
                                 { label: 'Active Sessions', value: (node.active_sessions || 0).toLocaleString(), icon: Users, color: 'text-primary' },
                             ].map((stat) => (
                                 <GlassCard key={stat.label} className="p-5 border-border bg-card">
                                     <div className="flex items-center gap-2 mb-2">
                                         <stat.icon size={12} className={stat.color} />
-                                        <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest">{stat.label}</p>
+                                        <p className="text-xs font-semibold text-muted-foreground">{stat.label}</p>
                                     </div>
-                                    <p className={`text-2xl font-black tracking-tighter ${stat.color}`}>{stat.value}</p>
+                                    <p className={`text-2xl font-semibold tracking-tight ${stat.color}`}>{stat.value}</p>
                                 </GlassCard>
                             ))}
                         </div>
@@ -188,51 +188,51 @@ export default function NodeDetailPage() {
 
                     {/* Bandwidth */}
                     <motion.section variants={itemVariants} className="space-y-4">
-                        <h2 className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.4em] px-2 flex items-center gap-2">
+                        <h2 className="text-xs font-semibold text-muted-foreground px-2 flex items-center gap-2">
                             <Wifi size={10} /> Bandwidth
                         </h2>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <GlassCard className="p-5 border-border bg-card">
-                                <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest mb-2">Total Bandwidth</p>
-                                <p className="text-2xl font-black text-foreground tracking-tighter">{(node.bandwidth_gb || 0).toFixed(2)} <span className="text-lg text-muted-foreground">GB</span></p>
+                                <p className="text-xs font-semibold text-muted-foreground mb-2">Total Bandwidth</p>
+                                <p className="text-2xl font-semibold text-foreground tracking-tight">{(node.bandwidth_gb || 0).toFixed(2)} <span className="text-lg text-muted-foreground">GB</span></p>
                             </GlassCard>
                             <GlassCard className="p-5 border-border bg-card">
                                 <div className="flex items-center gap-2 mb-2">
                                     <Upload size={12} className="text-primary" />
-                                    <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest">Uploaded</p>
+                                    <p className="text-xs font-semibold text-muted-foreground">Uploaded</p>
                                 </div>
-                                <p className="text-2xl font-black text-foreground tracking-tighter">{formatBytes(node.bytes_up || 0)}</p>
+                                <p className="text-2xl font-semibold text-foreground tracking-tight">{formatBytes(node.bytes_up || 0)}</p>
                             </GlassCard>
                             <GlassCard className="p-5 border-border bg-card">
                                 <div className="flex items-center gap-2 mb-2">
                                     <Download size={12} className="text-primary" />
-                                    <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest">Downloaded</p>
+                                    <p className="text-xs font-semibold text-muted-foreground">Downloaded</p>
                                 </div>
-                                <p className="text-2xl font-black text-foreground tracking-tighter">{formatBytes(node.bytes_down || 0)}</p>
+                                <p className="text-2xl font-semibold text-foreground tracking-tight">{formatBytes(node.bytes_down || 0)}</p>
                             </GlassCard>
                         </div>
                     </motion.section>
 
                     {/* Location & Network */}
                     <motion.section variants={itemVariants} className="space-y-4">
-                        <h2 className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.4em] px-2 flex items-center gap-2">
+                        <h2 className="text-xs font-semibold text-muted-foreground px-2 flex items-center gap-2">
                             <Globe size={10} /> Location & Network
                         </h2>
                         <GlassCard className="overflow-hidden border-border bg-card">
                             <div className="divide-y divide-border">
                                 {[
-                                    { label: 'Country', value: node.country || '—', icon: MapPin },
-                                    { label: 'Region', value: node.region || '—', icon: Globe },
-                                    { label: 'City', value: node.city || '—', icon: MapPin },
-                                    { label: 'ISP', value: node.isp || '—', icon: Wifi },
+                                    { label: 'Country', value: node.country || 'Unknown', icon: MapPin },
+                                    { label: 'Region', value: node.region || 'Unknown', icon: Globe },
+                                    { label: 'City', value: node.city || 'Unknown', icon: MapPin },
+                                    { label: 'ISP', value: node.isp || 'Unknown', icon: Wifi },
                                     { label: 'Chain', value: node.chain?.toUpperCase() || 'SOLANA', icon: Cpu },
                                 ].map((field) => (
                                     <div key={field.label} className="flex items-center gap-6 px-8 py-4">
                                         <div className="flex items-center gap-3 w-32 flex-shrink-0">
                                             <field.icon size={12} className="text-muted-foreground" />
-                                            <span className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">{field.label}</span>
+                                            <span className="text-xs font-semibold text-muted-foreground">{field.label}</span>
                                         </div>
-                                        <span className="text-[12px] font-black text-foreground">{field.value}</span>
+                                        <span className="text-xs font-semibold text-foreground">{field.value}</span>
                                     </div>
                                 ))}
                             </div>
@@ -242,27 +242,27 @@ export default function NodeDetailPage() {
                     {/* Staking (validators only) */}
                     {node.is_validator && (
                         <motion.section variants={itemVariants} className="space-y-4">
-                            <h2 className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.4em] px-2 flex items-center gap-2">
+                            <h2 className="text-xs font-semibold text-muted-foreground px-2 flex items-center gap-2">
                                 <Shield size={10} /> Validator Info
                             </h2>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <GlassCard className="p-5 border-border bg-card">
-                                    <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest mb-2">Stake Amount</p>
-                                    <p className="text-2xl font-black text-foreground tracking-tighter">
+                                    <p className="text-xs font-semibold text-muted-foreground mb-2">Stake Amount</p>
+                                    <p className="text-2xl font-semibold text-foreground tracking-tight">
                                         {(node.stake_amount || 0).toLocaleString()} <span className="text-lg text-muted-foreground">SOL</span>
                                     </p>
                                 </GlassCard>
                                 <GlassCard className="p-5 border-border bg-card">
-                                    <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest mb-2">Commission Rate</p>
-                                    <p className="text-2xl font-black text-foreground tracking-tighter">
+                                    <p className="text-xs font-semibold text-muted-foreground mb-2">Commission Rate</p>
+                                    <p className="text-2xl font-semibold text-foreground tracking-tight">
                                         {((node.commission_rate || 0) * 100).toFixed(1)}<span className="text-lg text-muted-foreground">%</span>
                                     </p>
                                 </GlassCard>
                             </div>
                             {node.hotkey && (
                                 <GlassCard className="p-5 border-border bg-card">
-                                    <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest mb-2">Hotkey</p>
-                                    <p className="font-mono text-[11px] text-primary break-all">{node.hotkey}</p>
+                                    <p className="text-xs font-semibold text-muted-foreground mb-2">Hotkey</p>
+                                    <p className="font-mono text-xs text-primary break-all">{node.hotkey}</p>
                                 </GlassCard>
                             )}
                         </motion.section>
@@ -270,17 +270,17 @@ export default function NodeDetailPage() {
 
                     {/* Sessions Summary */}
                     <motion.section variants={itemVariants} className="space-y-4">
-                        <h2 className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.4em] px-2 flex items-center gap-2">
+                        <h2 className="text-xs font-semibold text-muted-foreground px-2 flex items-center gap-2">
                             <Users size={10} /> Sessions
                         </h2>
                         <div className="grid grid-cols-2 gap-4">
                             <GlassCard className="p-5 border-border bg-card">
-                                <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest mb-2">Active</p>
-                                <p className="text-3xl font-black text-emerald-500 tracking-tighter">{(node.active_sessions || 0).toLocaleString()}</p>
+                                <p className="text-xs font-semibold text-muted-foreground mb-2">Active</p>
+                                <p className="text-3xl font-semibold text-success tracking-tight">{(node.active_sessions || 0).toLocaleString()}</p>
                             </GlassCard>
                             <GlassCard className="p-5 border-border bg-card">
-                                <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest mb-2">Total (All Time)</p>
-                                <p className="text-3xl font-black text-foreground tracking-tighter">{(node.total_sessions || 0).toLocaleString()}</p>
+                                <p className="text-xs font-semibold text-muted-foreground mb-2">Total (All Time)</p>
+                                <p className="text-3xl font-semibold text-foreground tracking-tight">{(node.total_sessions || 0).toLocaleString()}</p>
                             </GlassCard>
                         </div>
                     </motion.section>

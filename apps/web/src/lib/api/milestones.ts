@@ -158,11 +158,11 @@ export function getMilestoneIcon(type: string): string {
 
 export function getMilestoneColor(type: string): string {
     const colors: Record<string, string> = {
-        [MILESTONE_TYPES.FIRST_STEPS]: 'text-emerald-400',
-        [MILESTONE_TYPES.POWER_USER]: 'text-yellow-400',
-        [MILESTONE_TYPES.BANDWIDTH_CHAMPION]: 'text-orange-400',
-        [MILESTONE_TYPES.HEAVY_HITTER]: 'text-purple-400',
-        [MILESTONE_TYPES.TB_CLUB]: 'text-amber-400',
+        [MILESTONE_TYPES.FIRST_STEPS]: 'text-success',
+        [MILESTONE_TYPES.POWER_USER]: 'text-warning',
+        [MILESTONE_TYPES.BANDWIDTH_CHAMPION]: 'text-warning',
+        [MILESTONE_TYPES.HEAVY_HITTER]: 'text-primary',
+        [MILESTONE_TYPES.TB_CLUB]: 'text-warning',
     };
-    return colors[type] || 'text-blue-400';
+    return colors[type] || 'text-info';
 }

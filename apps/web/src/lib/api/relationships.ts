@@ -154,12 +154,12 @@ export function getRelationshipTier(totalSpent: number, sessionCount: number): '
 
 export function getTierColor(tier: string): string {
     const colors: Record<string, string> = {
-        new: 'text-gray-400',
-        regular: 'text-blue-400',
-        vip: 'text-purple-400',
-        champion: 'text-amber-400',
+        new: 'text-muted-foreground',
+        regular: 'text-info',
+        vip: 'text-primary',
+        champion: 'text-warning',
     };
-    return colors[tier] || 'text-gray-400';
+    return colors[tier] || 'text-muted-foreground';
 }
 
 export function getTierLabel(tier: string): string {

@@ -92,7 +92,7 @@ export function MarketplaceOrderDetailView({
       <PageHeading
         eyebrow="Purchase & connection"
         title={order?.listing?.title || "Marketplace order"}
-        description="One durable record for payment, access, and settlement."
+        description="Your payment, and how to use this proxy."
       />
       {query.isLoading && <Loading label="Loading order…" />}
       {query.isError && (
@@ -135,12 +135,12 @@ export function MarketplaceOrderDetailView({
               <span>{shortDate(order.created_at)}</span>
             </div>
             <div className="ui-row">
-              <span>Escrow state</span>
+              <span>Payment status</span>
               <span>{order.escrow_status || "See payment record"}</span>
             </div>
             <p className="ui-note mt-5">
               {credentials.data
-                ? "Credentials are available. This does not verify client routing or current traffic."
+                ? "Paid and ready to use."
                 : orderStatusDescription(order.status)}
             </p>
             {(order.tx_signature || order.tx_hash) && (
@@ -156,7 +156,7 @@ export function MarketplaceOrderDetailView({
             )}
           </section>
           {eligible && credentials.isLoading && (
-            <Loading label="Preparing connection instructions…" />
+            <Loading label="Getting your proxy ready…" />
           )}
           {eligible && credentials.isError && (
             <DataError
@@ -172,19 +172,15 @@ export function MarketplaceOrderDetailView({
                   listingTitle={order.listing?.title}
                 />
               )}
-              <MarketplaceOrderCredentials
-                credentials={credentials.data}
-                orderId={order.id}
-              />
+              <MarketplaceOrderCredentials credentials={credentials.data} />
             </>
           )}
           {!eligible && (
             <section className="ui-attention">
-              <h3>Access follows the order state.</h3>
+              <h3>Your proxy is not ready yet</h3>
               <p>
-                Credentials appear after payment is confirmed and provisioning
-                completes. Keep the same order reference while checking a
-                pending transaction.
+                Your proxy details appear here once your payment is confirmed.
+                If you just paid, give it a minute and refresh. Do not pay again.
               </p>
               <button
                 className="ui-button secondary small"

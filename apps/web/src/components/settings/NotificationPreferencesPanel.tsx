@@ -107,43 +107,43 @@ export function NotificationPreferencesPanel() {
             label: "Social",
             description: "Follows, messages, mentions, and friend requests",
             icon: UserPlus,
-            color: "text-blue-500",
-            bgColor: "bg-blue-500/10",
-            borderColor: "border-blue-500/20",
+            color: "text-info",
+            bgColor: "bg-info/10",
+            borderColor: "border-info/20",
         },
         {
             id: "business",
             label: "Business",
             description: "Orders, payments, and listing activity",
             icon: Package,
-            color: "text-amber-500",
-            bgColor: "bg-amber-500/10",
-            borderColor: "border-amber-500/20",
+            color: "text-warning",
+            bgColor: "bg-warning/10",
+            borderColor: "border-warning/20",
         },
         {
             id: "community",
             label: "Community",
             description: "Replies, upvotes, badges, and forum activity",
             icon: Award,
-            color: "text-purple-500",
-            bgColor: "bg-purple-500/10",
-            borderColor: "border-purple-500/20",
+            color: "text-primary",
+            bgColor: "bg-primary/10",
+            borderColor: "border-primary/20",
         },
         {
             id: "system",
             label: "System",
             description: "Security alerts, maintenance, and account updates",
             icon: AlertTriangle,
-            color: "text-red-500",
-            bgColor: "bg-red-500/10",
-            borderColor: "border-red-500/20",
+            color: "text-destructive",
+            bgColor: "bg-destructive/10",
+            borderColor: "border-destructive/20",
         },
     ];
 
     const channels = [
         { id: "in_app", label: "In-App", icon: Monitor, description: "Show in notification center", live: true },
-        { id: "email", label: "Email", icon: Mail, description: "Coming soon — not delivered yet", live: false },
-        { id: "push", label: "Push", icon: Smartphone, description: "Coming soon — not delivered yet", live: false },
+        { id: "email", label: "Email", icon: Mail, description: "Coming soon: not delivered yet", live: false },
+        { id: "push", label: "Push", icon: Smartphone, description: "Coming soon: not delivered yet", live: false },
     ];
 
     return (
@@ -152,7 +152,7 @@ export function NotificationPreferencesPanel() {
                 <div>
                     <h2 className="text-xl font-bold font-mono tracking-tight">Notifications</h2>
                     <p className="text-muted-foreground mt-1 text-sm">
-                        In-app delivery is live. Email and push preferences are saved for later — they are not delivered yet.
+                        In-app delivery is live. Email and push preferences are saved for later. They are not delivered yet.
                     </p>
                 </div>
                 {saving && (
@@ -162,7 +162,7 @@ export function NotificationPreferencesPanel() {
                     </div>
                 )}
                 {saved && (
-                    <div className="flex items-center gap-2 text-emerald-500">
+                    <div className="flex items-center gap-2 text-success">
                         <Check className="w-4 h-4" />
                         <span className="text-sm font-mono">Saved</span>
                     </div>
@@ -170,7 +170,7 @@ export function NotificationPreferencesPanel() {
             </div>
 
             {error && (
-                <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-lg text-red-500 text-sm font-mono">
+                <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm font-mono">
                     {error}
                 </div>
             )}
@@ -180,7 +180,7 @@ export function NotificationPreferencesPanel() {
                     <GlassCard key={category.id} className="!p-6">
                         <div className="flex items-start gap-4 mb-6">
                             <div
-                                className={`w-12 h-12 rounded-xl ${category.bgColor} ${category.borderColor} border flex items-center justify-center`}
+                                className={`w-12 h-12 rounded-lg ${category.bgColor} ${category.borderColor} border flex items-center justify-center`}
                             >
                                 <category.icon className={`w-6 h-6 ${category.color}`} />
                             </div>
@@ -209,7 +209,7 @@ export function NotificationPreferencesPanel() {
                                         }}
                                         disabled={saving || !interactive}
                                         title={interactive ? undefined : "Coming soon"}
-                                        className={`p-4 rounded-xl border text-left transition-all ${
+                                        className={`p-4 rounded-lg border text-left transition-all ${
                                             !interactive
                                                 ? "bg-secondary/10 border-border opacity-70 cursor-not-allowed"
                                                 : isEnabled
@@ -239,13 +239,13 @@ export function NotificationPreferencesPanel() {
 
             <GlassCard className="!p-6">
                 <div className="flex items-start gap-4 mb-6">
-                    <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
+                    <div className="w-12 h-12 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center">
                         <Mail className="w-6 h-6 text-primary" />
                     </div>
                     <div>
                         <h3 className="font-bold font-mono text-lg">Email digest</h3>
                         <p className="text-sm text-muted-foreground">
-                            Saved for later — email digests are not sent yet.
+                            Saved for later. Email digests are not sent yet.
                         </p>
                     </div>
                 </div>
@@ -310,7 +310,7 @@ export function NotificationPreferencesPanel() {
                     <p className="mb-2 font-medium text-foreground">Delivery notes</p>
                     <ul className="space-y-1 list-disc list-inside">
                         <li>In-app notifications appear in your notification center (and over realtime when connected)</li>
-                        <li>Email and push delivery are not live yet — toggles are reserved for a future release</li>
+                        <li>Email and push delivery are not live yet. Toggles are reserved for a future release</li>
                         <li>Some critical security notifications cannot be disabled</li>
                     </ul>
                 </div>

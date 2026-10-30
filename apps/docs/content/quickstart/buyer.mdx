@@ -5,6 +5,17 @@ description: Get a working CONNECT proxy request through ProxyHubb with a sessio
 
 Goal: by the end of this page you have a successful `curl` through `proxy.proxyhubb.com:8090` that returns an IP JSON payload.
 
+## What you're about to do
+
+You'll make a quick pass in the dashboard, then, going through ProxyHubb, ask a test website: *"what address do you see me coming from?"* If the answer is **not your own address**, your traffic really went through someone's home connection. That's the whole test.
+
+<Flow caption="If httpbin.org reports an address that isn't yours, it worked.">
+  <FlowStep icon="ticket" title="1. Get a pass">Make a quick pass (session intent) in the dashboard</FlowStep>
+  <FlowStep icon="terminal" title="2. Run one command">Send a test request through door 8090 with your pass</FlowStep>
+  <FlowStep icon="house" title="3. A home fetches it" arrow="routed">A provider's connection visits the test site</FlowStep>
+  <FlowStep icon="eye" title="4. Check the answer" arrow="reply">httpbin.org shows the address it saw</FlowStep>
+</Flow>
+
 <Callout type="tip" title="Success criteria">
 A `200` response from `https://httpbin.org/ip` via CONNECT, with JSON containing an `origin` field.
 </Callout>
@@ -55,7 +66,7 @@ curl -sS -x "http://session-intent:INTENT_TOKEN@proxy.proxyhubb.com:8090" \
 | Test | Expect |
 |------|--------|
 | Omit credentials | Proxy `407` |
-| Absolute-URI HTTP proxy (no CONNECT) | Proxy `501` — see [Buyer proxy](/docs/buyer/proxy) |
+| Absolute-URI HTTP proxy (no CONNECT) | Proxy `501`: see [Buyer proxy](/docs/buyer/proxy) |
 | API key on intent create | Control API `403` |
 
 ## Next steps

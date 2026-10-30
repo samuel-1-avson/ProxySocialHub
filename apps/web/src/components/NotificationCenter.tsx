@@ -190,7 +190,7 @@ export function NotificationCenter() {
                 />
                 {unreadCount > 0 && (
                     <span
-                        className="absolute -top-0.5 -right-0.5 w-5 h-5 bg-primary text-primary-foreground text-[10px] font-bold font-mono rounded-full flex items-center justify-center animate-pulse"
+                        className="absolute -top-0.5 -right-0.5 w-5 h-5 bg-primary text-primary-foreground text-xs font-bold font-mono rounded-full flex items-center justify-center animate-pulse"
                         aria-hidden="true"
                     >
                         {unreadCount > 99 ? "99+" : unreadCount}
@@ -198,7 +198,7 @@ export function NotificationCenter() {
                 )}
                 {isConnected && (
                     <span
-                        className="absolute bottom-0.5 right-0.5 w-2 h-2 bg-emerald-500 rounded-full border-2 border-background"
+                        className="absolute bottom-0.5 right-0.5 w-2 h-2 bg-success rounded-full border-2 border-background"
                         aria-hidden="true"
                     />
                 )}
@@ -211,7 +211,7 @@ export function NotificationCenter() {
                     id={dropdownId.current}
                     role="menu"
                     aria-labelledby={buttonId.current}
-                    className="absolute right-0 top-full mt-2 w-[400px] max-w-[calc(100vw-2rem)] bg-card border border-border rounded-lg shadow-xl z-50 overflow-hidden"
+                    className="absolute right-0 top-full mt-2 w-[400px] max-w-[calc(100vw-2rem)] bg-card border border-border rounded-lg shadow-sm z-50 overflow-hidden"
                     onKeyDown={handleKeyDown}
                 >
                     {/* Header */}
@@ -220,7 +220,7 @@ export function NotificationCenter() {
                             <Bell className="w-4 h-4 text-primary" aria-hidden="true" />
                             <h3 className="font-bold font-mono text-sm">NOTIFICATIONS</h3>
                             {unreadCount > 0 && (
-                                <span className="px-2 py-0.5 bg-primary text-primary-foreground text-[10px] font-bold font-mono rounded-full">
+                                <span className="px-2 py-0.5 bg-primary text-primary-foreground text-xs font-bold font-mono rounded-full">
                                     {unreadCount}
                                 </span>
                             )}

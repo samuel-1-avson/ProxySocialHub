@@ -141,7 +141,7 @@ export function OnboardingKYCPanel({
 
   return (
     <div className="space-y-6">
-      <h2 className="text-lg font-bold font-mono uppercase border-b border-border pb-3">
+      <h2 className="text-lg font-bold font-mono border-b border-border pb-3">
         Identity verification (required)
       </h2>
       <p className="text-sm text-muted-foreground">
@@ -151,14 +151,14 @@ export function OnboardingKYCPanel({
 
       <div className="grid sm:grid-cols-3 gap-3">
         <div className="border border-border bg-background p-4">
-          <p className="text-[10px] font-mono uppercase text-muted-foreground mb-2">Status</p>
-          <p className="font-mono font-bold uppercase text-sm flex items-center gap-2">
+          <p className="text-xs font-mono text-muted-foreground mb-2">Status</p>
+          <p className="font-mono font-bold text-sm flex items-center gap-2">
             <Shield className={`w-4 h-4 ${localStatus === "approved" ? "text-primary" : "text-muted-foreground"}`} />
             {isKycUnset(localStatus) ? "not_started" : localStatus}
           </p>
         </div>
         <div className="border border-border bg-background p-4">
-          <p className="text-[10px] font-mono uppercase text-muted-foreground mb-2">Wallet</p>
+          <p className="text-xs font-mono text-muted-foreground mb-2">Wallet</p>
           <p className="font-mono text-xs">
             {hasWallet
               ? `${user!.wallet_address!.slice(0, 6)}…${user!.wallet_address!.slice(-4)}`
@@ -166,7 +166,7 @@ export function OnboardingKYCPanel({
           </p>
         </div>
         <div className="border border-border bg-background p-4">
-          <p className="text-[10px] font-mono uppercase text-muted-foreground mb-2">Balance</p>
+          <p className="text-xs font-mono text-muted-foreground mb-2">Balance</p>
           {walletLoading ? (
             <Loader2 className="w-4 h-4 animate-spin" />
           ) : typeof balance === "number" ? (
@@ -192,7 +192,7 @@ export function OnboardingKYCPanel({
       )}
 
       {localStatus === "pending" && isMainnet && (
-        <div className="border border-border bg-background p-4 text-xs font-mono text-muted-foreground uppercase tracking-wide">
+        <div className="border border-border bg-background p-4 text-xs font-mono text-muted-foreground">
           Awaiting verification provider webhook. Status refreshes automatically.
         </div>
       )}
@@ -258,7 +258,7 @@ export function OnboardingKYCPanel({
       {localStatus === "approved" && (
         <p className="text-xs font-mono text-muted-foreground flex items-center gap-2">
           <CheckCircle2 className="w-3.5 h-3.5 text-primary" />
-          KYC approved — you can submit a provider application next.
+          KYC approved. You can submit a provider application next.
         </p>
       )}
     </div>

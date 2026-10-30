@@ -140,17 +140,17 @@ export function StreamingSessionCard({ session, onTerminate }: StreamingSessionC
         : 'Upgrade to L2 state channel';
 
     return (
-        <div className="card-retro p-0 bg-card overflow-hidden group border-green-500/30 shadow-[0_0_15px_rgba(34,197,94,0.1)]">
+        <div className="card-retro p-0 bg-card overflow-hidden group border-success/30">
             {/* Header / Status Bar */}
             <div className="px-5 py-3 bg-secondary/10 border-b border-border flex justify-between items-center">
                 <div className="flex items-center gap-2">
                     <div className="relative">
-                        <Activity size={16} className="text-green-500" />
-                        <span className="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full animate-ping"></span>
+                        <Activity size={16} className="text-success" />
+                        <span className="absolute -top-1 -right-1 w-2 h-2 bg-success rounded-full animate-ping"></span>
                     </div>
-                    <h3 className="text-xs font-bold font-mono uppercase text-green-500 tracking-wider">Stream Active</h3>
+                    <h3 className="text-xs font-bold font-mono text-success">Stream Active</h3>
                 </div>
-                <div className="text-[10px] font-mono text-muted-foreground uppercase flex gap-2">
+                <div className="text-xs font-mono text-muted-foreground flex gap-2">
                     <span>ID: {session.id.slice(0, 8)}</span>
                 </div>
             </div>
@@ -162,33 +162,33 @@ export function StreamingSessionCard({ session, onTerminate }: StreamingSessionC
 
                 {/* Left: Metered amount */}
                 <div className="z-10">
-                    <p className="text-[10px] font-mono font-bold uppercase text-muted-foreground mb-1">Metered amount</p>
-                    <div className="text-3xl font-black font-mono tracking-tighter text-white flex items-baseline gap-1">
-                        {meteredCost.toFixed(6)} <span className="text-sm text-green-500">SOL</span>
+                    <p className="text-xs font-mono font-bold text-muted-foreground mb-1">Metered amount</p>
+                    <div className="text-3xl font-semibold font-mono tracking-tight text-foreground flex items-baseline gap-1">
+                        {meteredCost.toFixed(6)} <span className="text-sm text-success">SOL</span>
                     </div>
-                    <div className="flex items-center gap-1 mt-2 text-[10px] font-mono text-green-400/80">
+                    <div className="flex items-center gap-1 mt-2 text-xs font-mono text-success/80">
                         <Zap size={10} />
                         {pricePerGb > 0
                             ? `Rate: ${Number(pricePerGb).toFixed(3)} SOL/GB (gateway bytes)`
-                            : 'Rate: unknown — listing price missing'}
+                            : 'Rate: unknown: listing price missing'}
                     </div>
                 </div>
 
                 {/* Right: Time & Bytes */}
                 <div className="z-10 flex flex-col justify-between items-end text-right">
                     <div>
-                        <p className="text-[10px] font-mono font-bold uppercase text-muted-foreground mb-1">Duration</p>
-                        <div className="text-xl font-bold font-mono text-white flex items-center justify-end gap-2">
+                        <p className="text-xs font-mono font-bold text-muted-foreground mb-1">Duration</p>
+                        <div className="text-xl font-bold font-mono text-foreground flex items-center justify-end gap-2">
                             {formatTime(elapsed)}
-                            <Clock size={14} className="animate-pulse text-green-500" />
+                            <Clock size={14} className="animate-pulse text-success" />
                         </div>
                     </div>
 
                     <div className="mt-4">
-                        <p className="text-[10px] font-mono font-bold uppercase text-muted-foreground mb-1">Data usage</p>
-                        <div className="text-md font-bold font-mono text-white flex items-center justify-end gap-2">
+                        <p className="text-xs font-mono font-bold text-muted-foreground mb-1">Data usage</p>
+                        <div className="text-md font-bold font-mono text-foreground flex items-center justify-end gap-2">
                             {formatBytes(bytesUsed)}
-                            <HardDrive size={12} className="text-blue-400" />
+                            <HardDrive size={12} className="text-info" />
                         </div>
                     </div>
                 </div>
@@ -196,27 +196,27 @@ export function StreamingSessionCard({ session, onTerminate }: StreamingSessionC
 
             {/* Footer / Controls */}
             <div className="p-4 bg-secondary/5 border-t border-border flex justify-between items-center">
-                <div className="flex items-center gap-2 text-[10px] font-mono text-muted-foreground">
-                    <ShieldCheck size={12} className="text-blue-500" />
+                <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground">
+                    <ShieldCheck size={12} className="text-info" />
                     <span>{escrowLabel}</span>
                 </div>
 
                 {confirmStop ? (
                     <div className="flex items-center gap-2">
-                        <span className="flex items-center gap-1 text-[10px] font-bold text-red-500 font-mono uppercase">
+                        <span className="flex items-center gap-1 text-xs font-bold text-destructive font-mono">
                             <AlertTriangle size={10} /> Stop?
                         </span>
                         <button
                             onClick={() => { onTerminate(session.id); setConfirmStop(false); }}
                             aria-label="Confirm stop stream"
-                            className="px-3 py-1.5 bg-red-500/20 text-red-500 border border-red-500/40 rounded-sm text-[10px] font-bold font-mono uppercase hover:bg-red-500/30 transition-all"
+                            className="px-3 py-1.5 bg-destructive/20 text-destructive border border-destructive/40 rounded-sm text-xs font-bold font-mono hover:bg-destructive/30 transition-all"
                         >
                             Confirm
                         </button>
                         <button
                             onClick={() => setConfirmStop(false)}
                             aria-label="Cancel stop stream"
-                            className="px-3 py-1.5 bg-secondary/30 text-muted-foreground border border-border rounded-sm text-[10px] font-bold font-mono uppercase hover:text-foreground transition-all"
+                            className="px-3 py-1.5 bg-secondary/30 text-muted-foreground border border-border rounded-sm text-xs font-bold font-mono hover:text-foreground transition-all"
                         >
                             Cancel
                         </button>
@@ -225,7 +225,7 @@ export function StreamingSessionCard({ session, onTerminate }: StreamingSessionC
                     <button
                         onClick={() => setConfirmStop(true)}
                         aria-label="Stop stream"
-                        className="flex items-center gap-2 px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 hover:border-red-500/50 rounded-sm text-xs font-bold font-mono uppercase transition-all"
+                        className="flex items-center gap-2 px-4 py-2 bg-destructive/10 hover:bg-destructive/20 text-destructive border border-destructive/20 hover:border-destructive/50 rounded-sm text-xs font-bold font-mono transition-all"
                     >
                         <Square size={12} fill="currentColor" /> Stop Stream
                     </button>
@@ -233,18 +233,18 @@ export function StreamingSessionCard({ session, onTerminate }: StreamingSessionC
             </div>
 
             {/* Turbo Mode Toggle */}
-            <div className="px-4 py-2 bg-black/40 border-t border-dashed border-border flex justify-between items-center">
+            <div className="px-4 py-2 bg-secondary border-t border-dashed border-border flex justify-between items-center">
                 <div className="flex items-center gap-2">
-                    <Zap size={12} className={isTurbo ? 'text-yellow-400 animate-pulse' : 'text-muted-foreground'} />
-                    <span className={`text-[10px] font-bold font-mono uppercase ${isTurbo ? 'text-yellow-400' : 'text-muted-foreground'}`}>
-                        {isTurbo ? 'TURBO L2 CHANNEL ACTIVE' : 'STANDARD SETTLEMENT'}
+                    <Zap size={12} className={isTurbo ? 'text-warning animate-pulse' : 'text-muted-foreground'} />
+                    <span className={`text-xs font-bold font-mono ${isTurbo ? 'text-warning' : 'text-muted-foreground'}`}>
+                        {isTurbo ? 'Turbo L2 channel active' : 'Standard settlement'}
                     </span>
                 </div>
 
                 {!isTurbo && (
                     <div className="flex items-center gap-2">
                         {!walletConnected && (
-                            <div className="flex items-center gap-1 text-[9px] font-mono text-yellow-500/70">
+                            <div className="flex items-center gap-1 text-xs font-mono text-warning/70">
                                 <AlertCircle size={10} />
                                 <span>Wallet required</span>
                             </div>
@@ -253,9 +253,9 @@ export function StreamingSessionCard({ session, onTerminate }: StreamingSessionC
                             onClick={activateTurbo}
                             disabled={turboDisabled}
                             title={turboTooltip}
-                            className="text-[10px] font-bold font-mono uppercase text-green-500 hover:underline disabled:opacity-40 disabled:cursor-not-allowed disabled:no-underline"
+                            className="text-xs font-bold font-mono text-success hover:underline disabled:opacity-40 disabled:cursor-not-allowed disabled:no-underline"
                         >
-                            {loadingTurbo ? 'OPENING...' : 'UPGRADE TO L2'}
+                            {loadingTurbo ? 'Opening…' : 'Upgrade to L2'}
                         </button>
                     </div>
                 )}
@@ -263,7 +263,7 @@ export function StreamingSessionCard({ session, onTerminate }: StreamingSessionC
 
             {/* Progress Bar */}
             <div className="h-0.5 w-full bg-secondary/30">
-                <div className="h-full bg-green-500 animate-pulse w-full origin-left"></div>
+                <div className="h-full bg-success animate-pulse w-full origin-left"></div>
             </div>
         </div>
     );

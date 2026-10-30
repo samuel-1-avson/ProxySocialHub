@@ -1,9 +1,26 @@
 ---
 title: Escrow and orders
-description: Marketplace order FSM — pending, pay/solana, confirm-escrow, credentials, and terminal states.
+description: Marketplace order FSM: pending, pay/solana, confirm-escrow, credentials, and terminal states.
 ---
 
 Marketplace purchases lock buyer SOL in a Solana escrow PDA until the order is active (and later settled). Credentials for CONNECT are issued only when the order **and** session are ready.
+
+## In plain English
+
+An **escrow** is a locked box. When you buy from the marketplace, your money goes into the box, not to the provider. When you're done, the box pays the provider for exactly what you used and gives you back the rest.
+
+<MoneyFlow />
+
+### The life of an order
+
+<Flow caption="You get your proxy username and password at step 3, once the money is safely in the box.">
+  <FlowStep icon="calendar" title="1. Order created">You pick a listing. Status: <code>pending</code></FlowStep>
+  <FlowStep icon="wallet" title="2. You pay">Your wallet sends SOL to the box. Status: <code>pending_payment</code></FlowStep>
+  <FlowStep icon="key" title="3. Ready" arrow="confirmed">Payment seen. You get your key. Status: <code>active</code></FlowStep>
+  <FlowStep icon="paid" title="4. Settled" arrow="used up / done">Provider paid, rest refunded. Status: <code>completed</code></FlowStep>
+</Flow>
+
+If an order is never paid, or expires unused, the money goes back to you (`refunded`).
 
 ## Happy path
 
@@ -37,7 +54,7 @@ Credentials are available when status is in `{active, completed}` **and** the li
 ## What buyers should know
 
 - Escrow amounts are in **lamports / SOL** on Solana **devnet** for public testnet
-- Confirm may take `{ tx_signature }` or rely on a chain listener — always poll status if UX is async
+- Confirm may take `{ tx_signature }` or rely on a chain listener: always poll status if UX is async
 - Dev-only shortcuts (`activate-dev`, sandbox) require `PROXYHUB_ALLOW_DEV_ESCROW_ACTIVATE=true` and must not be assumed in production
 
 ## Related

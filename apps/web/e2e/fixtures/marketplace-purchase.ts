@@ -261,43 +261,57 @@ export async function stubExtensionPairStart(page: import('@playwright/test').Pa
     });
 }
 
-/** Page-side chrome.runtime mock so Connect with ProxyHubb can one-click without a real MV3 extension. */
+/**
+ * Page-side stand-in for the extension's content-script bridge
+ * (apps/extension/src/bridge.ts): marks <html> and answers postMessage requests,
+ * so "Turn on proxy" works without a real extension.
+ */
 export async function mockExtensionHandoff(page: import('@playwright/test').Page) {
     await page.addInitScript(() => {
-        const w = window as Window & {
-            __PROXYHUB_EXTENSION_ID__?: string;
-            chrome?: {
-                runtime?: {
-                    sendMessage: (extensionId: string, message: unknown, cb?: (response: unknown) => void) => void;
+        let signedIn = false;
+        let connectedOrderId = '';
+        const answer = (message: { type?: string; orderId?: string }) => {
+            if (message?.type === 'ping') {
+                return {
+                    ok: true,
+                    installed: true,
+                    signedIn,
+                    version: '0.7.0',
+                    connectionState: connectedOrderId ? 'on' : 'off',
+                    orderId: connectedOrderId || undefined,
                 };
-            };
+            }
+            if (message?.type === 'pair') {
+                signedIn = true;
+                return { ok: true, email: 'buyer-e2e@proxyhubb.test' };
+            }
+            if (message?.type === 'connect') {
+                connectedOrderId = message.orderId ?? '';
+                return { ok: true, status: { state: 'on', orderId: connectedOrderId, verify: { ip: '203.0.113.7' } } };
+            }
+            if (message?.type === 'disconnect') {
+                connectedOrderId = '';
+                return { ok: true };
+            }
+            return { ok: false, error: 'unknown message' };
         };
-        w.__PROXYHUB_EXTENSION_ID__ = 'abcdefghijklmnopabcdefghijklmnop';
-        w.chrome = {
-            runtime: {
-                sendMessage: (_extensionId, message, cb) => {
-                    const payload = message as { type?: string; orderId?: string };
-                    const reply = (response: unknown) => {
-                        if (cb) {
-                            queueMicrotask(() => cb(response));
-                        }
-                    };
-                    if (payload?.type === 'ping') {
-                        reply({ ok: true, installed: true, signedIn: false, version: '0.4.0' });
-                        return;
-                    }
-                    if (payload?.type === 'pair') {
-                        reply({ ok: true, email: 'buyer-e2e@proxyhubb.test' });
-                        return;
-                    }
-                    if (payload?.type === 'connect') {
-                        reply({ ok: true, status: { state: 'on', orderId: payload.orderId } });
-                        return;
-                    }
-                    reply({ ok: false, error: 'unknown' });
-                },
-            },
-        };
+        window.addEventListener('message', (event) => {
+            const data = event.data as { source?: string; id?: string; message?: { type?: string } } | null;
+            if (event.source !== window || data?.source !== 'proxyhubb-page') {
+                return;
+            }
+            const response = answer(data.message ?? {});
+            queueMicrotask(() =>
+                window.postMessage({ source: 'proxyhubb-ext', id: data.id, response }, window.location.origin),
+            );
+        });
+        // Init scripts can run before <html> exists; mark it once it does.
+        const mark = () => document.documentElement?.setAttribute('data-proxyhubb-extension', '0.7.0');
+        if (document.documentElement) {
+            mark();
+        } else {
+            document.addEventListener('DOMContentLoaded', mark, { once: true });
+        }
     });
 }
 

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "ProxyHubb",
-  "version": "0.6.1",
-  "description": "Turn on HTTP CONNECT for your ProxyHubb purchases. HMAC proxy.proxyhubb.com:8090 — not a VPN.",
+  "version": "0.7.0",
+  "description": "Turn on the proxy for your ProxyHubb purchases in one click. Not a VPN.",
   "minimum_chrome_version": "116",
   "homepage_url": "https://proxyhubb.com",
   "icons": {
@@ -29,6 +29,20 @@
     "http://localhost:4011/*",
     "<all_urls>"
   ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://proxyhubb.com/*",
+        "https://*.proxyhubb.com/*",
+        "http://localhost:3009/*",
+        "http://localhost:8088/*",
+        "http://localhost:4011/*",
+        "http://127.0.0.1:4011/*"
+      ],
+      "js": ["bridge.js"],
+      "run_at": "document_start"
+    }
+  ],
   "externally_connectable": {
     "matches": [
       "https://proxyhubb.com/*",
@@ -40,7 +54,7 @@
   "browser_specific_settings": {
     "gecko": {
       "id": "extension@proxyhubb.com",
-      "strict_min_version": "109.0"
+      "strict_min_version": "128.0"
     }
   },
   "incognito": "spanning",

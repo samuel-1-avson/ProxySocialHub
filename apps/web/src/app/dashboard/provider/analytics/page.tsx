@@ -25,9 +25,9 @@ async function fetchProviderNodes(): Promise<ProviderNode[]> {
 type NodeUptimeData = Awaited<ReturnType<typeof getNodeUptime>>;
 
 function uptimeBarColor(percent: number): string {
-    if (percent >= 99) return 'bg-emerald-500';
-    if (percent >= 95) return 'bg-amber-500';
-    return 'bg-rose-500';
+    if (percent >= 99) return 'bg-success';
+    if (percent >= 95) return 'bg-warning';
+    return 'bg-destructive';
 }
 
 export default function ProviderAnalyticsPage() {
@@ -155,12 +155,12 @@ export default function ProviderAnalyticsPage() {
                         />
                         <Stat
                             label="Avg uptime (30d)"
-                            value={avgUptime !== null ? `${avgUptime.toFixed(1)}%` : '—'}
+                            value={avgUptime !== null ? `${avgUptime.toFixed(1)}%` : 'Not measured'}
                             detail="Across all reporting nodes"
                         />
                         <Stat
                             label="Avg latency"
-                            value={avgLatency !== null ? `${avgLatency.toFixed(0)} ms` : '—'}
+                            value={avgLatency !== null ? `${avgLatency.toFixed(0)} ms` : 'Not measured'}
                             detail="Across all reporting nodes"
                         />
                     </section>
@@ -168,7 +168,7 @@ export default function ProviderAnalyticsPage() {
                         Pending {measured(earnings?.pending_sol, 4, 'SOL')} ·{' '}
                         <Link href="/dashboard/provider/earnings" className="ui-link">Income</Link>
                         {' · '}
-                        Lifetime sessions: {totalSessions !== null ? totalSessions.toLocaleString() : '—'}
+                        Lifetime sessions: {totalSessions !== null ? totalSessions.toLocaleString() : 'None yet'}
                     </p>
 
                     <section className="ui-surface">
@@ -192,7 +192,7 @@ export default function ProviderAnalyticsPage() {
                                             <p>
                                                 {uptimePercent !== null ? `${uptimePercent.toFixed(1)}% uptime` : 'No uptime data yet'}
                                                 {' · '}
-                                                {latency !== null ? `${latency.toFixed(0)}ms` : '—'}
+                                                {latency !== null ? `${latency.toFixed(0)}ms` : 'Not measured'}
                                                 {uptime?.current_status ? ` · ${uptime.current_status}` : ''}
                                             </p>
                                         </div>

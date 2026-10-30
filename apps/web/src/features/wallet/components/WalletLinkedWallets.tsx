@@ -59,41 +59,41 @@ export function WalletLinkedWallets({
       exit={{ opacity: 0, scale: 0.98 }}
       className="space-y-8"
     >
-      <GlassCard className="!p-8 bg-white/2 border-white/5 shadow-2xl">
-        <h3 className="text-xs font-black font-mono uppercase mb-8 flex items-center gap-3 tracking-[0.2em]">
+      <GlassCard className="!p-8 bg-secondary border-border shadow-sm">
+        <h3 className="text-xs font-semibold font-mono mb-8 flex items-center gap-3">
           <LinkIcon size={18} className="text-primary animate-pulse" /> Cryptographic Identity
           Mapping
         </h3>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          <div className="p-8 glass-card border-white/5 bg-white/5 rounded-2xl group relative overflow-hidden">
+          <div className="p-8 glass-card border-border bg-secondary rounded-lg group relative overflow-hidden">
             <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
-              <Zap size={64} className="text-purple-500" />
+              <Zap size={64} className="text-primary" />
             </div>
             <div className="flex justify-between items-start mb-8">
-              <div className="p-4 bg-purple-500/10 rounded-xl border border-purple-500/20 group-hover:scale-110 transition-transform shadow-lg">
-                <Zap className="text-purple-500" />
+              <div className="p-4 bg-primary/10 rounded-lg border border-primary/20 group-hover:scale-110 transition-transform shadow-sm">
+                <Zap className="text-primary" />
               </div>
-              <span className="text-[10px] font-black font-mono opacity-20 uppercase tracking-widest">
+              <span className="text-xs font-semibold font-mono opacity-20">
                 Solana Network
               </span>
             </div>
             {wallet?.linked_solana_address ? (
               <div className="space-y-4">
                 <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,1)]"></div>
-                  <p className="text-[10px] font-black font-mono text-emerald-500 uppercase tracking-widest">
+                  <div className="w-2 h-2 rounded-full bg-success"></div>
+                  <p className="text-xs font-semibold font-mono text-success">
                     Identity Verified
                   </p>
                 </div>
                 <div className="flex gap-2 items-stretch">
-                  <code className="flex-1 text-[11px] font-mono font-black break-all bg-black/40 p-4 border border-white/5 rounded-xl shadow-inner text-primary/80">
+                  <code className="flex-1 text-xs font-mono font-semibold break-all bg-secondary p-4 border border-border rounded-lg shadow-inner text-primary/80">
                     {wallet.linked_solana_address}
                   </code>
                   <button
                     type="button"
                     onClick={onCopyLinkedAddress}
-                    className="px-3 rounded-xl border border-white/10 hover:border-primary/40 text-muted-foreground hover:text-primary transition-colors shrink-0"
+                    className="px-3 rounded-lg border border-border hover:border-primary/40 text-muted-foreground hover:text-primary transition-colors shrink-0"
                     title="Copy linked address"
                   >
                     <Copy size={14} />
@@ -105,7 +105,7 @@ export function WalletLinkedWallets({
                   whileTap={{ scale: 0.98 }}
                   onClick={onUnlink}
                   disabled={processing}
-                  className="w-full p-2 bg-rose-500/5 border border-rose-500/20 hover:bg-rose-500/10 text-rose-500 text-[9px] uppercase font-black tracking-widest rounded-xl transition-all flex items-center justify-center gap-2"
+                  className="w-full p-2 bg-destructive/5 border border-destructive/20 hover:bg-destructive/10 text-destructive text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-2"
                 >
                   {processing ? (
                     <Loader2 size={12} className="animate-spin" />
@@ -124,7 +124,7 @@ export function WalletLinkedWallets({
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
                       onClick={onDisconnect}
-                      className="w-full p-2 bg-white/5 border border-white/10 hover:border-rose-500/50 text-rose-500 text-[9px] uppercase font-black tracking-widest rounded-xl transition-all"
+                      className="w-full p-2 bg-secondary border border-border hover:border-destructive/50 text-destructive text-xs font-semibold rounded-lg transition-all"
                     >
                       Terminate Session
                     </motion.button>
@@ -136,7 +136,7 @@ export function WalletLinkedWallets({
                     whileTap={{ scale: 0.98 }}
                     onClick={onLink}
                     disabled={processing}
-                    className="w-full btn-retro !p-4 glass-card border-primary/40 hover:border-primary text-[10px] uppercase font-black tracking-widest shadow-xl flex items-center justify-center gap-2"
+                    className="w-full btn-retro !p-4 glass-card border-primary/40 hover:border-primary text-xs font-semibold shadow-sm flex items-center justify-center gap-2"
                   >
                     {processing ? (
                       <Loader2 size={14} className="animate-spin" />
@@ -152,16 +152,16 @@ export function WalletLinkedWallets({
         </div>
       </GlassCard>
 
-      <GlassCard className="!p-8 bg-white/2 border-white/5">
-        <h3 className="text-xs font-black font-mono uppercase mb-4 flex items-center gap-3 tracking-[0.2em]">
+      <GlassCard className="!p-8 bg-secondary border-border">
+        <h3 className="text-xs font-semibold font-mono mb-4 flex items-center gap-3">
           <Shield size={18} className="text-primary" /> Withdrawal destination
         </h3>
-        <p className="text-[10px] font-mono text-muted-foreground/70 mb-4 leading-relaxed">
+        <p className="text-xs font-mono text-muted-foreground/70 mb-4 leading-relaxed">
           Withdrawals are pinned to your linked primary wallet. Changing it requires a fresh
           wallet signature and starts a 24h cooldown before withdrawals resume.
         </p>
         {withdrawalSecurity?.withdrawal_cooldown_active && (
-          <p className="text-[9px] font-mono text-amber-500 mb-4 uppercase">
+          <p className="text-xs font-mono text-warning mb-4">
             Cooldown active until{' '}
             {withdrawalSecurity.withdrawal_cooldown_until
               ? new Date(withdrawalSecurity.withdrawal_cooldown_until).toLocaleString()
@@ -169,7 +169,7 @@ export function WalletLinkedWallets({
           </p>
         )}
         {withdrawalSecurity?.primary_withdrawal_address && (
-          <p className="text-[9px] font-mono text-primary/80 mb-3 break-all">
+          <p className="text-xs font-mono text-primary/80 mb-3 break-all">
             Primary: {withdrawalSecurity.primary_withdrawal_address}
           </p>
         )}
