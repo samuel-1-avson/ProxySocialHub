@@ -209,7 +209,7 @@ export function useWalletDeposit(opts: {
         success: false,
         message: treasuryConfig
           ? "Platform deposit address is not configured. Deposits are unavailable until an admin sets SOLANA_TREASURY_ADDRESS or SOLANA_DEPOSIT_VAULT_ADDRESS."
-          : "Deposit address is still loading — try again in a moment",
+          : "Deposit address is still loading. Try again in a moment",
       });
       return;
     }
@@ -232,7 +232,7 @@ export function useWalletDeposit(opts: {
     if (publicKey.toBase58() !== linked) {
       setResult({
         success: false,
-        message: `Wrong wallet unlocked — switch to your linked address (${linked.slice(0, 4)}…${linked.slice(-4)})`,
+        message: `Wrong wallet unlocked. Switch to your linked address (${linked.slice(0, 4)}…${linked.slice(-4)})`,
       });
       return;
     }
@@ -307,7 +307,7 @@ export function useWalletDeposit(opts: {
 
       setResult({
         success: true,
-        message: "Transaction confirmed — crediting balance…",
+        message: "Transaction confirmed. Crediting balance…",
         type: "info",
       });
       await creditDepositOnServer(amt, signature);

@@ -276,7 +276,7 @@ function ThreadPageContent() {
                             className="p-1 hover:bg-secondary rounded transition-colors disabled:opacity-50"
                         >
                             <ArrowBigDown
-                                className={`w-8 h-8 ${score < 0 ? "text-red-500 fill-red-500" : "text-muted-foreground"}`}
+                                className={`w-8 h-8 ${score < 0 ? "text-destructive fill-destructive" : "text-muted-foreground"}`}
                             />
                         </button>
                     </div>
@@ -291,12 +291,12 @@ function ThreadPageContent() {
                                 {thread.category?.name}
                             </Link>
                             {thread.is_pinned && (
-                                <span className="px-2 py-0.5 bg-primary/10 text-primary text-[10px] font-bold font-mono rounded">
+                                <span className="px-2 py-0.5 bg-primary/10 text-primary text-xs font-bold font-mono rounded">
                                     PINNED
                                 </span>
                             )}
                             {thread.is_locked && (
-                                <span className="px-2 py-0.5 bg-red-500/10 text-red-500 text-[10px] font-bold font-mono rounded">
+                                <span className="px-2 py-0.5 bg-destructive/10 text-destructive text-xs font-bold font-mono rounded">
                                     LOCKED
                                 </span>
                             )}
@@ -508,7 +508,7 @@ function ThreadPageContent() {
                                 onClick={copyLink}
                                 className="w-full flex items-center gap-3 p-3 bg-secondary/20 rounded-lg hover:bg-secondary/30 transition-colors"
                             >
-                                {copiedLink ? <Check className="w-5 h-5 text-emerald-500" /> : <Copy className="w-5 h-5" />}
+                                {copiedLink ? <Check className="w-5 h-5 text-success" /> : <Copy className="w-5 h-5" />}
                                 <span className="font-mono text-sm">{copiedLink ? "Copied!" : "Copy link"}</span>
                             </button>
                             
@@ -581,7 +581,7 @@ function PostCard({ post, isReplying, onReplyClick, onVote, voting, isAuthentica
     const isSolution = post.is_solution;
 
     return (
-        <GlassCard id={`post-${post.id}`} className={`!p-5 ${isSolution ? "border-emerald-500/30" : ""} ${isNested ? "!p-4" : ""}`}>
+        <GlassCard id={`post-${post.id}`} className={`!p-5 ${isSolution ? "border-success/30" : ""} ${isNested ? "!p-4" : ""}`}>
             <div className="flex items-start gap-3">
                 {/* Vote Buttons */}
                 <div className="flex flex-col items-center gap-1">
@@ -601,7 +601,7 @@ function PostCard({ post, isReplying, onReplyClick, onVote, voting, isAuthentica
                         className="p-1 hover:bg-secondary rounded transition-colors disabled:opacity-50"
                     >
                         <ArrowBigDown
-                            className={`w-5 h-5 ${score < 0 ? "text-red-500" : "text-muted-foreground"}`}
+                            className={`w-5 h-5 ${score < 0 ? "text-destructive" : "text-muted-foreground"}`}
                         />
                     </button>
                 </div>
@@ -628,7 +628,7 @@ function PostCard({ post, isReplying, onReplyClick, onVote, voting, isAuthentica
                             {formatDistanceToNow(new Date(post.created_at))} ago
                         </span>
                         {isSolution && (
-                            <span className="flex items-center gap-1 px-2 py-0.5 bg-emerald-500/10 text-emerald-500 text-[10px] font-bold font-mono rounded">
+                            <span className="flex items-center gap-1 px-2 py-0.5 bg-success/10 text-success text-xs font-bold font-mono rounded">
                                 <CheckCircle2 className="w-3 h-3" />
                                 SOLUTION
                             </span>
@@ -657,8 +657,8 @@ function PostCard({ post, isReplying, onReplyClick, onVote, voting, isAuthentica
                                 onClick={onMarkSolution}
                                 className={`flex items-center gap-1 text-xs font-mono transition-colors ${
                                     isSolution
-                                        ? "text-emerald-500 hover:text-emerald-400"
-                                        : "text-muted-foreground hover:text-emerald-500"
+                                        ? "text-success hover:text-success"
+                                        : "text-muted-foreground hover:text-success"
                                 }`}
                             >
                                 <CheckCircle2 className="w-3 h-3" />
@@ -674,7 +674,7 @@ function PostCard({ post, isReplying, onReplyClick, onVote, voting, isAuthentica
                         </button>
                         <button 
                             onClick={onReport}
-                            className="flex items-center gap-1 text-xs font-mono text-muted-foreground hover:text-red-500 transition-colors"
+                            className="flex items-center gap-1 text-xs font-mono text-muted-foreground hover:text-destructive transition-colors"
                         >
                             <Flag className="w-3 h-3" />
                             Report
@@ -719,7 +719,7 @@ function ReportModal({ target, onClose, onSubmit }: ReportModalProps) {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <GlassCard className="!p-6 max-w-md w-full">
                 <div className="flex items-center justify-between mb-6">
-                    <h3 className="font-bold font-mono text-lg flex items-center gap-2 text-red-500">
+                    <h3 className="font-bold font-mono text-lg flex items-center gap-2 text-destructive">
                         <AlertTriangle className="w-5 h-5" />
                         Report {target.type === "thread" ? "Thread" : "Comment"}
                     </h3>
@@ -732,7 +732,7 @@ function ReportModal({ target, onClose, onSubmit }: ReportModalProps) {
                     {/* Reason Selection */}
                     <div>
                         <label className="block text-sm font-mono font-medium mb-2">
-                            Reason <span className="text-red-500">*</span>
+                            Reason <span className="text-destructive">*</span>
                         </label>
                         <div className="space-y-2">
                             {REPORT_REASONS.map((r) => (
@@ -776,7 +776,7 @@ function ReportModal({ target, onClose, onSubmit }: ReportModalProps) {
                         <button
                             onClick={handleSubmit}
                             disabled={!reason || submitting}
-                            className="flex items-center gap-2 px-6 py-2 bg-red-500 text-white rounded-lg font-bold font-mono text-sm hover:bg-red-600 disabled:opacity-50 transition-colors"
+                            className="flex items-center gap-2 px-6 py-2 bg-destructive text-destructive-foreground rounded-lg font-bold font-mono text-sm hover:bg-destructive disabled:opacity-50 transition-colors"
                         >
                             {submitting ? (
                                 <Loader2 className="w-4 h-4 animate-spin" />

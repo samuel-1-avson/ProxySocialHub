@@ -72,7 +72,7 @@ function OnboardingPageInner() {
                   >
                     <span
                       className={cn(
-                        "flex h-5 w-5 items-center justify-center rounded-full text-[10px]",
+                        "flex h-5 w-5 items-center justify-center rounded-full text-xs",
                         current || done
                           ? "bg-primary text-primary-foreground"
                           : "bg-secondary text-muted-foreground"
@@ -93,14 +93,14 @@ function OnboardingPageInner() {
         </nav>
 
         <header className="space-y-2">
-          <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+          <p className="font-mono text-xs text-muted-foreground">
             Step {index + 1} of {STEPS.length}
           </p>
           <h1 className="text-2xl font-semibold tracking-tight">{step.title}</h1>
           <p className="text-sm text-muted-foreground">{step.description}</p>
         </header>
 
-        <section className="rounded-[var(--radius-lg)] border border-border bg-card p-6 shadow-[var(--shadow-sm)]">
+        <section className="rounded-[var(--radius-lg)] border border-border bg-card p-6">
           {step.id === "welcome" ? (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
@@ -165,15 +165,6 @@ function OnboardingPageInner() {
                   <h2 className="text-sm font-semibold">Browse marketplace</h2>
                   <p className="mt-1 text-xs text-muted-foreground">
                     Filter by region, price, and trust.
-                  </p>
-                </Link>
-                <Link
-                  href={ROUTES.dashboardProxy}
-                  className="rounded-[var(--radius-md)] border border-border p-4 hover:border-[var(--border-strong)] hover:bg-secondary"
-                >
-                  <h2 className="text-sm font-semibold">Open Connect</h2>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Create a session with guided defaults.
                   </p>
                 </Link>
               </div>

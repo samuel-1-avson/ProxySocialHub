@@ -36,7 +36,7 @@ export const ROUTE_POLICIES: Record<RouteKey, RoutePolicy> = {
     dashboardAnalytics: "authenticated",
     dashboardFeed: "authenticated",
     dashboardMessages: "authenticated",
-    dashboardMonitoring: "authenticated",
+    dashboardMonitoring: "admin",
     dashboardProfile: "authenticated",
     dashboardProxy: "authenticated",
     dashboardOrder: "authenticated",
@@ -109,6 +109,8 @@ export const ROUTE_POLICIES: Record<RouteKey, RoutePolicy> = {
     terms: "public",
     privacy: "public",
     extensionPrivacy: "public",
+    depin: "public",
+    whitepaper: "public",
 };
 
 const ROUTE_POLICY_PATH_OVERRIDES: Array<{ prefix: string; policy: RoutePolicy }> = [

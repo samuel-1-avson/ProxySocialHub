@@ -20,9 +20,9 @@ export default function WalletCallbackPage() {
                     <div className="p-4 rounded-full bg-destructive/10 border border-destructive/20">
                         <XCircle className="w-12 h-12 text-destructive" />
                     </div>
-                    <h2 className="text-xl font-mono uppercase tracking-widest text-destructive">Fiat Deposits Disabled</h2>
-                    <p className="text-muted-foreground font-mono max-w-md">
-                        This platform is SOL-only. Deposit SOL from your linked wallet instead. Redirecting to your wallet...
+                    <h2 className="text-xl font-semibold text-destructive">Card deposits are off</h2>
+                    <p className="text-muted-foreground max-w-md">
+                        Add funds by sending SOL from your linked wallet. Taking you to your wallet…
                     </p>
                 </div>
             </div>

@@ -120,7 +120,7 @@ export function Activity() {
                       <td>
                         {order.total_price != null || order.price_total != null
                           ? `$${amount(order.total_price ?? order.price_total, 4)}`
-                          : "—"}
+                          : "Not set"}
                       </td>
                       <td>
                         <Link
@@ -146,7 +146,7 @@ export function Activity() {
               value={
                 usage.data?.total_gb != null
                   ? `${amount(usage.data.total_gb)} GB`
-                  : "—"
+                  : "None yet"
               }
               detail="Reported account usage"
             />
@@ -155,7 +155,7 @@ export function Activity() {
               value={
                 usage.data?.total_cost_sol != null
                   ? `${amount(usage.data.total_cost_sol, 4)} SOL`
-                  : "—"
+                  : "None yet"
               }
               detail="Account usage record"
             />
@@ -197,7 +197,7 @@ export function Activity() {
                             ? amount(point.gb_used, 3)
                             : point.bytes_used != null
                               ? amount(point.bytes_used / 1024 ** 3, 3)
-                              : "—"}{" "}
+                              : "0"}{" "}
                           GB
                         </td>
                       </tr>

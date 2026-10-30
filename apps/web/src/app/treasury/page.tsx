@@ -34,30 +34,30 @@ export default function TreasuryPage() {
         || treasury?.cold?.balance_unavailable;
 
     return (
-        <div className="min-h-screen bg-[#050508] text-white pb-24">
+        <div className="min-h-screen bg-[#050508] text-foreground pb-24">
             <div className="max-w-5xl mx-auto px-4 pt-8">
                 <Link
                     href="/explorer"
-                    className="inline-flex items-center gap-2 text-white/40 hover:text-white text-xs font-black uppercase tracking-widest mb-8"
+                    className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground text-xs font-semibold mb-8"
                 >
                     <ArrowLeft size={14} /> Explorer
                 </Link>
 
                 <div className="mb-10">
-                    <p className="text-[10px] font-black text-emerald-400/80 uppercase tracking-[0.3em] mb-2">Transparency</p>
-                    <h1 className="text-4xl font-black tracking-tighter uppercase">Platform Treasury</h1>
-                    <p className="text-white/40 text-sm mt-2 max-w-xl">
+                    <p className="text-xs font-semibold text-success/80 mb-2">Transparency</p>
+                    <h1 className="text-4xl font-semibold tracking-tight">Platform Treasury</h1>
+                    <p className="text-muted-foreground text-sm mt-2 max-w-xl">
                         On-chain hot and cold balances, recent provider batch payouts, and network health. No login required.
                     </p>
                 </div>
 
                 {error && (
-                    <GlassCard className="!p-6 border border-rose-500/30 mb-6">
-                        <p className="text-rose-400 text-sm">{(error as Error).message}</p>
+                    <GlassCard className="!p-6 border border-destructive/30 mb-6">
+                        <p className="text-destructive text-sm">{(error as Error).message}</p>
                         <button
                             type="button"
                             onClick={() => refetch()}
-                            className="mt-3 text-xs font-black uppercase tracking-widest text-white/60 hover:text-white"
+                            className="mt-3 text-xs font-semibold text-muted-foreground hover:text-foreground"
                         >
                             Retry
                         </button>
@@ -65,43 +65,43 @@ export default function TreasuryPage() {
                 )}
 
                 {rpcDegraded && (
-                    <GlassCard className="!p-4 border border-amber-500/30 mb-6">
-                        <p className="text-amber-300/90 text-xs">
-                            Solana RPC could not refresh balances. Addresses below are still configured — try again shortly.
+                    <GlassCard className="!p-4 border border-warning/30 mb-6">
+                        <p className="text-warning/90 text-xs">
+                            Solana RPC could not refresh balances. Addresses below are still configured. Try again shortly.
                         </p>
                     </GlassCard>
                 )}
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-                    <GlassCard className="!p-5 border border-white/5">
-                        <Wallet size={18} className="text-emerald-400/70 mb-3" />
-                        <div className="text-[9px] font-black text-white/30 uppercase tracking-widest">Hot wallet</div>
-                        <div className="text-2xl font-black mt-1">
+                    <GlassCard className="!p-5 border border-border">
+                        <Wallet size={18} className="text-success/70 mb-3" />
+                        <div className="text-xs font-semibold text-muted-foreground">Hot wallet</div>
+                        <div className="text-2xl font-semibold mt-1">
                             {mounted && !isLoading
                                 ? balanceLabel(treasury?.hot, 'Not configured')
-                                : '—'}
+                                : '…'}
                         </div>
                         {treasury?.hot?.needs_replenish && !treasury.hot.balance_unavailable && (
-                            <p className="text-[9px] text-amber-400 font-black uppercase tracking-widest mt-2">Below minimum</p>
+                            <p className="text-xs text-warning font-semibold mt-2">Below minimum</p>
                         )}
                     </GlassCard>
-                    <GlassCard className="!p-5 border border-white/5">
-                        <Shield size={18} className="text-blue-400/70 mb-3" />
-                        <div className="text-[9px] font-black text-white/30 uppercase tracking-widest">Cold wallet</div>
-                        <div className="text-2xl font-black mt-1">
+                    <GlassCard className="!p-5 border border-border">
+                        <Shield size={18} className="text-info/70 mb-3" />
+                        <div className="text-xs font-semibold text-muted-foreground">Cold wallet</div>
+                        <div className="text-2xl font-semibold mt-1">
                             {mounted && !isLoading
                                 ? balanceLabel(treasury?.cold, 'Not configured')
-                                : '—'}
+                                : '…'}
                         </div>
                     </GlassCard>
-                    <GlassCard className="!p-5 border border-white/5">
-                        <Activity size={18} className="text-violet-400/70 mb-3" />
-                        <div className="text-[9px] font-black text-white/30 uppercase tracking-widest">Lifetime paid</div>
-                        <div className="text-2xl font-black mt-1">
-                            {mounted && !isLoading ? formatSOL(data?.lifetime_provider_paid_sol ?? 0) : '—'} SOL
+                    <GlassCard className="!p-5 border border-border">
+                        <Activity size={18} className="text-primary/70 mb-3" />
+                        <div className="text-xs font-semibold text-muted-foreground">Lifetime paid</div>
+                        <div className="text-2xl font-semibold mt-1">
+                            {mounted && !isLoading ? formatSOL(data?.lifetime_provider_paid_sol ?? 0) : '…'} SOL
                         </div>
-                        <p className="text-[9px] text-white/30 mt-2">
-                            Native settlement: SOL · {data?.network ?? '—'}
+                        <p className="text-xs text-muted-foreground mt-2">
+                            Native settlement: SOL · {data?.network ?? 'Unknown'}
                         </p>
                     </GlassCard>
                 </div>
@@ -109,35 +109,35 @@ export default function TreasuryPage() {
                 {(treasury?.vault?.address || treasury?.liquidity) && (
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
                         {treasury?.vault?.address && (
-                            <GlassCard className="!p-5 border border-white/5">
-                                <div className="text-[9px] font-black text-white/30 uppercase tracking-widest">Deposit vault</div>
-                                <div className="text-2xl font-black mt-1">
+                            <GlassCard className="!p-5 border border-border">
+                                <div className="text-xs font-semibold text-muted-foreground">Deposit vault</div>
+                                <div className="text-2xl font-semibold mt-1">
                                     {mounted && !isLoading
-                                        ? balanceLabel(treasury.vault, '—')
-                                        : '—'}
+                                        ? balanceLabel(treasury.vault, 'Not configured')
+                                        : '…'}
                                 </div>
                             </GlassCard>
                         )}
-                        <GlassCard className="!p-5 border border-white/5">
-                            <div className="text-[9px] font-black text-white/30 uppercase tracking-widest">Payout queue</div>
-                            <div className="text-2xl font-black mt-1">
-                                {mounted && !isLoading ? (treasury?.liquidity?.queue_depth ?? 0) : '—'}
+                        <GlassCard className="!p-5 border border-border">
+                            <div className="text-xs font-semibold text-muted-foreground">Payout queue</div>
+                            <div className="text-2xl font-semibold mt-1">
+                                {mounted && !isLoading ? (treasury?.liquidity?.queue_depth ?? 0) : '…'}
                             </div>
                             {(treasury?.liquidity?.queue_oldest_age_secs ?? 0) > 0 && (
-                                <p className="text-[9px] text-white/30 mt-2">
+                                <p className="text-xs text-muted-foreground mt-2">
                                     Oldest ~{Math.round((treasury?.liquidity?.queue_oldest_age_secs ?? 0) / 60)} min
                                 </p>
                             )}
                         </GlassCard>
-                        <GlassCard className="!p-5 border border-white/5">
-                            <div className="text-[9px] font-black text-white/30 uppercase tracking-widest">Last vault→hot</div>
-                            <div className="text-lg font-black mt-1">
+                        <GlassCard className="!p-5 border border-border">
+                            <div className="text-xs font-semibold text-muted-foreground">Last vault→hot</div>
+                            <div className="text-lg font-semibold mt-1">
                                 {mounted && !isLoading && treasury?.liquidity?.last_topup_sol
                                     ? `${formatSOL(treasury.liquidity.last_topup_sol)} SOL`
-                                    : '—'}
+                                    : '…'}
                             </div>
                             {treasury?.liquidity?.last_topup_at && (
-                                <p className="text-[9px] text-white/30 mt-2 font-mono">
+                                <p className="text-xs text-muted-foreground mt-2 font-mono">
                                     {new Date(treasury.liquidity.last_topup_at).toLocaleString()}
                                     {treasury.liquidity.last_topup_source
                                         ? ` · ${treasury.liquidity.last_topup_source}`
@@ -149,28 +149,28 @@ export default function TreasuryPage() {
                 )}
 
                 {treasury?.hot?.address && (
-                    <GlassCard className="!p-6 border border-white/5 mb-8">
-                        <h2 className="text-sm font-black uppercase tracking-tighter mb-4">Addresses</h2>
+                    <GlassCard className="!p-6 border border-border mb-8">
+                        <h2 className="text-sm font-semibold tracking-tight mb-4">Addresses</h2>
                         <dl className="space-y-3 text-sm">
                             <div>
-                                <dt className="text-[9px] font-black text-white/30 uppercase tracking-widest">Hot</dt>
+                                <dt className="text-xs font-semibold text-muted-foreground">Hot</dt>
                                 <dd className="font-mono text-xs break-all mt-1">{treasury.hot.address}</dd>
                             </div>
                             {treasury.cold?.address && (
                                 <div>
-                                    <dt className="text-[9px] font-black text-white/30 uppercase tracking-widest">Cold</dt>
+                                    <dt className="text-xs font-semibold text-muted-foreground">Cold</dt>
                                     <dd className="font-mono text-xs break-all mt-1">{treasury.cold.address}</dd>
                                 </div>
                             )}
                             {treasury.vault?.address && (
                                 <div>
-                                    <dt className="text-[9px] font-black text-white/30 uppercase tracking-widest">Vault</dt>
+                                    <dt className="text-xs font-semibold text-muted-foreground">Vault</dt>
                                     <dd className="font-mono text-xs break-all mt-1">{treasury.vault.address}</dd>
                                 </div>
                             )}
                             <div>
-                                <dt className="text-[9px] font-black text-white/30 uppercase tracking-widest">Combined</dt>
-                                <dd className="font-black mt-1">
+                                <dt className="text-xs font-semibold text-muted-foreground">Combined</dt>
+                                <dd className="font-semibold mt-1">
                                     {treasury.hot.balance_unavailable || treasury.cold?.balance_unavailable
                                         ? `Balances unavailable · ${treasury.status}`
                                         : `${formatSOL(treasury.combined_balance_sol)} SOL · ${treasury.status}`}
@@ -182,7 +182,7 @@ export default function TreasuryPage() {
                                 href={`https://solscan.io/account/${treasury.hot.address}${cluster && cluster !== 'mainnet' ? `?cluster=${cluster}` : ''}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-emerald-400/80 hover:text-emerald-300"
+                                className="inline-flex items-center gap-1 text-xs font-semibold text-success/80 hover:text-success"
                             >
                                 Solscan (hot) <ExternalLink size={12} />
                             </a>
@@ -191,7 +191,7 @@ export default function TreasuryPage() {
                                     href={`https://solscan.io/account/${treasury.cold.address}${cluster && cluster !== 'mainnet' ? `?cluster=${cluster}` : ''}`}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-blue-400/80 hover:text-blue-300"
+                                    className="inline-flex items-center gap-1 text-xs font-semibold text-info/80 hover:text-info"
                                 >
                                     Solscan (cold) <ExternalLink size={12} />
                                 </a>
@@ -201,7 +201,7 @@ export default function TreasuryPage() {
                                     href={`https://solscan.io/account/${treasury.vault.address}${cluster && cluster !== 'mainnet' ? `?cluster=${cluster}` : ''}`}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-violet-400/80 hover:text-violet-300"
+                                    className="inline-flex items-center gap-1 text-xs font-semibold text-primary/80 hover:text-primary"
                                 >
                                     Solscan (vault) <ExternalLink size={12} />
                                 </a>
@@ -210,25 +210,25 @@ export default function TreasuryPage() {
                     </GlassCard>
                 )}
 
-                <GlassCard className="!p-6 border border-white/5">
+                <GlassCard className="!p-6 border border-border">
                     <div className="flex items-center justify-between mb-4">
-                        <h2 className="text-sm font-black uppercase tracking-tighter">Recent batch payouts</h2>
+                        <h2 className="text-sm font-semibold tracking-tight">Recent batch payouts</h2>
                         {isFetching && (
-                            <span className="text-[9px] text-white/30 font-black uppercase tracking-widest">Updating…</span>
+                            <span className="text-xs text-muted-foreground font-semibold">Updating…</span>
                         )}
                     </div>
                     {!data?.recent_batch_payouts?.length && !isLoading && (
-                        <p className="text-white/30 text-sm">No completed batch payouts yet.</p>
+                        <p className="text-muted-foreground text-sm">No completed batch payouts yet.</p>
                     )}
                     <ul className="space-y-3">
                         {(data?.recent_batch_payouts ?? []).map((p) => (
                             <li
                                 key={p.id}
-                                className="flex flex-wrap items-center justify-between gap-2 py-3 border-b border-white/5 last:border-0"
+                                className="flex flex-wrap items-center justify-between gap-2 py-3 border-b border-border last:border-0"
                             >
                                 <div>
-                                    <span className="text-xs font-black">{formatSOL(p.total_amount)} SOL</span>
-                                    <span className="text-[9px] text-white/30 ml-2 uppercase tracking-widest">
+                                    <span className="text-xs font-semibold">{formatSOL(p.total_amount)} SOL</span>
+                                    <span className="text-xs text-muted-foreground ml-2">
                                         {p.success_count}/{p.total_count} · {p.status}
                                     </span>
                                 </div>
@@ -237,7 +237,7 @@ export default function TreasuryPage() {
                                         href={p.solscan_url}
                                         target="_blank"
                                         rel="noopener noreferrer"
-                                        className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-white/50 hover:text-white"
+                                        className="inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-foreground"
                                     >
                                         Tx <ExternalLink size={12} />
                                     </a>
@@ -247,7 +247,7 @@ export default function TreasuryPage() {
                     </ul>
                 </GlassCard>
 
-                <p className="text-center text-[9px] text-white/20 font-black uppercase tracking-widest mt-8">
+                <p className="text-center text-xs text-muted-foreground font-semibold mt-8">
                     Oracle {data?.oracle_configured ? 'online' : 'offline'} ·{' '}
                     {data?.operational_healthy ? 'operational healthy' : 'degraded'}
                 </p>

@@ -368,7 +368,7 @@ export default function ProposalDetailsPage() {
                             </section>
                             <p className="ui-note">
                                 Closing a vote finalizes on-chain status (passed/rejected). Treasury payloads
-                                are queued for custody review — they are not auto-spent from the operational
+                                are queued for custody review. They are not auto-spent from the operational
                                 hot wallet.
                             </p>
                         </div>
@@ -477,7 +477,7 @@ export default function ProposalDetailsPage() {
                             <h2>Close voting</h2>
                             <p className="ui-note mt-2">
                                 Voting window ended. Finalize on-chain to set passed/rejected. Treasury
-                                payloads still require custody — no hot-wallet auto-spend.
+                                payloads still require custody, with no hot-wallet auto-spend.
                             </p>
                             <button
                                 type="button"

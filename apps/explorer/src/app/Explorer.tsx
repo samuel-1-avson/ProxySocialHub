@@ -24,7 +24,7 @@ const text = (value: unknown, fallback = "Not reported") =>
 const num = (value: unknown, digits = 2) =>
   typeof value === "number" && Number.isFinite(value)
     ? value.toLocaleString(undefined, { maximumFractionDigits: digits })
-    : "—";
+    : "Not available";
 const observed = (value: unknown) =>
   typeof value === "string" && !Number.isNaN(new Date(value).getTime())
     ? new Date(value).toLocaleString()
@@ -323,7 +323,7 @@ function MetricSummary() {
           value={
             metrics.data?.total_bandwidth_gb != null
               ? `${num(metrics.data.total_bandwidth_gb)} GB`
-              : "—"
+              : "None yet"
           }
           detail="Cumulative indexed bandwidth"
         />

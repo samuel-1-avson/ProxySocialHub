@@ -50,10 +50,10 @@ export default function BetaProgramPage() {
 
     const weekLabels: Record<number, string> = {
         0: "Onboarding",
-        1: "Week 1 — Basics",
-        2: "Week 2 — Advanced",
-        3: "Week 3 — Edge cases",
-        4: "Week 4 — Stress & feedback",
+        1: "Week 1: Basics",
+        2: "Week 2: Advanced",
+        3: "Week 3: Edge cases",
+        4: "Week 4: Stress & feedback",
     };
 
     const toggleTask = async (task: BetaProgramTask) => {
@@ -86,7 +86,7 @@ export default function BetaProgramPage() {
         return (
             <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4">
                 <Loader2 className="animate-spin text-primary" size={32} />
-                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/40">
+                <p className="text-xs font-semibold text-muted-foreground/40">
                     Loading beta program…
                 </p>
             </div>
@@ -109,10 +109,10 @@ export default function BetaProgramPage() {
     return (
         <div className="max-w-4xl mx-auto space-y-10 pb-20">
             <header className="space-y-4">
-                <p className="text-[10px] font-black uppercase tracking-[0.4em] text-primary/70">
+                <p className="text-xs font-semibold text-primary/70">
                     DevNet · {data.program.network}
                 </p>
-                <h1 className="text-3xl font-black uppercase tracking-tighter">{data.program.name}</h1>
+                <h1 className="text-3xl font-semibold tracking-tight">{data.program.name}</h1>
                 <p className="text-sm text-muted-foreground/70 max-w-2xl leading-relaxed">
                     Track beta tasks from the community testing program, sync auto-detected progress, and jump to
                     the right flows. Payouts and leaderboard rewards are handled via Discord after verification.
@@ -124,24 +124,24 @@ export default function BetaProgramPage() {
                     <div className="flex items-center gap-3">
                         <Trophy className="text-primary" size={22} />
                         <div>
-                            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">
+                            <p className="text-xs font-semibold text-muted-foreground/50">
                                 Progress
                             </p>
-                            <p className="text-lg font-black">
+                            <p className="text-lg font-semibold">
                                 {data.stats.completed_tasks} / {data.stats.total_tasks} tasks
                             </p>
                         </div>
                     </div>
                     <div className="text-right">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">
+                        <p className="text-xs font-semibold text-muted-foreground/50">
                             Tracked rewards (guide)
                         </p>
-                        <p className="text-lg font-black text-emerald-400">
+                        <p className="text-lg font-semibold text-success">
                             {data.stats.earned_usdc.toFixed(6)} / {data.stats.potential_usdc.toFixed(6)} SOL
                         </p>
                     </div>
                 </div>
-                <div className="h-2 rounded-full bg-white/5 overflow-hidden">
+                <div className="h-2 rounded-full bg-secondary overflow-hidden">
                     <div
                         className="h-full bg-primary transition-all"
                         style={{ width: `${progress}%` }}
@@ -152,7 +152,7 @@ export default function BetaProgramPage() {
                         href={data.program.discord_url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest px-4 py-2 rounded-xl border border-white/10 hover:border-primary/40"
+                        className="inline-flex items-center gap-2 text-xs font-semibold px-4 py-2 rounded-lg border border-border hover:border-primary/40"
                     >
                         Discord #beta-testers
                         <ExternalLink size={12} />
@@ -162,7 +162,7 @@ export default function BetaProgramPage() {
                             type="button"
                             onClick={() => void handleSync()}
                             disabled={syncing}
-                            className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest px-4 py-2 rounded-xl bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50"
+                            className="inline-flex items-center gap-2 text-xs font-semibold px-4 py-2 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50"
                         >
                             {syncing ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
                             Sync auto-detected
@@ -170,7 +170,7 @@ export default function BetaProgramPage() {
                     ) : (
                         <Link
                             href="/login"
-                            className="text-[10px] font-black uppercase tracking-widest text-primary/80 hover:text-primary"
+                            className="text-xs font-semibold text-primary/80 hover:text-primary"
                         >
                             Sign in to track tasks
                         </Link>
@@ -182,13 +182,13 @@ export default function BetaProgramPage() {
                 .sort(([a], [b]) => a - b)
                 .map(([week, tasks]) => (
                     <section key={week} className="space-y-4">
-                        <h2 className="text-[11px] font-black uppercase tracking-[0.35em] text-muted-foreground/50">
+                        <h2 className="text-xs font-semibold text-muted-foreground/50">
                             {weekLabels[week] ?? `Week ${week}`}
                         </h2>
                         <ul className="space-y-3">
                             {tasks.map((task) => (
                                 <li key={task.slug}>
-                                    <GlassCard className="!p-4 flex flex-col sm:flex-row sm:items-center gap-4 border-white/5">
+                                    <GlassCard className="!p-4 flex flex-col sm:flex-row sm:items-center gap-4 border-border">
                                         <button
                                             type="button"
                                             disabled={!isAuthenticated || busySlug === task.slug}
@@ -199,16 +199,16 @@ export default function BetaProgramPage() {
                                             {busySlug === task.slug ? (
                                                 <Loader2 size={22} className="animate-spin text-primary mt-0.5" />
                                             ) : task.completed ? (
-                                                <CheckCircle2 size={22} className="text-emerald-400 mt-0.5" />
+                                                <CheckCircle2 size={22} className="text-success mt-0.5" />
                                             ) : (
                                                 <Circle size={22} className="text-muted-foreground/30 mt-0.5" />
                                             )}
                                             <div>
-                                                <p className="text-sm font-black uppercase tracking-tight">
+                                                <p className="text-sm font-semibold tracking-tight">
                                                     {task.title}
                                                 </p>
                                                 {task.reward_usdc > 0 ? (
-                                                    <p className="text-[9px] font-black uppercase tracking-widest text-emerald-400/80 mt-1">
+                                                    <p className="text-xs font-semibold text-success/80 mt-1">
                                                         Up to {Number(task.reward_usdc).toFixed(6)} SOL (guide)
                                                     </p>
                                                 ) : null}
@@ -219,7 +219,7 @@ export default function BetaProgramPage() {
                                             {task.path ? (
                                                 <Link
                                                     href={task.path}
-                                                    className="text-[9px] font-black uppercase tracking-widest px-3 py-2 rounded-lg border border-white/10 hover:border-primary/30"
+                                                    className="text-xs font-semibold px-3 py-2 rounded-lg border border-border hover:border-primary/30"
                                                 >
                                                     Open
                                                 </Link>
@@ -229,7 +229,7 @@ export default function BetaProgramPage() {
                                                     href={task.external_url}
                                                     target="_blank"
                                                     rel="noopener noreferrer"
-                                                    className="text-[9px] font-black uppercase tracking-widest px-3 py-2 rounded-lg border border-white/10 hover:border-primary/30 inline-flex items-center gap-1"
+                                                    className="text-xs font-semibold px-3 py-2 rounded-lg border border-border hover:border-primary/30 inline-flex items-center gap-1"
                                                 >
                                                     External
                                                     <ExternalLink size={10} />

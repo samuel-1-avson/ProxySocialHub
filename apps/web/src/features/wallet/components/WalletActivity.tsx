@@ -122,10 +122,10 @@ export function WalletActivity({ transactions, initialNextCursor }: WalletActivi
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-foreground">
+        <h3 className="flex items-center gap-2 text-xs font-semibold text-foreground">
           <History size={16} className="text-primary" aria-hidden /> Settlement ledger
         </h3>
-        <span className="inline-flex items-center gap-2 rounded-[var(--radius-md)] border border-border bg-secondary px-2.5 py-1 text-[10px] font-medium uppercase tracking-wider text-primary">
+        <span className="inline-flex items-center gap-2 rounded-[var(--radius-md)] border border-border bg-secondary px-2.5 py-1 text-xs font-medium text-primary">
           <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden />
           Live
         </span>

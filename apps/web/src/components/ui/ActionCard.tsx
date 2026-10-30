@@ -31,16 +31,16 @@ export function ActionCard({
         <motion.div 
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
-            className={`p-6 rounded-2xl border transition-all h-full flex flex-col cursor-pointer group ${
+            className={`p-6 rounded-lg border transition-all h-full flex flex-col cursor-pointer group ${
                 isBrand ? "bg-primary/5 hover:bg-primary/10 border-primary/20 hover:border-primary/40" : 
-                isProvider ? "bg-purple-500/5 hover:bg-purple-500/10 border-purple-500/20 hover:border-purple-500/40" :
-                "glass-card hover:bg-white/10"
+                isProvider ? "bg-primary/5 hover:bg-primary/10 border-primary/20 hover:border-primary/40" :
+                "glass-card hover:bg-secondary"
             }`}
         >
-            <div className={`w-12 h-12 rounded-xl flex items-center justify-center mb-4 ${
+            <div className={`w-12 h-12 rounded-lg flex items-center justify-center mb-4 ${
                 isBrand ? "bg-primary/20 text-primary" : 
-                isProvider ? "bg-purple-500/20 text-purple-400" :
-                "bg-white/10 text-foreground"
+                isProvider ? "bg-primary/20 text-primary" :
+                "bg-secondary text-foreground"
             }`}>
                 <Icon size={24} strokeWidth={1.5} />
             </div>
@@ -48,9 +48,9 @@ export function ActionCard({
             <h3 className="text-lg font-bold mb-2 text-foreground font-sans">{title}</h3>
             <p className="text-sm text-muted-foreground mb-6 flex-1 pr-4 leading-relaxed">{description}</p>
             
-            <div className={`flex items-center gap-2 text-sm font-bold uppercase tracking-wider transition-all mt-auto ${
+            <div className={`flex items-center gap-2 text-sm font-bold transition-all mt-auto ${
                 isBrand ? "text-primary group-hover:translate-x-1" : 
-                isProvider ? "text-purple-400 group-hover:translate-x-1" :
+                isProvider ? "text-primary group-hover:translate-x-1" :
                 "text-muted-foreground group-hover:text-foreground group-hover:translate-x-1"
             }`}>
                 {ctaLabel} <ArrowRight size={16} />

@@ -27,7 +27,7 @@ interface SessionStreamPayload {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function truncate(s: string, len = 8): string {
-  return s ? `${s.slice(0, len)}…` : "—";
+  return s ? `${s.slice(0, len)}…` : "Unknown";
 }
 
 function formatBytes(bytes: number): string {
@@ -43,14 +43,14 @@ function StatusBadge({ status }: { status: string }) {
   const isLive = status === "active" || status === "routed" || status === "closing";
   return (
     <span
-      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-sm border text-[10px] font-bold uppercase font-mono ${
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-sm border text-xs font-bold font-mono ${
         isLive
-          ? "bg-green-500/10 text-green-500 border-green-500/20"
+          ? "bg-success/10 text-success border-success/20"
           : "bg-secondary text-muted-foreground border-border"
       }`}
     >
       {isLive && (
-        <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+        <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
       )}
       {status}
     </span>
@@ -68,14 +68,14 @@ function BandwidthBar({
     limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
   const color =
     pct >= 90
-      ? "bg-red-500"
+      ? "bg-destructive"
       : pct >= 70
-      ? "bg-amber-500"
-      : "bg-green-500";
+      ? "bg-warning"
+      : "bg-success";
 
   return (
     <div className="space-y-1">
-      <div className="flex justify-between text-[10px] font-mono text-muted-foreground">
+      <div className="flex justify-between text-xs font-mono text-muted-foreground">
         <span>{formatBytes(used)}</span>
         <span>{limit > 0 ? formatBytes(limit) : "Unlimited"}</span>
       </div>
@@ -85,7 +85,7 @@ function BandwidthBar({
           style={{ width: `${pct}%` }}
         />
       </div>
-      <div className="text-[9px] font-mono text-muted-foreground text-right">
+      <div className="text-xs font-mono text-muted-foreground text-right">
         {limit > 0 ? `${pct}% used` : "No limit set"}
       </div>
     </div>
@@ -94,16 +94,16 @@ function BandwidthBar({
 
 function SessionCard({ session }: { session: LiveSession }) {
   return (
-    <div className="p-4 rounded-2xl bg-white/2 border border-white/5 hover:border-primary/20 hover:bg-white/[0.04] transition-all space-y-3">
+    <div className="p-4 rounded-lg bg-secondary border border-border hover:border-primary/20 hover:bg-secondary transition-all space-y-3">
       {/* Header row */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Activity size={12} className="text-primary shrink-0" />
-          <span className="text-[10px] font-black font-mono text-primary/70 uppercase tracking-widest">
+          <span className="text-xs font-semibold font-mono text-primary/70">
             {truncate(session.id, 8)}
           </span>
           {session.kind === "intent" && (
-            <span className="text-[9px] font-mono uppercase text-muted-foreground/60 border border-white/10 px-1.5 py-0.5 rounded">
+            <span className="text-xs font-mono text-muted-foreground/60 border border-border px-1.5 py-0.5 rounded">
               intent
             </span>
           )}
@@ -112,9 +112,9 @@ function SessionCard({ session }: { session: LiveSession }) {
       </div>
 
       {/* IDs */}
-      <div className="grid grid-cols-2 gap-3 text-[10px] font-mono">
+      <div className="grid grid-cols-2 gap-3 text-xs font-mono">
         <div className="space-y-0.5">
-          <p className="text-muted-foreground/50 uppercase font-bold tracking-widest">
+          <p className="text-muted-foreground/50 font-bold">
             Buyer
           </p>
           <p className="text-foreground/80 truncate">
@@ -122,18 +122,18 @@ function SessionCard({ session }: { session: LiveSession }) {
           </p>
         </div>
         <div className="space-y-0.5">
-          <p className="text-muted-foreground/50 uppercase font-bold tracking-widest">
+          <p className="text-muted-foreground/50 font-bold">
             Provider
           </p>
           <p className="text-foreground/80 truncate">
-            {session.provider_id ? truncate(session.provider_id, 10) : "—"}
+            {session.provider_id ? truncate(session.provider_id, 10) : "Unknown"}
           </p>
         </div>
       </div>
 
       {/* Bandwidth progress */}
       <div className="pt-1">
-        <div className="flex items-center gap-1 text-[9px] font-mono font-bold uppercase text-muted-foreground/50 mb-1.5">
+        <div className="flex items-center gap-1 text-xs font-mono font-bold text-muted-foreground/50 mb-1.5">
           <HardDrive size={9} />
           Bandwidth
         </div>
@@ -227,26 +227,26 @@ export function SessionLiveCard() {
   const sessions = payload?.sessions ?? [];
 
   return (
-    <div className="glass-card !p-0 flex flex-col overflow-hidden border-white/5 bg-black/40 backdrop-blur-3xl rounded-[2rem] shadow-2xl">
+    <div className="glass-card !p-0 flex flex-col overflow-hidden border-border bg-secondary rounded-lg shadow-sm">
       {/* ── Header ── */}
-      <div className="p-6 border-b border-white/5 bg-white/[0.02] flex justify-between items-center">
+      <div className="p-6 border-b border-border bg-secondary flex justify-between items-center">
         <div className="flex items-center gap-3">
-          <div className="p-2 rounded-xl bg-primary/10 border border-primary/20">
+          <div className="p-2 rounded-lg bg-primary/10 border border-primary/20">
             <Activity className="text-primary" size={16} />
           </div>
           <div className="space-y-0.5">
-            <h3 className="font-black font-mono uppercase text-[10px] tracking-[0.3em]">
+            <h3 className="font-semibold font-mono text-xs">
               Live Sessions
             </h3>
-            <div className="text-[8px] font-mono text-muted-foreground/40 uppercase tracking-widest flex items-center gap-1.5">
+            <div className="text-xs font-mono text-muted-foreground/40 flex items-center gap-1.5">
               {connected ? (
                 <>
-                  <span className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="w-1 h-1 rounded-full bg-success animate-pulse" />
                   Streaming
                 </>
               ) : (
                 <>
-                  <span className="w-1 h-1 rounded-full bg-amber-500 animate-pulse" />
+                  <span className="w-1 h-1 rounded-full bg-warning animate-pulse" />
                   Connecting
                 </>
               )}
@@ -256,7 +256,7 @@ export function SessionLiveCard() {
 
         {/* Session count badge */}
         {payload !== null && (
-          <div className="flex items-center gap-2 text-[10px] font-mono">
+          <div className="flex items-center gap-2 text-xs font-mono">
             <span className="px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20 text-primary font-bold">
               {payload.count} active
             </span>
@@ -268,7 +268,7 @@ export function SessionLiveCard() {
       <div className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-hide min-h-[200px] max-h-[480px]">
         {/* Error / reconnect banner */}
         {error && (
-          <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-mono font-bold uppercase">
+          <div className="flex items-center gap-2 p-3 rounded-lg bg-warning/10 border border-warning/20 text-warning text-xs font-mono font-bold">
             <WifiOff size={12} className="shrink-0" />
             {error}
           </div>
@@ -281,7 +281,7 @@ export function SessionLiveCard() {
               size={24}
               className="text-primary animate-spin opacity-60"
             />
-            <p className="font-mono text-[8px] uppercase tracking-[0.4em] text-muted-foreground/30">
+            <p className="font-mono text-xs text-muted-foreground/30">
               Awaiting Stream
             </p>
           </div>
@@ -291,10 +291,10 @@ export function SessionLiveCard() {
         {payload !== null && sessions.length === 0 && (
           <div className="flex flex-col items-center justify-center py-16 gap-3 opacity-30">
             <Activity size={28} />
-            <p className="text-[9px] font-black font-mono uppercase tracking-[0.4em]">
+            <p className="text-xs font-semibold font-mono">
               No Active Paths
             </p>
-            <p className="text-[8px] font-mono uppercase tracking-widest text-center px-6 opacity-70">
+            <p className="text-xs font-mono text-center px-6 opacity-70">
               Authorized intents appear here after gateway CONNECT
             </p>
           </div>
@@ -308,8 +308,8 @@ export function SessionLiveCard() {
 
       {/* ── Footer ── */}
       {payload !== null && (
-        <div className="p-4 border-t border-white/5 bg-white/[0.02]">
-          <div className="flex items-center justify-between text-[9px] font-mono text-muted-foreground/40 uppercase tracking-widest">
+        <div className="p-4 border-t border-border bg-secondary">
+          <div className="flex items-center justify-between text-xs font-mono text-muted-foreground/40">
             <span>Total Bandwidth Used</span>
             <span className="text-foreground/60 font-bold">
               {formatBytes(payload.total_bytes_used)}

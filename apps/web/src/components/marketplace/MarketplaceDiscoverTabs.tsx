@@ -21,7 +21,7 @@ export function MarketplaceDiscoverTabs() {
     return (
         <nav
             aria-label="Discover views"
-            className="inline-flex items-center gap-1 p-1 rounded-xl border border-white/10 bg-white/[0.03]"
+            className="inline-flex items-center gap-1 p-1 rounded-lg border border-border bg-secondary"
         >
             {TABS.map((tab) => {
                 const active = tab.match(pathname);
@@ -30,10 +30,10 @@ export function MarketplaceDiscoverTabs() {
                     <Link
                         key={tab.href}
                         href={tab.href}
-                        className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-[0.2em] transition-colors ${
+                        className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-colors ${
                             active
                                 ? "bg-primary text-primary-foreground"
-                                : "text-muted-foreground hover:text-foreground hover:bg-white/5"
+                                : "text-muted-foreground hover:text-foreground hover:bg-secondary"
                         }`}
                     >
                         <Icon size={14} />

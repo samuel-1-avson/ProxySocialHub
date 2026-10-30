@@ -62,12 +62,12 @@ const PIE_COLORS = ['#6366f1', '#22d3ee', '#10b981', '#f59e0b', '#f43f5e', '#a85
 function ChartTooltip({ active, payload, label, unit = '' }: any) {
     if (!active || !payload?.length) return null;
     return (
-        <div className="bg-black/90 border border-white/10 rounded-xl p-3 text-[10px] font-mono font-black uppercase tracking-wider">
-            <div className="text-white/40 mb-1">{label}</div>
+        <div className="bg-card border border-border rounded-lg p-3 text-xs font-mono font-semibold">
+            <div className="text-muted-foreground mb-1">{label}</div>
             {payload.map((p: any, i: number) => (
                 <div key={i} style={{ color: p.color }} className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full inline-block" style={{ background: p.color }} />
-                    {p.name}: <span className="text-white">{typeof p.value === 'number' ? p.value.toFixed(2) : p.value}{unit}</span>
+                    {p.name}: <span className="text-foreground">{typeof p.value === 'number' ? p.value.toFixed(2) : p.value}{unit}</span>
                 </div>
             ))}
         </div>
@@ -76,32 +76,32 @@ function ChartTooltip({ active, payload, label, unit = '' }: any) {
 
 function EmptyChart({ height, label }: { height: number; label?: string }) {
     return (
-        <div className={`flex flex-col items-center justify-center bg-card border border-dashed border-border rounded-xl`} style={{ height }}>
+        <div className={`flex flex-col items-center justify-center bg-card border border-dashed border-border rounded-lg`} style={{ height }}>
             <BarChart2 size={24} className="text-muted-foreground mb-2" />
-            <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest">{label || 'No data yet'}</p>
+            <p className="text-xs font-semibold text-muted-foreground">{label || 'No data yet'}</p>
         </div>
     );
 }
 
 function getRankIcon(rank: number) {
     if (rank === 1) return (
-        <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-yellow-400/10 border border-yellow-400/20">
-            <Trophy size={14} className="text-yellow-400" />
+        <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-warning/10 border border-warning/20">
+            <Trophy size={14} className="text-warning" />
         </div>
     );
     if (rank === 2) return (
-        <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-slate-300/10 border border-slate-300/20">
-            <Medal size={14} className="text-slate-300" />
+        <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-muted/10 border border-border">
+            <Medal size={14} className="text-muted-foreground" />
         </div>
     );
     if (rank === 3) return (
-        <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-amber-700/10 border border-amber-700/20">
-            <Medal size={14} className="text-amber-600" />
+        <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-warning/10 border border-warning/20">
+            <Medal size={14} className="text-warning" />
         </div>
     );
     return (
-        <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-muted border border-border">
-            <span className="text-[9px] font-black text-muted-foreground">#{rank}</span>
+        <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-muted border border-border">
+            <span className="text-xs font-semibold text-muted-foreground">#{rank}</span>
         </div>
     );
 }
@@ -217,18 +217,18 @@ export default function AnalyticsPage() {
         <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-10 font-mono">
             {/* Header */}
             <motion.header variants={itemVariants} className="flex flex-col gap-6 border-b border-border pb-8">
-                <Link href="/explorer" className="flex items-center gap-2 text-[10px] font-black text-muted-foreground hover:text-primary transition-colors uppercase tracking-[0.3em] w-fit">
+                <Link href="/explorer" className="flex items-center gap-2 text-xs font-semibold text-muted-foreground hover:text-primary transition-colors w-fit">
                     <ArrowLeft size={14} /> Back to Grid
                 </Link>
 
                 <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-6">
                     <div>
-                        <div className="text-[10px] font-black text-primary uppercase tracking-[0.5em] mb-1">Grid Telemetry // Analytics</div>
-                        <h1 className="text-4xl font-black uppercase tracking-tighter text-foreground flex items-center gap-4">
+                        <div className="text-xs font-semibold text-primary mb-1">Grid Telemetry // Analytics</div>
+                        <h1 className="text-4xl font-semibold tracking-tight text-foreground flex items-center gap-4">
                             <BarChart2 className="text-primary" size={32} />
                             Network Analytics
                         </h1>
-                        <p className="text-[11px] font-black text-muted-foreground uppercase tracking-widest mt-2">
+                        <p className="text-xs font-semibold text-muted-foreground mt-2">
                             Historical performance, throughput, and node intelligence
                         </p>
                     </div>
@@ -236,12 +236,12 @@ export default function AnalyticsPage() {
                     <div className="flex flex-col items-end gap-2">
                         <div className="flex items-center gap-2">
                             {/* Preset buttons — dimmed when custom range is active */}
-                            <div className={`flex items-center gap-2 bg-muted border border-border rounded-2xl p-1.5 transition-opacity ${isCustomActive ? 'opacity-30 pointer-events-none' : ''}`}>
+                            <div className={`flex items-center gap-2 bg-muted border border-border rounded-lg p-1.5 transition-opacity ${isCustomActive ? 'opacity-30 pointer-events-none' : ''}`}>
                                 {PERIODS.map((p) => (
                                     <button
                                         key={p.value}
                                         onClick={() => { setPeriod(p.value); clearCustomRange(); }}
-                                        className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${period === p.value && !isCustomActive ? 'bg-primary text-black' : 'text-muted-foreground hover:text-foreground'}`}
+                                        className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all ${period === p.value && !isCustomActive ? 'bg-primary text-black' : 'text-muted-foreground hover:text-foreground'}`}
                                     >
                                         {p.label}
                                     </button>
@@ -250,45 +250,45 @@ export default function AnalyticsPage() {
                             {/* Custom date range toggle */}
                             <button
                                 onClick={() => setShowDatePicker(v => !v)}
-                                className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${isCustomActive ? 'bg-primary/10 border-primary/30 text-primary' : 'bg-muted border-border text-muted-foreground hover:text-foreground'}`}
+                                className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border text-xs font-semibold transition-all ${isCustomActive ? 'bg-primary/10 border-primary/30 text-primary' : 'bg-muted border-border text-muted-foreground hover:text-foreground'}`}
                             >
                                 <Calendar size={12} />
                                 {isCustomActive ? `${appliedFrom} → ${appliedTo}` : 'Custom'}
                             </button>
                             {isCustomActive && (
-                                <button onClick={clearCustomRange} className="p-2 rounded-xl bg-muted border border-border text-muted-foreground hover:text-rose-400 hover:border-rose-500/30 transition-all">
+                                <button onClick={clearCustomRange} className="p-2 rounded-lg bg-muted border border-border text-muted-foreground hover:text-destructive hover:border-destructive/30 transition-all">
                                     <X size={12} />
                                 </button>
                             )}
                         </div>
                         {/* Date picker panel */}
                         {showDatePicker && (
-                            <div className="flex items-end gap-3 bg-muted border border-border rounded-2xl px-4 py-3">
+                            <div className="flex items-end gap-3 bg-muted border border-border rounded-lg px-4 py-3">
                                 <div className="flex flex-col gap-1">
-                                    <label className="text-[8px] font-black text-muted-foreground uppercase tracking-widest">From</label>
+                                    <label className="text-xs font-semibold text-muted-foreground">From</label>
                                     <input
                                         type="date"
                                         value={customFrom}
                                         max={customTo || todayStr()}
                                         onChange={e => setCustomFrom(e.target.value)}
-                                        className="bg-muted border border-border rounded-lg px-3 py-1.5 text-[10px] font-mono text-foreground focus:outline-none focus:border-primary/50"
+                                        className="bg-muted border border-border rounded-lg px-3 py-1.5 text-xs font-mono text-foreground focus:outline-none focus:border-primary/50"
                                     />
                                 </div>
                                 <div className="flex flex-col gap-1">
-                                    <label className="text-[8px] font-black text-muted-foreground uppercase tracking-widest">To</label>
+                                    <label className="text-xs font-semibold text-muted-foreground">To</label>
                                     <input
                                         type="date"
                                         value={customTo}
                                         min={customFrom}
                                         max={todayStr()}
                                         onChange={e => setCustomTo(e.target.value)}
-                                        className="bg-muted border border-border rounded-lg px-3 py-1.5 text-[10px] font-mono text-foreground focus:outline-none focus:border-primary/50"
+                                        className="bg-muted border border-border rounded-lg px-3 py-1.5 text-xs font-mono text-foreground focus:outline-none focus:border-primary/50"
                                     />
                                 </div>
                                 <button
                                     onClick={applyCustomRange}
                                     disabled={!customFrom || !customTo || customFrom > customTo}
-                                    className="px-4 py-1.5 rounded-lg bg-primary text-black text-[9px] font-black uppercase tracking-widest disabled:opacity-30 disabled:cursor-not-allowed hover:bg-primary/90 transition-all"
+                                    className="px-4 py-1.5 rounded-lg bg-primary text-black text-xs font-semibold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-primary/90 transition-all"
                                 >
                                     Apply
                                 </button>
@@ -310,15 +310,15 @@ export default function AnalyticsPage() {
             {/* Summary Stats */}
             <motion.section variants={itemVariants} className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
-                    { label: 'Avg TPS', value: metrics ? `${Number(metrics.transactions_per_second || 0).toFixed(2)}` : '—', icon: Activity, color: 'text-primary' },
-                    { label: 'Total Volume', value: metrics ? `${Number(metrics.total_volume || 0).toFixed(1)} SOL` : '—', icon: TrendingUp, color: 'text-emerald-500' },
-                    { label: 'Bandwidth (cumulative)', value: metrics ? `${Number(metrics.total_bandwidth_gb || 0).toFixed(1)} GB` : '—', icon: Zap, color: 'text-yellow-500' },
-                    { label: 'Active Wallets', value: metrics ? (metrics.active_wallets || 0).toLocaleString() : '—', icon: Globe, color: 'text-blue-500' },
+                    { label: 'Avg TPS', value: metrics ? `${Number(metrics.transactions_per_second || 0).toFixed(2)}` : 'Unavailable', icon: Activity, color: 'text-primary' },
+                    { label: 'Total Volume', value: metrics ? `${Number(metrics.total_volume || 0).toFixed(1)} SOL` : 'Unavailable', icon: TrendingUp, color: 'text-success' },
+                    { label: 'Bandwidth (cumulative)', value: metrics ? `${Number(metrics.total_bandwidth_gb || 0).toFixed(1)} GB` : 'Unavailable', icon: Zap, color: 'text-warning' },
+                    { label: 'Active Wallets', value: metrics ? (metrics.active_wallets || 0).toLocaleString() : 'Unavailable', icon: Globe, color: 'text-info' },
                 ].map((stat, i) => (
                     <GlassCard key={i} className="!p-5 border-border bg-card rounded-[1.5rem]">
                         <stat.icon size={16} className={`${stat.color} mb-3 opacity-60`} />
-                        <div className="text-2xl font-black text-foreground tracking-tighter">{stat.value}</div>
-                        <div className="text-[9px] font-black uppercase text-muted-foreground tracking-[0.2em] mt-1">{stat.label}</div>
+                        <div className="text-2xl font-semibold text-foreground tracking-tight">{stat.value}</div>
+                        <div className="text-xs font-semibold text-muted-foreground mt-1">{stat.label}</div>
                     </GlassCard>
                 ))}
             </motion.section>
@@ -326,15 +326,15 @@ export default function AnalyticsPage() {
             {/* Charts Row */}
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
                 <motion.section variants={itemVariants}>
-                    <GlassCard className="!p-6 border-border bg-card rounded-[2rem]">
+                    <GlassCard className="!p-6 border-border bg-card rounded-lg">
                         <div className="mb-6">
-                            <h3 className="text-sm font-black uppercase tracking-tighter text-foreground flex items-center gap-2">
+                            <h3 className="text-sm font-semibold tracking-tight text-foreground flex items-center gap-2">
                                 <TrendingUp size={14} className="text-primary" /> Transaction Volume
                             </h3>
-                            <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mt-1">SOL settled on-chain</p>
+                            <p className="text-xs font-semibold text-muted-foreground mt-1">SOL settled on-chain</p>
                         </div>
                         {loadingAnalytics ? (
-                            <div className="h-[180px] animate-pulse bg-muted rounded-xl" />
+                            <div className="h-[180px] animate-pulse bg-muted rounded-lg" />
                         ) : !mounted || volumeData.length === 0 ? (
                             <EmptyChart height={180} label={emptySeriesLabel} />
                         ) : (
@@ -358,15 +358,15 @@ export default function AnalyticsPage() {
                 </motion.section>
 
                 <motion.section variants={itemVariants}>
-                    <GlassCard className="!p-6 border-border bg-card rounded-[2rem]">
+                    <GlassCard className="!p-6 border-border bg-card rounded-lg">
                         <div className="mb-6">
-                            <h3 className="text-sm font-black uppercase tracking-tighter text-foreground flex items-center gap-2">
-                                <Zap size={14} className="text-yellow-500" /> Bandwidth Throughput
+                            <h3 className="text-sm font-semibold tracking-tight text-foreground flex items-center gap-2">
+                                <Zap size={14} className="text-warning" /> Bandwidth Throughput
                             </h3>
-                            <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mt-1">GB proxied through network</p>
+                            <p className="text-xs font-semibold text-muted-foreground mt-1">GB proxied through network</p>
                         </div>
                         {loadingAnalytics ? (
-                            <div className="h-[180px] animate-pulse bg-muted rounded-xl" />
+                            <div className="h-[180px] animate-pulse bg-muted rounded-lg" />
                         ) : !mounted || bandwidthData.length === 0 ? (
                             <EmptyChart height={180} label={emptySeriesLabel} />
                         ) : (
@@ -393,15 +393,15 @@ export default function AnalyticsPage() {
             {/* Active Nodes Chart + Region Pie */}
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
                 <motion.section variants={itemVariants} className="xl:col-span-2">
-                    <GlassCard className="!p-6 border-border bg-card rounded-[2rem]">
+                    <GlassCard className="!p-6 border-border bg-card rounded-lg">
                         <div className="mb-6">
-                            <h3 className="text-sm font-black uppercase tracking-tighter text-foreground flex items-center gap-2">
-                                <Server size={14} className="text-blue-500" /> Active Relay Nodes
+                            <h3 className="text-sm font-semibold tracking-tight text-foreground flex items-center gap-2">
+                                <Server size={14} className="text-info" /> Active Relay Nodes
                             </h3>
-                            <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mt-1">Node count over time</p>
+                            <p className="text-xs font-semibold text-muted-foreground mt-1">Node count over time</p>
                         </div>
                         {loadingAnalytics ? (
-                            <div className="h-[160px] animate-pulse bg-muted rounded-xl" />
+                            <div className="h-[160px] animate-pulse bg-muted rounded-lg" />
                         ) : !mounted || nodeData.length === 0 ? (
                             <EmptyChart height={160} label={emptySeriesLabel} />
                         ) : (
@@ -419,18 +419,18 @@ export default function AnalyticsPage() {
                 </motion.section>
 
                 <motion.section variants={itemVariants}>
-                    <GlassCard className="!p-6 border-border bg-card rounded-[2rem] h-full flex flex-col">
+                    <GlassCard className="!p-6 border-border bg-card rounded-lg h-full flex flex-col">
                         <div className="mb-4">
-                            <h3 className="text-sm font-black uppercase tracking-tighter text-foreground flex items-center gap-2">
-                                <Globe size={14} className="text-emerald-500" /> Region Split
+                            <h3 className="text-sm font-semibold tracking-tight text-foreground flex items-center gap-2">
+                                <Globe size={14} className="text-success" /> Region Split
                             </h3>
-                            <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mt-1">Nodes by region</p>
+                            <p className="text-xs font-semibold text-muted-foreground mt-1">Nodes by region</p>
                         </div>
                         {!mounted || regionData.length === 0 ? (
                             <div className="flex-1 flex items-center justify-center">
                                 <div className="text-center">
                                     <Globe size={40} className="text-muted-foreground mx-auto mb-3" />
-                                    <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">No region data</p>
+                                    <p className="text-xs font-semibold text-muted-foreground">No region data</p>
                                 </div>
                             </div>
                         ) : (
@@ -449,7 +449,7 @@ export default function AnalyticsPage() {
                                 </div>
                                 <div className="space-y-1.5 mt-2">
                                     {regionData.slice(0, 5).map((r, i) => (
-                                        <div key={r.name} className="flex items-center justify-between text-[9px] font-black uppercase tracking-wider">
+                                        <div key={r.name} className="flex items-center justify-between text-xs font-semibold">
                                             <div className="flex items-center gap-2">
                                                 <div className="w-2 h-2 rounded-full" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
                                                 <span className="text-muted-foreground">{r.name}</span>
@@ -468,17 +468,17 @@ export default function AnalyticsPage() {
             <motion.section variants={itemVariants}>
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                     <div>
-                        <h2 className="text-xl font-black uppercase tracking-tighter text-foreground flex items-center gap-3">
-                            <Trophy size={18} className="text-yellow-400" /> Node Leaderboard
+                        <h2 className="text-xl font-semibold tracking-tight text-foreground flex items-center gap-3">
+                            <Trophy size={18} className="text-warning" /> Node Leaderboard
                         </h2>
-                        <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mt-1">Top performers ranked by category</p>
+                        <p className="text-xs font-semibold text-muted-foreground mt-1">Top performers ranked by category</p>
                     </div>
-                    <div className="flex items-center gap-2 bg-muted border border-border rounded-2xl p-1.5">
+                    <div className="flex items-center gap-2 bg-muted border border-border rounded-lg p-1.5">
                         {LEADERBOARD_CATEGORIES.map((cat) => (
                             <button
                                 key={cat.value}
                                 onClick={() => setLeaderboardCategory(cat.value)}
-                                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${leaderboardCategory === cat.value ? 'bg-primary text-black' : 'text-muted-foreground hover:text-foreground'}`}
+                                className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${leaderboardCategory === cat.value ? 'bg-primary text-black' : 'text-muted-foreground hover:text-foreground'}`}
                             >
                                 <cat.icon size={10} /> {cat.label}
                             </button>
@@ -487,7 +487,7 @@ export default function AnalyticsPage() {
                 </div>
 
                 {leaderboardError && (
-                    <div className="mb-3 flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[9px] font-black uppercase tracking-widest">
+                    <div className="mb-3 flex items-center gap-2 px-4 py-2.5 rounded-lg bg-warning/10 border border-warning/20 text-warning text-xs font-semibold">
                         Leaderboard API unavailable
                     </div>
                 )}
@@ -501,7 +501,7 @@ export default function AnalyticsPage() {
                     ) : displayLeaderboard.length === 0 ? (
                         <div className="py-20 text-center">
                             <Trophy size={48} className="text-muted-foreground mx-auto mb-4" />
-                            <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">No nodes registered yet</p>
+                            <p className="text-xs font-semibold text-muted-foreground">No nodes registered yet</p>
                         </div>
                     ) : (
                         <div className="divide-y divide-border">
@@ -511,23 +511,23 @@ export default function AnalyticsPage() {
                                     <Link key={node.node_id} href={`/explorer/nodes/${node.node_id}`} className="flex items-center gap-6 px-6 py-4 hover:bg-surface-hover transition-colors group">
                                         <div className="w-8 flex items-center justify-center flex-shrink-0">{getRankIcon(rank)}</div>
                                         <div className="flex-1 min-w-0">
-                                            <div className="text-[11px] font-black text-primary truncate">{node.node_id?.slice(0, 18)}...</div>
-                                            {node.name && <div className="text-[9px] text-muted-foreground mt-0.5">{node.name}</div>}
+                                            <div className="text-xs font-semibold text-primary truncate">{node.node_id?.slice(0, 18)}...</div>
+                                            {node.name && <div className="text-xs text-muted-foreground mt-0.5">{node.name}</div>}
                                         </div>
                                         <div className="flex items-center gap-2 flex-shrink-0">
                                             {node.is_validator ? (
-                                                <span className="inline-flex items-center gap-1 text-[8px] font-black text-purple-400 bg-purple-400/10 px-2 py-1 rounded-md uppercase">
+                                                <span className="inline-flex items-center gap-1 text-xs font-semibold text-primary bg-primary/10 px-2 py-1 rounded-md">
                                                     <Shield size={8} /> Val
                                                 </span>
                                             ) : (
-                                                <span className="inline-flex items-center gap-1 text-[8px] font-black text-blue-400 bg-blue-400/10 px-2 py-1 rounded-md uppercase">
+                                                <span className="inline-flex items-center gap-1 text-xs font-semibold text-info bg-info/10 px-2 py-1 rounded-md">
                                                     <Cloud size={8} /> Proxy
                                                 </span>
                                             )}
                                         </div>
                                         <div className="text-right flex-shrink-0">
-                                            <div className="text-sm font-black text-foreground">{getLeaderboardValue(node)}</div>
-                                            <div className="text-[9px] text-muted-foreground">{node.country}{node.region ? `, ${node.region}` : ''}</div>
+                                            <div className="text-sm font-semibold text-foreground">{getLeaderboardValue(node)}</div>
+                                            <div className="text-xs text-muted-foreground">{node.country}{node.region ? `, ${node.region}` : ''}</div>
                                         </div>
                                     </Link>
                                 );

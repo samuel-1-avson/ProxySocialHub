@@ -57,7 +57,7 @@ export default function ContractInspectorPage() {
                 <div className="flex items-center gap-4">
                     <Link
                         href="/explorer/contracts"
-                        className="flex items-center gap-2 text-[10px] font-black text-muted-foreground hover:text-primary transition-colors uppercase tracking-[0.3em]"
+                        className="flex items-center gap-2 text-xs font-semibold text-muted-foreground hover:text-primary transition-colors"
                     >
                         <ArrowLeft size={14} /> Back to Contracts
                     </Link>
@@ -69,18 +69,18 @@ export default function ContractInspectorPage() {
                     <div className="relative z-10">
                         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-8">
                             <div className="flex items-start gap-4">
-                                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-primary/50 flex items-center justify-center text-primary-foreground shadow-lg shadow-primary/20">
+                                <div className="w-16 h-16 rounded-lg bg-gradient-to-br from-primary to-primary/50 flex items-center justify-center text-primary-foreground shadow-sm">
                                     <FileCode size={28} />
                                 </div>
                                 <div>
-                                    <div className="text-[10px] font-black text-primary uppercase tracking-[0.5em] mb-1">Smart Contract</div>
+                                    <div className="text-xs font-semibold text-primary mb-1">Smart Contract</div>
                                     {isLoading ? (
                                         <div className="h-8 w-48 bg-muted animate-pulse rounded" />
                                     ) : (
-                                        <h1 className="text-2xl font-black text-foreground tracking-tighter">{contract?.name || 'Unknown Contract'}</h1>
+                                        <h1 className="text-2xl font-semibold text-foreground tracking-tight">{contract?.name || 'Unknown Contract'}</h1>
                                     )}
                                     <div className="flex items-center gap-3 mt-2">
-                                        <span className="font-mono text-muted-foreground text-[11px] break-all">{address}</span>
+                                        <span className="font-mono text-muted-foreground text-xs break-all">{address}</span>
                                         <button
                                             onClick={() => copyToClipboard(address)}
                                             className="p-1.5 rounded-lg bg-muted hover:bg-surface-hover text-muted-foreground hover:text-foreground transition-colors"
@@ -105,16 +105,16 @@ export default function ContractInspectorPage() {
                                 {isLoading ? (
                                     <div className="h-8 w-32 bg-muted animate-pulse rounded" />
                                 ) : contract?.is_verified ? (
-                                    <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-[10px] font-black uppercase tracking-wider">
+                                    <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-success/10 border border-success/20 text-success text-xs font-semibold">
                                         <ShieldCheck size={14} /> Verified
                                     </div>
                                 ) : (
-                                    <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-muted border border-border text-muted-foreground text-[10px] font-black uppercase tracking-wider">
+                                    <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-muted border border-border text-muted-foreground text-xs font-semibold">
                                         <XCircle size={14} /> Unverified
                                     </div>
                                 )}
                                 {contract?.contract_type && (
-                                    <span className="px-3 py-1 rounded-lg text-[9px] font-black bg-muted text-muted-foreground border border-border uppercase tracking-wider">
+                                    <span className="px-3 py-1 rounded-lg text-xs font-semibold bg-muted text-muted-foreground border border-border">
                                         {contract.contract_type}
                                     </span>
                                 )}
@@ -123,10 +123,10 @@ export default function ContractInspectorPage() {
 
                         {/* Stats Grid */}
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-8 pt-8 border-t border-border">
-                            <div className="bg-muted rounded-xl p-4 border border-border">
+                            <div className="bg-muted rounded-lg p-4 border border-border">
                                 <div className="flex items-center gap-2 mb-1">
                                     <Activity size={12} className="text-muted-foreground" />
-                                    <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Total Calls</p>
+                                    <p className="text-xs font-semibold text-muted-foreground">Total Calls</p>
                                 </div>
                                 {isLoading ? (
                                     <div className="h-6 w-24 bg-muted animate-pulse rounded" />
@@ -134,21 +134,21 @@ export default function ContractInspectorPage() {
                                     <p className="font-mono text-lg font-bold">{contract?.total_calls?.toLocaleString() || '0'}</p>
                                 )}
                             </div>
-                            <div className="bg-muted rounded-xl p-4 border border-border">
+                            <div className="bg-muted rounded-lg p-4 border border-border">
                                 <div className="flex items-center gap-2 mb-1">
                                     <Code2 size={12} className="text-muted-foreground" />
-                                    <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Chain</p>
+                                    <p className="text-xs font-semibold text-muted-foreground">Chain</p>
                                 </div>
                                 {isLoading ? (
                                     <div className="h-6 w-20 bg-muted animate-pulse rounded" />
                                 ) : (
-                                    <p className="font-mono text-lg font-bold uppercase">{contract?.chain || '-'}</p>
+                                    <p className="font-mono text-lg font-bold">{contract?.chain || '-'}</p>
                                 )}
                             </div>
-                            <div className="bg-muted rounded-xl p-4 border border-border">
+                            <div className="bg-muted rounded-lg p-4 border border-border">
                                 <div className="flex items-center gap-2 mb-1">
                                     <User size={12} className="text-muted-foreground" />
-                                    <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Deployer</p>
+                                    <p className="text-xs font-semibold text-muted-foreground">Deployer</p>
                                 </div>
                                 {isLoading ? (
                                     <div className="h-6 w-28 bg-muted animate-pulse rounded" />
@@ -163,10 +163,10 @@ export default function ContractInspectorPage() {
                                     <p className="font-mono text-sm text-muted-foreground">Unknown</p>
                                 )}
                             </div>
-                            <div className="bg-muted rounded-xl p-4 border border-border">
+                            <div className="bg-muted rounded-lg p-4 border border-border">
                                 <div className="flex items-center gap-2 mb-1">
                                     <Calendar size={12} className="text-muted-foreground" />
-                                    <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Deployed</p>
+                                    <p className="text-xs font-semibold text-muted-foreground">Deployed</p>
                                 </div>
                                 {isLoading ? (
                                     <div className="h-6 w-28 bg-muted animate-pulse rounded" />
@@ -175,7 +175,7 @@ export default function ContractInspectorPage() {
                                         <p className="font-mono text-sm text-muted-foreground">
                                             {formatDistanceToNow(new Date(contract.deployed_at), { addSuffix: true })}
                                         </p>
-                                        <p className="text-[9px] text-muted-foreground mt-0.5">
+                                        <p className="text-xs text-muted-foreground mt-0.5">
                                             {format(new Date(contract.deployed_at), 'MMM d, yyyy')}
                                         </p>
                                     </div>
@@ -191,7 +191,7 @@ export default function ContractInspectorPage() {
             {/* Description */}
             {(isLoading || contract?.description) && (
                 <GlassCard className="p-6 border-border bg-card">
-                    <h2 className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.3em] mb-3">Description</h2>
+                    <h2 className="text-xs font-semibold text-muted-foreground mb-3">Description</h2>
                     {isLoading ? (
                         <div className="space-y-2">
                             <div className="h-4 w-full bg-muted animate-pulse rounded" />
@@ -206,13 +206,13 @@ export default function ContractInspectorPage() {
             {/* Source Code / ABI placeholder */}
             {!isLoading && contract?.is_verified && (
                 <GlassCard className="p-6 border-border bg-card">
-                    <h2 className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.3em] mb-3">Contract ABI</h2>
+                    <h2 className="text-xs font-semibold text-muted-foreground mb-3">Contract ABI</h2>
                     {contract?.abi ? (
-                        <pre className="text-[10px] text-muted-foreground bg-muted rounded-xl p-4 overflow-x-auto max-h-64 border border-border">
+                        <pre className="text-xs text-muted-foreground bg-muted rounded-lg p-4 overflow-x-auto max-h-64 border border-border">
                             {JSON.stringify(contract.abi, null, 2)}
                         </pre>
                     ) : (
-                        <p className="text-muted-foreground text-[11px] uppercase tracking-widest">ABI not available</p>
+                        <p className="text-muted-foreground text-xs">ABI not available</p>
                     )}
                 </GlassCard>
             )}

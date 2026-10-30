@@ -50,26 +50,26 @@ export default function ContractsPage() {
             <motion.header variants={itemVariants} className="flex flex-col gap-6 border-b border-border pb-8">
                 <Link
                     href="/explorer"
-                    className="flex items-center gap-2 text-[10px] font-black text-muted-foreground hover:text-primary transition-colors uppercase tracking-[0.3em] w-fit"
+                    className="flex items-center gap-2 text-xs font-semibold text-muted-foreground hover:text-primary transition-colors w-fit"
                 >
                     <ArrowLeft size={14} /> Back to Grid
                 </Link>
                 
                 <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-6">
                     <div>
-                        <div className="text-[10px] font-black text-primary uppercase tracking-[0.5em] mb-1">Grid Telemetry // Contracts</div>
-                        <h1 className="text-4xl font-black uppercase tracking-tighter text-foreground flex items-center gap-4">
+                        <div className="text-xs font-semibold text-primary mb-1">Grid Telemetry // Contracts</div>
+                        <h1 className="text-4xl font-semibold tracking-tight text-foreground flex items-center gap-4">
                             <FileCode className="text-primary" size={32} /> 
                             Smart Contracts
                         </h1>
-                        <p className="text-[11px] font-black text-muted-foreground uppercase tracking-widest mt-2">
+                        <p className="text-xs font-semibold text-muted-foreground mt-2">
                             Verified programs running on the ProxyHub Network
                         </p>
                     </div>
                     
                     <div className="text-right">
-                        <p className="text-[9px] font-black text-muted-foreground uppercase tracking-[0.3em]">Total Contracts</p>
-                        <p className="text-3xl font-black text-foreground tracking-tighter">
+                        <p className="text-xs font-semibold text-muted-foreground">Total Contracts</p>
+                        <p className="text-3xl font-semibold text-foreground tracking-tight">
                             {data?.total?.toLocaleString() || '0'}
                         </p>
                     </div>
@@ -82,7 +82,7 @@ export default function ContractsPage() {
                     <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse">
                             <thead>
-                                <tr className="bg-muted text-muted-foreground text-[10px] uppercase tracking-[0.2em] font-black">
+                                <tr className="bg-muted text-muted-foreground text-xs font-semibold">
                                     <th className="px-6 py-4">Contract Name</th>
                                     <th className="px-6 py-4">Address</th>
                                     <th className="px-6 py-4">Type</th>
@@ -103,10 +103,10 @@ export default function ContractsPage() {
                                         <td colSpan={6} className="px-6 py-20 text-center">
                                             <div className="flex flex-col items-center gap-4">
                                                 <Boxes size={48} className="text-muted-foreground" />
-                                                <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.3em]">
+                                                <p className="text-xs font-semibold text-muted-foreground">
                                                     No contracts registered yet
                                                 </p>
-                                                <p className="text-[10px] text-muted-foreground max-w-md">
+                                                <p className="text-xs text-muted-foreground max-w-md">
                                                     Smart contracts will be automatically registered when they are deployed to the network.
                                                 </p>
                                             </div>
@@ -124,23 +124,23 @@ export default function ContractsPage() {
                                             <td className="px-6 py-4">
                                                 <Link 
                                                     href={`/explorer/contracts/${contract.address}`}
-                                                    className="font-mono text-primary hover:text-primary/80 text-[10px] font-bold"
+                                                    className="font-mono text-primary hover:text-primary/80 text-xs font-bold"
                                                 >
                                                     {contract.address?.slice(0, 20)}...{contract.address?.slice(-8)}
                                                 </Link>
                                             </td>
                                             <td className="px-6 py-4">
-                                                <span className="px-3 py-1 rounded-lg text-[9px] font-black bg-muted text-muted-foreground border border-border uppercase tracking-wider">
+                                                <span className="px-3 py-1 rounded-lg text-xs font-semibold bg-muted text-muted-foreground border border-border">
                                                     {contract.contract_type}
                                                 </span>
                                             </td>
                                             <td className="px-6 py-4 text-center">
                                                 {contract.is_verified ? (
-                                                    <div className="flex items-center justify-center gap-1.5 text-emerald-500 text-[10px] font-black uppercase">
+                                                    <div className="flex items-center justify-center gap-1.5 text-success text-xs font-semibold">
                                                         <ShieldCheck size={14} /> Verified
                                                     </div>
                                                 ) : (
-                                                    <div className="flex items-center justify-center gap-1.5 text-muted-foreground text-[10px] font-black uppercase">
+                                                    <div className="flex items-center justify-center gap-1.5 text-muted-foreground text-xs font-semibold">
                                                         <XCircle size={14} /> Unverified
                                                     </div>
                                                 )}
@@ -148,7 +148,7 @@ export default function ContractsPage() {
                                             <td className="px-6 py-4 text-right">
                                                 <span className="font-mono font-bold text-sm">{contract.total_calls?.toLocaleString()}</span>
                                             </td>
-                                            <td className="px-6 py-4 text-right text-[11px] text-muted-foreground">
+                                            <td className="px-6 py-4 text-right text-xs text-muted-foreground">
                                                 {contract.deployed_at ? formatDistanceToNow(new Date(contract.deployed_at), { addSuffix: true }) : '-'}
                                             </td>
                                         </tr>
@@ -160,7 +160,7 @@ export default function ContractsPage() {
 
                     {/* Pagination */}
                     <div className="p-6 bg-muted flex items-center justify-between border-t border-border">
-                        <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">
+                        <p className="text-xs font-semibold text-muted-foreground">
                             Page <span className="text-foreground">{page}</span>
                         </p>
                         <div className="flex gap-2">
@@ -186,7 +186,7 @@ export default function ContractsPage() {
             {error && (
                 <motion.div 
                     variants={itemVariants}
-                    className="p-6 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[10px] font-black uppercase tracking-widest text-center"
+                    className="p-6 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-xs font-semibold text-center"
                 >
                     Failed to load contracts. Please check your connection to the ProxyHub network.
                 </motion.div>

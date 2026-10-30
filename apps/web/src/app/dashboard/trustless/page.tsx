@@ -109,7 +109,7 @@ export default function TrustlessPage() {
         return (
             <div className="flex flex-col items-center justify-center py-40 gap-4">
                 <Loader2 className="w-10 h-10 animate-spin text-primary" />
-                <p className="font-mono text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground animate-pulse">Retrieving Consensus Logs...</p>
+                <p className="font-mono text-xs font-semibold text-muted-foreground animate-pulse">Retrieving Consensus Logs...</p>
             </div>
         );
     }
@@ -122,25 +122,25 @@ export default function TrustlessPage() {
             className="space-y-12 pb-20"
         >
             {/* Header Section */}
-            <motion.div variants={itemVariants} className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 border-b border-white/5 pb-8">
+            <motion.div variants={itemVariants} className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 border-b border-border pb-8">
                 <div>
-                    <div className="flex items-center gap-2 text-primary font-mono text-[10px] font-black uppercase tracking-[0.3em] mb-1">
+                    <div className="flex items-center gap-2 text-primary font-mono text-xs font-semibold mb-1">
                         <ShieldCheck size={12} className="animate-pulse" /> Oracle-attested usage anchors
                     </div>
-                    <h1 className="text-4xl font-black font-mono uppercase tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-primary to-blue-400">
+                    <h1 className="text-4xl font-semibold font-mono tracking-tight">
                         Usage Proofs
                     </h1>
                     <p className="mt-3 max-w-xl text-sm text-muted-foreground">
                         Batches are Merkle-committed on Solana and signed by the oracle.
-                        On-chain Halo2 verification is not live yet — these are not trustless ZK proofs.
+                        On-chain Halo2 verification is not live yet. These are not trustless ZK proofs.
                         Marketplace CONNECT usage lives on Usage & billing, not this proof queue.
                     </p>
                 </div>
                 <div className="flex gap-4">
                     <GlassCard className="px-6 py-3 flex items-center gap-4 bg-primary/5 border-primary/20">
                         <div className="text-right">
-                            <p className="text-[8px] font-black font-mono uppercase opacity-40">Cumulative Proof</p>
-                            <p className="text-xl font-black font-mono tracking-tighter">{formatBytes(stats.totalBytes)} GB</p>
+                            <p className="text-xs font-semibold font-mono opacity-40">Cumulative Proof</p>
+                            <p className="text-xl font-semibold font-mono tracking-tight">{formatBytes(stats.totalBytes)} GB</p>
                         </div>
                         <div className="p-2 bg-primary/20 rounded-lg text-primary">
                             <Zap size={20} />
@@ -152,17 +152,17 @@ export default function TrustlessPage() {
             {/* Stats Overview */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {[
-                    { label: 'Total Logs', value: stats.total, icon: History, color: 'text-white' },
-                    { label: 'Awaiting Action', value: stats.pending, icon: AlertCircle, color: 'text-amber-400' },
-                    { label: 'Settled On-Chain', value: stats.onChain, icon: CheckCircle2, color: 'text-emerald-400' },
+                    { label: 'Total Logs', value: stats.total, icon: History, color: 'text-foreground' },
+                    { label: 'Awaiting Action', value: stats.pending, icon: AlertCircle, color: 'text-warning' },
+                    { label: 'Settled On-Chain', value: stats.onChain, icon: CheckCircle2, color: 'text-success' },
                 ].map((stat, i) => (
                     <motion.div key={i} variants={itemVariants}>
-                        <GlassCard className="p-6 flex items-center justify-between group hover:border-white/20 transition-all">
+                        <GlassCard className="p-6 flex items-center justify-between group hover:border-border transition-all">
                             <div>
-                                <p className="text-[10px] font-black font-mono uppercase opacity-30 tracking-widest mb-1">{stat.label}</p>
-                                <p className={`text-3xl font-black font-mono ${stat.color}`}>{stat.value}</p>
+                                <p className="text-xs font-semibold font-mono opacity-30 mb-1">{stat.label}</p>
+                                <p className={`text-3xl font-semibold font-mono ${stat.color}`}>{stat.value}</p>
                             </div>
-                            <div className={`p-4 rounded-2xl bg-white/5 border border-white/10 ${stat.color} group-hover:scale-110 transition-transform`}>
+                            <div className={`p-4 rounded-lg bg-secondary border border-border ${stat.color} group-hover:scale-110 transition-transform`}>
                                 <stat.icon size={24} />
                             </div>
                         </GlassCard>
@@ -172,15 +172,15 @@ export default function TrustlessPage() {
 
             {/* Filtering & Search */}
             <motion.div variants={itemVariants} className="flex flex-col lg:flex-row gap-6 justify-between items-center">
-                <div className="flex bg-white/5 p-1 rounded-2xl border border-white/10 w-full lg:w-auto overflow-x-auto">
+                <div className="flex bg-secondary p-1 rounded-lg border border-border w-full lg:w-auto overflow-x-auto">
                     {['all', 'pending', 'signed', 'settling_confidential', 'on_chain'].map((s) => (
                         <button
                             key={s}
                             onClick={() => setFilterStatus(s as any)}
-                            className={`px-6 py-2.5 rounded-xl text-[10px] font-black font-mono uppercase transition-all whitespace-nowrap ${
+                            className={`px-6 py-2.5 rounded-lg text-xs font-semibold font-mono transition-all whitespace-nowrap ${
                                 filterStatus === s 
-                                    ? 'bg-primary text-primary-foreground shadow-lg' 
-                                    : 'text-muted-foreground hover:bg-white/5'
+                                    ? 'bg-primary text-primary-foreground shadow-sm' 
+                                    : 'text-muted-foreground hover:bg-secondary'
                             }`}
                         >
                             {s.replace('_', ' ')}
@@ -192,10 +192,10 @@ export default function TrustlessPage() {
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors" size={16} />
                     <input 
                         type="text"
-                        placeholder="SEARCH LOG ID OR SESSION..."
+                        placeholder="Search log ID or session..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-4 font-mono text-[10px] font-black uppercase tracking-widest outline-none focus:border-primary/40 focus:bg-white/10 transition-all"
+                        className="w-full bg-secondary border border-border rounded-lg py-4 pl-12 pr-4 font-mono text-xs font-semibold outline-none focus:border-primary/40 focus:bg-secondary transition-all"
                     />
                 </div>
             </motion.div>
@@ -210,10 +210,10 @@ export default function TrustlessPage() {
                             exit={{ opacity: 0 }}
                             className="py-40 text-center"
                         >
-                            <GlassCard className="inline-block p-16 border-dashed border-white/10 opacity-40">
+                            <GlassCard className="inline-block p-16 border-dashed border-border opacity-40">
                                 <Globe size={48} className="mx-auto mb-6 text-muted-foreground animate-pulse" />
-                                <h3 className="text-[11px] font-black font-mono uppercase mb-2">No Proof Segments Detected</h3>
-                                <p className="text-[9px] font-mono uppercase max-w-xs mx-auto font-black leading-relaxed">
+                                <h3 className="text-xs font-semibold font-mono mb-2">No Proof Segments Detected</h3>
+                                <p className="text-xs font-mono max-w-xs mx-auto font-semibold leading-relaxed">
                                     Consensus logs will propagate here as soon as bandwidth segments are validated by the nodes.
                                 </p>
                             </GlassCard>

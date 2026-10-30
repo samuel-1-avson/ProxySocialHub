@@ -7,7 +7,7 @@ import { ROUTES } from '@/lib/navigation/routes';
 export default function NotFound() {
   return (
     <main className="min-h-screen flex flex-col items-center justify-center gap-6 px-4 text-center bg-background text-foreground">
-      <p className="font-mono text-sm text-muted-foreground tracking-widest uppercase">
+      <p className="font-mono text-sm text-muted-foreground">
         404
       </p>
       <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">

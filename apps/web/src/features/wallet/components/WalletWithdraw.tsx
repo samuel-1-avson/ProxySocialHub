@@ -33,12 +33,12 @@ export function WalletWithdraw({
   onWithdraw,
 }: WalletWithdrawProps) {
   return (
-    <div className="space-y-4 p-6 rounded-2xl border border-rose-500/10 bg-rose-500/5">
-      <p className="text-[10px] font-black font-mono uppercase text-rose-400 tracking-widest flex items-center gap-2">
+    <div className="space-y-4 p-6 rounded-lg border border-destructive/10 bg-destructive/5">
+      <p className="text-xs font-semibold font-mono text-destructive flex items-center gap-2">
         <ArrowUpRight size={14} /> Withdraw SOL
       </p>
-      <p className="text-[10px] font-mono text-muted-foreground/70 leading-relaxed">
-        Move <span className="text-white/70">platform balance</span> to your linked primary address
+      <p className="text-xs font-mono text-muted-foreground/70 leading-relaxed">
+        Move <span className="text-foreground">platform balance</span> to your linked primary address
         {linkedAddress
           ? ` (${linkedAddress.slice(0, 4)}…${linkedAddress.slice(-4)})`
           : ''}
@@ -46,7 +46,7 @@ export function WalletWithdraw({
       </p>
       <MoneyRailHint rail="platform" />
       {withdrawalSecurity?.withdrawal_cooldown_active && (
-        <div className="p-3 rounded-xl border border-amber-500/20 bg-amber-500/10 text-amber-400 text-[9px] font-mono uppercase font-black leading-relaxed flex items-start gap-2">
+        <div className="p-3 rounded-lg border border-warning/20 bg-warning/10 text-warning text-xs font-mono font-semibold leading-relaxed flex items-start gap-2">
           <AlertCircle size={13} className="mt-0.5 shrink-0" />
           <span>
             Withdrawal cooldown active until{' '}
@@ -64,13 +64,13 @@ export function WalletWithdraw({
         placeholder="Amount (SOL)"
         value={withdrawAmount}
         onChange={(e) => onWithdrawAmountChange(e.target.value)}
-        className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm font-mono focus:border-primary/50 outline-none"
+        className="w-full bg-secondary border border-border rounded-lg px-4 py-3 text-sm font-mono focus:border-primary/50 outline-none"
       />
       {withdrawRequiresSignature && (
-        <p className="text-[9px] font-mono text-amber-500/90 uppercase flex items-center gap-2">
+        <p className="text-xs font-mono text-warning/90 flex items-center gap-2">
           <Shield size={12} />
           {canSignMessage
-            ? 'Signature required — approve the message in your wallet when prompted'
+            ? 'Signature required. Approve the message in your wallet when prompted'
             : `Unlock your linked wallet below, then withdraw (required for amounts over ${largeWithdrawThresholdSOL} SOL)`}
         </p>
       )}
@@ -83,7 +83,7 @@ export function WalletWithdraw({
         disabled={
           processing || !linkedAddress || (withdrawRequiresSignature && !canSignMessage)
         }
-        className="w-full btn-retro !py-3 text-[10px] uppercase font-black tracking-widest border-rose-500/30 hover:border-rose-500/50 disabled:opacity-40"
+        className="w-full btn-retro !py-3 text-xs font-semibold border-destructive/30 hover:border-destructive/50 disabled:opacity-40"
       >
         {processing ? (
           <span className="flex items-center justify-center gap-2">

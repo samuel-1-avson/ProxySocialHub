@@ -28,22 +28,22 @@ function StatusIndicator({ status }: { status: string }) {
     if (status === 'healthy') return (
         <div className="flex items-center gap-2">
             <span className="relative flex h-3 w-3">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500" />
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-success" />
             </span>
-            <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Healthy</span>
+            <span className="text-xs font-semibold text-success">Healthy</span>
         </div>
     );
     if (status === 'degraded') return (
         <div className="flex items-center gap-2">
-            <span className="h-3 w-3 rounded-full bg-yellow-400 inline-block" />
-            <span className="text-[10px] font-black text-yellow-400 uppercase tracking-widest">Degraded</span>
+            <span className="h-3 w-3 rounded-full bg-warning inline-block" />
+            <span className="text-xs font-semibold text-warning">Degraded</span>
         </div>
     );
     return (
         <div className="flex items-center gap-2">
-            <span className="h-3 w-3 rounded-full bg-rose-500 inline-block" />
-            <span className="text-[10px] font-black text-rose-400 uppercase tracking-widest">Down</span>
+            <span className="h-3 w-3 rounded-full bg-destructive inline-block" />
+            <span className="text-xs font-semibold text-destructive">Down</span>
         </div>
     );
 }
@@ -51,9 +51,9 @@ function StatusIndicator({ status }: { status: string }) {
 function SubsystemCard({ label, status, icon: Icon, detail }: { label: string; status: string; icon: any; detail?: string }) {
     const isHealthy = status === 'healthy';
     const isDegraded = status === 'degraded' || status === 'unavailable';
-    const borderColor = isHealthy ? 'border-emerald-500/20' : isDegraded ? 'border-yellow-400/20' : 'border-rose-500/20';
-    const bgColor = isHealthy ? 'bg-emerald-500/[0.03]' : isDegraded ? 'bg-yellow-400/[0.03]' : 'bg-rose-500/[0.03]';
-    const iconColor = isHealthy ? 'text-emerald-400' : isDegraded ? 'text-yellow-400' : 'text-rose-400';
+    const borderColor = isHealthy ? 'border-success/20' : isDegraded ? 'border-warning/20' : 'border-destructive/20';
+    const bgColor = isHealthy ? 'bg-success/[0.03]' : isDegraded ? 'bg-warning/[0.03]' : 'bg-destructive/[0.03]';
+    const iconColor = isHealthy ? 'text-success' : isDegraded ? 'text-warning' : 'text-destructive';
     const StatusIcon = isHealthy ? CheckCircle : isDegraded ? AlertTriangle : XCircle;
 
     return (
@@ -62,9 +62,9 @@ function SubsystemCard({ label, status, icon: Icon, detail }: { label: string; s
                 <Icon size={18} className={`${iconColor} opacity-60`} />
                 <StatusIcon size={14} className={iconColor} />
             </div>
-            <div className="text-sm font-black text-foreground uppercase tracking-tighter">{label}</div>
-            {detail && <div className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mt-1">{detail}</div>}
-            <div className={`text-[9px] font-black uppercase tracking-widest mt-3 ${iconColor}`}>{status}</div>
+            <div className="text-sm font-semibold text-foreground tracking-tight">{label}</div>
+            {detail && <div className="text-xs font-semibold text-muted-foreground mt-1">{detail}</div>}
+            <div className={`text-xs font-semibold mt-3 ${iconColor}`}>{status}</div>
         </GlassCard>
     );
 }
@@ -115,23 +115,23 @@ export default function HealthPage() {
         <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-8 font-mono">
             {/* Header */}
             <motion.header variants={itemVariants} className="flex flex-col gap-6 border-b border-border pb-8">
-                <Link href="/explorer" className="flex items-center gap-2 text-[10px] font-black text-muted-foreground hover:text-primary transition-colors uppercase tracking-[0.3em] w-fit">
+                <Link href="/explorer" className="flex items-center gap-2 text-xs font-semibold text-muted-foreground hover:text-primary transition-colors w-fit">
                     <ArrowLeft size={14} /> Back to Grid
                 </Link>
                 <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-4">
                     <div>
-                        <div className="text-[10px] font-black text-primary uppercase tracking-[0.5em] mb-1">Grid Telemetry // Health</div>
-                        <h1 className="text-4xl font-black uppercase tracking-tighter text-foreground flex items-center gap-4">
+                        <div className="text-xs font-semibold text-primary mb-1">Grid Telemetry // Health</div>
+                        <h1 className="text-4xl font-semibold tracking-tight text-foreground flex items-center gap-4">
                             <Activity className="text-primary" size={32} /> Network Health
                         </h1>
-                        <p className="text-[11px] font-black text-muted-foreground uppercase tracking-widest mt-2">
+                        <p className="text-xs font-semibold text-muted-foreground mt-2">
                             Real-time subsystem status and historical uptime
                         </p>
                     </div>
                     {health && (
                         <div className="flex flex-col items-end gap-2">
                             <StatusIndicator status={health.status} />
-                            <span className="text-[8px] font-black text-muted-foreground uppercase tracking-widest">
+                            <span className="text-xs font-semibold text-muted-foreground">
                                 Last checked {formatDistanceToNow(new Date(health.last_checked), { addSuffix: true })}
                             </span>
                         </div>
@@ -148,19 +148,19 @@ export default function HealthPage() {
             {/* Uptime Banner */}
             {uptime24h !== null && (
                 <motion.section variants={itemVariants}>
-                    <div className={`rounded-[2rem] border px-8 py-5 flex items-center justify-between ${uptime24h >= 99 ? 'border-emerald-500/20 bg-emerald-500/[0.03]' : uptime24h >= 95 ? 'border-yellow-400/20 bg-yellow-400/[0.03]' : 'border-rose-500/20 bg-rose-500/[0.03]'}`}>
+                    <div className={`rounded-lg border px-8 py-5 flex items-center justify-between ${uptime24h >= 99 ? 'border-success/20 bg-success/[0.03]' : uptime24h >= 95 ? 'border-warning/20 bg-warning/[0.03]' : 'border-destructive/20 bg-destructive/[0.03]'}`}>
                         <div className="flex items-center gap-4">
-                            <TrendingUp size={20} className={uptime24h >= 99 ? 'text-emerald-400' : uptime24h >= 95 ? 'text-yellow-400' : 'text-rose-400'} />
+                            <TrendingUp size={20} className={uptime24h >= 99 ? 'text-success' : uptime24h >= 95 ? 'text-warning' : 'text-destructive'} />
                             <div>
-                                <div className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">24h Network Uptime</div>
-                                <div className={`text-3xl font-black tracking-tighter ${uptime24h >= 99 ? 'text-emerald-400' : uptime24h >= 95 ? 'text-yellow-400' : 'text-rose-400'}`}>
+                                <div className="text-xs font-semibold text-muted-foreground">24h Network Uptime</div>
+                                <div className={`text-3xl font-semibold tracking-tight ${uptime24h >= 99 ? 'text-success' : uptime24h >= 95 ? 'text-warning' : 'text-destructive'}`}>
                                     {uptime24h.toFixed(2)}%
                                 </div>
                             </div>
                         </div>
                         <div className="text-right">
-                            <div className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Active Nodes</div>
-                            <div className="text-2xl font-black text-foreground">{health?.active_nodes ?? metrics?.active_nodes ?? '—'}</div>
+                            <div className="text-xs font-semibold text-muted-foreground">Active Nodes</div>
+                            <div className="text-2xl font-semibold text-foreground">{health?.active_nodes ?? metrics?.active_nodes ?? 'Unavailable'}</div>
                         </div>
                     </div>
                 </motion.section>
@@ -181,15 +181,15 @@ export default function HealthPage() {
             {/* Charts */}
             {loadingHistory ? (
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                    {[0, 1].map(i => <div key={i} className="h-56 animate-pulse bg-card border border-border rounded-[2rem]" />)}
+                    {[0, 1].map(i => <div key={i} className="h-56 animate-pulse bg-card border border-border rounded-lg" />)}
                 </div>
             ) : (
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                     {/* Active Nodes History */}
                     <motion.section variants={itemVariants}>
-                        <GlassCard className="border-border bg-card rounded-[2rem] !p-6">
-                            <h3 className="text-sm font-black uppercase tracking-tighter text-foreground mb-5 flex items-center gap-2">
-                                <Server size={14} className="text-primary" /> Active Nodes — 24h
+                        <GlassCard className="border-border bg-card rounded-lg !p-6">
+                            <h3 className="text-sm font-semibold tracking-tight text-foreground mb-5 flex items-center gap-2">
+                                <Server size={14} className="text-primary" /> Active Nodes: 24h
                             </h3>
                             {mounted && history.length > 0 ? (
                                 <ResponsiveContainer width="100%" height={160} minWidth={0} minHeight={0}>
@@ -208,9 +208,9 @@ export default function HealthPage() {
                                     </AreaChart>
                                 </ResponsiveContainer>
                             ) : (
-                                <div className="h-[160px] flex flex-col items-center justify-center border-2 border-dashed border-border rounded-xl">
+                                <div className="h-[160px] flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg">
                                     <History size={24} className="text-muted-foreground mb-2" />
-                                    <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest text-center px-4">
+                                    <p className="text-xs font-semibold text-muted-foreground text-center px-4">
                                         {historyData?.message || 'No history data yet'}
                                     </p>
                                 </div>
@@ -220,9 +220,9 @@ export default function HealthPage() {
 
                     {/* Response Time History */}
                     <motion.section variants={itemVariants}>
-                        <GlassCard className="border-border bg-card rounded-[2rem] !p-6">
-                            <h3 className="text-sm font-black uppercase tracking-tighter text-foreground mb-5 flex items-center gap-2">
-                                <Clock size={14} className="text-yellow-400" /> Response Time — 24h
+                        <GlassCard className="border-border bg-card rounded-lg !p-6">
+                            <h3 className="text-sm font-semibold tracking-tight text-foreground mb-5 flex items-center gap-2">
+                                <Clock size={14} className="text-warning" /> Response Time: 24h
                             </h3>
                             {mounted && history.length > 0 ? (
                                 <ResponsiveContainer width="100%" height={160} minWidth={0} minHeight={0}>
@@ -237,9 +237,9 @@ export default function HealthPage() {
                                     </LineChart>
                                 </ResponsiveContainer>
                             ) : (
-                                <div className="h-[160px] flex flex-col items-center justify-center border-2 border-dashed border-border rounded-xl">
+                                <div className="h-[160px] flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg">
                                     <History size={24} className="text-muted-foreground mb-2" />
-                                    <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest text-center px-4">
+                                    <p className="text-xs font-semibold text-muted-foreground text-center px-4">
                                         {historyData?.message || 'No history data yet'}
                                     </p>
                                 </div>
@@ -251,30 +251,30 @@ export default function HealthPage() {
 
             {/* Health Event Log */}
             <motion.section variants={itemVariants} className="space-y-4">
-                <h2 className="text-sm font-black uppercase tracking-tighter text-foreground flex items-center gap-2">
+                <h2 className="text-sm font-semibold tracking-tight text-foreground flex items-center gap-2">
                     <History size={14} className="text-primary" /> Health Event Log
                 </h2>
-                <GlassCard className="overflow-hidden border-border bg-card rounded-[2rem]">
+                <GlassCard className="overflow-hidden border-border bg-card rounded-lg">
                     {healthEvents.length > 0 ? (
                         <div className="divide-y divide-border">
                             {healthEvents.map((ev: any, i: number) => (
                                 <div key={i} className="flex items-center gap-4 px-6 py-4">
-                                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${ev.status === 'healthy' ? 'bg-emerald-500' : ev.status === 'degraded' ? 'bg-yellow-400' : 'bg-rose-500'}`} />
+                                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${ev.status === 'healthy' ? 'bg-success' : ev.status === 'degraded' ? 'bg-warning' : 'bg-destructive'}`} />
                                     <div className="flex-1 min-w-0">
-                                        <div className="text-[10px] font-black text-foreground">{ev.message || ev.status}</div>
-                                        <div className="text-[8px] text-muted-foreground mt-0.5">{ev.subsystem || 'Network'}</div>
+                                        <div className="text-xs font-semibold text-foreground">{ev.message || ev.status}</div>
+                                        <div className="text-xs text-muted-foreground mt-0.5">{ev.subsystem || 'Network'}</div>
                                     </div>
-                                    <div className="text-[8px] font-black text-muted-foreground uppercase tracking-wider flex-shrink-0">
-                                        {ev.timestamp ? (() => { try { return formatDistanceToNow(new Date(ev.timestamp), { addSuffix: true }); } catch { return '—'; } })() : '—'}
+                                    <div className="text-xs font-semibold text-muted-foreground flex-shrink-0">
+                                        {ev.timestamp ? (() => { try { return formatDistanceToNow(new Date(ev.timestamp), { addSuffix: true }); } catch { return 'Unknown'; } })() : 'Unknown'}
                                     </div>
                                 </div>
                             ))}
                         </div>
                     ) : (
                         <div className="py-16 text-center">
-                            <CheckCircle size={40} className="text-emerald-400/20 mx-auto mb-4" />
-                            <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">No incidents recorded</p>
-                            <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest mt-2">All systems nominal</p>
+                            <CheckCircle size={40} className="text-success/20 mx-auto mb-4" />
+                            <p className="text-xs font-semibold text-muted-foreground">No incidents recorded</p>
+                            <p className="text-xs font-semibold text-muted-foreground mt-2">All systems nominal</p>
                         </div>
                     )}
                 </GlassCard>

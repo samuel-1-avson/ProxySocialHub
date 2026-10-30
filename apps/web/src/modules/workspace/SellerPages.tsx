@@ -87,7 +87,7 @@ export function SellerOverview() {
         <Stat
           label="Nodes online"
           value={
-            nodes.isSuccess ? `${online} / ${nodes.data.nodes.length}` : "—"
+            nodes.isSuccess ? `${online} / ${nodes.data.nodes.length}` : "…"
           }
           detail="Reported node status"
         />
@@ -96,14 +96,14 @@ export function SellerOverview() {
           value={
             earnings.data
               ? `${amount(earnings.data.last_30_days_sol, 4)} SOL`
-              : "—"
+              : "…"
           }
           detail="From provider earnings records"
         />
         <Stat
           label="Pending earnings"
           value={
-            earnings.data ? `${amount(earnings.data.pending_sol, 4)} SOL` : "—"
+            earnings.data ? `${amount(earnings.data.pending_sol, 4)} SOL` : "…"
           }
           detail="Separate from paid and payable funds"
         />
