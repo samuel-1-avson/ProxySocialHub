@@ -14,6 +14,7 @@ type State = {
   loseBroadcast: boolean;
   loseWithdrawal: boolean;
   completed: boolean;
+  opsRequired: boolean;
   depositBodies: Record<string, unknown>[];
   withdrawalBodies: Record<string, unknown>[];
   signatures: string[];
@@ -33,6 +34,7 @@ async function setup(page: Page, connected = true) {
     loseBroadcast: false,
     loseWithdrawal: false,
     completed: false,
+    opsRequired: false,
     depositBodies: [],
     withdrawalBodies: [],
     signatures: [],
@@ -184,7 +186,11 @@ async function setup(page: Page, connected = true) {
             reference: "withdrawal-original",
             amount_sol: 0.2,
             destination: address,
-            status: state.completed ? "completed" : "requested",
+            status: state.opsRequired
+              ? "ops_required"
+              : state.completed
+                ? "completed"
+                : "requested",
             tx_hash: state.completed
               ? bs58.encode(new Uint8Array(64).fill(3))
               : undefined,
@@ -341,6 +347,30 @@ test.describe("automatic wallet transfers", () => {
       state.withdrawalBodies[0].challenge_nonce,
     );
   });
+  test("a queued withdrawal that needs review stays saved and shows its real status", async ({
+    page,
+  }) => {
+    const { state } = await setup(page);
+    await withdrawal(page);
+    await expect(
+      page.getByText("Withdrawal is processing", { exact: true }),
+    ).toBeVisible();
+    state.opsRequired = true;
+    await page
+      .getByRole("button", { name: "Check withdrawal status", exact: true })
+      .click();
+    await expect(
+      page.getByText("Withdrawal needs review", { exact: true }),
+    ).toBeVisible();
+    await page.reload();
+    await expect(
+      page.getByText("Withdrawal needs review", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Review withdrawal", exact: true }),
+    ).toBeDisabled();
+    expect(state.withdrawalBodies).toHaveLength(1);
+  });
   test("a failed on-chain deposit does not credit the account or require a pasted reference", async ({
     page,
   }) => {
@@ -421,7 +451,10 @@ test.describe("automatic wallet transfers", () => {
       await expect(
         page.getByRole("button", { name: "Review deposit", exact: true }),
       ).toBeEnabled();
-      await page.screenshot({ path: testInfo.outputPath(`wallet-deposit-${theme}.png`), fullPage: true });
+      await page.screenshot({
+        path: testInfo.outputPath(`wallet-deposit-${theme}.png`),
+        fullPage: true,
+      });
       await testInfo.attach(`wallet-deposit-${theme}`, {
         path: testInfo.outputPath(`wallet-deposit-${theme}.png`),
         contentType: "image/png",
@@ -432,7 +465,9 @@ test.describe("automatic wallet transfers", () => {
       await expect(
         page.getByRole("dialog", { name: "Review account deposit" }),
       ).toBeVisible();
-      await page.screenshot({ path: testInfo.outputPath(`wallet-review-${theme}.png`) });
+      await page.screenshot({
+        path: testInfo.outputPath(`wallet-review-${theme}.png`),
+      });
       await testInfo.attach(`wallet-review-${theme}`, {
         path: testInfo.outputPath(`wallet-review-${theme}.png`),
         contentType: "image/png",
@@ -456,7 +491,10 @@ test.describe("automatic wallet transfers", () => {
           () => document.documentElement.scrollWidth <= innerWidth,
         ),
       ).toBe(true);
-      await page.screenshot({ path: testInfo.outputPath(`wallet-mobile-${theme}.png`), fullPage: true });
+      await page.screenshot({
+        path: testInfo.outputPath(`wallet-mobile-${theme}.png`),
+        fullPage: true,
+      });
       await testInfo.attach(`wallet-mobile-${theme}`, {
         path: testInfo.outputPath(`wallet-mobile-${theme}.png`),
         contentType: "image/png",

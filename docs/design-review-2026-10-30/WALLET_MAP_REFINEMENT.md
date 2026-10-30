@@ -37,3 +37,5 @@ The bounded live devnet deposit exposed a separate API bug: a plaintext HTTP 429
 | Medium | Cross-surface consistency | Review remaining legacy utilities, Explorer detail states, table density, terminology and reciprocal links against the shared themes and workspace navigation. |
 
 The funded purchase → routed traffic → settlement → earnings acceptance remains separate from these UI tests. The isolated buyer now has 5 devnet SOL. Its key is not embedded in the frontend or exported. The user's linked wallet is a separate address and was observed with 15 devnet SOL in the live interface.
+
+A final withdrawal follow-up adds a 33rd distinct browser scenario: when a queued payout changes to operations review, the saved receipt and visible status update together and remain correct after reload. That case and the existing withdrawal completion/retry cases passed (3/3), with TypeScript and focused ESLint passing again.
