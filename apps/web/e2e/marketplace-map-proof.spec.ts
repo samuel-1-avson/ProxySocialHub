@@ -34,9 +34,25 @@ test.describe('marketplace map proof badges', () => {
         await expect(page.getByText('Offer proof')).toBeVisible();
         await expect(page.getByText('Provider signed').first()).toBeVisible();
         await expect(page.getByText('High quality')).toBeVisible();
+        await expect(page.getByText('Reported trust', { exact: true })).toBeVisible();
+        await expect(page.getByText('Live connectivity requires a successful routed request.', { exact: false })).toBeVisible();
         await expect(page.getByText('Regional area')).toBeVisible();
         await expect(page.getByTestId('catalog-product-badge')).toBeVisible();
         await expect(page.getByTestId('catalog-product-badge')).toContainText('premium-austin-pool');
+    });
+
+    test('keeps missing quality unavailable rather than endorsing a published offer', async ({ page }) => {
+        await stubMarketplaceListingDetail(page);
+        await page.route('**/v1/marketplace/map**', route => route.fulfill({
+            json: { ...mockMapResponse(), points: [{ ...verifiedMapPoint, trust_label: undefined, trust_badge: undefined, quality_score: undefined, uptime_percent: undefined, success_rate: undefined }] },
+        }));
+        await page.goto(`${BASE_URL}/marketplace/map?listing=${verifiedMapListingId}`);
+        await expect(page.getByRole('heading', { name: verifiedMapPoint.title, level: 2 })).toBeVisible();
+        await expect(page.getByText('High quality')).toHaveCount(0);
+        await expect(page.getByText('Reported quality', { exact: true })).toHaveCount(0);
+        await expect(page.getByText('Reported uptime', { exact: true })).toBeVisible();
+        await expect(page.getByText('Not reported', { exact: false }).first()).toBeVisible();
+        await expect(page.getByText('Live connectivity requires a successful routed request.', { exact: false })).toBeVisible();
     });
 
     test('sends country filter on map refetch', async ({ page }) => {
