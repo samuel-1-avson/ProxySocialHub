@@ -37,13 +37,13 @@ type TransactionResult struct {
 }
 
 type TxMeta struct {
-	Err               interface{} `json:"err"`
-	Fee               uint64      `json:"fee"`
-	PreBalances       []uint64    `json:"preBalances"`
-	PostBalances      []uint64    `json:"postBalances"`
+	Err               interface{}           `json:"err"`
+	Fee               uint64                `json:"fee"`
+	PreBalances       []uint64              `json:"preBalances"`
+	PostBalances      []uint64              `json:"postBalances"`
 	InnerInstructions []TxInnerInstructions `json:"innerInstructions"`
-	LogMessages       []string    `json:"logMessages"`
-	LoadedAddresses   *TxLoadedAddresses `json:"loadedAddresses"`
+	LogMessages       []string              `json:"logMessages"`
+	LoadedAddresses   *TxLoadedAddresses    `json:"loadedAddresses"`
 }
 
 // TxLoadedAddresses carries v0 address-lookup-table accounts. Balance
@@ -54,20 +54,20 @@ type TxLoadedAddresses struct {
 }
 
 type TxInnerInstructions struct {
-	Index        int               `json:"index"`
-	Instructions []TxInstruction   `json:"instructions"`
+	Index        int             `json:"index"`
+	Instructions []TxInstruction `json:"instructions"`
 }
 
 // TxInstruction is a jsonParsed instruction. Only System Program
 // transfers are interpreted for deposit proof (P0-6).
 type TxInstruction struct {
-	Program   string `json:"program"`
-	ProgramID string `json:"programId"`
+	Program   string               `json:"program"`
+	ProgramID string               `json:"programId"`
 	Parsed    *TxParsedInstruction `json:"parsed"`
 }
 
 type TxParsedInstruction struct {
-	Type string `json:"type"`
+	Type string         `json:"type"`
 	Info TxTransferInfo `json:"info"`
 }
 
@@ -247,10 +247,14 @@ func VerifyTransaction(ctx context.Context, txHash string) (*TransactionResult, 
 			var rpcResp rpcResponse
 			decodeErr := json.NewDecoder(resp.Body).Decode(&rpcResp)
 			resp.Body.Close()
-			if decodeErr != nil {
-				lastErr = fmt.Errorf("failed to decode response: %w", decodeErr)
-			} else if status == http.StatusTooManyRequests {
+			// Provider rate-limit/proxy responses are often text or HTML, not JSON.
+			// Classify their HTTP status first so the next trusted RPC is tried.
+			if status == http.StatusTooManyRequests {
 				lastErr = errors.New("RPC error: Connection rate limits exceeded")
+			} else if status >= http.StatusInternalServerError {
+				lastErr = fmt.Errorf("RPC endpoint temporarily unavailable (HTTP %d)", status)
+			} else if decodeErr != nil {
+				lastErr = fmt.Errorf("failed to decode response: %w", decodeErr)
 			} else if rpcResp.Error != nil {
 				lastErr = fmt.Errorf("RPC error: %s", rpcResp.Error.Message)
 			} else if string(rpcResp.Result) == "null" {
