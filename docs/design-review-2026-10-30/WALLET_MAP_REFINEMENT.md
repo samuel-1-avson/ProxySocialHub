@@ -10,11 +10,21 @@
 - Seller wallet navigation points to earnings and payout review. Buyer guidance explains the actual order-escrow flow without asking for an unnecessary account deposit.
 - Marketplace filters collapse when an offer is selected. On desktop the map stays visible beside the inspector; mobile uses a single column. Selection is derived from the current API record and clears on filter changes instead of being reset by synchronization effects. This also removes the three prior map-page effect lint errors.
 
-The existing signature, amount, network-mismatch, withdrawal review, and pending-transfer recovery controls remain in place. Browser fixture values are confined to tests and are not production balances or funded-acceptance evidence.
+## Automatic account funding
+
+The funding screen now uses one focused Deposit/Withdraw form with a clear balance, amount, review step and integrated wallet connection. Users approve in their wallet; there is no transaction-signature or payment-reference input. Destination addresses and the payment network remain visible in the review. Both themes and narrow mobile layouts use the shared design system.
+
+- Deposits retain the signed transaction identity before broadcast. HTTP checks and server verification confirm and credit the original payment automatically, including after a same-tab reload. A lost broadcast response never requests a second transfer. Unknown outcomes remain pending; an explicit chain failure or preflight rejection releases the attempt. Owner/policy errors pause automatic verification and show an account-review state.
+- Withdrawals sign the server-issued amount/destination challenge through the connected wallet. A saved idempotency key precedes submission. Unknown responses resume with fresh approval and the same key. Once a payout reference is known, only its exact queue record is polled; a reload does not automatically post another withdrawal. Completed, failed and operations-review states come from the real API.
+- Wrong-network, exact-lamport, available-balance, wallet-match, fee-buffer, cooldown and overlapping-submission guards remain enforced. No account credit or completed payout is fabricated while verification is pending. Pending public receipts use session storage with an in-memory fallback; keys and authorization messages are never saved there. A new browser session cannot restore a receipt that was only held in session storage; Activity remains available for server-recorded transfers.
+
+The unused legacy deposit/withdrawal panels were removed so the routed wallet has one implementation. Access Pass and marketplace escrow remain separate flows. Browser fixture values are confined to tests and are not production balances or funded-acceptance evidence.
 
 ## Validation
 
-Web TypeScript and focused ESLint pass. The production build passes. Seventeen buyer/map browser cases passed, followed by four final layout/error cases after the primary-button refinement, for eighteen unique scenarios. Checks include a funded linked wallet with zero account funds, real clipboard contents, RPC refresh/error behavior, 320px layout, sticky map visibility, and clearing a deep-linked selection when filters change. No test retries or skips were used.
+Web TypeScript, focused ESLint and the production build pass. The combined buyer/workspace/map run passed 31 browser cases with no retries or skips. A separate final layout case brings this to 32 distinct scenarios, covering both themes and 320px review dialogs. Eight transfer-helper and three exact-SOL tests pass. Checks include real signing of test transactions/challenges, one broadcast after a double-click or uncertain response, same-request withdrawal recovery, chain failure, wrong genesis, altered withdrawal challenges, security holds, truthful balances, clipboard feedback and map selection/layout behavior.
+
+The bounded live devnet deposit exposed a separate API bug: a plaintext HTTP 429 was treated as a JSON error before the configured RPC fallback could run. PR #87 fixes status classification without changing RPC configuration or weakening chain verification. Against isolated cloud PostgreSQL, 77 Solana and 31 provider-pairing cases passed without skips; the old implementation reproduced the new regression failures. The original 0.001 SOL receipt is retained for live verification without another deposit. This is not evidence that the broader purchase/traffic/earnings acceptance has passed.
 
 ## Remaining frontend work
 

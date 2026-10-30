@@ -14,7 +14,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { getWalletTransactionsPage, getWithdrawals } from "@/lib/api/wallet";
 import { forceDisconnectSolanaWallet } from "@/lib/solana-wallet-session";
-import { parseSolAmountLamports } from "@/lib/sol-amount";
+import { WalletFunds } from "@/features/wallet/components/WalletFunds";
 import { explorerHref } from "@/lib/navigation/workspace";
 import { useWorkspaceStore } from "@/lib/store/workspace-store";
 import {
@@ -28,7 +28,6 @@ import {
   PageHeading,
   Loading,
   DataError,
-  Stat,
   Status,
   amount,
   shortDate,
@@ -51,7 +50,6 @@ export function BuyerWallet() {
     page.solanaNetwork as Cluster,
   );
   const [unlinkOpen, setUnlinkOpen] = useState(false);
-  const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [cursor, setCursor] = useState<string | undefined>();
   const [cursorHistory, setCursorHistory] = useState<(string | undefined)[]>(
     [],
@@ -65,9 +63,9 @@ export function BuyerWallet() {
     result,
     setResult,
     treasuryConfig,
-    largeWithdrawThresholdSOL,
   } = page;
   const deposit = useWalletDeposit({
+    userId: user?.id,
     wallet,
     treasuryConfig,
     connected: adapter.connected,
@@ -80,11 +78,11 @@ export function BuyerWallet() {
     queryClient,
   });
   const withdraw = useWalletWithdraw({
+    userId: user?.id,
     wallet,
     connected: adapter.connected,
     publicKey: adapter.publicKey,
     signMessage: adapter.signMessage,
-    largeWithdrawThresholdSOL,
     processing,
     setProcessing,
     setResult,
@@ -135,13 +133,10 @@ export function BuyerWallet() {
   );
   const differentWallet = Boolean(address && adapter.connected && !matching);
   const configuredNetwork = inspection === page.solanaNetwork;
-  const validDeposit = (parseSolAmountLamports(deposit.depositAmount) ?? 0) > 0;
-  const validWithdraw =
-    (parseSolAmountLamports(withdraw.withdrawAmount) ?? 0) > 0;
   const ledgerMismatch = Boolean(
     wallet?.solana_network &&
-    wallet.solana_network.replace("mainnet-beta", "mainnet") !==
-      page.solanaNetwork.replace("mainnet-beta", "mainnet"),
+      wallet.solana_network.replace("mainnet-beta", "mainnet") !==
+        page.solanaNetwork.replace("mainnet-beta", "mainnet"),
   );
   const canFund = Boolean(
     wallet && configuredNetwork && !ledgerMismatch && !processing,
@@ -151,8 +146,8 @@ export function BuyerWallet() {
     : differentWallet
       ? "Different wallet connected"
       : address
-      ? "Wallet linked · not connected"
-      : "No wallet linked";
+        ? "Wallet linked · not connected"
+        : "No wallet linked";
   const connectionTitle = matching
     ? "Your wallet is connected"
     : differentWallet
@@ -175,7 +170,9 @@ export function BuyerWallet() {
       await navigator.clipboard.writeText(address);
       setCopiedAddress(address);
     } catch {
-      setCopyError("Copy is unavailable. Select and copy the displayed address.");
+      setCopyError(
+        "Copy is unavailable. Select and copy the displayed address.",
+      );
     }
   }
   return (
@@ -185,7 +182,12 @@ export function BuyerWallet() {
         eyebrow="Account utility"
         description="Your payment wallet, balance, and account transfers in one place."
         actions={
-          <Link className="ui-button secondary" href={workspace === "seller" ? "/provider/earnings" : "/app/activity"}>
+          <Link
+            className="ui-button secondary"
+            href={
+              workspace === "seller" ? "/provider/earnings" : "/app/activity"
+            }
+          >
             {workspace === "seller" ? "View earnings" : "Orders & billing"} →
           </Link>
         }
@@ -219,11 +221,22 @@ export function BuyerWallet() {
             <option value="mainnet-beta">Mainnet</option>
           </select>
         </label>
-        <p className="ui-note">Payments use <strong>{page.solanaNetwork}</strong>. This selector only changes the balance you view.</p>
-        <button className="ui-button secondary small" disabled={balanceRefreshing || !user} onClick={() => {
-          void queryClient.invalidateQueries({ queryKey: ["wallet", user?.id] });
-          if (address) void chainBalance.refetch();
-        }}>{balanceRefreshing ? "Refreshing…" : "Refresh balances"}</button>
+        <p className="ui-note">
+          Payments use <strong>{page.solanaNetwork}</strong>. This selector only
+          changes the balance you view.
+        </p>
+        <button
+          className="ui-button secondary small"
+          disabled={balanceRefreshing || !user}
+          onClick={() => {
+            void queryClient.invalidateQueries({
+              queryKey: ["wallet", user?.id],
+            });
+            if (address) void chainBalance.refetch();
+          }}
+        >
+          {balanceRefreshing ? "Refreshing…" : "Refresh balances"}
+        </button>
       </div>
       {!configuredNetwork && (
         <p className="ui-attention" role="status">
@@ -265,245 +278,232 @@ export function BuyerWallet() {
       {tab === "overview" && (
         <>
           <div className="wallet-overview-grid">
-          <section className="ui-surface wallet-payment" aria-labelledby="payment-wallet-title">
-            <div className="ui-section-heading">
-              <h2 id="payment-wallet-title">Your payment wallet</h2>
-              <Status tone={matching ? "good" : differentWallet ? "warning" : "neutral"}>{linkedStatus}</Status>
-            </div>
-            <div className="wallet-balance">
-              <span className="ui-stat-label">Linked wallet balance</span>
-              {address && chainBalance.isPending ? <span className="wallet-balance-skeleton" role="status">Loading balance…</span> :
-                <div className="wallet-balance-value">{chainBalance.isSuccess ? amount(chainBalance.data, 9) : "—"} <span>SOL</span></div>}
-              <p className="ui-note">{address ? `On-chain balance · ${inspection}${page.isDevnet && configuredNetwork ? " · Test funds" : ""}` : "Link a wallet to see its on-chain balance."}</p>
-              {chainBalance.isSuccess && <p className="ui-note">Updated {new Date(chainBalance.dataUpdatedAt).toLocaleTimeString(undefined, {hour: "2-digit", minute: "2-digit"})}</p>}
-            </div>
-            {chainBalance.isError && <DataError error={chainBalance.error} retry={() => void chainBalance.refetch()} />}
-            <div className="wallet-connect-step">
-              <h3>{connectionTitle}</h3>
-              <p>{connectionDescription}</p>
-              {differentWallet && <p className="wallet-connected-address">Browser wallet: <code>{adapter.publicKey?.toBase58()}</code></p>}
-              <div className="ui-actions">
-              <WalletMultiButton className="ui-button wallet-connect-button">{adapter.connected ? "Wallet options" : adapter.connecting ? "Connecting…" : "Connect wallet"}</WalletMultiButton>
-              {adapter.connected && (
-                <button
-                  className="ui-button secondary"
-                  disabled={processing}
-                  onClick={() =>
-                    void forceDisconnectSolanaWallet({
-                      disconnect: adapter.disconnect,
-                      select: adapter.select,
-                    })
+            <section
+              className="ui-surface wallet-payment"
+              aria-labelledby="payment-wallet-title"
+            >
+              <div className="ui-section-heading">
+                <h2 id="payment-wallet-title">Your payment wallet</h2>
+                <Status
+                  tone={
+                    matching ? "good" : differentWallet ? "warning" : "neutral"
                   }
                 >
-                  Disconnect wallet
-                </button>
-              )}
-              {adapter.connected && !matching && (
-                <button
-                  className="ui-button"
-                  disabled={processing || !wallet || !adapter.signMessage}
-                  onClick={() => void linking.handleLinkSolana()}
-                >
-                  Sign to link this wallet
-                </button>
-              )}
-              {address && (
-                <button
-                  className="ui-button ghost"
-                  disabled={processing}
-                  onClick={() => setUnlinkOpen(true)}
-                >
-                  Unlink address…
-                </button>
-              )}
-            </div>
-            </div>
-            <div className="wallet-address">
-              <div className="wallet-address-heading"><span className="ui-stat-label">Linked account address</span>{address && <button className="ui-button secondary small" onClick={() => void copyAddress()}>{copiedAddress === address ? "Copied" : "Copy address"}</button>}</div>
-              <code>{address || "No address linked yet"}</code>
-              <span className="ui-note" role="status">{copyError || (copiedAddress === address && address ? "Address copied to clipboard." : "")}</span>
-            </div>
-            {page.withdrawalSecurity?.withdrawal_cooldown_active && (
-              <p className="ui-note">
-                A withdrawal-address cooldown is active until{" "}
-                {page.withdrawalSecurity.withdrawal_cooldown_until
-                  ? new Date(
-                      page.withdrawalSecurity.withdrawal_cooldown_until,
-                    ).toLocaleString()
-                  : "the server clears it"}
-                .
-              </p>
-            )}
-          </section>
-          <aside className="wallet-account-summary" aria-label="Account balances and payments">
-            <section className="ui-surface">
-              <h2>Account funds</h2>
-              <div className="ui-stat-value">{wallet ? `${amount(wallet.balance_sol, 9)} SOL` : "—"}</div>
-              <p className="ui-note">Deposits for supported account services. These funds are separate from your wallet and order payments.</p>
-              {wallet?.balance_sol === 0 && <p className="wallet-balance-explanation">A zero account balance does not mean your linked wallet is empty.</p>}
-              <Link className="ui-link" href="/app/wallet?tab=funds">Manage account funds →</Link>
-              <div className="wallet-order-summary">
-                <h3>Order payments</h3>
-                <strong>{orders.isSuccess ? `${orders.data.filter((order) => order.status === "active").length} orders` : "—"}</strong>
-                <p className="ui-note">Active orders. Each order has its own escrow and payment record.</p>
-                {orders.isError && <p className="ui-note" role="status">Order count is unavailable.</p>}
-                <Link className="ui-link" href="/app/activity">View orders & billing →</Link>
+                  {linkedStatus}
+                </Status>
               </div>
+              <div className="wallet-balance">
+                <span className="ui-stat-label">Linked wallet balance</span>
+                {address && chainBalance.isPending ? (
+                  <span className="wallet-balance-skeleton" role="status">
+                    Loading balance…
+                  </span>
+                ) : (
+                  <div className="wallet-balance-value">
+                    {chainBalance.isSuccess
+                      ? amount(chainBalance.data, 9)
+                      : "—"}{" "}
+                    <span>SOL</span>
+                  </div>
+                )}
+                <p className="ui-note">
+                  {address
+                    ? `On-chain balance · ${inspection}${page.isDevnet && configuredNetwork ? " · Test funds" : ""}`
+                    : "Link a wallet to see its on-chain balance."}
+                </p>
+                {chainBalance.isSuccess && (
+                  <p className="ui-note">
+                    Updated{" "}
+                    {new Date(chainBalance.dataUpdatedAt).toLocaleTimeString(
+                      undefined,
+                      { hour: "2-digit", minute: "2-digit" },
+                    )}
+                  </p>
+                )}
+              </div>
+              {chainBalance.isError && (
+                <DataError
+                  error={chainBalance.error}
+                  retry={() => void chainBalance.refetch()}
+                />
+              )}
+              <div className="wallet-connect-step">
+                <h3>{connectionTitle}</h3>
+                <p>{connectionDescription}</p>
+                {differentWallet && (
+                  <p className="wallet-connected-address">
+                    Browser wallet: <code>{adapter.publicKey?.toBase58()}</code>
+                  </p>
+                )}
+                <div className="ui-actions">
+                  <WalletMultiButton className="ui-button wallet-connect-button">
+                    {adapter.connected
+                      ? "Wallet options"
+                      : adapter.connecting
+                        ? "Connecting…"
+                        : "Connect wallet"}
+                  </WalletMultiButton>
+                  {adapter.connected && (
+                    <button
+                      className="ui-button secondary"
+                      disabled={processing}
+                      onClick={() =>
+                        void forceDisconnectSolanaWallet({
+                          disconnect: adapter.disconnect,
+                          select: adapter.select,
+                        })
+                      }
+                    >
+                      Disconnect wallet
+                    </button>
+                  )}
+                  {adapter.connected && !matching && (
+                    <button
+                      className="ui-button"
+                      disabled={processing || !wallet || !adapter.signMessage}
+                      onClick={() => void linking.handleLinkSolana()}
+                    >
+                      Sign to link this wallet
+                    </button>
+                  )}
+                  {address && (
+                    <button
+                      className="ui-button ghost"
+                      disabled={processing}
+                      onClick={() => setUnlinkOpen(true)}
+                    >
+                      Unlink address…
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="wallet-address">
+                <div className="wallet-address-heading">
+                  <span className="ui-stat-label">Linked account address</span>
+                  {address && (
+                    <button
+                      className="ui-button secondary small"
+                      onClick={() => void copyAddress()}
+                    >
+                      {copiedAddress === address ? "Copied" : "Copy address"}
+                    </button>
+                  )}
+                </div>
+                <code>{address || "No address linked yet"}</code>
+                <span className="ui-note" role="status">
+                  {copyError ||
+                    (copiedAddress === address && address
+                      ? "Address copied to clipboard."
+                      : "")}
+                </span>
+              </div>
+              {page.withdrawalSecurity?.withdrawal_cooldown_active && (
+                <p className="ui-note">
+                  A withdrawal-address cooldown is active until{" "}
+                  {page.withdrawalSecurity.withdrawal_cooldown_until
+                    ? new Date(
+                        page.withdrawalSecurity.withdrawal_cooldown_until,
+                      ).toLocaleString()
+                    : "the server clears it"}
+                  .
+                </p>
+              )}
             </section>
-            <section className="wallet-next-step">
-              <h2>{workspace === "seller" ? "Receiving earnings" : "Buying bandwidth"}</h2>
-              <p>{workspace === "seller" ? "Review your payout destination, settlement records, and available earnings in your seller workspace." : "Choose an offer, review the order, then approve its escrow payment in your wallet. You do not need to deposit into account funds first."}</p>
-              <Link className="ui-button secondary" href={workspace === "seller" ? "/provider/earnings" : "/marketplace"}>{workspace === "seller" ? "Review payouts" : "Browse proxies"} →</Link>
-            </section>
-          </aside>
+            <aside
+              className="wallet-account-summary"
+              aria-label="Account balances and payments"
+            >
+              <section className="ui-surface">
+                <h2>Account funds</h2>
+                <div className="ui-stat-value">
+                  {wallet ? `${amount(wallet.balance_sol, 9)} SOL` : "—"}
+                </div>
+                <p className="ui-note">
+                  Deposits for supported account services. These funds are
+                  separate from your wallet and order payments.
+                </p>
+                {wallet?.balance_sol === 0 && (
+                  <p className="wallet-balance-explanation">
+                    A zero account balance does not mean your linked wallet is
+                    empty.
+                  </p>
+                )}
+                <Link className="ui-link" href="/app/wallet?tab=funds">
+                  Manage account funds →
+                </Link>
+                <div className="wallet-order-summary">
+                  <h3>Order payments</h3>
+                  <strong>
+                    {orders.isSuccess
+                      ? `${orders.data.filter((order) => order.status === "active").length} orders`
+                      : "—"}
+                  </strong>
+                  <p className="ui-note">
+                    Active orders. Each order has its own escrow and payment
+                    record.
+                  </p>
+                  {orders.isError && (
+                    <p className="ui-note" role="status">
+                      Order count is unavailable.
+                    </p>
+                  )}
+                  <Link className="ui-link" href="/app/activity">
+                    View orders & billing →
+                  </Link>
+                </div>
+              </section>
+              <section className="wallet-next-step">
+                <h2>
+                  {workspace === "seller"
+                    ? "Receiving earnings"
+                    : "Buying bandwidth"}
+                </h2>
+                <p>
+                  {workspace === "seller"
+                    ? "Review your payout destination, settlement records, and available earnings in your seller workspace."
+                    : "Choose an offer, review the order, then approve its escrow payment in your wallet. You do not need to deposit into account funds first."}
+                </p>
+                <Link
+                  className="ui-button secondary"
+                  href={
+                    workspace === "seller"
+                      ? "/provider/earnings"
+                      : "/marketplace"
+                  }
+                >
+                  {workspace === "seller" ? "Review payouts" : "Browse proxies"}{" "}
+                  →
+                </Link>
+              </section>
+            </aside>
           </div>
         </>
       )}
       {tab === "funds" && (
-        <>
-          <section className="ui-surface ui-page">
-            <h2>Deposit into account funds</h2>
-            {deposit.retainedDeposit && !deposit.depositTxHash && (
-              <div className="ui-attention">
-                <p>
-                  A previous account transfer needs verification before another
-                  deposit.
-                </p>
-                <button
-                  className="ui-button secondary"
-                  onClick={() => deposit.restoreDeposit()}
-                >
-                  Resume previous account transfer
-                </button>
-              </div>
-            )}
-            <p className="ui-note">
-              Use account funds for supported account services. Buying bandwidth
-              uses order escrow separately.
-            </p>
-            <dl className="ui-detail-list">
-              <div>
-                <dt>Deposit destination</dt>
-                <dd>
-                  {treasuryConfig?.deposit_address ||
-                    treasuryConfig?.treasury_solana ||
-                    "Not configured"}
-                </dd>
-              </div>
-              <div>
-                <dt>Network</dt>
-                <dd>{page.solanaNetwork}</dd>
-              </div>
-            </dl>
-            <label className="ui-field">
-              Deposit amount (SOL)
-              <input
-                className="ui-input"
-                inputMode="decimal"
-                value={deposit.depositAmount}
-                disabled={processing || Boolean(deposit.retainedDeposit)}
-                onChange={(e) => deposit.setDepositAmount(e.target.value)}
-              />
-            </label>
-            <div className="ui-actions">
-              <button
-                className="ui-button"
-                disabled={
-                  !canFund ||
-                  !matching ||
-                  !validDeposit ||
-                  Boolean(deposit.depositTxHash) ||
-                  !treasuryConfig
-                }
-                onClick={deposit.initiateDeposit}
-              >
-                Review account deposit
-              </button>
-              <button
-                className="ui-button secondary"
-                onClick={() => deposit.setShowManualDeposit((value) => !value)}
-                disabled={processing}
-              >
-                Verify an existing transfer
-              </button>
-            </div>
-            {!matching && (
-              <p className="ui-note">
-                Connect the linked wallet to approve a new transfer.
-              </p>
-            )}
-            {deposit.showManualDeposit && (
-              <div className="ui-page">
-                <label className="ui-field">
-                  Existing transaction signature
-                  <input
-                    className="ui-input"
-                    value={deposit.depositTxHash}
-                    disabled={processing}
-                    onChange={(e) =>
-                      deposit.setDepositTxHash(e.target.value.trim())
-                    }
-                  />
-                </label>
-                <button
-                  className="ui-button secondary self-start"
-                  disabled={
-                    !canFund ||
-                    !validDeposit ||
-                    !deposit.depositTxHash ||
-                    !address
-                  }
-                  onClick={() => void deposit.handleDepositVerify()}
-                >
-                  Verify this transfer
-                </button>
-                <p className="ui-note">
-                  Use the original transaction signature after a verification
-                  failure. Do not send another transfer to retry account credit.
-                </p>
-              </div>
-            )}
-          </section>
-          <section className="ui-surface ui-page">
-            <h2>Withdraw account funds</h2>
-            <p className="ui-note">
-              Withdrawals go to your linked address, subject to the server’s
-              eligibility and security checks.
-            </p>
-            <Stat
-              label="Account balance"
-              value={wallet ? `${amount(wallet.balance_sol, 9)} SOL` : "—"}
-              detail="This is not the connected wallet’s on-chain balance"
-            />
-            <label className="ui-field">
-              Withdrawal amount (SOL)
-              <input
-                className="ui-input"
-                inputMode="decimal"
-                value={withdraw.withdrawAmount}
-                disabled={processing}
-                onChange={(e) => withdraw.setWithdrawAmount(e.target.value)}
-              />
-            </label>
-            <button
-              className="ui-button self-start"
-              disabled={
-                !canFund ||
-                !address ||
-                !validWithdraw ||
-                page.withdrawalSecurity?.withdrawal_cooldown_active
-              }
-              onClick={() => setWithdrawOpen(true)}
-            >
-              Review withdrawal
-            </button>
-            {withdraw.pendingWithdrawal && (
-              <p className="ui-note" role="status">
-                {withdraw.pendingWithdrawal}
-              </p>
-            )}
-          </section>
-        </>
+        <WalletFunds
+          wallet={wallet}
+          network={page.solanaNetwork}
+          mode={
+            params.get("action") === "withdraw" ||
+            (!params.get("action") && withdraw.pending)
+              ? "withdraw"
+              : "deposit"
+          }
+          connected={adapter.connected}
+          matching={matching}
+          canApproveDeposit={Boolean(adapter.signTransaction)}
+          canApproveWithdrawal={Boolean(adapter.signMessage)}
+          canLink={Boolean(adapter.signMessage)}
+          onLink={() => void linking.handleLinkSolana()}
+          canFund={canFund}
+          processing={processing}
+          destination={
+            treasuryConfig?.deposit_address || treasuryConfig?.treasury_solana
+          }
+          security={page.withdrawalSecurity}
+          deposit={deposit}
+          withdraw={withdraw}
+        />
       )}
       {tab === "history" && (
         <>
@@ -636,72 +636,6 @@ export function BuyerWallet() {
             Unlink address
           </button>
         </div>
-      </Modal>
-      <Modal
-        open={deposit.showDepositConfirm}
-        onOpenChange={deposit.setShowDepositConfirm}
-        title="Review account deposit"
-        description={`This transfer uses ${page.solanaNetwork} and funds your account ledger.`}
-      >
-        <dl className="ui-detail-list">
-          <div>
-            <dt>Amount</dt>
-            <dd>{deposit.depositAmount} SOL</dd>
-          </div>
-          <div>
-            <dt>Destination</dt>
-            <dd>
-              {treasuryConfig?.deposit_address ||
-                treasuryConfig?.treasury_solana}
-            </dd>
-          </div>
-        </dl>
-        <button
-          className="ui-button mt-4"
-          disabled={processing || !canFund || !matching}
-          onClick={async () => {
-            await deposit.handleDepositSol();
-            deposit.setShowDepositConfirm(false);
-          }}
-        >
-          Approve in wallet
-        </button>
-      </Modal>
-      <Modal
-        open={withdrawOpen}
-        onOpenChange={setWithdrawOpen}
-        title="Review account withdrawal"
-        description="The server checks eligibility before submitting a payout."
-      >
-        <dl className="ui-detail-list">
-          <div>
-            <dt>Amount</dt>
-            <dd>{withdraw.withdrawAmount} SOL</dd>
-          </div>
-          <div>
-            <dt>Destination</dt>
-            <dd>{address || "Not linked"}</dd>
-          </div>
-          <div>
-            <dt>Network</dt>
-            <dd>{page.solanaNetwork}</dd>
-          </div>
-        </dl>
-        <p className="ui-note mt-3">
-          {withdraw.withdrawRequiresSignature
-            ? "A matching wallet signature is required."
-            : "The server may require additional authorization."}
-        </p>
-        <button
-          className="ui-button mt-4"
-          disabled={processing || !canFund}
-          onClick={async () => {
-            await withdraw.handleWithdrawSol();
-            setWithdrawOpen(false);
-          }}
-        >
-          Submit withdrawal request
-        </button>
       </Modal>
     </div>
   );
