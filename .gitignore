@@ -216,6 +216,7 @@ chrome-extension*.pem
 **/chrome-web-store.pem
 apps/extension/*.zip
 apps/extension/web-store/
+apps/extension/dist-firefox/
 apps/extension/scripts/.fonts/
 apps/extension/.env
 apps/extension/.env.*

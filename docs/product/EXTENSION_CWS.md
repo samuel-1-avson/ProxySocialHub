@@ -1,10 +1,16 @@
-# Chrome Web Store listing (testers)
+# Chrome Web Store listing
 
-The extension is **not** on the store until you upload the zip in the Chrome
-Web Store developer dashboard. This repo only prepares the package.
+The repo prepares the package; it only reaches the store when someone uploads it
+in the Chrome Web Store developer dashboard. Firefox: see
+[EXTENSION_AMO.md](EXTENSION_AMO.md).
 
-Publish as **Unlisted** so testers with the link can install it. Do not set
-`NEXT_PUBLIC_EXTENSION_CWS_URL` until that listing URL exists.
+## Check the current status
+
+1. Open https://chrome.google.com/webstore/devconsole and sign in with the
+   Google account that owns the listing.
+2. Find **ProxyHubb** (item id `icapeackjloaiggfedmfeaoadioiiljn` in older notes).
+   The **Status** column says Draft, Pending review, Rejected, or Published.
+3. If there is no item, click **New item** and upload the zip below.
 
 ## Pack
 
@@ -14,67 +20,70 @@ npm test
 npm run pack
 ```
 
-Upload `apps/extension/web-store/proxyhubb-extension-*.zip` (gitignored).
-The zip root must contain `manifest.json`. Store build strips localhost hosts
-and source maps.
+Upload `apps/extension/web-store/proxyhubb-extension-chrome-<version>.zip`
+(gitignored). The zip root holds `manifest.json`. The store build drops
+localhost entries and source maps, and refuses to run if `PROXYHUBB_SITE` is set.
+Bump `version` in both `manifest.json` and `package.json` before each upload;
+the store rejects a version it has already seen.
 
-Never commit `*.pem`, `*.crx`, or the zip. Chrome “Pack extension” writes a
-private key next to the folder — delete it or keep it outside the repo.
+Never commit `*.pem`, `*.crx`, or the zip. Chrome "Pack extension" writes a
+private key next to the folder: delete it or keep it outside the repo.
 
 ## Dashboard fields (paste)
 
 **Name:** ProxyHubb
 
-**Summary:** Turn on HTTP CONNECT for ProxyHubb purchases you already paid for. HMAC to proxy.proxyhubb.com:8090 — not a VPN.
+**Summary:** Turn on your ProxyHubb proxy in one click. Not a VPN.
 
 **Category:** Productivity
 
 **Language:** English
 
-**Visibility:** Unlisted (testers)
+**Visibility:** Unlisted while testing, Public for launch
 
 **Homepage:** https://proxyhubb.com
 
 **Privacy policy:** https://proxyhubb.com/privacy/extension
 
-**Single purpose:** Connect Chrome HTTP CONNECT to a ProxyHubb purchase the user already paid for.
+**Single purpose:** Turn the browser's proxy on and off for a ProxyHubb purchase the user already paid for.
 
 **Description:**
 
-ProxyHubb lets you turn on Chrome HTTP CONNECT for a residential proxy you bought on proxyhubb.com.
-
-This is not a VPN. Chrome still uses local DNS. QUIC and WebRTC can bypass HTTP CONNECT. The extension does not read your history or page content.
+ProxyHubb lets you use a residential proxy you bought on proxyhubb.com in this browser, with one click.
 
 How it works:
 
-1. Buy a listing on proxyhubb.com.
-2. Install this extension.
-3. Click Connect with ProxyHubb on the order page (or pair with a one-time code in the popup).
-4. Turn on. Chrome sends HTTP CONNECT to proxy.proxyhubb.com:8090 with HMAC.
-5. Turn off sets the browser back to direct. That still works if the API is down.
+1. Buy a proxy on proxyhubb.com.
+2. Add this extension.
+3. On your order page, click "Turn on proxy". The sites you open now use that proxy.
+4. Click "Turn off" (on the page or in the toolbar popup) to go back to your normal connection. This works even if ProxyHubb is unreachable.
 
-One Chrome profile = one proxy. Switch purchases in the popup and reload tabs.
+The popup shows your IP so you can confirm the proxy is on. It also protects your real IP from leaking through WebRTC while the proxy is on.
+
+This is not a VPN: it changes the browser's proxy only, and your device still looks up site names itself. The extension does not read your history or the content of pages you visit. One browser profile uses one proxy at a time.
 
 **Permission justifications**
 
-- `proxy`: Set or clear Chrome HTTP CONNECT for the purchased ProxyHubb edge.
-- `storage`: Hold device session and HMAC credentials in session storage only.
-- `alarms`: Keep the service worker able to answer proxy 407 after idle, and warn before session expiry.
-- `scripting`: Read text from a short-lived public IP check tab (api.ipify.org / httpbin.org/ip) to confirm CONNECT. Not used on other sites.
-- `webRequest` + `webRequestAuthProvider`: Answer proxy 407 with HMAC. The listener ignores non-proxy challenges and does not read request bodies.
-- Host access to all URLs: Required so Chrome can ask for proxy credentials on sites you visit while connected. The extension does not inject into those pages or read their content.
+- `proxy`: Turn the browser proxy on for the purchased ProxyHubb proxy, and back to direct when turned off.
+- `storage`: Keep the device session and the proxy login in session storage only (cleared when the browser closes).
+- `alarms`: Keep the extension able to answer the proxy's login request after the browser is idle, and warn before a purchase expires.
+- `scripting`: Read the text of a short-lived IP check tab (api.ipify.org or httpbin.org/ip) to confirm the proxy works. Not used on other sites.
+- `webRequest` + `webRequestAuthProvider`: Answer the ProxyHubb proxy's login request. The listener ignores every non-proxy request and never reads request bodies.
+- `privacy`: Stop WebRTC from exposing the user's real IP while the proxy is on; reset when it is turned off.
+- Host access to all URLs: Needed so the browser can log in to the proxy on any site the user opens while it is on. The extension does not read or change those pages.
+- Content script on proxyhubb.com: Lets the "Turn on proxy" button on the order page reach the extension. Runs only on proxyhubb.com.
 
 ## Assets in this repo
 
 - Icons: `apps/extension/src/icons/icon{16,32,48,128}.png`
-- Promo screenshot (replace with a real popup capture before submit): `apps/extension/store-assets/screenshot-1280x800.png`
+- Screenshot: `apps/extension/store-assets/screenshot-1280x800.png` (replace with a real capture of the popup and the order page before a public launch)
 
-Store listing also needs a 128×128 icon upload (same as `icon128.png`).
+## After the listing is live
 
-## After Google approves
+1. Put the store URL in `.env` as `NEXT_PUBLIC_EXTENSION_CWS_URL` and rebuild
+   the web image. The order page then shows **Add to Chrome**.
+2. No extension id is needed any more: the site reaches the extension through
+   its content script.
 
-1. Copy the store URL into shop `NEXT_PUBLIC_EXTENSION_CWS_URL`.
-2. Copy the 32-character extension id into `NEXT_PUBLIC_EXTENSION_ID`.
-3. Roll Host-A `control-api` with existing overlays so live credentials match HMAC `password` (do not recreate `edge-a`).
-
-Review for `<all_urls>` + proxy can take days. If rejected, answer with the justifications above; do not add history, cookies, or page-content permissions.
+Review for `<all_urls>` + proxy can take several days. If it is rejected, answer
+with the justifications above; do not add history, cookies or page-content permissions.

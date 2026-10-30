@@ -8,13 +8,13 @@
   <body>
     <main>
       <p class="kicker">ProxyHubb</p>
-      <h1>Connect</h1>
-      <p id="status" class="status">Checking session…</p>
+      <h1 id="headline">Proxy is off</h1>
+      <p id="status" class="status">Checking…</p>
       <p id="proxy-control" class="muted"></p>
 
       <section id="connect-panel" hidden>
         <label class="field">
-          Purchased proxy
+          Your proxies
           <select id="order"></select>
         </label>
         <div class="row">
@@ -22,37 +22,31 @@
           <button id="disconnect" type="button" class="secondary">Turn off</button>
         </div>
         <p id="switch-note" class="muted" hidden>
-          One Chrome profile = one proxy. Switching replaces HMAC CONNECT; reload open tabs.
+          Switching changes the proxy for this whole browser. Reload open tabs afterwards.
         </p>
         <p id="expiry" class="muted"></p>
-        <div id="depin-status" class="muted" style="margin-top: 8px; font-size: 11px; display: flex; align-items: center; gap: 6px;">
-          <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #10b981;"></span>
-          <span id="depin-mode-label">⚡ Direct P2P Mesh (14ms)</span>
-        </div>
-        <div id="webrtc-shield-status" class="muted" style="margin-top: 4px; font-size: 11px; display: flex; align-items: center; gap: 6px;">
-          <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #3b82f6;"></span>
-          <span id="webrtc-shield-label">🛡️ WebRTC IP Leak Shield: Active</span>
-        </div>
         <p id="verify" class="verify"></p>
-        <button id="recheck" type="button" class="secondary">Check IP</button>
-        <p class="muted">
-          HTTP CONNECT / WebRTC P2P direct proxy with Ed25519 state-channel mutual receipts.
-        </p>
+        <button id="recheck" type="button" class="secondary">Check my IP</button>
       </section>
       <p id="incognito" class="muted"></p>
 
-      <label class="field">
-        Pairing code
-        <input id="code" type="text" autocomplete="off" spellcheck="false" maxlength="16" placeholder="From proxyhubb.com" />
-      </label>
-      <button id="pair" type="button" class="secondary">Pair this browser</button>
+      <section id="pair-panel">
+        <label class="field">
+          Pairing code
+          <input id="code" type="text" autocomplete="off" spellcheck="false" maxlength="16" placeholder="Shown on your order page" />
+        </label>
+        <button id="pair" type="button" class="secondary">Connect this browser</button>
+      </section>
       <p id="error" class="error" hidden></p>
 
-      <label class="field">
-        API
-        <input id="api-base" type="url" />
-      </label>
-      <button id="save-api" type="button" class="secondary">Save API URL</button>
+      <details class="advanced">
+        <summary>Advanced</summary>
+        <label class="field">
+          Server address
+          <input id="api-base" type="url" />
+        </label>
+        <button id="save-api" type="button" class="secondary">Save</button>
+      </details>
     </main>
     <script type="module" src="popup.js"></script>
   </body>
