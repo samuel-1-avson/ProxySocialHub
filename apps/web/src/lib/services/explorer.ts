@@ -300,8 +300,9 @@ export interface NodeGeoPoint {
     lon: number;
     is_active: boolean;
     is_validator: boolean;
-    uptime_percent: number;
-    active_sessions: number;
+    uptime_percent?: number;
+    active_sessions?: number;
+    status?: string;
     country: string;
     region: string;
     city?: string;

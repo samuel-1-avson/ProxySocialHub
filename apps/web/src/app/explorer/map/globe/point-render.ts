@@ -63,8 +63,8 @@ export function globePointAltitude(p: GlobePoint): number {
 }
 
 function listingTooltip(pin: ExplorerListingPin): string {
-    const loc = [pin.country].filter(Boolean).join(', ') || 'Unknown';
-    const price = pin.price_per_gb.toFixed(4);
+    const loc = [pin.country].filter(Boolean).join(', ') || '—';
+    const price = pin.price_per_gb === undefined ? 'Price not reported' : `$${pin.price_per_gb.toFixed(4)}/GB`;
     const est = pin.estimated ? ' · estimated' : '';
     return `<div style="background:#0a0a15;border:1px solid rgba(16,185,129,.45);border-radius:10px;
                 padding:10px 14px;font-family:monospace;color:#fff;min-width:190px;
@@ -74,7 +74,7 @@ function listingTooltip(pin: ExplorerListingPin): string {
         </div>
         <div style="font-size:10px;color:#fff;font-weight:600;margin-bottom:6px;">${pin.title.replace(/[<>&"']/g, '')}</div>
         <div style="color:rgba(255,255,255,.45);font-size:9px;margin-bottom:2px;">📍 ${loc}</div>
-        <div style="color:rgba(255,255,255,.35);font-size:9px;">$${price}/GB · click to inspect</div>
+        <div style="color:rgba(255,255,255,.35);font-size:9px;">${price} · click to inspect</div>
     </div>`;
 }
 
@@ -82,7 +82,7 @@ function nodeTooltip(n: NodeGeoPoint): string {
     const sc = n.is_active ? '#10b981' : '#ef4444';
     const st = n.is_active ? '● Active' : '○ Offline';
     const ty = n.is_validator ? '⬡ Validator' : '◎ Proxy';
-    const loc = [n.city, n.country || n.region].filter(Boolean).join(', ') || 'Unknown';
+    const loc = [n.city, n.country || n.region].filter(Boolean).join(', ') || '—';
     return `<div style="background:#0a0a15;border:1px solid rgba(99,102,241,.4);border-radius:10px;
                 padding:10px 14px;font-family:monospace;color:#fff;min-width:190px;
                 box-shadow:0 4px 28px rgba(0,0,0,.9);pointer-events:none;">

@@ -1,6 +1,6 @@
 
 import { type NextRequest, NextResponse } from 'next/server'
-import { matchExplorerRedirect } from '@/lib/navigation/explorer-redirects.mjs'
+import { matchExplorerRedirect, STANDALONE_EXPLORER_ORIGIN } from '@/lib/navigation/explorer-redirects.mjs'
 import { getRoutePolicyForPathname, isRoleAllowedForPolicy } from '@/lib/navigation/policies'
 
 const accessTokenCookieName = 'proxyhubb_token'
@@ -10,7 +10,7 @@ const issuer = 'proxyhubb-control-api'
 
 export async function middleware(request: NextRequest) {
     const explorerDestination = matchExplorerRedirect(
-        process.env.NEXT_PUBLIC_EXPLORER_URL,
+        STANDALONE_EXPLORER_ORIGIN,
         request.nextUrl.pathname,
         request.nextUrl.search,
     )

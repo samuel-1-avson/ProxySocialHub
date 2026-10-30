@@ -514,8 +514,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryClient.clear();
     setUser(null);
     try {
-      const { clearSolanaWalletAdapterSession } = await import('@/lib/solana-wallet-session');
+      const { clearSolanaWalletAdapterSession, forgetRememberedWalletName } = await import('@/lib/solana-wallet-session');
       clearSolanaWalletAdapterSession();
+      forgetRememberedWalletName();
       window.dispatchEvent(new CustomEvent('proxyhubb:auth-logout'));
     } catch {
       // ignore

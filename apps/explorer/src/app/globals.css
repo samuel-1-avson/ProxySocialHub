@@ -1,6 +1,14 @@
 @import "../../../../packages/design-system/tokens.css";
 @import "../../../../packages/design-system/workspace.css";
 @import "../../../../packages/design-system/explorer.css";
+.public-node-map { height: 400px; width: 100%; min-width: 0; z-index: 0; border: 1px solid var(--border); border-radius: 10px; background: var(--muted); font-family: inherit; }
+.public-node-map .leaflet-popup-content-wrapper, .public-node-map .leaflet-popup-tip { background: var(--card); color: var(--foreground); }
+.public-node-map .leaflet-popup-content a { color: var(--primary); }
+.public-node-map .leaflet-control-attribution { background: var(--card); color: var(--muted-foreground); font-size: 11px; }
+.public-node-map .leaflet-control-attribution a { color: var(--primary); }
+.public-node-marker { display: grid; place-items: center; background: var(--card); color: var(--foreground); border: 2px solid var(--muted-foreground); border-radius: 50%; font-weight: 600; }
+.public-node-marker.active { border-color: var(--primary); background: var(--primary); color: var(--primary-foreground); }
+@media (max-width: 600px) { .public-node-map { height: 320px; } }
 * {
   box-sizing: border-box;
 }

@@ -2,248 +2,304 @@
 
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
   type Dispatch,
   type SetStateAction,
 } from "react";
 import type { useWallet as useSolanaWallet } from "@solana/wallet-adapter-react";
+import { useQuery, type QueryClient } from "@tanstack/react-query";
 import {
   getWithdrawals,
   requestWithdrawChallenge,
   withdrawWallet,
 } from "@/lib/api";
+import { ApiError } from "@/lib/api/client";
 import { signWithdrawChallengeMessage } from "@/lib/solana-message-sign";
-import { WITHDRAW_SIGNATURE_THRESHOLD_SOL } from "../constants";
+import { formatSolanaWalletError } from "@/lib/solana-transfer";
 import { getSolscanTxUrl } from "@/lib/solscan";
-import { getErrorMessage } from "@/lib/utils";
-import type { QueryClient } from "@tanstack/react-query";
-import type { WalletResult } from "../types";
+import { shopSolanaCluster } from "@/lib/solana";
 import { parseSolAmountLamports } from "@/lib/sol-amount";
+import {
+  readTransferSession,
+  useTransferSession,
+  writeTransferSession,
+} from "../transfer-session";
+import type { WalletResult } from "../types";
 
 type SolanaWallet = ReturnType<typeof useSolanaWallet>;
-
-type WalletLike =
-  | {
-      linked_solana_address?: string | null;
-      balance_sol?: number | string | null;
-    }
-  | null
-  | undefined;
-
+type WithdrawalReceipt = {
+  userId: string;
+  destination: string;
+  amountInput: string;
+  amountLamports: number;
+  key: string;
+  reference?: string;
+  status?: string;
+};
+function parseReceipt(
+  raw: string | null,
+  userId?: string,
+  address?: string | null,
+): WithdrawalReceipt | null {
+  try {
+    const value = JSON.parse(raw || "null");
+    return value &&
+      value.userId === userId &&
+      value.destination === address &&
+      typeof value.key === "string" &&
+      value.key.length > 0 &&
+      Number.isSafeInteger(value.amountLamports) &&
+      value.amountLamports > 0 &&
+      parseSolAmountLamports(value.amountInput) === value.amountLamports
+      ? value
+      : null;
+  } catch {
+    return null;
+  }
+}
 export function useWalletWithdraw(opts: {
-  wallet: WalletLike;
+  userId?: string;
+  wallet:
+    | {
+        linked_solana_address?: string | null;
+        balance_sol?: number | string | null;
+        solana_network?: string;
+      }
+    | null
+    | undefined;
   connected: boolean;
   publicKey: SolanaWallet["publicKey"];
   signMessage: SolanaWallet["signMessage"];
-  largeWithdrawThresholdSOL: number;
   processing: boolean;
   setProcessing: Dispatch<SetStateAction<boolean>>;
   setResult: Dispatch<SetStateAction<WalletResult | null>>;
   queryClient: QueryClient;
 }) {
   const {
+    userId,
     wallet,
     connected,
     publicKey,
     signMessage,
-    largeWithdrawThresholdSOL,
     processing,
     setProcessing,
     setResult,
     queryClient,
   } = opts;
-
+  const address = wallet?.linked_solana_address;
+  const network = shopSolanaCluster();
+  const scope = `${userId}:${address}:${network}`;
+  const recoveryKey = `proxyhubb-account-withdrawal:${scope}`;
+  const rawReceipt = useTransferSession(recoveryKey);
+  const pending = useMemo(
+    () => parseReceipt(rawReceipt, userId, address),
+    [rawReceipt, userId, address],
+  );
   const [withdrawAmount, setWithdrawAmount] = useState("");
-  // P0-9: one idempotency key per (amount) attempt; retries reuse it so the
-  // server replays the first result instead of debiting twice.
-  const idemRef = useRef<{ amount: number; key: string } | null>(null);
-  const withdrawRequiresSignature =
-    parseFloat(withdrawAmount) >
-    Math.min(largeWithdrawThresholdSOL, WITHDRAW_SIGNATURE_THRESHOLD_SOL);
-
-  // W-35: hard double-submit guard. The shared `processing` state
-  // propagates a render too late to stop double-clicks/Enter repeats.
-  const inFlightRef = useRef(false);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [pendingWithdrawal, setPendingWithdrawal] = useState<string | null>(
-    null,
-  );
-  useEffect(
-    () => () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+  const [local, setLocal] = useState<{
+    scope: string;
+    phase: "idle" | "approving" | "submitting" | "completed" | "failed";
+  }>({ scope: "", phase: "idle" });
+  const inFlight = useRef(false);
+  const currentScope = useRef(scope);
+  useEffect(() => {
+    currentScope.current = scope;
+  }, [scope]);
+  const localPhase = local.scope === scope ? local.phase : "idle";
+  function finish(status: string, txHash?: string) {
+    if (status === "completed" || status === "failed")
+      writeTransferSession(recoveryKey, null);
+    if (status === "ops_required") {
+      const saved = parseReceipt(
+        readTransferSession(recoveryKey),
+        userId,
+        address,
+      );
+      if (saved) writeTransferSession(recoveryKey, { ...saved, status });
+    }
+    void queryClient.invalidateQueries({ queryKey: ["wallet"] });
+    void queryClient.invalidateQueries({ queryKey: ["wallet-chain-balance"] });
+    if (currentScope.current !== scope) return;
+    setLocal({ scope, phase: status === "completed" ? "completed" : "failed" });
+    setWithdrawAmount("");
+    setResult({
+      success: status === "completed",
+      message:
+        status === "completed"
+          ? "Withdrawal completed. SOL has been sent to your linked wallet."
+          : "This withdrawal needs attention. Review its status in Activity before making another request.",
+      solscanUrl:
+        status === "completed" && txHash ? getSolscanTxUrl(txHash) : undefined,
+    });
+  }
+  const statusQuery = useQuery({
+    queryKey: ["wallet-withdrawal-status", scope, pending?.reference],
+    enabled: Boolean(userId && pending?.reference && !processing),
+    queryFn: async () => {
+      const rows = await getWithdrawals(20);
+      const row = rows.find((item) => item.reference === pending?.reference);
+      if (row && ["completed", "failed", "ops_required"].includes(row.status))
+        finish(row.status, row.tx_hash);
+      return row ?? null;
     },
-    [],
-  );
-
-  const pollWithdrawalStatus = (reference?: string) => {
-    if (pollRef.current) clearInterval(pollRef.current);
-    let ticks = 0;
-    pollRef.current = setInterval(async () => {
-      ticks += 1;
-      try {
-        const rows = await getWithdrawals(5);
-        const row = reference
-          ? rows.find((r) => r.reference === reference)
-          : rows.find(
-              (r) =>
-                !["completed", "failed", "ops_required"].includes(r.status),
-            );
-        if (!row) {
-          if (ticks >= 36 && pollRef.current) clearInterval(pollRef.current);
-          return;
-        }
-        if (row.status === "completed") {
-          setPendingWithdrawal(null);
-          setResult({
-            success: true,
-            message: "Withdrawal completed",
-            solscanUrl: row.tx_hash ? getSolscanTxUrl(row.tx_hash) : undefined,
-          });
-          queryClient.invalidateQueries({ queryKey: ["wallet"] });
-          if (pollRef.current) clearInterval(pollRef.current);
-        } else if (row.status === "failed" || row.status === "ops_required") {
-          setPendingWithdrawal(null);
-          setResult({
-            success: false,
-            message:
-              "Withdrawal needs attention. Review its status in wallet activity before retrying.",
-          });
-          queryClient.invalidateQueries({ queryKey: ["wallet"] });
-          if (pollRef.current) clearInterval(pollRef.current);
-        } else {
-          setPendingWithdrawal(`Withdrawal ${row.status}...`);
-        }
-      } catch {
-        // transient poll failure: keep trying until the tick budget ends
-      }
-      if (ticks >= 36 && pollRef.current) {
-        clearInterval(pollRef.current);
-        setPendingWithdrawal(null);
-      }
-    }, 5000);
-  };
-
-  const handleWithdrawSol = async () => {
-    if (inFlightRef.current) return;
-    if (!wallet?.linked_solana_address) {
+    retry: false,
+    refetchInterval: (query) =>
+      query.state.data?.status === "ops_required" ? false : 5_000,
+    refetchOnWindowFocus: true,
+  });
+  async function handleWithdrawSol() {
+    if (inFlight.current || processing) return;
+    const existing = parseReceipt(
+      readTransferSession(recoveryKey),
+      userId,
+      address,
+    );
+    if (existing?.reference) return; // The queue owns it; only read its status.
+    const exactLamports =
+      existing?.amountLamports ?? parseSolAmountLamports(withdrawAmount);
+    const input = existing?.amountInput ?? withdrawAmount;
+    if (!userId || !address || !exactLamports || exactLamports <= 0) {
       setResult({
         success: false,
-        message: "Link a Solana wallet before withdrawing",
+        message: "Enter a positive SOL amount and link your payment wallet.",
       });
       return;
     }
-    const exactLamports = parseSolAmountLamports(withdrawAmount);
-    const amt = exactLamports === null ? 0 : exactLamports / 1_000_000_000;
-    if (!amt || amt <= 0) {
-      setResult({ success: false, message: "Enter a valid withdrawal amount" });
+    if (
+      wallet?.solana_network &&
+      wallet.solana_network.replace("mainnet-beta", "mainnet") !==
+        network.replace("mainnet-beta", "mainnet")
+    ) {
+      setResult({
+        success: false,
+        message:
+          "Your account must use the payment network before withdrawing.",
+      });
       return;
     }
-    if (amt > Number(wallet.balance_sol || 0)) {
-      setResult({ success: false, message: "Insufficient custodial balance" });
+    if (!existing && exactLamports / 1e9 > Number(wallet?.balance_sol ?? 0)) {
+      setResult({
+        success: false,
+        message: "Your account does not have enough SOL for this withdrawal.",
+      });
       return;
     }
-
-    inFlightRef.current = true;
+    if (
+      !connected ||
+      !publicKey ||
+      publicKey.toBase58() !== address ||
+      !signMessage
+    ) {
+      setResult({
+        success: false,
+        message: "Connect your linked wallet to approve this withdrawal.",
+      });
+      return;
+    }
+    inFlight.current = true;
     setProcessing(true);
     setResult(null);
+    let attempted = existing;
     try {
-      let opts:
-        | {
-            nonce?: string;
-            signature?: string;
-            challengeNonce?: string;
-            idempotencyKey?: string;
-            amountLamports?: number;
-          }
-        | undefined;
-      // W-13: above the dust threshold, sign the SERVER challenge (binds
-      // user + destination + exact lamports; single-use, 5 min).
-      const sigThreshold = Math.min(
-        largeWithdrawThresholdSOL,
-        WITHDRAW_SIGNATURE_THRESHOLD_SOL,
-      );
-      if (amt > sigThreshold) {
-        if (!signMessage || !connected || !publicKey) {
-          throw new Error(
-            `Withdrawals over ${sigThreshold} SOL require wallet signature. Connect Phantom/Solflare`,
-          );
-        }
-        const linked = wallet.linked_solana_address;
-        if (publicKey.toBase58() !== linked) {
-          throw new Error(
-            `Connected wallet must match your linked address (${linked.slice(0, 4)}…${linked.slice(-4)})`,
-          );
-        }
-        const challenge = await requestWithdrawChallenge(exactLamports!);
-        if (
-          challenge.destination !== wallet.linked_solana_address ||
-          challenge.amount_lamports !== exactLamports
-        )
-          throw new Error(
-            "The withdrawal challenge does not match the requested amount and destination.",
-          );
-        const { signature } = await signWithdrawChallengeMessage(
-          signMessage,
-          challenge.message,
+      setLocal({ scope, phase: "approving" });
+      const challenge = await requestWithdrawChallenge(exactLamports);
+      if (
+        challenge.destination !== address ||
+        challenge.amount_lamports !== exactLamports
+      )
+        throw new Error(
+          "The withdrawal details changed. Please review the amount and destination again.",
         );
-        opts = { challengeNonce: challenge.nonce, signature };
-      }
-      if (!idemRef.current || idemRef.current.amount !== amt) {
-        const key =
-          globalThis.crypto?.randomUUID?.() ??
-          "withdraw-" + Date.now() + "-" + Math.random().toString(36).slice(2);
-        idemRef.current = { amount: amt, key };
-      }
-      opts = {
-        ...(opts ?? {}),
-        idempotencyKey: idemRef.current.key,
-        amountLamports: exactLamports!,
-      };
-      const res = await withdrawWallet(amt, "", "", opts);
-      const txRef = res.tx_hash;
-      const processing = !["completed", "failed", "ops_required"].includes(
-        res.status,
+      if (currentScope.current !== scope) return;
+      // Wallet approval signs the server's amount/destination challenge. No text is copied by the user.
+      const { signature } = await signWithdrawChallengeMessage(
+        signMessage,
+        challenge.message,
       );
-      const failed = ["failed", "ops_required"].includes(res.status);
-      setResult({
-        success: !failed,
-        message: failed
-          ? `Withdrawal ${res.status}. Review wallet activity before retrying.`
-          : processing
-            ? res.message ||
-              `Withdrawal ${res.status}. Review wallet activity for settlement.`
-            : txRef
-              ? `Withdrawal submitted (${txRef.slice(0, 12)}…)`
-              : "Withdrawal submitted",
-        solscanUrl: processing
-          ? undefined
-          : res.solscan_url || (txRef ? getSolscanTxUrl(txRef) : undefined),
+      if (currentScope.current !== scope) return;
+      attempted = existing ?? {
+        userId,
+        destination: address,
+        amountInput: input,
+        amountLamports: exactLamports,
+        key: crypto.randomUUID(),
+      };
+      // Persist before the request: a lost response must never create a second debit on reload.
+      writeTransferSession(recoveryKey, attempted);
+      setLocal({ scope, phase: "submitting" });
+      const res = await withdrawWallet(exactLamports / 1e9, "", "", {
+        amountLamports: exactLamports,
+        idempotencyKey: attempted.key,
+        challengeNonce: challenge.nonce,
+        signature,
       });
-      idemRef.current = null;
-      setWithdrawAmount("");
-      if (processing) {
-        setPendingWithdrawal("Withdrawal queued...");
-        pollWithdrawalStatus(res.reference || undefined);
+      if (["completed", "failed"].includes(res.status))
+        finish(res.status, res.tx_hash);
+      else {
+        writeTransferSession(recoveryKey, {
+          ...attempted,
+          reference: res.reference || undefined,
+          status: res.status,
+        });
+        if (res.status === "ops_required") finish(res.status, res.tx_hash);
       }
-      queryClient.invalidateQueries({ queryKey: ["wallet"] });
-    } catch (err: unknown) {
-      setResult({
-        success: false,
-        message: getErrorMessage(err) || "Withdrawal failed",
-      });
+      void queryClient.invalidateQueries({ queryKey: ["wallet"] });
+    } catch (err) {
+      const reference =
+        err instanceof ApiError ? err.details?.reference : undefined;
+      if (
+        attempted &&
+        err instanceof ApiError &&
+        err.status === 409 &&
+        typeof reference === "string" &&
+        reference
+      ) {
+        writeTransferSession(recoveryKey, {
+          ...attempted,
+          reference,
+          status: String(err.details?.status || "requested"),
+        });
+      } else if (
+        !existing &&
+        err instanceof ApiError &&
+        [400, 401, 403, 404, 422].includes(err.status)
+      ) {
+        writeTransferSession(recoveryKey, null);
+        if (currentScope.current === scope) {
+          setLocal({ scope, phase: "failed" });
+          setResult({
+            success: false,
+            message: /signature|challenge_nonce|POST \/v1/i.test(err.message)
+              ? "Your approval could not be verified. Reconnect your wallet and approve the withdrawal again."
+              : err.message,
+          });
+        }
+      } else if (!attempted && currentScope.current === scope) {
+        setLocal({ scope, phase: "failed" });
+        setResult({ success: false, message: formatSolanaWalletError(err) });
+      }
+      // Unknown outcomes retain the exact attempt. Resuming uses its original idempotency key.
     } finally {
-      inFlightRef.current = false;
+      inFlight.current = false;
       setProcessing(false);
     }
-  };
-
+  }
   return {
     withdrawAmount,
     setWithdrawAmount,
-    withdrawRequiresSignature,
-    processing,
-    pendingWithdrawal,
     handleWithdrawSol,
+    pending,
+    phase: processing
+      ? localPhase
+      : pending
+        ? pending.status === "ops_required"
+          ? "failed"
+          : "pending"
+        : localPhase,
+    statusUnavailable: statusQuery.isError,
+    checkingStatus: statusQuery.isFetching,
+    checkWithdrawal: () => statusQuery.refetch(),
   };
 }

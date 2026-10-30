@@ -7,6 +7,7 @@ import { ProviderScoreCard } from '@/components/ProviderScoreCard';
 import { MarketplaceFunnelDashboard } from '@/components/admin/MarketplaceFunnelDashboard';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/lib/auth';
+import { measured, meanMeasurements, sumMeasurements } from '@/lib/measurements';
 import {
     PageHeading,
     Loading,
@@ -14,7 +15,6 @@ import {
     EmptyState,
     Stat,
     Status,
-    amount,
 } from '@/components/workspace/Patterns';
 
 async function fetchProviderNodes(): Promise<ProviderNode[]> {
@@ -31,35 +31,42 @@ function uptimeBarColor(percent: number): string {
 }
 
 export default function ProviderAnalyticsPage() {
-    const { isAuthenticated } = useAuth();
+    const { isAuthenticated, user } = useAuth();
     const { data: nodes = [], isLoading: loading, isError: nodesError, error: nodesQueryError, refetch: refetchNodes } = useQuery({
-        queryKey: ['provider-nodes-analytics'],
+        queryKey: ['provider-nodes-analytics', user?.id],
         queryFn: fetchProviderNodes,
+        enabled: isAuthenticated,
         retry: 2,
     });
 
-    const { data: earnings } = useQuery({
-        queryKey: ['provider-earnings-summary'],
+    const earningsSource = useQuery({
+        queryKey: ['provider-earnings-summary', user?.id],
         queryFn: getProviderEarningsSummary,
+        enabled: isAuthenticated,
         staleTime: 30_000,
     });
+    const earnings = earningsSource.data;
 
     const nodeIds = nodes.map((n) => n.id).join(',');
-    const { data: uptimeByNode = {} } = useQuery({
-        queryKey: ['provider-nodes-uptime', nodeIds],
+    const uptimeSource = useQuery({
+        queryKey: ['provider-nodes-uptime', user?.id, nodeIds],
         queryFn: async () => {
             const results = await Promise.allSettled(nodes.map((n) => getNodeUptime(n.id)));
             const map: Record<string, NodeUptimeData> = {};
+            const unavailable: string[] = [];
             results.forEach((result, index) => {
                 if (result.status === 'fulfilled') {
                     map[nodes[index].id] = result.value;
+                } else {
+                    unavailable.push(nodes[index].id);
                 }
             });
-            return map;
+            return { records: map, unavailable };
         },
         enabled: nodes.length > 0,
         staleTime: 30_000,
     });
+    const uptimeByNode = uptimeSource.data?.records ?? {};
 
     if (loading) {
         return (
@@ -74,8 +81,11 @@ export default function ProviderAnalyticsPage() {
         );
     }
 
+    if (nodesError && !nodes.length) return <div className="ui-page"><PageHeading title="Provider scorecard" description="Provider measurements are unavailable." /><DataError error={nodesQueryError} retry={() => void refetchNodes()} /></div>;
     const hasActiveNodes = nodes.length > 0;
-    const totalEarned = earnings?.total_earned_sol ?? 0;
+    const totalEarned = earnings?.total_earned_sol;
+    const trustScore = meanMeasurements(nodes.map(node => node.quality_score));
+    const connections = sumMeasurements(nodes.map(node => node.active_connections));
 
     const uptimeEntries = nodes
         .map((n) => uptimeByNode[n.id]?.uptime_percent ?? n.uptime_percent)
@@ -104,12 +114,14 @@ export default function ProviderAnalyticsPage() {
             {nodesError && (
                 <DataError error={nodesQueryError} retry={() => void refetchNodes()} />
             )}
+            {earningsSource.isError && <DataError error={earningsSource.error} retry={() => void earningsSource.refetch()} />}
+            {Boolean(uptimeSource.data?.unavailable.length) && <p className="ui-error" role="alert">Availability history could not load for {uptimeSource.data?.unavailable.length} node(s). Current node records are shown where available. <button className="ui-link" onClick={() => void uptimeSource.refetch()}>Retry history</button></p>}
 
             <section className="ui-surface">
                 <MarketplaceFunnelDashboard mode="seller" enabled={isAuthenticated} />
             </section>
 
-            {!hasActiveNodes ? (
+            {!hasActiveNodes && !nodesError ? (
                 <EmptyState
                     title="No nodes yet"
                     description="Add a node with the setup wizard, then start the CLI. Stats appear after your first heartbeat."
@@ -121,8 +133,8 @@ export default function ProviderAnalyticsPage() {
                     <section className="ui-stats">
                         <Stat
                             label="Total earnings"
-                            value={`${amount(totalEarned, 4)} SOL`}
-                            detail={`Pending ${amount(earnings?.pending_sol ?? 0, 4)} SOL`}
+                            value={measured(totalEarned, 4, 'SOL')}
+                            detail={`Pending ${measured(earnings?.pending_sol, 4, 'SOL')}`}
                         />
                         <Stat
                             label="Active nodes"
@@ -131,14 +143,14 @@ export default function ProviderAnalyticsPage() {
                         />
                         <Stat
                             label="Trust score"
-                            value={(nodes.length > 0 ? (nodes.reduce((acc, n) => acc + (Number(n.quality_score) || 0), 0) / nodes.length) : 0).toFixed(1)}
-                            detail="Average across nodes"
+                            value={measured(trustScore, 1)}
+                            detail="Average across reporting nodes"
                         />
                     </section>
                     <section className="ui-stats">
                         <Stat
                             label="Connections"
-                            value={nodes.reduce((acc, n) => acc + (n.active_connections || 0), 0)}
+                            value={measured(connections, 0)}
                             detail="Active right now"
                         />
                         <Stat
@@ -153,7 +165,7 @@ export default function ProviderAnalyticsPage() {
                         />
                     </section>
                     <p className="ui-note">
-                        Pending {amount(earnings?.pending_sol ?? 0, 4)} SOL ·{' '}
+                        Pending {measured(earnings?.pending_sol, 4, 'SOL')} ·{' '}
                         <Link href="/dashboard/provider/earnings" className="ui-link">Income</Link>
                         {' · '}
                         Lifetime sessions: {totalSessions !== null ? totalSessions.toLocaleString() : 'None yet'}

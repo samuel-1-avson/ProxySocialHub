@@ -3,18 +3,20 @@
 /**
  * Google Maps engine for ProxyHubb (marketplace, explorer, network).
  * Flat dark roadmap only (2D).
- * Session Density uses an imperative HeatmapLayer + visualization library.
+ * Density bubbles use only reported session counts.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     GoogleMap,
+    CircleF,
     InfoWindowF,
     OverlayView,
     OverlayViewF,
     useJsApiLoader,
 } from '@react-google-maps/api';
 import Supercluster from 'supercluster';
+import LeafletProxyMapCanvas from './LeafletProxyMapCanvas';
 import type { NodeGeoPoint } from '@/lib/services/explorer';
 import { googleMapsMapId } from '@/lib/feature-flags';
 import type { ExplorerListingPin, MapViewportBounds, ProxyMapCanvasProps } from './types';
@@ -25,6 +27,7 @@ import {
     listingClusterPopup,
     listingMarkerHtml,
     listingPopup,
+    lowestListingPrice,
     markerHtml,
     nodeColor,
     singleNodePopup,
@@ -42,8 +45,7 @@ const INITIAL_CENTER: google.maps.LatLngLiteral = { lat: 20, lng: 10 };
 const INITIAL_ZOOM = 2;
 const BOUNDS_DEBOUNCE_MS = 350;
 
-/** Bump when libraries change so browsers don't reuse a Maps JS load without visualization. */
-const MAPS_LOADER_ID = 'proxyhubb-google-maps-v3';
+const MAPS_LOADER_ID = 'proxyhubb-google-maps-v4';
 
 type GoogleProxyMapCanvasProps = ProxyMapCanvasProps & { apiKey: string };
 
@@ -194,16 +196,10 @@ export default function GoogleProxyMapCanvas({
 }: GoogleProxyMapCanvasProps) {
     const mapId = googleMapsMapId();
     const useAdvanced = Boolean(mapId);
-    const keptLoadedRef = useRef(false);
     const onBoundsChangeRef = useRef(onBoundsChange);
     onBoundsChangeRef.current = onBoundsChange;
     const lastEmittedBoundsRef = useRef<MapViewportBounds | null>(null);
-    const heatmapLayerRef = useRef<google.maps.visualization.HeatmapLayer | null>(null);
-    const [heatmapError, setHeatmapError] = useState<string | null>(null);
-
-    // Always load visualization for Session Density. New loader id busts stale
-    // sessions that previously loaded Maps JS without the visualization library.
-    const libraries = useMemo((): ('marker' | 'visualization')[] => ['marker', 'visualization'], []);
+    const libraries = useMemo((): ('marker')[] => ['marker'], []);
     const mapIds = useMemo(() => (mapId ? [mapId] : undefined), [mapId]);
 
     const { isLoaded, loadError } = useJsApiLoader({
@@ -212,8 +208,7 @@ export default function GoogleProxyMapCanvas({
         libraries,
         ...(mapIds ? { mapIds } : {}),
     });
-    if (isLoaded) keptLoadedRef.current = true;
-    const showMap = keptLoadedRef.current || isLoaded;
+    const showMap = isLoaded;
 
     const mapRef = useRef<google.maps.Map | null>(null);
     const [mapInstance, setMapInstance] = useState<google.maps.Map | null>(null);
@@ -307,10 +302,6 @@ export default function GoogleProxyMapCanvas({
     }, [emitBounds]);
 
     const onUnmount = useCallback(() => {
-        if (heatmapLayerRef.current) {
-            heatmapLayerRef.current.setMap(null);
-            heatmapLayerRef.current = null;
-        }
         mapRef.current = null;
         setMapInstance(null);
         if (boundsTimerRef.current) clearTimeout(boundsTimerRef.current);
@@ -426,65 +417,17 @@ export default function GoogleProxyMapCanvas({
         [listingPins],
     );
 
-    // Imperative Session Density heatmap — never throws into React render.
-    useEffect(() => {
-        const map = mapRef.current;
-        if (!showHeatmap || !map || !isLoaded) {
-            if (heatmapLayerRef.current) {
-                heatmapLayerRef.current.setMap(null);
-                heatmapLayerRef.current = null;
-            }
-            setHeatmapError(null);
-            return;
+    const densityNodes = useMemo(() => {
+        const reported = new Map(nodes.map(node => [node.node_id, node]));
+        for (const update of liveUpdates) {
+            const node = (update.opaque_node_id && reported.get(update.opaque_node_id)) || reported.get(update.node_id);
+            if (node) reported.set(node.node_id, { ...node, active_sessions: update.active_sessions });
         }
-
-        void statusTick;
-        void clusterTick;
-
-        try {
-            if (!google.maps?.visualization?.HeatmapLayer) {
-                setHeatmapError('Session density library still loading. Try again in a moment');
-                return;
-            }
-
-            const data = Array.from(nodeMapRef.current.values())
-                .filter(n => Math.abs(n.lat) > 0.001 || Math.abs(n.lon) > 0.001)
-                .map(n => ({
-                    location: new google.maps.LatLng(n.lat, n.lon),
-                    weight: n.is_active ? 1 + (Number(n.active_sessions) || 0) * 0.3 : 0.3,
-                }));
-
-            if (data.length === 0) {
-                if (heatmapLayerRef.current) {
-                    heatmapLayerRef.current.setMap(null);
-                    heatmapLayerRef.current = null;
-                }
-                setHeatmapError(null);
-                return;
-            }
-
-            if (!heatmapLayerRef.current) {
-                heatmapLayerRef.current = new google.maps.visualization.HeatmapLayer({
-                    data,
-                    map,
-                    radius: 28,
-                    opacity: 0.55,
-                    dissipating: true,
-                });
-            } else {
-                heatmapLayerRef.current.setData(data);
-                heatmapLayerRef.current.setMap(map);
-            }
-            setHeatmapError(null);
-        } catch (err) {
-            console.warn('[GoogleProxyMapCanvas] heatmap failed', err);
-            setHeatmapError('Session density unavailable');
-            if (heatmapLayerRef.current) {
-                heatmapLayerRef.current.setMap(null);
-                heatmapLayerRef.current = null;
-            }
-        }
-    }, [showHeatmap, isLoaded, statusTick, clusterTick, mapInstance]);
+        return [...reported.values()].filter(node =>
+            Number.isFinite(node.active_sessions) && (node.active_sessions ?? 0) > 0 &&
+            Number.isFinite(node.lat) && Number.isFinite(node.lon),
+        );
+    }, [nodes, liveUpdates]);
 
     // Fit only when the focus *values* change — refetch often recreates the same bbox array.
     const focusBoundsKey = focusBounds
@@ -575,15 +518,9 @@ export default function GoogleProxyMapCanvas({
 
     if (loadError) {
         return (
-            <div
-                data-testid="proxy-map-canvas"
-                data-map-engine="google-error"
-                style={{ ...CONTAINER_STYLE, display: 'grid', placeItems: 'center', background: '#050508', color: '#f87171', padding: 24, textAlign: 'center' }}
-            >
-                <div>
-                    <div style={{ fontWeight: 800, marginBottom: 8 }}>Google Maps failed to load</div>
-                    <div style={{ fontSize: 12, opacity: 0.8 }}>{String(loadError.message || loadError)}</div>
-                </div>
+            <div className="h-full">
+                <p className="ui-note" role="status">Google Maps is unavailable. Showing OpenStreetMap geography with the same reported records.</p>
+                <LeafletProxyMapCanvas {...{ nodes, onSelectNode, selectedNodeId, showHeatmap, focusBounds, liveUpdates, listingPins, onSelectListing, onSelectListingGroup, onBuyListing, selectedListingId, onBoundsChange }} />
             </div>
         );
     }
@@ -608,16 +545,9 @@ export default function GoogleProxyMapCanvas({
             data-map-id={mapId ? 'cloud' : 'json-styles'}
             data-map-rendering="raster"
             className="google-map-container"
-            style={{ position: 'relative', width: '100%', height: '100%', minHeight: 480, borderRadius: 'inherit' }}
+            style={{ position: 'relative', isolation: 'isolate', zIndex: 0, width: '100%', height: '100%', minHeight: 480, borderRadius: 'inherit' }}
         >
-            {heatmapError && showHeatmap ? (
-                <div
-                    className="absolute top-3 left-1/2 z-[1000] -translate-x-1/2 rounded-lg border border-warning/40 bg-[#0a0a15]/90 px-4 py-2 text-xs font-semibold text-warning"
-                    role="status"
-                >
-                    {heatmapError}
-                </div>
-            ) : null}
+            {showHeatmap && <p className="absolute top-3 left-3 z-10 rounded border border-border bg-card p-2 text-xs text-foreground" role="status">Reported session counts · {densityNodes.length} nodes with active sessions</p>}
 
             <GoogleMap
                 mapContainerStyle={CONTAINER_STYLE}
@@ -627,6 +557,12 @@ export default function GoogleProxyMapCanvas({
                 onIdle={handleIdle}
                 onClick={handleMapClick}
             >
+                {showHeatmap && densityNodes.map(node => (
+                    <CircleF key={`sessions:${node.node_id}`} center={{ lat: node.lat, lng: node.lon }}
+                        radius={Math.min(100_000, Math.sqrt(node.active_sessions ?? 0) * 3_000)}
+                        options={{ fillColor: '#5c6b73', fillOpacity: 0.25, strokeColor: '#5c6b73', strokeOpacity: 0.7, strokeWeight: 1 }}
+                        onClick={() => onSelectNode(node)} />
+                ))}
                 {nodeClusters.map(({ lat, lon, clusterNodes }) => {
                     const count = clusterNodes.length;
                     const isActive = clusterNodes.some(n => n.is_active);
@@ -674,7 +610,7 @@ export default function GoogleProxyMapCanvas({
                     const selected = count === 1
                         ? group[0].listing_id === selectedListingId
                         : group.some(p => p.listing_id === selectedListingId);
-                    const minPrice = Math.min(...group.map(p => p.price_per_gb));
+                    const minPrice = lowestListingPrice(group);
                     const html = listingMarkerHtml(minPrice, selected, !!pin.estimated, count);
                     const key = count === 1
                         ? `listing-${pin.listing_id}`

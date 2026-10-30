@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { measured } from '@/lib/measurements';
 import {
     getProviderShowcases,
     getProviderSpeedTests,
@@ -116,42 +117,42 @@ function StatsOverview({ stats }: { stats: ProviderStats }) {
     const statCards = [
         {
             label: "Avg Download",
-            value: `${Number(stats.avg_download_speed || 0).toFixed(1)} Mbps`,
+            value: measured(stats.avg_download_speed, 1, 'Mbps'),
             icon: Zap,
             color: "text-success",
             bgColor: "bg-success/10",
         },
         {
             label: "Avg Upload",
-            value: `${Number(stats.avg_upload_speed || 0).toFixed(1)} Mbps`,
+            value: measured(stats.avg_upload_speed, 1, 'Mbps'),
             icon: TrendingUp,
             color: "text-info",
             bgColor: "bg-info/10",
         },
         {
             label: "Avg Latency",
-            value: `${stats.avg_latency_ms || 0} ms`,
+            value: measured(stats.avg_latency_ms, 1, 'ms'),
             icon: Clock,
             color: "text-warning",
             bgColor: "bg-warning/10",
         },
         {
             label: "Uptime",
-            value: `${Number(stats.uptime_percent || 99.9).toFixed(2)}%`,
+            value: measured(stats.uptime_percent, 2, '%'),
             icon: Activity,
             color: "text-primary",
             bgColor: "bg-primary/10",
         },
         {
             label: "Sessions",
-            value: stats.total_sessions?.toLocaleString() || 0,
+            value: measured(stats.total_sessions, 0),
             icon: Globe,
             color: "text-info",
             bgColor: "bg-info/10",
         },
         {
             label: "Customers",
-            value: stats.active_customers?.toString() || 0,
+            value: measured(stats.active_customers, 0),
             icon: Users,
             color: "text-destructive",
             bgColor: "bg-destructive/10",

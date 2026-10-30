@@ -18,6 +18,9 @@ import type { NodeGeoPoint } from '@/lib/services/explorer';
 import { useMapNodeLiveUpdates } from '@/lib/hooks/useMapNodeLiveUpdates';
 
 const PLOTTED_EPS = 0.01;
+const isMappable = (point: MarketplaceMapPoint) =>
+    Number.isFinite(point.lat) && Math.abs(point.lat) <= 90 &&
+    Number.isFinite(point.lon) && Math.abs(point.lon) <= 180 && point.geo_source !== 'unknown';
 
 export interface UseMapPointsOptions {
     filters: MarketplaceMapFilters;
@@ -81,14 +84,14 @@ export function useMapPoints(options: UseMapPointsOptions): UseMapPointsResult {
     });
 
     const nodes = useMemo(
-        () => (data?.points ?? []).filter((p) => p.kind === 'node').map(marketplacePointToNode),
+        () => (data?.points ?? []).filter((p) => p.kind === 'node' && isMappable(p)).map(marketplacePointToNode),
         [data?.points],
     );
 
     const listingPins = useMemo(() => {
         if (!showListings) return [];
         return (data?.points ?? [])
-            .filter((p) => p.kind === 'listing')
+            .filter((p) => p.kind === 'listing' && isMappable(p))
             .map(marketplacePointToListingPin)
             .filter((p) => Math.abs(p.lat) > PLOTTED_EPS || Math.abs(p.lon) > PLOTTED_EPS);
     }, [data?.points, showListings]);

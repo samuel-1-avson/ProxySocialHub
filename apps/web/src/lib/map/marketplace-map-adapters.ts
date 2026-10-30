@@ -2,6 +2,7 @@ import type { CatalogProductSummary } from '@/lib/api/catalog';
 import type { MapGeoMeta, MarketplaceMapPoint } from '@/lib/api/marketplace';
 import type { ExplorerListingPin } from '@/components/map/types';
 import type { NodeGeoPoint } from '@/lib/services/explorer';
+import { measurement } from '@/lib/measurements';
 
 /** Listing pin with marketplace map quality/privacy fields. */
 
@@ -13,7 +14,7 @@ export type MarketplaceListingMapPin = ExplorerListingPin & {
     /** @deprecated Prefer network_class; raw ISP is no longer returned by map API. */
     isp?: string;
     network_class?: string;
-    available_bandwidth_gb: number;
+    available_bandwidth_gb?: number;
     max_concurrency?: number;
     node_id?: string;
     node_active?: boolean;
@@ -49,19 +50,19 @@ export function marketplacePointToListingPin(point: MarketplaceMapPoint): Market
         listing_id: point.listing_id ?? point.id.replace(/^listing:/, ''),
         title: point.title,
         seller_id: point.seller_id ?? '',
-        proxy_type: point.proxy_type ?? 'residential',
-        protocol: point.protocol ?? 'http',
+        proxy_type: point.proxy_type,
+        protocol: point.protocol,
         country: point.country ?? '',
         network_class: point.network_class,
         city: point.city,
-        price_per_gb: point.price_per_gb ?? 0,
-        available_bandwidth_gb: point.available_bandwidth_gb ?? 0,
+        price_per_gb: measurement(point.price_per_gb),
+        available_bandwidth_gb: measurement(point.available_bandwidth_gb),
         max_concurrency: point.max_concurrency,
         lat: point.lat,
         lon: point.lon,
         node_id: point.node_id,
-        node_active: point.status === 'active',
-        uptime_percent: point.uptime_percent ?? 0,
+        // A listing's published status does not establish provider connectivity.
+        uptime_percent: measurement(point.uptime_percent),
         latency_ms: point.latency_ms,
         quality_score: point.quality_score,
         success_rate: point.success_rate,
@@ -76,7 +77,7 @@ export function marketplacePointToListingPin(point: MarketplaceMapPoint): Market
         status: point.status,
         listing_offer_verified: point.listing_offer_verified,
         catalog_product: point.catalog_product,
-        active_sessions: point.active_sessions ?? 0,
+        active_sessions: measurement(point.active_sessions),
     };
 }
 
@@ -86,9 +87,10 @@ export function marketplacePointToNode(point: MarketplaceMapPoint): NodeGeoPoint
         lat: point.lat,
         lon: point.lon,
         is_active: point.status === 'active',
+        status: point.status,
         is_validator: !!point.is_validator,
-        uptime_percent: point.uptime_percent ?? 0,
-        active_sessions: point.active_sessions ?? 0,
+        uptime_percent: measurement(point.uptime_percent),
+        active_sessions: measurement(point.active_sessions),
         country: point.country ?? '',
         region: point.region ?? point.country ?? '',
         city: point.city,

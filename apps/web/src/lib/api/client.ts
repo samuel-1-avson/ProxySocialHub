@@ -18,7 +18,8 @@ export class ApiError extends Error {
         public status: number,
         message: string,
         public code?: string,
-        public orderId?: string
+        public orderId?: string,
+        public details?: Record<string, unknown>
     ) {
         super(message);
         this.name = 'ApiError';
@@ -49,7 +50,8 @@ function throwApiError(response: Response, error: Record<string, unknown>): neve
         response.status,
         formatApiErrorMessage(error),
         typeof error.code === 'string' ? error.code : undefined,
-        typeof error.order_id === 'string' ? error.order_id : undefined
+        typeof error.order_id === 'string' ? error.order_id : undefined,
+        error
     );
 }
 

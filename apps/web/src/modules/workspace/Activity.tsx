@@ -215,6 +215,7 @@ export function Activity() {
           <Link href="/dashboard/trustless" className="ui-button ghost">
             Inspect oracle-attested usage records →
           </Link>
+          <Link href="/dashboard/analytics" className="ui-button secondary">Detailed traffic analytics →</Link>
         </>
       )}
       {tab === "billing" && <BuyerBilling />}

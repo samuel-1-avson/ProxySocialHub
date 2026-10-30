@@ -1,0 +1,156 @@
+{
+  "source_revision": "397e4d8c6a7836305f860693489648dacb14755c",
+  "verified_at": "2026-10-29T05:59:59.232345+00:00",
+  "browser_suites": {
+    "web-marketplace-map-proof-results.json": {
+      "expected": 2,
+      "flaky": 1,
+      "unexpected": 0,
+      "skipped": 0
+    },
+    "web-marketplace-map-buy-results.json": {
+      "expected": 1,
+      "flaky": 1,
+      "unexpected": 0,
+      "skipped": 0
+    },
+    "web-marketplace-listing-buy-results.json": {
+      "expected": 2,
+      "flaky": 0,
+      "unexpected": 0,
+      "skipped": 0
+    },
+    "web-marketplace-browse-buy-results.json": {
+      "expected": 5,
+      "flaky": 0,
+      "unexpected": 0,
+      "skipped": 0
+    },
+    "web-marketplace-catalog-results.json": {
+      "expected": 2,
+      "flaky": 1,
+      "unexpected": 0,
+      "skipped": 0
+    },
+    "web-marketplace-moderation-results.json": {
+      "expected": 2,
+      "flaky": 0,
+      "unexpected": 0,
+      "skipped": 0
+    },
+    "web-marketplace-order-credentials-results.json": {
+      "expected": 2,
+      "flaky": 0,
+      "unexpected": 0,
+      "skipped": 0
+    },
+    "web-agents-results.json": {
+      "expected": 2,
+      "flaky": 1,
+      "unexpected": 0,
+      "skipped": 0
+    },
+    "web-live-data-results.json": {
+      "expected": 5,
+      "flaky": 0,
+      "unexpected": 0,
+      "skipped": 0
+    },
+    "web-workspace-results.json": {
+      "expected": 4,
+      "flaky": 0,
+      "unexpected": 0,
+      "skipped": 0
+    },
+    "explorer-results.json": {
+      "expected": 10,
+      "flaky": 0,
+      "unexpected": 0,
+      "skipped": 0
+    }
+  },
+  "browser_totals": {
+    "expected": 37,
+    "flaky": 4,
+    "unexpected": 0,
+    "skipped": 0
+  },
+  "public_checks": [
+    {
+      "name": "web",
+      "status": 200,
+      "url": "https://proxyhubb.com/"
+    },
+    {
+      "name": "web-health",
+      "status": 200,
+      "url": "https://proxyhubb.com/api/health"
+    },
+    {
+      "name": "marketplace-map",
+      "status": 200,
+      "url": "https://proxyhubb.com/marketplace/map"
+    },
+    {
+      "name": "marketplace-data",
+      "status": 200,
+      "url": "https://proxyhubb.com/v1/marketplace/map?include_nodes=true",
+      "points": 3
+    },
+    {
+      "name": "explorer",
+      "status": 200,
+      "url": "https://explorer.proxyhubb.com/nodes?view=map"
+    },
+    {
+      "name": "explorer-health",
+      "status": 200,
+      "url": "https://explorer.proxyhubb.com/api/health"
+    },
+    {
+      "name": "explorer-data",
+      "status": 200,
+      "url": "https://explorer.proxyhubb.com/api/public?resource=node-geo",
+      "records": 4
+    },
+    {
+      "name": "explorer-redirect",
+      "status": 200,
+      "url": "https://explorer.proxyhubb.com/"
+    },
+    {
+      "name": "docs",
+      "status": 200,
+      "url": "https://docs.proxyhubb.com/docs"
+    }
+  ],
+  "backend_containers": "unchanged",
+  "source_equivalence": {
+    "release_revision": "397e4d8c6a7836305f860693489648dacb14755c",
+    "validated_revision": "9aa2c6bad684bb7e103aa8878bdef990029cabc2",
+    "tracked_files": 3059,
+    "changed_files": [
+      "apps/web/Dockerfile"
+    ],
+    "application_code_unchanged": true,
+    "archive_sha256": "27a7e40da20a7386480d0a0a1b76985573ca31b4331d2538baf876c7dfaaa580"
+  },
+  "live_images": [
+    {
+      "container": "/proxyhubb-web-1",
+      "image_id": "sha256:c7622b0b12e6be97c5babe196882c23d5a937dba2965c423a4c1ade75bbddd55",
+      "revision": "397e4d8c6a7836305f860693489648dacb14755c",
+      "health": "healthy"
+    },
+    {
+      "container": "/proxyhubb-explorer-1",
+      "image_id": "sha256:7a85c0d900083bf8c51c001ec5e2432cdab9e31c15a7329592d8b7acb091fb42",
+      "revision": "397e4d8c6a7836305f860693489648dacb14755c",
+      "health": "healthy"
+    }
+  ],
+  "release_method": "Direct build and frontend-only rollout on the existing GCP VM",
+  "github_actions_used": false,
+  "local_docker_used": false,
+  "funded_end_to_end_acceptance": "Not performed; requires the settlement oracle and gateway/provider environment"
+}

@@ -93,13 +93,14 @@ test.describe('route policy middleware', () => {
     test('allows public marketplace, explorer, governance, and public profile routes', async ({ page }) => {
         for (const path of [
             '/marketplace/map',
-            '/explorer/map',
             '/governance',
             '/profile/public-user',
         ]) {
             await page.goto(`${BASE_URL}${path}`, { waitUntil: 'domcontentloaded' });
             expect(new URL(page.url()).pathname).toBe(path);
         }
+        await page.goto(`${BASE_URL}/explorer/map`, { waitUntil: 'domcontentloaded' });
+        expect(new URL(page.url()).hostname).toBe('explorer.proxyhubb.com');
     });
 
     test('redirects unauthenticated authenticated/provider routes to login', async ({ page }) => {

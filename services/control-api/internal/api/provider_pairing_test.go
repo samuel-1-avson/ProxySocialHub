@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -265,6 +266,16 @@ func TestProviderPairing_HappyPath(t *testing.T) {
 	}
 	if pn.UserID != e.owner.ID || pn.Name != "Jane's Laptop" {
 		t.Errorf("node = %+v", pn)
+	}
+	// Pairing cannot know the node's egress IP before its first real heartbeat.
+	// Preserve unknown as SQL NULL: an empty inet value fails on production
+	// PostgreSQL, and a test callback used to hide that failure with an invented IP.
+	var unknownIP bool
+	if err := db.DB.Raw("SELECT ip_address IS NULL FROM provider_nodes WHERE id = ?", pn.ID).Scan(&unknownIP).Error; err != nil {
+		t.Fatalf("read paired node IP: %v", err)
+	}
+	if !unknownIP || pn.IPAddress != "" || pn.Status != models.NodeOffline || pn.IsHealthy {
+		t.Error("an unconnected paired node must have an unknown IP and remain offline/unhealthy")
 	}
 	var reg models.ProviderNodeRegistration
 	if err := db.DB.Where("token_id = ? AND is_active = ?", token.ID, true).First(&reg).Error; err != nil {
@@ -881,6 +892,50 @@ func failInsertInto(t *testing.T, table string) (stop func()) {
 	stop = func() { once.Do(func() { _ = db.DB.Callback().Create().Remove(name) }) }
 	t.Cleanup(stop)
 	return stop
+}
+
+// Redeeming an approval creates a node row for the new computer, and at that moment nothing
+// knows the computer's public address (the gateway learns it when the node first connects). The
+// column is inet, which rejects an empty string. The test database hides this by filling in a
+// placeholder address for every bare ProviderNode, so this test switches that off to see the
+// insert as production sees it. Before the fix every real pairing failed with a 500 at step
+// "node", SQLSTATE 22P02, while the rest of this file passed.
+func TestProviderPairing_RedeemNeedsNoAddressForTheNode(t *testing.T) {
+	e := newPairingEnv(t) // sets up the database the next line reaches into
+	testutil.WithoutProviderNodeIPDefault(t)
+	s := e.start()
+	if w := e.decide(s.UserCode, "approve", e.asOwner()); w.Code != http.StatusOK {
+		t.Fatalf("approve: %d %s", w.Code, w.Body.String())
+	}
+
+	w := e.poll(s.DeviceCode)
+	if w.Code != http.StatusOK {
+		t.Fatalf("redeem with no placeholder address: %d %s", w.Code, w.Body.String())
+	}
+	m := decodeMap(t, w)
+	if m["api_key"] == nil || m["node_id"] == nil {
+		t.Fatalf("an approved redeem must carry the key and the node: %v", m)
+	}
+
+	var ip sql.NullString
+	if err := db.DB.Raw(`SELECT host(ip_address) FROM provider_nodes WHERE id = ?`, m["node_id"]).Row().Scan(&ip); err != nil {
+		t.Fatalf("the node row must exist: %v", err)
+	}
+	if ip.Valid {
+		t.Errorf("no address is known yet, so none may be invented: stored %q", ip.String)
+	}
+	// The dashboard reads the node back through the model; a NULL address must load.
+	var loaded models.ProviderNode
+	if err := db.DB.First(&loaded, "id = ?", m["node_id"]).Error; err != nil {
+		t.Errorf("a node with no address yet must load through the model: %v", err)
+	} else if loaded.IPAddress != "" || loaded.GatewayNodeID != providerGatewayNodeID(e.owner.ID) {
+		t.Errorf("loaded node: address %q, gateway id %q", loaded.IPAddress, loaded.GatewayNodeID)
+	}
+	var regs int64
+	db.DB.Model(&models.ProviderNodeRegistration{}).Where("node_id = ?", m["node_id"]).Count(&regs)
+	if regs != 1 {
+		t.Errorf("the token must be bound to the node: %d registration(s)", regs)
+	}
 }
 
 // A failed redeem must say which step failed, create nothing, leave the approval intact and
