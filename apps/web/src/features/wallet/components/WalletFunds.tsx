@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import type { Wallet, WithdrawalSecurity } from "@/lib/api/wallet";
 import { parseSolAmountLamports } from "@/lib/sol-amount";
 import { getSolscanTxUrl } from "@/lib/solscan";
 import { Modal } from "@/components/patterns/Modal";
 import { amount, Status } from "@/components/workspace/Patterns";
+import { WalletConnectControl } from "@/components/WalletConnectControl";
 import type { useWalletDeposit } from "../hooks/useWalletDeposit";
 import type { useWalletWithdraw } from "../hooks/useWalletWithdraw";
 
@@ -33,7 +33,6 @@ export function WalletFunds({
   wallet,
   network,
   mode,
-  connected,
   matching,
   canApproveDeposit,
   canApproveWithdrawal,
@@ -213,20 +212,13 @@ export function WalletFunds({
                 ? "Use the wallet saved to your account to approve a deposit or withdrawal."
                 : "Choose a Solana wallet and link it to your account to get started."}
             </p>
-            <div className="ui-actions">
-              <WalletMultiButton className="ui-button wallet-connect-button">
-                {connected ? "Choose wallet" : "Connect wallet"}
-              </WalletMultiButton>
-              {connected && canLink && (
-                <button
-                  className="ui-button secondary"
-                  disabled={processing}
-                  onClick={onLink}
-                >
-                  Link this wallet
-                </button>
-              )}
-            </div>
+            <WalletConnectControl
+              linkedAddress={address}
+              canLink={canLink}
+              onLink={onLink}
+              processing={processing}
+              signingReady={canApproveDeposit}
+            />
           </div>
         )}
 
@@ -286,6 +278,17 @@ export function WalletFunds({
             >
               {depositBusy ? "Deposit in progress…" : "Review deposit"}
             </button>
+            {!matching && Boolean(depositLamports) && (
+              <p className="ui-note" role="status">
+                Connect your linked wallet above to enable deposit review.
+              </p>
+            )}
+            {matching && !destination && (
+              <p className="ui-note" role="status">
+                Deposit review needs the account deposit destination, which is
+                unavailable right now.
+              </p>
+            )}
           </>
         ) : (
           <>
@@ -359,6 +362,11 @@ export function WalletFunds({
                   ? "Resume withdrawal"
                   : "Review withdrawal"}
             </button>
+            {!matching && Boolean(withdrawalLamports) && (
+              <p className="ui-note" role="status">
+                Connect your linked wallet above to enable withdrawal review.
+              </p>
+            )}
           </>
         )}
         <details className="wallet-transfer-details">

@@ -90,6 +90,53 @@ export function clearManualSolanaWalletDisconnect(): void {
   }
 }
 
+/** Raised when a wallet connection attempt fails so the UI can show it. */
+export const WALLET_CONNECTION_ERROR_EVENT = 'proxyhubb:wallet-connection-error';
+
+/**
+ * Turn a wallet connection failure into an actionable message.
+ *
+ * Connection errors used to be logged to the console only, so the Connect
+ * button appeared to do nothing. Every failure path must surface one of
+ * these messages next to the control that started the attempt.
+ */
+export function formatWalletConnectionError(err: unknown): string {
+  const name = err instanceof Error ? err.name : '';
+  const msg = (err instanceof Error ? err.message : typeof err === 'string' ? err : '').trim();
+  const lower = `${name} ${msg}`.toLowerCase();
+
+  if (/reject|denied|declin|cancel|4001/.test(lower)) {
+    return 'You declined the request in your wallet. Click Connect wallet to try again.';
+  }
+  if (/not ready|not detected|not installed|no wallet|walletnotready/.test(lower)) {
+    return 'No Solana wallet was found in this browser. Install Phantom or Solflare, unlock it, then click Connect wallet.';
+  }
+  if (/not authorized|not been authorized|unlock/.test(lower)) {
+    return 'Your wallet is locked or this site is not approved in it yet. Unlock your wallet, click Connect wallet, and approve the connection in the extension.';
+  }
+  if (/disconnect/.test(lower)) {
+    return 'Your wallet disconnected. Click Connect wallet to reconnect it.';
+  }
+  return msg || 'Wallet connection failed. Check your wallet extension and try again.';
+}
+
+/** Broadcast a connection failure so mounted connect controls can display it. */
+export function emitWalletConnectionError(err: unknown): void {
+  if (typeof window === 'undefined') return;
+  // A disconnect the user asked for is not a connection failure to report.
+  const name = err instanceof Error ? err.name : '';
+  if (/Disconnected|Disconnection/.test(name)) return;
+  try {
+    window.dispatchEvent(
+      new CustomEvent(WALLET_CONNECTION_ERROR_EVENT, {
+        detail: { message: formatWalletConnectionError(err) },
+      }),
+    );
+  } catch {
+    // ignore
+  }
+}
+
 /**
  * Turn a failure from the wallet's sign step into a message and a recovery decision.
  *
