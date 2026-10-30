@@ -23,8 +23,13 @@ type State = {
   badChallenge: boolean;
   cooldown: boolean;
 };
-async function setup(page: Page, connected = true, linkedOverride?: string) {
-  const buyer = Keypair.generate();
+async function setup(
+  page: Page,
+  connected = true,
+  linkedOverride?: string,
+  buyerOverride?: Keypair,
+) {
+  const buyer = buyerOverride ?? Keypair.generate();
   const address = buyer.publicKey.toBase58();
   const blockhash = Keypair.generate().publicKey.toBase58();
   const state: State = {
@@ -580,5 +585,117 @@ test.describe("automatic wallet transfers", () => {
     await expect(
       page.getByRole("button", { name: "Connect wallet", exact: true }).first(),
     ).toBeVisible();
+  });
+  test("the installed sign-in wallet reconnects in the workspace without a click", async ({
+    page,
+  }) => {
+    const buyer = Keypair.generate();
+    await setup(page, false, undefined, buyer);
+    // Fake installed Phantom that approves the connection, standing in for
+    // the real extension boundary. It is the only installed wallet, so the
+    // workspace must restore it on its own: the sign-in wallet is the
+    // transaction wallet without a second manual connection.
+    await page.addInitScript((pubkeyBytes: number[]) => {
+      const bytes = new Uint8Array(pubkeyBytes);
+      const listeners: Record<string, ((...args: unknown[]) => void)[]> = {};
+      const phantom = {
+        isPhantom: true,
+        isConnected: false,
+        publicKey: null as unknown,
+        connect: async () => {
+          phantom.isConnected = true;
+          phantom.publicKey = { toBytes: () => bytes.slice() };
+          return { publicKey: phantom.publicKey };
+        },
+        disconnect: async () => {
+          phantom.isConnected = false;
+          phantom.publicKey = null;
+        },
+        on: (event: string, fn: (...args: unknown[]) => void) => {
+          (listeners[event] = listeners[event] || []).push(fn);
+        },
+        off: (event: string, fn: (...args: unknown[]) => void) => {
+          listeners[event] = (listeners[event] || []).filter((f) => f !== fn);
+        },
+        signTransaction: async (tx: unknown) => tx,
+        signAllTransactions: async (txs: unknown) => txs,
+      };
+      (window as unknown as Record<string, unknown>).isPhantomInstalled = true;
+      (window as unknown as Record<string, unknown>).phantom = {
+        solana: phantom,
+      };
+    }, Array.from(buyer.publicKey.toBytes()));
+    await page.goto(`${base}/app/wallet?tab=funds`);
+    // No clicks: the connect prompt must clear by itself once restored.
+    await expect(
+      page.getByRole("button", { name: "Connect wallet", exact: true }),
+    ).toBeHidden({ timeout: 20_000 });
+    await page.getByLabel("Deposit amount (SOL)").fill("0.1");
+    await expect(
+      page.getByRole("button", { name: "Review deposit", exact: true }),
+    ).toBeEnabled();
+    await expect
+      .poll(() =>
+        page.evaluate(() => localStorage.getItem("proxyhubb:wallet-name")),
+      )
+      .toBe("Phantom");
+  });
+  test("a wallet picked in the dialog connects and enables deposit review", async ({
+    page,
+  }) => {
+    const buyer = Keypair.generate();
+    await setup(page, false, undefined, buyer);
+    // No wallet at load, so nothing auto-selects and the picker path is
+    // genuinely exercised. The extension "arrives" after the picker opens,
+    // like a slow browser injection.
+    await page.goto(`${base}/app/wallet?tab=funds`);
+    await page
+      .getByRole("button", { name: "Connect wallet", exact: true })
+      .first()
+      .click();
+    const picker = page.getByRole("dialog", { name: "Choose a wallet" });
+    await expect(picker).toBeVisible();
+    await page.evaluate((pubkeyBytes: number[]) => {
+      const bytes = new Uint8Array(pubkeyBytes);
+      const phantom = {
+        isPhantom: true,
+        isConnected: false,
+        publicKey: null as unknown,
+        connect: async () => {
+          phantom.isConnected = true;
+          phantom.publicKey = { toBytes: () => bytes.slice() };
+          return { publicKey: phantom.publicKey };
+        },
+        disconnect: async () => {
+          phantom.isConnected = false;
+          phantom.publicKey = null;
+        },
+        on: () => undefined,
+        off: () => undefined,
+        signTransaction: async (tx: unknown) => tx,
+        signAllTransactions: async (txs: unknown) => txs,
+      };
+      (window as unknown as Record<string, unknown>).isPhantomInstalled = true;
+      (window as unknown as Record<string, unknown>).phantom = {
+        solana: phantom,
+      };
+    }, Array.from(buyer.publicKey.toBytes()));
+    await expect(picker.getByText("Detected").first()).toBeVisible({
+      timeout: 15_000,
+    });
+    await picker.getByRole("button", { name: /Phantom/ }).first().click();
+    // Must leave "Connecting" and match the linked wallet, not stick.
+    await expect(
+      page.getByRole("button", { name: "Connect wallet", exact: true }),
+    ).toBeHidden({ timeout: 20_000 });
+    await page.getByLabel("Deposit amount (SOL)").fill("0.1");
+    await expect(
+      page.getByRole("button", { name: "Review deposit", exact: true }),
+    ).toBeEnabled();
+    await expect
+      .poll(() =>
+        page.evaluate(() => localStorage.getItem("proxyhubb:wallet-name")),
+      )
+      .toBe("Phantom");
   });
 });
