@@ -1320,6 +1320,20 @@
 .wallet-connect-control code {
   overflow-wrap: anywhere;
 }
+.wallet-picker-list {
+  display: grid;
+  gap: 8px;
+}
+.wallet-picker-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: flex-start;
+  width: 100%;
+}
+.wallet-picker-option .ui-note {
+  margin-left: auto;
+}
 .wallet-transfer-help {
   padding: 12px 0;
 }

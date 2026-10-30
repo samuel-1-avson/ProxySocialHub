@@ -2,14 +2,17 @@
 
 import { useEffect, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { useWalletModal } from "@solana/wallet-adapter-react-ui";
-import { WalletReadyState } from "@solana/wallet-adapter-base";
+import {
+  WalletReadyState,
+  type WalletName,
+} from "@solana/wallet-adapter-base";
 import {
   WALLET_CONNECTION_ERROR_EVENT,
   clearManualSolanaWalletDisconnect,
   forceDisconnectSolanaWallet,
   formatWalletConnectionError,
 } from "@/lib/solana-wallet-session";
+import { Modal } from "@/components/patterns/Modal";
 import { shortWallet } from "@/components/UnlockWalletPrompt";
 
 type Props = {
@@ -26,12 +29,16 @@ type Props = {
 };
 
 /**
- * Connect control with visible state for every adapter outcome.
+ * Connect control with its own wallet picker and visible state for every
+ * adapter outcome.
  *
- * The raw WalletMultiButton swallows connect failures (its click handler
- * catches and relies on a console-only onError), and it renders no
- * affordance at all while connecting. This control owns the click, so a
- * failure always lands next to the button with a recovery action.
+ * The library wallet modal only selects a wallet and relies on an
+ * auto-connect side effect to finish the job; when that chain stalls in a
+ * real browser extension the click appears to do nothing, and the library
+ * button swallows the failure. This control selects and connects in one
+ * explicit flow, lists every discovered wallet (browser extensions plus
+ * Wallet Standard wallets such as Phantom, Solflare, Backpack, OKX Wallet,
+ * and Brave Wallet), and lands every failure next to the button.
  */
 export function WalletConnectControl({
   linkedAddress,
@@ -50,12 +57,13 @@ export function WalletConnectControl({
     connect,
     disconnect,
   } = useWallet();
-  const { setVisible } = useWalletModal();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pendingName, setPendingName] = useState<string | null>(null);
 
-  // Connect attempts started from the wallet modal do not pass through
-  // handleConnect below; the provider republishes their failures here.
+  // Connect attempts started elsewhere in the provider (auto-reconnect)
+  // republish their failures here so they are never silent.
   useEffect(() => {
     const onError = (event: Event) => {
       const message = (event as CustomEvent<{ message?: string }>).detail
@@ -71,7 +79,20 @@ export function WalletConnectControl({
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (connected) setError("");
+    if (connected) setPickerOpen(false);
   }, [connected]);
+
+  // Finish a picker choice: selection is applied asynchronously by the
+  // provider, so connect once the chosen wallet becomes the selected one.
+  useEffect(() => {
+    if (!pendingName || connected || connecting) return;
+    if (wallet?.adapter.name !== pendingName) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPendingName(null);
+    void connect().catch((err: unknown) => {
+      setError(formatWalletConnectionError(err));
+    });
+  }, [pendingName, wallet, connected, connecting, connect]);
 
   const connectedAddress = publicKey?.toBase58() ?? null;
   const linked = (linkedAddress || "").trim();
@@ -79,15 +100,28 @@ export function WalletConnectControl({
     linked && connectedAddress && connectedAddress === linked,
   );
   const differentWallet = Boolean(connected && linked && !matching);
-  const hasInstalledWallet = wallets.some(
-    (entry) => entry.readyState === WalletReadyState.Installed,
-  );
+  const installedNames = wallets
+    .filter((entry) => entry.readyState === WalletReadyState.Installed)
+    .map((entry) => entry.adapter.name);
+  const pickerWallets = [...wallets].sort((a, b) => {
+    const rank = (state: WalletReadyState) =>
+      state === WalletReadyState.Installed
+        ? 0
+        : state === WalletReadyState.Loadable
+          ? 1
+          : 2;
+    return rank(a.readyState) - rank(b.readyState);
+  });
 
   const handleConnect = async () => {
     clearManualSolanaWalletDisconnect();
     setError("");
-    if (!wallet) {
-      setVisible(true);
+    if (
+      !wallet ||
+      (wallet.readyState !== WalletReadyState.Installed &&
+        wallet.readyState !== WalletReadyState.Loadable)
+    ) {
+      setPickerOpen(true);
       return;
     }
     try {
@@ -97,10 +131,18 @@ export function WalletConnectControl({
     }
   };
 
-  const handleChooseWallet = () => {
+  const handlePick = (name: string) => {
     clearManualSolanaWalletDisconnect();
     setError("");
-    setVisible(true);
+    setPickerOpen(false);
+    if (wallet?.adapter.name === name) {
+      void connect().catch((err: unknown) => {
+        setError(formatWalletConnectionError(err));
+      });
+      return;
+    }
+    setPendingName(name);
+    select(name as WalletName);
   };
 
   const handleDisconnect = async () => {
@@ -119,10 +161,62 @@ export function WalletConnectControl({
 
   const handleReconnectLinked = async () => {
     await handleDisconnect();
-    setVisible(true);
+    setPickerOpen(true);
   };
 
-  if (connecting) {
+  const picker = (
+    <Modal
+      open={pickerOpen}
+      onOpenChange={setPickerOpen}
+      title="Choose a wallet"
+      description="Pick the Solana wallet you signed in with. It stays connected for deposits, withdrawals, and order payments."
+    >
+      <div className="wallet-picker-list">
+        {pickerWallets.map((entry) => {
+          const installed =
+            entry.readyState === WalletReadyState.Installed;
+          return (
+            <button
+              key={entry.adapter.name}
+              type="button"
+              className="ui-button secondary wallet-picker-option"
+              onClick={() => handlePick(entry.adapter.name)}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={entry.adapter.icon}
+                alt=""
+                width={24}
+                height={24}
+              />
+              <span>{entry.adapter.name}</span>
+              <span className="ui-note">
+                {installed
+                  ? "Detected"
+                  : entry.readyState === WalletReadyState.Loadable
+                    ? "Web wallet"
+                    : "Not detected"}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {!installedNames.length && (
+        <p className="ui-note">
+          No Solana wallet was detected in this browser. Install a Solana
+          wallet such as Phantom, Solflare, Backpack, OKX Wallet, or Brave
+          Wallet, unlock it, then choose it here.
+        </p>
+      )}
+      {error && (
+        <p className="ui-error" role="alert">
+          {error}
+        </p>
+      )}
+    </Modal>
+  );
+
+  if (connecting || pendingName) {
     return (
       <div className="wallet-connect-control">
         <div className="ui-actions">
@@ -146,6 +240,7 @@ export function WalletConnectControl({
             {error}
           </p>
         )}
+        {picker}
       </div>
     );
   }
@@ -204,7 +299,7 @@ export function WalletConnectControl({
           <button
             className="ui-button secondary"
             disabled={busy || processing}
-            onClick={handleChooseWallet}
+            onClick={() => setPickerOpen(true)}
           >
             Choose wallet
           </button>
@@ -214,6 +309,7 @@ export function WalletConnectControl({
             {error}
           </p>
         )}
+        {picker}
       </div>
     );
   }
@@ -232,22 +328,22 @@ export function WalletConnectControl({
           <button
             className="ui-button secondary"
             disabled={busy || processing}
-            onClick={handleChooseWallet}
+            onClick={() => setPickerOpen(true)}
           >
             Choose wallet
           </button>
         )}
       </div>
-      {!hasInstalledWallet && (
+      {installedNames.length ? (
         <p className="ui-note">
-          No Solana wallet was detected in this browser. Install Phantom or
-          Solflare, unlock it, then click Connect wallet.
+          Detected: {installedNames.join(", ")}. The wallet you signed in
+          with reconnects automatically; connect once here if it has not.
         </p>
-      )}
-      {hasInstalledWallet && wallet && (
+      ) : (
         <p className="ui-note">
-          {wallet.adapter.name} is selected. Click Connect wallet and approve
-          the request in the extension.
+          No Solana wallet was detected in this browser. Install Phantom,
+          Solflare, Backpack, OKX Wallet, or Brave Wallet, unlock it, then
+          click Connect wallet.
         </p>
       )}
       {error && (
@@ -255,6 +351,7 @@ export function WalletConnectControl({
           {error}
         </p>
       )}
+      {picker}
     </div>
   );
 }
