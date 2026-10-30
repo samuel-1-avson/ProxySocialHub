@@ -1312,6 +1312,14 @@
   line-height: 1.7;
   margin: 0 0 12px;
 }
+.wallet-connect-control {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.wallet-connect-control code {
+  overflow-wrap: anywhere;
+}
 .wallet-transfer-help {
   padding: 12px 0;
 }
