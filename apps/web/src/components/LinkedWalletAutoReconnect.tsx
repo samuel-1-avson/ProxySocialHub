@@ -66,7 +66,10 @@ export function LinkedWalletAutoReconnect() {
         })),
         readRememberedWalletName(),
       );
-      if (name) select(name as WalletName);
+      if (name) {
+        console.debug(`[wallet] auto-restore selecting ${name}`);
+        select(name as WalletName);
+      }
       return;
     }
 
@@ -81,7 +84,12 @@ export function LinkedWalletAutoReconnect() {
     // Go through the provider's connect so connection state and failures
     // stay visible. The provider error handler republishes failures to the
     // connect controls; nothing is fabricated if the wallet declines.
-    void connect().catch(() => {});
+    console.debug(
+      `[wallet] auto-restore connecting ${wallet.adapter.name} for ${expected.slice(0, 4)}…`,
+    );
+    void connect().catch((err: unknown) => {
+      console.debug("[wallet] auto-restore connect failed", err);
+    });
   }, [expected, connected, connecting, publicKey, wallet, wallets, select, connect]);
 
   return null;

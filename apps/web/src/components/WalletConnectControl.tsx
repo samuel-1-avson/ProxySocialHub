@@ -11,6 +11,7 @@ import {
   clearManualSolanaWalletDisconnect,
   forceDisconnectSolanaWallet,
   formatWalletConnectionError,
+  readRememberedWalletName,
 } from "@/lib/solana-wallet-session";
 import { Modal } from "@/components/patterns/Modal";
 import { shortWallet } from "@/components/UnlockWalletPrompt";
@@ -111,11 +112,14 @@ export function WalletConnectControl({
     pendingSince.current = 0;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setPendingName(null);
+    console.debug(`[wallet] connecting picked wallet ${pendingName}`);
     void connect().catch((err: unknown) => {
+      console.debug(`[wallet] picked wallet ${pendingName} failed`, err);
       setError(formatWalletConnectionError(err));
     });
   }, [pendingName, wallet, connected, connecting, connect]);
 
+  const rememberedName = readRememberedWalletName();
   const connectedAddress = publicKey?.toBase58() ?? null;
   const linked = (linkedAddress || "").trim();
   const matching = Boolean(
@@ -155,6 +159,7 @@ export function WalletConnectControl({
 
   const handlePick = (name: string) => {
     clearManualSolanaWalletDisconnect();
+    console.debug(`[wallet] picked ${name}`);
     setError("");
     setPickerOpen(false);
     if (wallet?.adapter.name === name) {
@@ -168,12 +173,15 @@ export function WalletConnectControl({
     select(name as WalletName);
   };
 
-  // Cancel a pending connection attempt without marking a manual
-  // disconnect, so automatic restore can still run afterwards.
+  // Cancel a stuck connection attempt and reset to a clean state: drop the
+  // pending choice, close the picker, and fully disconnect the adapter so a
+  // hung provider-level attempt cannot swallow the next click. Picking a
+  // wallet again clears the manual-disconnect mark.
   const handleCancel = () => {
     setPendingName(null);
     setPickerOpen(false);
-    void disconnect().catch(() => {});
+    console.debug("[wallet] connect cancelled by user");
+    void forceDisconnectSolanaWallet({ disconnect, select }).catch(() => {});
   };
 
   const handleDisconnect = async () => {
@@ -378,6 +386,11 @@ export function WalletConnectControl({
           click Connect wallet.
         </p>
       )}
+      <p className="ui-note" data-testid="wallet-diagnostics">
+        Selected: {wallet?.adapter.name ?? "none"} · Saved:{" "}
+        {rememberedName ?? "none"}
+        {error ? " · Last error shown above" : ""}
+      </p>
       {error && (
         <p className="ui-error" role="alert">
           {error}
