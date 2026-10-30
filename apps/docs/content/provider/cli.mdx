@@ -1,6 +1,6 @@
 ---
 title: Provider CLI
-description: Install proxyhubb-cli / provider-node, join with a token, start the tunnel — do not re-register after the wizard.
+description: Install proxyhubb-cli / provider-node, join with a token, start the tunnel: do not re-register after the wizard.
 ---
 
 Providers sell bandwidth by running the **provider-node** tunnel daemon against **`proxy.proxyhubb.com:3128`**. The companion CLI binary is **`proxyhubb-cli`**.
@@ -9,7 +9,7 @@ Do **not** confuse provider tunnel **`:3128`** with buyer CONNECT **`:8090`**.
 
 ## Recommended path
 
-The simplest way to connect a computer is to **pair** it — no token to copy, no script to run. Prefer not to use a terminal at all? The [Provider app](/docs/provider/app) (preview, Windows) does this for you.
+The simplest way to connect a computer is to **pair** it: no token to copy, no script to run. Prefer not to use a terminal at all? The [Provider app](/docs/provider/app) (preview, Windows) does this for you.
 
 From a terminal:
 
@@ -21,7 +21,7 @@ Already set up through the wizard? Then skip pairing:
 
 1. Complete the in-app [provider setup wizard](https://proxyhubb.com/dashboard/provider/setup)
 2. Download CLI + `provider.toml` from [CLI Tools](https://proxyhubb.com/dashboard/provider/cli)
-3. Start the node — **do not run `join` / register again** after the wizard (reuse the downloaded config / `--node-id`)
+3. Start the node: **do not run `join` / register again** after the wizard (reuse the downloaded config / `--node-id`)
 
 ### Pair this computer
 
@@ -53,7 +53,7 @@ The dashboard detects OS/arch and offers the matching asset. Packages are **not*
 Sellers and providers can also install a thin wrapper that downloads `provider-cli` / `provider-node` from the API and proxies commands:
 
 ```bash
-# Easiest (Windows / macOS / Linux) — Dashboard → My nodes → Connect → Setup this PC
+# Easiest (Windows / macOS / Linux): Dashboard → My nodes → Connect → Setup this PC
 # Downloads a one-click setup script that writes config, installs the CLI, and starts the node.
 
 # npm
@@ -66,7 +66,7 @@ pip install -U proxyhubb-provider
 proxyhubb-provider install
 proxyhubb-provider --daemon doctor
 
-# Cargo (from source — not crates.io)
+# Cargo (from source: not crates.io)
 cargo install --locked --git https://github.com/samuel-1-avson/ProxySocialHub.git --tag provider-v1.0.6 --path services/provider-node
 ```
 
@@ -74,7 +74,7 @@ Env overrides: `PROXYHUBB_API_URL`, `PROXYHUBB_CLI_VERSION`. Use `proxyhubb-prov
 
 If you downloaded `provider.toml` yourself, install it with `provider-node config install --from <path-to-file>`. The command prints where the file sends traffic (control API, gateway, TLS settings) and asks for confirmation before writing it to the config path (`%APPDATA%\proxyhubb\provider.toml` on Windows). `provider-node` no longer imports files from your Downloads folder automatically.
 
-There is **no separate “seller CLI”** — marketplace sellers are providers; automate listings via the [SDKs](/docs/sdks) and run bandwidth with this CLI / node.
+There is **no separate “seller CLI”**: marketplace sellers are providers; automate listings via the [SDKs](/docs/sdks) and run bandwidth with this CLI / node.
 
 ## CLI commands
 
@@ -113,7 +113,7 @@ proxyhubb-cli start --config provider.toml
 ./provider-node --config provider.toml
 ```
 
-Confirm the node goes **online** under [My nodes](https://proxyhubb.com/dashboard/provider/nodes). Browser “ping” is not a real tunnel — use Connect + CLI start.
+Confirm the node goes **online** under [My nodes](https://proxyhubb.com/dashboard/provider/nodes). Browser “ping” is not a real tunnel. Use Connect + CLI start.
 
 ### Start automatically at sign-in
 
@@ -142,7 +142,7 @@ Typical fields (written by `join` / validated by provider-node):
 | `gateway_addr` / `gateway_addrs` | Tunnel endpoint (`host:3128`) |
 | `jwt_token` / `api_key` | Auth material from join |
 | `node_id` | Registered node UUID |
-| `provider_signing_key` | Usage proof signing — keep secret |
+| `provider_signing_key` | Usage proof signing: keep secret |
 | `connection_type` | `residential` \| `mobile` \| `datacenter` \| `fiber` |
 | `use_tls` | TLS to gateway when required |
 | `metrics_port` | Default `9090` |
@@ -164,4 +164,4 @@ If the dashboard shows unsigned usage / “Fix proof”, ensure `provider_signin
 | Connected to wrong port | Providers use **3128**, buyers use **8090** |
 | `pair` ends with `failed to complete pairing` | The server could not finish creating the node. Nothing was created; run `pair` again, and send the `step:` and `database error` part of the message to support if it repeats |
 
-Next: [Provider nodes](/docs/provider/nodes) — heartbeats, lease, listings.
+Next: [Provider nodes](/docs/provider/nodes): heartbeats, lease, listings.

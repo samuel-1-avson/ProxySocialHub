@@ -1,6 +1,6 @@
 ---
 title: Troubleshooting
-description: Common Control API and buyer-proxy errors — 401, 403, 407, 409, 501, and quota.
+description: Common Control API and buyer-proxy errors: 401, 403, 407, 409, 501, and quota.
 ---
 
 Use this index when a request fails. Most guides also include local error tables; this page is the cross-cutting map.
@@ -49,7 +49,7 @@ Common cases:
 
 - Marketplace: re-fetch `GET /v1/orders/:id/credentials` and use those exact values
 - Connect: username must be `session-intent`, password = intent `token`
-- Watch for URL-encoding issues with special characters — prefer SDK helpers
+- Watch for URL-encoding issues with special characters: prefer SDK helpers
 
 See [Buyer proxy](/docs/buyer/proxy) and [Order credentials](/docs/buyer/credentials).
 
@@ -67,7 +67,7 @@ See [Buyer proxy](/docs/buyer/proxy) and [Order credentials](/docs/buyer/credent
 
 ## `plan_bandwidth_quota`
 
-**Meaning:** buyer entitlement (legacy plan or Access Pass) is out of bandwidth / concurrency budget — typically **403** on intent create or order paths.
+**Meaning:** buyer entitlement (legacy plan or Access Pass) is out of bandwidth / concurrency budget: typically **403** on intent create or order paths.
 
 **Fix:**
 

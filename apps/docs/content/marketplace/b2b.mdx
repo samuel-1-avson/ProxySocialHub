@@ -25,7 +25,7 @@ Plaintext key is returned **once**. Keys with `orders:create` default to ~**20 r
 | Scope | Allows |
 |-------|--------|
 | `orders:create` | Create/list orders, pay/confirm, credentials, sandbox-buy, activate-dev |
-| `proxy:read` / `proxy:write` | Bulk pools only — **not** marketplace purchase |
+| `proxy:read` / `proxy:write` | Bulk pools only: **not** marketplace purchase |
 
 ## Authenticate
 
@@ -39,7 +39,7 @@ X-API-Key: phub_<hex>
 
 Same FSM as [Orders & escrow](/docs/marketplace/orders):
 
-1. `POST /v1/orders` — `{ "listing_id", "bandwidth_gb" }`
+1. `POST /v1/orders`: `{ "listing_id", "bandwidth_gb" }`
 2. `POST /v1/orders/{id}/pay/solana` → fund escrow in wallet
 3. `POST /v1/orders/{id}/confirm-escrow` when needed
 4. `GET /v1/orders/{id}/credentials`
@@ -47,7 +47,7 @@ Same FSM as [Orders & escrow](/docs/marketplace/orders):
 
 ## Sandbox mocked buy
 
-Requires `PROXYHUB_ALLOW_DEV_ESCROW_ACTIVATE=true` on control-api (compose default is off — not for production).
+Requires `PROXYHUB_ALLOW_DEV_ESCROW_ACTIVATE=true` on control-api (compose default is off; not for production).
 
 ### One-shot
 
@@ -74,7 +74,7 @@ If the flag is off → **404** `"sandbox buy is not enabled on this environment"
 
 ## Bulk pools (related, not purchase)
 
-Pools use `proxy:read` / `proxy:write` keys via `/v1/bulk/pools` — separate from marketplace buy. See [SDKs](/docs/sdks).
+Pools use `proxy:read` / `proxy:write` keys via `/v1/bulk/pools`: separate from marketplace buy. See [SDKs](/docs/sdks).
 
 ## Common errors
 

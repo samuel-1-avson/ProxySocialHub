@@ -12,7 +12,7 @@ Shared surface (v0.3+): session intents, order credentials, bulk pools, **and** 
 | Go | module | `go get github.com/samuel-1-avson/ProxySocialHub/sdks/go@v0.3.0` |
 | Provider CLI | `@proxyhubb/provider` / `proxyhubb-provider` | see [Provider CLI](/docs/provider/cli) |
 
-There is no separate “seller CLI” — sellers run the **Provider CLI** / node and automate listings via these SDKs.
+There is no separate “seller CLI”: sellers run the **Provider CLI** / node and automate listings via these SDKs.
 
 ## Defaults
 
@@ -27,17 +27,17 @@ There is no separate “seller CLI” — sellers run the **Provider CLI** / nod
 |------------|--------|
 | **JWT** (`Authorization: Bearer`) | Session intents, order credentials, seller/provider APIs |
 | **Provider token** (same Bearer header) | Tokens, nodes, listings, earnings |
-| **API key** (`X-API-Key` / `phub_…` / `pk_…`) | Bulk pools only — **not** provider routes |
+| **API key** (`X-API-Key` / `phub_…` / `pk_…`) | Bulk pools only: **not** provider routes |
 
 Mixing these up is the most common integration mistake: **intent create requires JWT**; **pools are designed around API keys**; **seller ops need JWT or provider token**.
 
 ## Pick a path
 
-1. **Quick Connect** — JWT → create intent → proxy with `session-intent` — [Python](/docs/sdks/python) / [Node](/docs/sdks/nodejs) / [Go](/docs/sdks/go)
-2. **Marketplace order** — buy → `get*OrderCredentials` → CONNECT username/password
-3. **Bulk pools** — API key → `createPool` → pool proxy URLs — [guide](/docs/buyer/pools)
-4. **Seller automation** — JWT or provider token → tokens / nodes / listings / earnings
-5. **Run a node** — [Provider CLI](/docs/provider/cli) (`npx @proxyhubb/provider` or binaries)
+1. **Quick Connect**: JWT → create intent → proxy with `session-intent`: [Python](/docs/sdks/python) / [Node](/docs/sdks/nodejs) / [Go](/docs/sdks/go)
+2. **Marketplace order**: buy → `get*OrderCredentials` → CONNECT username/password
+3. **Bulk pools**: API key → `createPool` → pool proxy URLs: [guide](/docs/buyer/pools)
+4. **Seller automation**: JWT or provider token → tokens / nodes / listings / earnings
+5. **Run a node**: [Provider CLI](/docs/provider/cli) (`npx @proxyhubb/provider` or binaries)
 
 Version pins: [Changelog & SDK matrix](/docs/changelog).
 
@@ -47,7 +47,7 @@ Version pins: [Changelog & SDK matrix](/docs/changelog).
 |---------|-----|
 | `401` / unauthorized | Check JWT expiry, provider token, or API key value |
 | Intent create fails with API key | Pass `access_token` / `accessToken`, not only `phub_…` |
-| Provider route fails with `pk_` key | Use Bearer JWT or provider token — buyer API keys are rejected |
+| Provider route fails with `pk_` key | Use Bearer JWT or provider token: buyer API keys are rejected |
 | Proxy URL wrong host | Set `PROXYHUBB_PROXY_ENDPOINT` or pass endpoint into the client |
 | HTTPS requests hang / 501 | Ensure the HTTP client uses CONNECT (SDK helpers do) |
 

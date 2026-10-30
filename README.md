@@ -177,6 +177,8 @@ Authentication is either a wallet-session bearer token or an `X-API-Key: phub_â€
 ## Security
 
 - No custodial funds: buyer payments live in on-chain escrow until settlement.
+- Exception: accounts created with **Sign in with Google** get a ProxyHubb-managed Solana wallet. Its key is held by the platform (envelope-encrypted; see `services/control-api/internal/custody`), so those wallets are custodial. Wallet sign-in users stay non-custodial.
+- Google-account buyers can pay in GHS through Paystack (`FIAT_PAYMENTS_ENABLED`). The treasury sends the SOL to their managed wallet and the server signs the normal on-chain escrow, so providers are paid exactly as before. See `services/control-api/internal/api/orders_paystack.go`.
 - Prometheus metrics endpoints are authenticated and unreachable from the public host.
 - Internal message-bus ports bind to localhost in production.
 - Secrets are never committed â€” the repository is guarded by automated secret scanning on every commit and push.

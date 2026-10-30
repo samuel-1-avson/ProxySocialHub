@@ -1,11 +1,28 @@
 ---
 title: Documentation
-description: Buyer proxy, SDKs, API reference, marketplace, and provider CLI for ProxyHubb.
+description: What ProxyHubb is, how it works, and how to use it as a buyer, provider, or developer.
 ---
 
 <HomeHero kicker="ProxyHubb Docs" title="Start with your workflow.">
 Set up proxy access, provide bandwidth, or build with the API. Practical guides for your first connection and everything that follows.
 </HomeHero>
+
+## How it works in 30 seconds
+
+<Flow caption="The website only ever sees the provider's home connection, never yours.">
+  <FlowStep icon="laptop" title="You (buyer)">Ask to visit a website</FlowStep>
+  <FlowStep icon="server" title="ProxyHubb" arrow="request">Checks your pass and picks a home to route through</FlowStep>
+  <FlowStep icon="house" title="A provider's home" arrow="forwarded">Their computer fetches the page for you</FlowStep>
+  <FlowStep icon="globe" title="The website" arrow="visits">Sees the home's location and sends the page back</FlowStep>
+</Flow>
+
+And the money, when you buy from the marketplace:
+
+<MoneyFlow />
+
+New here? Read **[How it works](/docs/how-it-works)** (5-minute plain-English tour) and keep the **[Glossary](/docs/glossary)** open for any word you don't recognise.
+
+## What do you want to do?
 
 <RoleGrid>
   <PathCard code="01" href="/docs/quickstart/buyer" title="Buy proxy access" meta="Buyer guide">
@@ -28,15 +45,17 @@ Set up proxy access, provide bandwidth, or build with the API. Practical guides 
 
 ## Quickstarts
 
-- [Buyer (5 min)](/docs/quickstart/buyer) — rotating intent → CONNECT smoke test
-- [Provider (10 min)](/docs/quickstart/provider) — CLI doctor → node online
+- [Buyer (5 min)](/docs/quickstart/buyer): make your first request through a home connection
+- [Provider (10 min)](/docs/quickstart/provider): get your computer online and earning
 
 ## Dig deeper
 
-- [Concepts](/docs/concepts) — intents vs orders vs pools, escrow, metering
-- [Architecture](/docs/architecture) — control / data / settlement planes
-- [Wallet auth](/docs/wallet/auth) — challenge → JWT
-- [SDKs](/docs/sdks) — Python, Node.js, Go
-- [Marketplace](/docs/marketplace) — discovery, orders, Access Passes
+- [How it works](/docs/how-it-works): the whole system in plain English, with pictures
+- [Glossary](/docs/glossary): every technical word, explained simply
+- [Concepts](/docs/concepts): the three ways to buy, the locked box (escrow), the meter (metering)
+- [Architecture](/docs/architecture): the office, the switchboard, and the money (control / data / settlement)
+- [Wallet auth](/docs/wallet/auth): logging in with your crypto wallet
+- [SDKs](/docs/sdks): ready-made code for Python, Node.js, Go
+- [Marketplace](/docs/marketplace): browsing listings, orders, Access Passes
 
 Need a specific answer? Press <KbdHint keys="/">to search</KbdHint>, or open the [workspace](https://proxyhubb.com/app) to manage your account.
