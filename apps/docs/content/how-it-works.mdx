@@ -1,0 +1,153 @@
+---
+title: How it works
+description: ProxyHubb in plain English: what a proxy is, who uses this, and what happens from purchase to payout.
+---
+
+This page explains ProxyHubb without assuming you know anything about proxies, networking, or crypto. If you hit a word you don't know, check the [Glossary](/docs/glossary).
+
+## 1. What is a proxy?
+
+When you visit a website, it can see where your connection comes from: roughly which country and which internet company you use. That's your **IP address**.
+
+A **proxy** is a middleman. Your traffic goes to the middleman, the middleman visits the website for you, and the website only sees the middleman.
+
+<Flow caption="Without a proxy, the website sees you. With one, it sees the middleman.">
+  <FlowStep icon="user" title="You">Want to visit a website</FlowStep>
+  <FlowStep icon="server" title="Middleman (proxy)" arrow="via">Makes the visit on your behalf</FlowStep>
+  <FlowStep icon="globe" title="Website" arrow="visits">Only sees the middleman's address</FlowStep>
+</Flow>
+
+## 2. Why a *home* connection?
+
+<IdeaGrid>
+  <IdeaCard icon="server" title="Data-centre proxy">
+    The middleman is a big server farm. Cheap, but websites recognise these addresses easily and often block them or show different content.
+  </IdeaCard>
+  <IdeaCard icon="house" title="Residential proxy (ProxyHubb)">
+    The middleman is an ordinary home internet connection. Websites treat it like a normal visitor, so you see what a real person in that place would see.
+  </IdeaCard>
+</IdeaGrid>
+
+People and companies use this to check prices or ads in another country, test their own website from different places, or collect public information without being blocked.
+
+## 3. The three players
+
+<IdeaGrid>
+  <IdeaCard icon="laptop" title="Buyers">
+    Want to browse *as if* they were somewhere else. They pay for the data they send through a provider's home.
+  </IdeaCard>
+  <IdeaCard icon="house" title="Providers">
+    Ordinary people with home internet. They install a small app that shares spare bandwidth, and they earn when buyers use it.
+  </IdeaCard>
+  <IdeaCard icon="server" title="ProxyHubb (the platform)">
+    Sits in the middle: matches buyers with providers, passes the traffic through, counts usage, and makes sure everyone gets paid fairly.
+  </IdeaCard>
+</IdeaGrid>
+
+Think of it like **Airbnb for spare home internet**: hosts list what they have, guests book it, and the platform handles the booking and the money.
+
+## 4. One purchase, start to finish
+
+Here is everything that happens when a buyer buys from the marketplace, in order.
+
+<Steps>
+<Step title="The provider gets ready">
+
+The provider runs the ProxyHubb app on their computer. It "phones" ProxyHubb and keeps the line open, saying: *I'm online and I have spare bandwidth.*
+
+<Flow>
+  <FlowStep icon="house" title="Provider's computer">Runs the ProxyHubb app</FlowStep>
+  <FlowStep icon="server" title="ProxyHubb switchboard" arrow="keeps a line open">Now knows this home is available</FlowStep>
+</Flow>
+
+</Step>
+<Step title="The buyer shops">
+
+The buyer opens the ProxyHubb website, logs in with a crypto wallet (like Phantom, no password needed), and browses providers by country and price.
+
+</Step>
+<Step title="The buyer pays into a locked box">
+
+The money doesn't go straight to the provider. It goes into a **locked box** on the Solana blockchain (called an *escrow*). The box has only two exits: to the provider, for data actually used, or back to the buyer. Nobody, including ProxyHubb, can send it anywhere else.
+
+</Step>
+<Step title="The buyer gets a key">
+
+As soon as ProxyHubb sees the money is safely locked in, it gives the buyer a **username and password** for the proxy. That's their key.
+
+</Step>
+<Step title="The buyer connects">
+
+The buyer turns on the ProxyHubb browser extension (one click), or pastes the username and password into their own code.
+
+</Step>
+<Step title="Traffic flows through the provider's home">
+
+For every page the buyer visits:
+
+<Flow caption="ProxyHubb checks the key on every visit, and counts how much data passes through.">
+  <FlowStep icon="laptop" title="Buyer">Requests a page, with their key</FlowStep>
+  <FlowStep icon="server" title="Switchboard" arrow="request">Checks the key, picks the provider</FlowStep>
+  <FlowStep icon="house" title="Provider's home" arrow="forwards">Fetches the page</FlowStep>
+  <FlowStep icon="globe" title="Website" arrow="visits">Sends the page back the same way</FlowStep>
+</Flow>
+
+</Step>
+<Step title="The meter runs">
+
+The switchboard counts every bit of data that passes through, like a taxi meter.
+
+</Step>
+<Step title="Everyone gets paid fairly">
+
+When the buyer is done (or their data runs out), ProxyHubb tells the locked box to settle up:
+
+<MoneyFlow />
+
+</Step>
+</Steps>
+
+## 5. Three ways to buy
+
+Not everyone buys from the marketplace. There are three ways to get a key:
+
+<IdeaGrid>
+  <IdeaCard icon="ticket" title="Quick pass" label="session intent">
+    A temporary key you make in the dashboard in one click. Like a gym day pass. Uses the allowance from your Access Pass. Best for trying things out.
+  </IdeaCard>
+  <IdeaCard icon="calendar" title="Marketplace booking" label="order">
+    Pick a specific provider, pay into the locked box, get a username and password. Like booking a specific Airbnb with a deposit.
+  </IdeaCard>
+  <IdeaCard icon="layers" title="Business fleet" label="bulk pool">
+    Many keys managed under one company account, for software that needs lots of connections at once.
+  </IdeaCard>
+</IdeaGrid>
+
+All three end up at the same door: the ProxyHubb switchboard. More detail: [Access paths](/docs/concepts/access-paths).
+
+## 6. What's under the hood
+
+If you're a developer, these are the real parts behind the story above:
+
+<Flow caption="Three jobs: run the business, move the traffic, hold the money.">
+  <FlowStep icon="office" title="The office">Accounts, listings, orders, keys. *Control API* (Go).</FlowStep>
+  <FlowStep icon="server" title="The switchboard" arrow="shares keys">Checks keys, routes traffic, counts data. *Edge gateway* (Rust).</FlowStep>
+  <FlowStep icon="chain" title="The locked box" arrow="settles">Holds and releases payments. *Solana program*.</FlowStep>
+</Flow>
+
+| Plain name | Real name | Where you'll meet it |
+|------------|-----------|----------------------|
+| The website | Web app | `proxyhubb.com` |
+| The office | Control API | `api.proxyhubb.com` |
+| The switchboard | Edge gateway | `proxy.proxyhubb.com`: door **8090** for buyers, door **3128** for providers |
+| The provider app | `provider-node` + `proxyhubb-cli` | Installed on the provider's computer |
+| The locked box | Solana escrow program | Solana devnet (test network) |
+| The browser add-on | Chrome / Firefox extension | Chrome Web Store |
+
+Technical deep dive: [Architecture](/docs/architecture).
+
+## Where to go next
+
+- **Want to use a proxy?** → [Buyer quickstart](/docs/quickstart/buyer)
+- **Want to share your internet?** → [Provider quickstart](/docs/quickstart/provider)
+- **Confused by a word?** → [Glossary](/docs/glossary)

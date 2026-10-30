@@ -18,7 +18,7 @@ Content-Type: application/json
 }
 ```
 
-`type` must be `rotating` or `sticky`. Optional fields include `listing_id`, `bandwidth_limit`, `target_isp` (best-effort preference — not a guaranteed ISP filter), `routing_profile`, `max_price_per_gb`, and domain allow/block lists.
+`type` must be `rotating` or `sticky`. Optional fields include `listing_id`, `bandwidth_limit`, `target_isp` (best-effort preference, not a guaranteed ISP filter), `routing_profile`, `max_price_per_gb`, and domain allow/block lists.
 
 ## Response
 
@@ -45,7 +45,7 @@ After escrow, `GET /v1/orders/{id}/credentials` returns CONNECT username/passwor
 for the **public** buyer edge (`proxy.proxyhubb.com:8090`). Use
 `proxy_credentials.password` (HMAC). Chrome HTTP CONNECT and curl `-x` take that
 password. A `session_capability` `phubb1.` token, when present, is soak-only
-(Host-A `:18091`) — not the store-extension or shop curl password.
+(Host-A `:18091`): not the store-extension or shop curl password.
 
 After purchase, **Connect with ProxyHubb** on the success modal or order page
 pairs this browser (one-time code) and turns on Chrome HTTP CONNECT for that

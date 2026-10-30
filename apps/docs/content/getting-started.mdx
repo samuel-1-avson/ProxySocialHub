@@ -5,6 +5,16 @@ description: Environments, authentication, and the buyer vs provider mental mode
 
 ProxyHubb has two sides: **buyers** consume residential bandwidth through the edge gateway; **providers** run a node and earn from metered usage. Settlement is Solana-backed on public testnet (devnet).
 
+<Callout type="tip" title="In plain English">
+Buyers borrow a stranger's home internet connection to browse from another place. Providers lend theirs and get paid. Both connect to the same ProxyHubb server. Buyers through door **8090**, providers through door **3128**. New to this? Start with [How it works](/docs/how-it-works).
+</Callout>
+
+<Flow>
+  <FlowStep icon="laptop" title="Buyers">Connect to door 8090 with a key</FlowStep>
+  <FlowStep icon="server" title="ProxyHubb" arrow="8090">Matches each buyer to a provider</FlowStep>
+  <FlowStep icon="house" title="Providers" arrow="3128 tunnel">Keep a line open on door 3128 and fetch pages</FlowStep>
+</Flow>
+
 Press <KbdHint keys="/">to search</KbdHint> from any page.
 
 ## Environments (testnet)
@@ -22,6 +32,8 @@ Override the buyer endpoint locally with `PROXYHUBB_PROXY_ENDPOINT` or `NEXT_PUB
 
 ## Authentication
 
+You prove who you are in one of two ways: a **login token** (JWT) that the website gets when you sign in with your wallet, or an **API key**: a password for programs, so your software can use ProxyHubb without a person logging in.
+
 | Credential | Header | Used for |
 |------------|--------|----------|
 | Dashboard JWT | `Authorization: Bearer <jwt>` | Session intents, marketplace orders, most UI APIs |
@@ -29,14 +41,16 @@ Override the buyer endpoint locally with `PROXYHUBB_PROXY_ENDPOINT` or `NEXT_PUB
 
 Mint API keys in the dashboard (**Settings → API keys**) or via `POST /v1/bulk/api-keys` with a JWT.
 
-Wallet login (challenge → signed login → refresh) is the public auth path — step-by-step: [Wallet authentication](/docs/wallet/auth). Email/password registration is not an active runtime flow.
+Wallet login (challenge → signed login → refresh) is the public auth path. Step-by-step: [Wallet authentication](/docs/wallet/auth). Email/password registration is not an active runtime flow.
 
 ## Two buyer paths
 
-1. **Connect session intent** — dashboard JWT → `POST /v1/sessions/intent` → use `session-intent:<token>` at the buyer proxy. Best for rotating/sticky quick-start in [Connect](https://proxyhubb.com/dashboard/proxy).
-2. **Marketplace order** — create order → fund Solana escrow → `GET /v1/orders/:id/credentials` → username/password at the same buyer host.
+In short: a **quick pass** you make in one click (session intent), or a **marketplace booking** you pay for up front (order). See [How it works → Three ways to buy](/docs/how-it-works#5-three-ways-to-buy).
 
-Bulk **pools** are a third path for partners who want many endpoints under one API key — see [Bulk pools](/docs/buyer/pools) and [Access paths](/docs/concepts/access-paths).
+1. **Connect session intent**: dashboard JWT → `POST /v1/sessions/intent` → use `session-intent:<token>` at the buyer proxy. Best for rotating/sticky quick-start in [Connect](https://proxyhubb.com/dashboard/proxy).
+2. **Marketplace order**: create order → fund Solana escrow → `GET /v1/orders/:id/credentials` → username/password at the same buyer host.
+
+Bulk **pools** are a third path for partners who want many endpoints under one API key. See [Bulk pools](/docs/buyer/pools) and [Access paths](/docs/concepts/access-paths).
 
 ## First request checklist
 
@@ -52,7 +66,7 @@ Bulk **pools** are a third path for partners who want many endpoints under one A
 | `401` on Control API | Missing/expired JWT or wrong API key | Refresh session or mint a new key |
 | `403` on intent create | Using API key instead of JWT | Session intents require a dashboard JWT |
 | Proxy `407` / auth failed | Bad username/password or expired intent | Re-issue intent or re-fetch order credentials |
-| Proxy `501` | Absolute-URI forward proxy (no CONNECT) | Use HTTP CONNECT or SOCKS5 — see [Buyer proxy](/docs/buyer/proxy) |
+| Proxy `501` | Absolute-URI forward proxy (no CONNECT) | Use HTTP CONNECT or SOCKS5: see [Buyer proxy](/docs/buyer/proxy) |
 | Order credentials `409` | Escrow/session not active yet | Wait for funding + activation, then retry |
 
 ## Next steps

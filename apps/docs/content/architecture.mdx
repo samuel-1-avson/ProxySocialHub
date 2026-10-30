@@ -1,9 +1,26 @@
 ---
 title: Architecture
-description: Control API, edge gateway ports, and Solana settlement — how a request flows through ProxyHubb.
+description: Control API, edge gateway ports, and Solana settlement: how a request flows through ProxyHubb.
 ---
 
 ProxyHubb splits into three planes: **control**, **data**, and **settlement**.
+
+In plain English, that's three jobs: **the office** runs the business, **the switchboard** moves the traffic, and **the locked box** holds the money.
+
+<Flow caption="Control plane → data plane → settlement plane.">
+  <FlowStep icon="office" title="The office (control)">Logins, listings, orders, keys. Go service at api.proxyhubb.com</FlowStep>
+  <FlowStep icon="server" title="The switchboard (data)" arrow="shares keys">Checks keys, routes traffic, counts bytes. Rust service at proxy.proxyhubb.com</FlowStep>
+  <FlowStep icon="chain" title="The locked box (settlement)" arrow="usage → payout">Holds and releases payments. Solana program</FlowStep>
+</Flow>
+
+And how one buyer request travels:
+
+<Flow>
+  <FlowStep icon="laptop" title="Buyer app">Gets a key from the office</FlowStep>
+  <FlowStep icon="server" title="Switchboard :8090" arrow="CONNECT + key">Checks the key</FlowStep>
+  <FlowStep icon="house" title="Provider (via :3128)" arrow="tunnel">Fetches the page</FlowStep>
+  <FlowStep icon="globe" title="Website" arrow="visits">Sees the provider, not the buyer</FlowStep>
+</Flow>
 
 <Callout type="warning" title="Ports">
 Buyers use <code>proxy.proxyhubb.com:8090</code>. Providers use tunnel <code>:3128</code>. Mixing them is the most common ops mistake.
@@ -17,7 +34,7 @@ Buyers use <code>proxy.proxyhubb.com:8090</code>. Providers use tunnel <code>:31
 | Control API | `https://api.proxyhubb.com` (`/v1`) | Control |
 | Buyer CONNECT / SOCKS5 | `proxy.proxyhubb.com:8090` | Data |
 | Provider tunnel | `proxy.proxyhubb.com:3128` | Data |
-| Docs | `https://docs.proxyhubb.com` | — |
+| Docs | `https://docs.proxyhubb.com` |: |
 | Solana | Devnet (public testnet) | Settlement |
 
 **Remember:** buyers use **8090**; providers use **3128**. Mixing them is the most common ops mistake.
@@ -53,7 +70,7 @@ Go service behind `api.proxyhubb.com`. Owns:
 
 Rust data plane. Owns:
 
-- Buyer listeners on **`:8090`** (CONNECT + SOCKS5 only — no absolute-URI forward proxy)
+- Buyer listeners on **`:8090`** (CONNECT + SOCKS5 only: no absolute-URI forward proxy)
 - Provider tunnel on **`:3128`**
 - Session binding and byte metering
 - Signed usage reports to control (`X-Gateway-Auth`)

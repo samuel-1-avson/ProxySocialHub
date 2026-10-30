@@ -1,6 +1,6 @@
 ---
 title: Python SDK
-description: pip install proxyhubb — Connect intents, credentials, and pools.
+description: pip install proxyhubb: Connect intents, credentials, and pools.
 ---
 
 ```bash
@@ -69,7 +69,7 @@ print(client.get_earnings_summary())
 |---------|-----|
 | `TypeError` / auth errors on intent | Construct with `access_token=...`, not only an API key string, for Connect |
 | `requests` hits destination without tunnel | Pass `proxies=` from the helper; do not omit it |
-| `409` on credentials | Order not active — wait for escrow/session |
+| `409` on credentials | Order not active: wait for escrow/session |
 | SSL / proxy URL parse errors | Prefer SDK helpers over hand-built URLs with special characters |
 
 PyPI: [proxyhubb](https://pypi.org/project/proxyhubb/) · Protocol notes: [Buyer proxy](/docs/buyer/proxy)

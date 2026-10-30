@@ -11,11 +11,13 @@ export type NavItem = {
 
 export const NAV: NavItem[] = [
   { href: '/docs', label: 'Overview', code: '00' },
-  { href: '/docs/getting-started', label: 'Getting started', code: '01' },
+  { href: '/docs/how-it-works', label: 'How it works', code: '01' },
+  { href: '/docs/glossary', label: 'Glossary', code: '02' },
+  { href: '/docs/getting-started', label: 'Getting started', code: '03' },
   {
     href: '/docs/quickstart/buyer',
     label: 'Quickstarts',
-    code: '02',
+    code: '04',
     children: [
       { href: '/docs/quickstart/buyer', label: 'Buyer (5 min)' },
       { href: '/docs/quickstart/provider', label: 'Provider (10 min)' },
@@ -24,7 +26,7 @@ export const NAV: NavItem[] = [
   {
     href: '/docs/concepts',
     label: 'Concepts',
-    code: '03',
+    code: '05',
     children: [
       { href: '/docs/concepts', label: 'Overview' },
       { href: '/docs/concepts/access-paths', label: 'Access paths' },
@@ -32,11 +34,11 @@ export const NAV: NavItem[] = [
       { href: '/docs/concepts/metering', label: 'Metering' },
     ],
   },
-  { href: '/docs/architecture', label: 'Architecture', code: '04' },
+  { href: '/docs/architecture', label: 'Architecture', code: '06' },
   {
     href: '/docs/wallet/auth',
     label: 'Wallet',
-    code: '05',
+    code: '07',
     children: [
       { href: '/docs/wallet/auth', label: 'Authentication' },
       { href: '/docs/wallet/deposit-withdraw', label: 'Deposit & withdraw' },
@@ -45,7 +47,7 @@ export const NAV: NavItem[] = [
   {
     href: '/docs/buyer/proxy',
     label: 'Buyer',
-    code: '06',
+    code: '08',
     children: [
       { href: '/docs/buyer/proxy', label: 'Proxy protocol' },
       { href: '/docs/buyer/connect', label: 'Session intents' },
@@ -56,7 +58,7 @@ export const NAV: NavItem[] = [
   {
     href: '/docs/sdks',
     label: 'SDKs',
-    code: '07',
+    code: '09',
     children: [
       { href: '/docs/sdks', label: 'Overview' },
       { href: '/docs/sdks/python', label: 'Python' },
@@ -64,11 +66,11 @@ export const NAV: NavItem[] = [
       { href: '/docs/sdks/go', label: 'Go' },
     ],
   },
-  { href: '/docs/api', label: 'API reference', code: '08' },
+  { href: '/docs/api', label: 'API reference', code: '10' },
   {
     href: '/docs/marketplace',
     label: 'Marketplace',
-    code: '09',
+    code: '11',
     children: [
       { href: '/docs/marketplace', label: 'Overview' },
       { href: '/docs/marketplace/discovery', label: 'Discovery' },
@@ -80,16 +82,16 @@ export const NAV: NavItem[] = [
   {
     href: '/docs/provider/cli',
     label: 'Provider',
-    code: '10',
+    code: '12',
     children: [
       { href: '/docs/provider/cli', label: 'CLI' },
       { href: '/docs/provider/app', label: 'Provider app' },
       { href: '/docs/provider/nodes', label: 'Nodes' },
     ],
   },
-  { href: '/docs/troubleshooting', label: 'Troubleshooting', code: '11' },
-  { href: '/docs/changelog', label: 'Changelog', code: '12' },
-  { href: '/docs/whitepaper', label: 'Whitepaper v2.0', code: '13' },
+  { href: '/docs/troubleshooting', label: 'Troubleshooting', code: '13' },
+  { href: '/docs/changelog', label: 'Changelog', code: '14' },
+  { href: '/docs/whitepaper', label: 'Whitepaper v2.0', code: '15' },
 ];
 
 export type FlatNavItem = { href: string; label: string; section: string };

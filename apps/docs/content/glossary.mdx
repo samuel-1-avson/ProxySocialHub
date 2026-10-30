@@ -1,0 +1,99 @@
+---
+title: Glossary
+description: Every technical word in these docs, explained in plain English.
+---
+
+Words are grouped by topic. New to all of this? Read [How it works](/docs/how-it-works) first.
+
+## The basics
+
+| Word | Plain meaning |
+|------|---------------|
+| **Proxy** | A middleman that visits websites for you, so the website sees the middleman instead of you. |
+| **Residential proxy** | A proxy that runs on an ordinary home internet connection, so websites treat it like a normal visitor. |
+| **IP address** | Your connection's "return address" on the internet. It reveals roughly where you are and which internet company you use. |
+| **Buyer** | Someone who pays to send their traffic through a provider's home connection. |
+| **Provider** | Someone who shares their spare home internet and earns from it. |
+| **Node** | One provider computer running the ProxyHubb app. "Node online" means it's connected and ready to serve buyers. |
+| **Bandwidth** | How much data passes through. Buyers pay for it; providers earn from it. |
+
+## Connecting
+
+| Word | Plain meaning |
+|------|---------------|
+| **Edge gateway** | ProxyHubb's switchboard: the server buyers and providers both connect to. |
+| **Port (`:8090`, `:3128`)** | A numbered door on a server. Buyers come in through door **8090**, providers through door **3128**. Using the wrong door is the most common mistake. |
+| **CONNECT** | The standard way a browser or program says to a proxy: "please connect me to this website." |
+| **SOCKS5** | Another common proxy language. ProxyHubb understands both CONNECT and SOCKS5. |
+| **Tunnel** | The always-open line from a provider's computer to the switchboard. Buyer traffic travels down it. |
+| **Rotating** | You get a different home connection for each request. |
+| **Sticky** | You keep the same home connection for a while. |
+| **curl** | A command-line tool for making web requests by hand. The docs use it for quick tests. |
+| **httpbin.org/ip** | A free test website that replies with the address it sees. If it shows an address that isn't yours, your proxy works. |
+
+## Keys and logins
+
+| Word | Plain meaning |
+|------|---------------|
+| **Wallet login** | Logging in by approving a message in your crypto wallet (like Phantom) instead of typing a password. |
+| **Challenge** | The one-time message your wallet signs to prove it's really you. |
+| **JWT / access token** | The "you're logged in" pass the website keeps after you sign in. It expires and gets refreshed automatically. |
+| **API key** (`phub_…`) | A password for *programs* rather than people, so a company's software can use ProxyHubb automatically. |
+| **Proxy credentials** | The username and password you give the proxy. This is your key to the switchboard. |
+| **Session intent** | A quick, temporary key you make in the dashboard (the "Connect" page). Like a day pass. |
+
+## Buying
+
+| Word | Plain meaning |
+|------|---------------|
+| **Listing** | A provider's offer on the marketplace: location, price, speed. |
+| **Order** | A purchase of a specific listing. |
+| **Bulk pool** | Many proxy keys managed together under one business account. |
+| **Access Pass** | A plan you buy that sets how much you're allowed to use (how many connections, how much data). |
+| **Entitlement / quota** | Your allowance under your plan. Run out and you'll see a `403` "quota" error. |
+
+## Money
+
+| Word | Plain meaning |
+|------|---------------|
+| **Solana** | The blockchain (a public, shared ledger) ProxyHubb uses to hold and move money. |
+| **SOL** | Solana's currency. Listings show a dollar price; you pay the equivalent in SOL. |
+| **Devnet** | Solana's test network. Money there is free test money, not real. ProxyHubb runs on devnet today. |
+| **Escrow** | The locked box: buyer pays in, and it pays the provider for what's used and refunds the rest. |
+| **PDA** | The technical name for the address of a particular locked box on Solana. |
+| **Metering** | The meter: counting how much data each buyer uses. |
+| **Settlement** | Settling up: the locked box pays the provider and refunds the buyer. |
+| **Oracle** | ProxyHubb's trusted key that tells the locked box how much data was used, so it can settle. |
+| **Lamports** | The smallest unit of SOL (like cents to a dollar, but 1 SOL = 1,000,000,000 lamports). |
+
+## Order statuses
+
+| Status | Plain meaning |
+|--------|---------------|
+| `pending` | Order created, not paid yet. |
+| `pending_payment` | Waiting for the payment to land in the locked box. |
+| `active` | Paid and ready: you can get your key and start browsing. |
+| `completed` | Finished and settled; the provider has been paid. |
+| `refunded` | The money went back to the buyer (for example, the order expired unused). |
+| `cancelled` | Stopped before it started. |
+| `disputed` | Someone raised a problem; waiting for it to be resolved. |
+
+## Error codes
+
+| Code | Plain meaning | Usually means… |
+|------|---------------|----------------|
+| `401` | "Who are you?" | You're not logged in, or your login expired. |
+| `403` | "You're not allowed." | Wrong kind of key, or you've used up your plan. |
+| `407` | "Proxy needs a valid key." | Wrong or expired proxy username/password. |
+| `409` | "Not ready yet." | Your payment hasn't been confirmed yet: wait a moment and retry. |
+| `501` | "I don't speak that language." | Your tool isn't using CONNECT or SOCKS5. See [Buyer proxy](/docs/buyer/proxy). |
+
+## The parts of the system
+
+| Plain name | Real name | What it does |
+|------------|-----------|--------------|
+| The office | **Control API** (`api.proxyhubb.com`) | Accounts, listings, orders, keys, telling the locked box to pay out. Also called the *control plane*. |
+| The switchboard | **Edge gateway** (`proxy.proxyhubb.com`) | Checks keys, routes traffic to providers, counts data. Also called the *data plane*. |
+| The locked box | **Solana program** | Holds and releases payments. Also called the *settlement plane*. |
+| The provider app | **provider-node** / **proxyhubb-cli** | Runs on a provider's computer; keeps the tunnel open and fetches pages for buyers. |
+| SDK | Software development kit | Ready-made code (Python, Node.js, Go) so developers don't have to write the connection logic themselves. |
