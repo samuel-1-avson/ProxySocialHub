@@ -19,6 +19,7 @@ import { WalletAuthSync } from '@/components/WalletAuthSync';
 import {
     emitWalletConnectionError,
     formatWalletConnectionError,
+    rememberConnectedWalletName,
 } from '@/lib/solana-wallet-session';
 
 interface Props {
@@ -140,6 +141,19 @@ function PlaywrightWalletConnector() {
     return null;
 }
 
+/** Persist which wallet connected so the next provider mount restores it. */
+function WalletSelectionRecorder() {
+    const { connected, wallet } = useWallet();
+
+    useEffect(() => {
+        if (connected && wallet) {
+            rememberConnectedWalletName(wallet.adapter.name);
+        }
+    }, [connected, wallet]);
+
+    return null;
+}
+
 export const SolanaWalletProvider: FC<Props> = ({ children }) => {
     const [walletError, setWalletError] = useState('');
 
@@ -209,6 +223,7 @@ export const SolanaWalletProvider: FC<Props> = ({ children }) => {
             >
                 <WalletModalProvider>
                     <PlaywrightWalletConnector />
+                    <WalletSelectionRecorder />
                     <WalletAuthSync />
                     {walletError && (
                         <div className="ui-error" role="alert">

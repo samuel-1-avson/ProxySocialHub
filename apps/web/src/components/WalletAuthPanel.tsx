@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { ArrowRight, AlertCircle, Loader2 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
-import { SolanaWalletButton } from '@/components/SolanaWalletButton';
+import { WalletConnectControl } from '@/components/WalletConnectControl';
 import { classifySignInError, forceDisconnectSolanaWallet } from '@/lib/solana-wallet-session';
 import { readAuthRedirectFromSearch } from '@/lib/navigation/safe-redirect';
 
@@ -59,8 +59,8 @@ export function WalletAuthPanel({ actionLabel, idleMessage, mode }: WalletAuthPa
                 </div>
             )}
 
-            <div className="mb-6 flex justify-center">
-                <SolanaWalletButton />
+            <div className="mb-6">
+                <WalletConnectControl />
             </div>
 
             {connected && publicKey && (

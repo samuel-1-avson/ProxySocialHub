@@ -246,6 +246,13 @@ test.describe("automatic wallet transfers", () => {
     await expect(
       page.getByText("0.1 SOL added to your account funds.", { exact: true }),
     ).toBeVisible();
+    // The connected wallet is remembered so the workspace restores the same
+    // wallet after navigation instead of asking for a fresh connection.
+    await expect
+      .poll(() =>
+        page.evaluate(() => localStorage.getItem("proxyhubb:wallet-name")),
+      )
+      .toBe("Playwright Devnet Wallet");
     expect(state.broadcasts).toBe(1);
     expect(state.depositBodies).toHaveLength(1);
     expect(state.depositBodies[0]).toMatchObject({
@@ -564,7 +571,9 @@ test.describe("automatic wallet transfers", () => {
       .getByRole("button", { name: "Connect wallet", exact: true })
       .first()
       .click();
-    await page.getByRole("button", { name: /Phantom/ }).first().click();
+    const picker = page.getByRole("dialog", { name: "Choose a wallet" });
+    await expect(picker).toBeVisible();
+    await picker.getByRole("button", { name: /Phantom/ }).first().click();
     await expect(
       page.getByText(/You declined the request in your wallet/).first(),
     ).toBeVisible();
