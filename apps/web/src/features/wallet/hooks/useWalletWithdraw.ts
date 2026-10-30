@@ -111,6 +111,14 @@ export function useWalletWithdraw(opts: {
   function finish(status: string, txHash?: string) {
     if (status === "completed" || status === "failed")
       writeTransferSession(recoveryKey, null);
+    if (status === "ops_required") {
+      const saved = parseReceipt(
+        readTransferSession(recoveryKey),
+        userId,
+        address,
+      );
+      if (saved) writeTransferSession(recoveryKey, { ...saved, status });
+    }
     void queryClient.invalidateQueries({ queryKey: ["wallet"] });
     void queryClient.invalidateQueries({ queryKey: ["wallet-chain-balance"] });
     if (currentScope.current !== scope) return;
