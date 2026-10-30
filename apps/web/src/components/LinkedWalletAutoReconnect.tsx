@@ -2,11 +2,13 @@
 
 import { useEffect, useRef } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { WalletReadyState } from "@solana/wallet-adapter-base";
+import { WalletReadyState, type WalletName } from "@solana/wallet-adapter-base";
 import { useAuth } from "@/lib/auth";
 import {
   clearManualSolanaWalletDisconnect,
   isManualSolanaWalletDisconnectActive,
+  pickAutoReconnectWallet,
+  readRememberedWalletName,
 } from "@/lib/solana-wallet-session";
 
 /**
@@ -55,13 +57,16 @@ export function LinkedWalletAutoReconnect() {
 
     if (!wallet) {
       // Selection was dropped (a previous silent reconnect failed) or never
-      // existed. Only re-select when the choice is unambiguous.
-      const installed = wallets.filter(
-        (entry) => entry.readyState === WalletReadyState.Installed,
+      // existed. Restore the wallet used at sign-in when it is installed;
+      // otherwise only an unambiguous single installed wallet may be picked.
+      const name = pickAutoReconnectWallet(
+        wallets.map((entry) => ({
+          name: entry.adapter.name,
+          readyState: entry.readyState,
+        })),
+        readRememberedWalletName(),
       );
-      if (installed.length === 1) {
-        select(installed[0].adapter.name);
-      }
+      if (name) select(name as WalletName);
       return;
     }
 
