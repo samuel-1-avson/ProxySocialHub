@@ -60,28 +60,66 @@ func confirmEscrow(c *gin.Context) {
 			_ = marketplace.ActivateOrderSession(c.Request.Context(), order.ID)
 		}
 		c.JSON(http.StatusOK, gin.H{
-			"order":            order,
-			"escrow_pda":       order.EscrowPDA,
-			"already_active":   true,
-			"on_chain_status":  "skipped",
+			"order":           order,
+			"escrow_pda":      order.EscrowPDA,
+			"already_active":  true,
+			"on_chain_status": "skipped",
 		})
 		return
+	}
+
+	escrow, pda, problem := confirmOrderEscrowCore(c.Request.Context(), &order, req.TxSignature, "api.orders.confirm_escrow", "confirm_escrow")
+	if problem != nil {
+		c.JSON(problem.Status, problem.Body)
+		return
+	}
+
+	actor := userID
+	RecordAuditLog(c, models.AuditOrderEscrowConfirmed, models.AuditSeverityInfo, &actor, "order", order.ID.String(),
+		"Escrow confirmed via on-chain PDA reuse", true)
+
+	c.JSON(http.StatusOK, gin.H{
+		"order":           order,
+		"escrow_pda":      pda.String(),
+		"on_chain_status": escrow.Status.String(),
+		"amount_lamports": escrow.Amount,
+		"already_active":  false,
+	})
+}
+
+// escrowConfirmProblem is an HTTP-shaped failure from confirmOrderEscrowCore.
+type escrowConfirmProblem struct {
+	Status int
+	Body   gin.H
+}
+
+func (p *escrowConfirmProblem) Error() string {
+	if msg, ok := p.Body["error"].(string); ok {
+		return msg
+	}
+	return http.StatusText(p.Status)
+}
+
+// confirmOrderEscrowCore verifies the order's on-chain escrow and moves the order to
+// active. The order must be pending or pending_payment. Shared by the confirm-escrow
+// endpoint (browser-signed escrow) and the fiat flow (server-signed escrow).
+func confirmOrderEscrowCore(ctx context.Context, order *models.Order, txSignature, fsmSource, funnelSource string) (*solana.Escrow, sol.PublicKey, *escrowConfirmProblem) {
+	fail := func(status int, body gin.H) (*solana.Escrow, sol.PublicKey, *escrowConfirmProblem) {
+		return nil, sol.PublicKey{}, &escrowConfirmProblem{Status: status, Body: body}
 	}
 
 	if order.Status != models.OrderStatusPending && order.Status != models.OrderStatusPendingPayment {
-		c.JSON(http.StatusConflict, gin.H{
+		return fail(http.StatusConflict, gin.H{
 			"error":  "Order is not awaiting escrow confirmation",
 			"status": order.Status,
 		})
-		return
 	}
 
 	if decentralization.RequireEscrowPDAEnabled() && order.EscrowPDA == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
+		return fail(http.StatusBadRequest, gin.H{
 			"error": "PROXYHUB_REQUIRE_ESCROW_PDA: order has no escrow_pda; complete POST .../pay/solana first",
 			"code":  "escrow_pda_required",
 		})
-		return
 	}
 
 	buyerAddr := order.BuyerWallet
@@ -89,35 +127,30 @@ func confirmEscrow(c *gin.Context) {
 	if buyerAddr == "" {
 		var buyerWallet models.LinkedWallet
 		if err := db.DB.Where("user_id = ? AND chain = ? AND is_primary = true", order.BuyerID, models.ChainSolana).First(&buyerWallet).Error; err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Please link a Solana wallet first"})
-			return
+			return fail(http.StatusBadRequest, gin.H{"error": "Please link a Solana wallet first"})
 		}
 		buyerAddr = buyerWallet.Address
 	}
 	if sellerAddr == "" {
 		var sellerWallet models.LinkedWallet
 		if err := db.DB.Where("user_id = ? AND chain = ? AND is_primary = true", order.SellerID, models.ChainSolana).First(&sellerWallet).Error; err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Seller has not linked a Solana wallet"})
-			return
+			return fail(http.StatusBadRequest, gin.H{"error": "Seller has not linked a Solana wallet"})
 		}
 		sellerAddr = sellerWallet.Address
 	}
 
 	buyerPub, err := sol.PublicKeyFromBase58(buyerAddr)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid buyer wallet address"})
-		return
+		return fail(http.StatusBadRequest, gin.H{"error": "Invalid buyer wallet address"})
 	}
 	sellerPub, err := sol.PublicKeyFromBase58(sellerAddr)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid seller wallet address"})
-		return
+		return fail(http.StatusBadRequest, gin.H{"error": "Invalid seller wallet address"})
 	}
 
 	oracle := solana.GetOracle()
 	if oracle == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Solana Oracle not configured"})
-		return
+		return fail(http.StatusServiceUnavailable, gin.H{"error": "Solana Oracle not configured"})
 	}
 
 	// Prefer stored order PDA (required for BC-06 escrow_multisig seeds with expires_at).
@@ -125,20 +158,17 @@ func confirmEscrow(c *gin.Context) {
 	if order.EscrowPDA != "" {
 		pda, err = sol.PublicKeyFromBase58(order.EscrowPDA)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid escrow_pda on order"})
-			return
+			return fail(http.StatusBadRequest, gin.H{"error": "Invalid escrow_pda on order"})
 		}
-	} else if orderUsesMultisigSettle(&order) && order.EscrowExpiresAt > 0 {
+	} else if orderUsesMultisigSettle(order) && order.EscrowExpiresAt > 0 {
 		pda, _, err = oracle.GetEscrowMultiSigPDA(buyerPub, sellerPub, order.EscrowExpiresAt)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to derive multisig escrow PDA"})
-			return
+			return fail(http.StatusInternalServerError, gin.H{"error": "Failed to derive multisig escrow PDA"})
 		}
 	} else {
 		pda, _, err = oracle.GetEscrowPDA(buyerPub, sellerPub)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to derive escrow PDA"})
-			return
+			return fail(http.StatusInternalServerError, gin.H{"error": "Failed to derive escrow PDA"})
 		}
 	}
 
@@ -146,15 +176,13 @@ func confirmEscrow(c *gin.Context) {
 	// buyer/seller pair, so without this a second order could be activated against funds
 	// locked for the first.
 	if bound, err := orderEscrowBoundElsewhere(db.DB, pda.String(), order.ID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check escrow binding"})
-		return
+		return fail(http.StatusInternalServerError, gin.H{"error": "Failed to check escrow binding"})
 	} else if bound {
-		c.JSON(http.StatusConflict, gin.H{
+		return fail(http.StatusConflict, gin.H{
 			"error":      "This escrow already backs another active order. Wait for it to settle or refund before starting a new purchase.",
 			"escrow_pda": pda.String(),
 			"code":       "escrow_already_bound",
 		})
-		return
 	}
 
 	var escrow *solana.Escrow
@@ -163,13 +191,12 @@ func confirmEscrow(c *gin.Context) {
 	for _, wait := range backoffs {
 		if wait > 0 {
 			select {
-			case <-c.Request.Context().Done():
-				c.JSON(http.StatusGatewayTimeout, gin.H{"error": "Timed out waiting for on-chain escrow"})
-				return
+			case <-ctx.Done():
+				return fail(http.StatusGatewayTimeout, gin.H{"error": "Timed out waiting for on-chain escrow"})
 			case <-time.After(wait):
 			}
 		}
-		escrow, fetchErr = oracle.FetchEscrow(c.Request.Context(), pda)
+		escrow, fetchErr = oracle.FetchEscrow(ctx, pda)
 		if fetchErr == nil && escrow != nil {
 			break
 		}
@@ -177,54 +204,49 @@ func confirmEscrow(c *gin.Context) {
 	if fetchErr != nil || escrow == nil {
 		logging.Warn().Err(fetchErr).Str("escrow_pda", pda.String()).Str("order_id", order.ID.String()).
 			Msg("confirm-escrow: on-chain escrow not found")
-		c.JSON(http.StatusConflict, gin.H{
+		return fail(http.StatusConflict, gin.H{
 			"error":      "On-chain escrow not found. Approve the wallet initializeEscrow transaction, then try again.",
 			"escrow_pda": pda.String(),
 			"code":       "escrow_missing",
 		})
-		return
 	}
 
 	if escrow.Status != solana.EscrowPending && escrow.Status != solana.EscrowActive {
-		c.JSON(http.StatusConflict, gin.H{
+		return fail(http.StatusConflict, gin.H{
 			"error":           "On-chain escrow is not fundable for a new order",
 			"escrow_pda":      pda.String(),
 			"on_chain_status": escrow.Status.String(),
 			"code":            "escrow_terminal",
 		})
-		return
 	}
 
 	if escrow.ExpiresAt > 0 && time.Now().Unix() >= escrow.ExpiresAt {
-		c.JSON(http.StatusConflict, gin.H{
+		return fail(http.StatusConflict, gin.H{
 			"error":      "On-chain escrow has expired. Refund it before starting a new purchase.",
 			"escrow_pda": pda.String(),
 			"code":       "escrow_expired",
 		})
-		return
 	}
 
 	if escrow.Amount == 0 {
-		c.JSON(http.StatusConflict, gin.H{
+		return fail(http.StatusConflict, gin.H{
 			"error":      "On-chain escrow has no locked funds",
 			"escrow_pda": pda.String(),
 			"code":       "escrow_empty",
 		})
-		return
 	}
 
 	// BE-CRIT-03: the escrow must hold what the order cost and allow the bandwidth bought.
 	// Checked against the quote pay/solana recorded, before amount_locked_sol is replaced
 	// with the on-chain amount below.
-	if problem := checkOrderEscrowFunding(&order, escrow); problem != nil {
-		c.JSON(problem.Status, gin.H{
+	if problem := checkOrderEscrowFunding(order, escrow); problem != nil {
+		return fail(problem.Status, gin.H{
 			"error":             problem.Message,
 			"escrow_pda":        pda.String(),
 			"code":              problem.Code,
 			"amount_lamports":   escrow.Amount,
 			"required_lamports": minLamportsForQuote(order.AmountLockedSOL),
 		})
-		return
 	}
 
 	amountLockedSOL := float64(escrow.Amount) / 1e9
@@ -235,15 +257,14 @@ func confirmEscrow(c *gin.Context) {
 		"seller_wallet":     sellerAddr,
 		"amount_locked_sol": amountLockedSOL,
 	}
-	if req.TxSignature != "" {
-		fields["tx_signature"] = req.TxSignature
+	if txSignature != "" {
+		fields["tx_signature"] = txSignature
 	} else if order.TxSignature != "" {
 		fields["tx_signature"] = order.TxSignature
 	}
 
-	if err := fsm.TransitionOrder(db.DB, &order, models.OrderStatusActive, "api.orders.confirm_escrow", fields); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
+	if err := fsm.TransitionOrder(db.DB, order, models.OrderStatusActive, fsmSource, fields); err != nil {
+		return fail(http.StatusBadRequest, gin.H{"error": err.Error()})
 	}
 
 	if err := marketplace.ActivateOrderSession(context.Background(), order.ID); err != nil {
@@ -259,7 +280,7 @@ func confirmEscrow(c *gin.Context) {
 		}()
 	}
 
-	funnel.Record(c.Request.Context(), funnel.RecordParams{
+	funnel.Record(ctx, funnel.RecordParams{
 		EventName: models.FunnelEscrowConfirmed,
 		UserID:    &order.BuyerID,
 		ListingID: &order.ListingID,
@@ -267,20 +288,10 @@ func confirmEscrow(c *gin.Context) {
 		Surface:   "api",
 		Meta: map[string]interface{}{
 			"escrow_pda":   pda.String(),
-			"tx_signature": req.TxSignature,
-			"source":       "confirm_escrow",
+			"tx_signature": txSignature,
+			"source":       funnelSource,
 		},
 	})
 
-	actor := userID
-	RecordAuditLog(c, models.AuditOrderEscrowConfirmed, models.AuditSeverityInfo, &actor, "order", order.ID.String(),
-		"Escrow confirmed via on-chain PDA reuse", true)
-
-	c.JSON(http.StatusOK, gin.H{
-		"order":           order,
-		"escrow_pda":      pda.String(),
-		"on_chain_status": escrow.Status.String(),
-		"amount_lamports": escrow.Amount,
-		"already_active":  false,
-	})
+	return escrow, pda, nil
 }

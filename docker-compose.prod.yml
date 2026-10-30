@@ -114,6 +114,8 @@ services:
       - PAYOUT_BATCH_SIZE=${PAYOUT_BATCH_SIZE:-20}
       # --- Provider Token Auth (HMAC-SHA256) ---
       - TOKEN_HMAC_SECRET=${TOKEN_HMAC_SECRET:?TOKEN_HMAC_SECRET must be set}
+      # --- Google sign-in. Embedded wallets refuse the env KEK in production (KMS KEK is phase 2). ---
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       # --- Provider proofs (production default: enforce when unset) ---
       - PROVIDER_SIGNATURE_MODE=${PROVIDER_SIGNATURE_MODE:-enforce}
       # --- Alert Channels ---
@@ -276,6 +278,7 @@ services:
         - NEXT_PUBLIC_GLOBE_TOPOLOGY=${NEXT_PUBLIC_GLOBE_TOPOLOGY:-false}
         - NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=${NEXT_PUBLIC_GOOGLE_MAPS_API_KEY:-}
         - NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID=${NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID:-}
+        - NEXT_PUBLIC_GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
         - NEXT_PUBLIC_LEGACY_EXPLORER_GLOBE=${NEXT_PUBLIC_LEGACY_EXPLORER_GLOBE:-false}
     ports:
       - "3000:3000"

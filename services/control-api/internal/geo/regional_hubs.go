@@ -61,7 +61,8 @@ func matchRegionalHubByText(hubs []regionalHub, raw string) (regionalHub, bool) 
 	bestScore := 0
 	for _, h := range hubs {
 		nameKey := normalizePlaceKey(h.Name)
-		if nameKey == key {
+		// Spacing-insensitive so typed names like "Capecoast" still hit "Cape Coast".
+		if nameKey == key || compactPlaceKey(nameKey) == compactPlaceKey(key) {
 			return h, true
 		}
 		if nameKey != "" && (strings.Contains(key, nameKey) || strings.Contains(nameKey, key)) {
@@ -76,7 +77,7 @@ func matchRegionalHubByText(hubs []regionalHub, raw string) (regionalHub, bool) 
 			if aliasKey == "" {
 				continue
 			}
-			if aliasKey == key {
+			if aliasKey == key || compactPlaceKey(aliasKey) == compactPlaceKey(key) {
 				return h, true
 			}
 			if strings.Contains(key, aliasKey) || strings.Contains(aliasKey, key) {
@@ -116,6 +117,11 @@ func normalizePlaceKey(s string) string {
 		s = strings.ReplaceAll(s, "  ", " ")
 	}
 	return s
+}
+
+// compactPlaceKey drops spaces from a normalized key ("cape coast" → "capecoast").
+func compactPlaceKey(key string) string {
+	return strings.ReplaceAll(key, " ", "")
 }
 
 func haversineKm(lat1, lon1, lat2, lon2 float64) float64 {

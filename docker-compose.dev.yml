@@ -140,6 +140,9 @@ services:
 
       # --- Provider Token Auth (HMAC-SHA256) ---
       - TOKEN_HMAC_SECRET=${TOKEN_HMAC_SECRET:?TOKEN_HMAC_SECRET must be set}
+      # --- Google sign-in + server-held (embedded) wallets; empty = Google sign-in off ---
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - EMBEDDED_WALLET_KEK=${EMBEDDED_WALLET_KEK:-}
       # --- Alert Channels ---
       - ALERT_WEBHOOK_URL=${ALERT_WEBHOOK_URL:-}
       - ALERT_ADMIN_EMAILS=${ALERT_ADMIN_EMAILS:-}
@@ -251,6 +254,7 @@ services:
         - NEXT_PUBLIC_GLOBE_TOPOLOGY=${NEXT_PUBLIC_GLOBE_TOPOLOGY:-true}
         - NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=${NEXT_PUBLIC_GOOGLE_MAPS_API_KEY:-}
         - NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID=${NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID:-}
+        - NEXT_PUBLIC_GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
         - NEXT_PUBLIC_LEGACY_EXPLORER_GLOBE=${NEXT_PUBLIC_LEGACY_EXPLORER_GLOBE:-false}
     container_name: proxyhubb-web
     ports:
