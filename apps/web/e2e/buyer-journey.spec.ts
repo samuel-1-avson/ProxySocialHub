@@ -110,7 +110,7 @@ test.describe("buyer journey and recovery", () => {
       .click();
     await page.getByLabel("Deposit amount (SOL)").fill("0.1");
     await expect(
-      page.getByRole("button", { name: "Review account deposit" }),
+      page.getByRole("button", { name: "Review deposit", exact: true }),
     ).toBeDisabled();
     await page
       .getByRole("banner")
@@ -380,21 +380,11 @@ test.describe("buyer journey and recovery", () => {
     await page.goto(`${base}/app/wallet?tab=funds`, {
       waitUntil: "domcontentloaded",
     });
-    await page
-      .getByRole("button", { name: "Resume previous account transfer" })
-      .click();
-    await expect(page.getByLabel("Existing transaction signature")).toHaveValue(
-      "original-account-signature",
-    );
-    await expect(page.getByLabel("Deposit amount (SOL)")).toHaveValue("0.1");
-    await page
-      .getByRole("button", { name: "Verify this transfer", exact: true })
-      .click();
+    await expect(page.getByText("0.1 SOL deposit", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Existing transaction signature")).toHaveCount(0);
+    await expect(page.getByText(/Confirmation is taking longer than usual/)).toBeVisible();
     await expect(
-      page.getByText("Verification temporarily unavailable", { exact: true }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Review account deposit" }),
+      page.getByRole("button", { name: "Review deposit", exact: true }),
     ).toBeDisabled();
     const credits = requests.filter(
       (r) => r.path === "/v1/wallet/deposit/crypto",
