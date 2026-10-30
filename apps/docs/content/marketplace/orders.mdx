@@ -7,10 +7,10 @@ Marketplace orders bind a buyer to a listing, escrow SOL on Solana, activate a s
 
 ## Typical live flow
 
-1. `POST /v1/orders` — create (`pending`)
-2. `POST /v1/orders/{id}/pay/solana` — escrow intent (`pending_payment`)
+1. `POST /v1/orders`: create (`pending`)
+2. `POST /v1/orders/{id}/pay/solana`: escrow intent (`pending_payment`)
 3. Buyer signs the on-chain escrow init in wallet
-4. `POST /v1/orders/{id}/confirm-escrow` — optional `{ "tx_signature" }` (or wait for chain listener)
+4. `POST /v1/orders/{id}/confirm-escrow`: optional `{ "tx_signature" }` (or wait for chain listener)
 5. When status is `active` (or `completed`) and session is active → `GET /v1/orders/{id}/credentials`
 6. CONNECT to `proxy.proxyhubb.com:8090` with returned username/password
 
@@ -32,7 +32,7 @@ Content-Type: application/json
 
 **201** returns `{ "order", "session?" }`. New orders start `pending`; the linked session often starts `disabled` until escrow activates.
 
-Partners with `orders:create` may use `X-API-Key` instead of JWT — see [B2B](/docs/marketplace/b2b).
+Partners with `orders:create` may use `X-API-Key` instead of JWT. See [B2B](/docs/marketplace/b2b).
 
 ## Pay (Solana)
 

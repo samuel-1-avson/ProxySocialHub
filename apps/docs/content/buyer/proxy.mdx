@@ -1,15 +1,15 @@
 ---
 title: Buyer proxy protocol
-description: HTTP CONNECT and SOCKS5 only — absolute-URI forward proxy is not supported.
+description: HTTP CONNECT and SOCKS5 only: absolute-URI forward proxy is not supported.
 ---
 
-ProxyHubb’s buyer-facing edge (`proxy.proxyhubb.com:8090`) is an **HTTP CONNECT** (and SOCKS5) proxy — not a classic absolute-URI forward proxy.
+ProxyHubb’s buyer-facing edge (`proxy.proxyhubb.com:8090`) is an **HTTP CONNECT** (and SOCKS5) proxy, not a classic absolute-URI forward proxy.
 
 ## Supported
 
 | Protocol | Port | Notes |
 |----------|------|-------|
-| HTTP CONNECT | `8090` | Tunnel TLS via `CONNECT host:port` — what `curl -x` and HTTPS clients use |
+| HTTP CONNECT | `8090` | Tunnel TLS via `CONNECT host:port`: what `curl -x` and HTTPS clients use |
 | SOCKS5 | same listener | Username/password or session-intent auth |
 
 ## Not supported
@@ -44,7 +44,7 @@ curl -x "http://session-intent:TOKEN@proxy.proxyhubb.com:8090" https://httpbin.o
 curl --socks5 "USER:PASS@proxy.proxyhubb.com:8090" https://httpbin.org/ip
 ```
 
-Python / Node / Go helpers build these URLs for you — see [SDKs](/docs/sdks).
+Python / Node / Go helpers build these URLs for you. See [SDKs](/docs/sdks).
 
 ## Common errors
 
