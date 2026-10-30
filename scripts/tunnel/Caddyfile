@@ -1,0 +1,27 @@
+# One public address for the whole site (used by scripts/tunnel/start.ps1).
+# ngrok -> this router -> API or website, like Caddy does in production.
+{
+	admin off
+	auto_https off
+	servers {
+		# ngrok reaches us through Docker's private network; keep its
+		# X-Forwarded-Proto=https so auth cookies are marked Secure.
+		trusted_proxies static private_ranges
+	}
+}
+
+:80 {
+	# Test build of the browser extension, made by start.ps1 for this address.
+	@extensionZip path /proxyhubb-extension-chrome.zip /proxyhubb-extension-firefox.zip
+	handle @extensionZip {
+		root * /srv
+		file_server
+	}
+	# API and its WebSockets (Next cannot upgrade WebSockets).
+	handle /v1/* {
+		reverse_proxy control-api:8080
+	}
+	handle {
+		reverse_proxy web:3000
+	}
+}
