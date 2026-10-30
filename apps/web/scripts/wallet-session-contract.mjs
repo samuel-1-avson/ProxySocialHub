@@ -125,4 +125,24 @@ function fakeBrowser() {
     win.removeEventListener(mod.WALLET_CONNECTION_ERROR_EVENT, onError);
 }
 
+// 7. The connected wallet name is remembered under our own key, and the
+//    auto-reconnect pick prefers it over a lone installed wallet, never
+//    guesses between several, and never picks a loadable web wallet.
+{
+    const { win } = fakeBrowser();
+    assert(mod.readRememberedWalletName() === null, 'remembered wallet starts empty');
+    mod.rememberConnectedWalletName('Phantom');
+    assert(mod.readRememberedWalletName() === 'Phantom', 'remembered wallet persists');
+    const entries = [
+        { name: 'Phantom', readyState: 'Installed' },
+        { name: 'Solflare', readyState: 'Loadable' },
+        { name: 'Backpack', readyState: 'Installed' },
+    ];
+    assert(mod.pickAutoReconnectWallet(entries, 'Backpack') === 'Backpack', 'remembered wallet wins among several installed');
+    assert(mod.pickAutoReconnectWallet(entries, 'Missing') === null, 'no guess between several installed wallets');
+    assert(mod.pickAutoReconnectWallet(entries.slice(0, 2), null) === 'Phantom', 'single installed wallet is picked');
+    assert(mod.pickAutoReconnectWallet([entries[1]], null) === null, 'loadable web wallet is never picked');
+    assert(win.localStorage.getItem('walletName') === '"Phantom"', 'library walletName key is left untouched');
+}
+
 console.log('wallet-session contract OK');
