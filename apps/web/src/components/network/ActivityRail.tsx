@@ -54,7 +54,7 @@ export function ActivityRail() {
     return (
         <div className="space-y-6" data-testid="network-activity-rail">
             <section>
-                <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-3">
+                <h3 className="text-xs font-semibold text-muted-foreground mb-3">
                     Live feed
                 </h3>
                 <ul className="space-y-2">
@@ -71,14 +71,14 @@ export function ActivityRail() {
                 </ul>
                 <Link
                     href="/community/feed"
-                    className="inline-block mt-3 text-[10px] font-bold uppercase tracking-widest text-primary hover:underline"
+                    className="inline-block mt-3 text-xs font-bold text-primary hover:underline"
                 >
                     Full feed →
                 </Link>
             </section>
 
             <section>
-                <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-3">
+                <h3 className="text-xs font-semibold text-muted-foreground mb-3">
                     Governance
                 </h3>
                 <ul className="space-y-2">
@@ -100,7 +100,7 @@ export function ActivityRail() {
                 </ul>
                 <Link
                     href="/governance"
-                    className="inline-block mt-3 text-[10px] font-bold uppercase tracking-widest text-primary hover:underline"
+                    className="inline-block mt-3 text-xs font-bold text-primary hover:underline"
                 >
                     All proposals →
                 </Link>

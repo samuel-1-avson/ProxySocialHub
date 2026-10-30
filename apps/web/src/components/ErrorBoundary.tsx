@@ -108,7 +108,7 @@ export class ErrorBoundary extends Component<Props, State> {
                         <div className="w-20 h-20 mx-auto mb-6 rounded-sm bg-destructive/10 text-destructive flex items-center justify-center">
                             <AlertTriangle size={40} />
                         </div>
-                        <h1 className="text-3xl font-bold font-mono mb-2">SYSTEM ERROR</h1>
+                        <h1 className="text-3xl font-bold font-mono mb-2">System error</h1>
                         <p className="text-muted-foreground mb-6">
                             An unexpected error occurred. Our team has been notified.
                         </p>

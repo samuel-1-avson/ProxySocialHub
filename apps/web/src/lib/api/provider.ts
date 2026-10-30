@@ -366,6 +366,9 @@ export interface NodeRegistration {
     ip_address?: string;
     country?: string;
     city?: string;
+    region?: string;
+    /** Owner picked the city; gateway IP geo no longer overrides it. */
+    location_user_set?: boolean;
     hotkey?: string;
     gateway_node_id?: string;
     wallet_address?: string;
@@ -408,6 +411,14 @@ export async function createNode(data: CreateNodeRequest): Promise<NodeRegistrat
  */
 export async function updateNode(nodeId: string, data: Partial<CreateNodeRequest>): Promise<NodeRegistration> {
     return apiPut<NodeRegistration>(`/v1/provider/nodes/${nodeId}`, data);
+}
+
+/** Set the node's map city. Only the city is sent; the map pins the city centre. */
+export async function setNodeLocation(
+    nodeId: string,
+    location: { country: string; city: string },
+): Promise<NodeRegistration> {
+    return apiPut<NodeRegistration>(`/v1/provider/nodes/${nodeId}/location`, location);
 }
 
 /**
@@ -577,12 +588,18 @@ export async function confirmProviderClaim(payload: {
     return apiPost('/v1/provider/claim/confirm', payload);
 }
 
-/** Send a heartbeat for a node (keeps it marked online). */
-export async function sendNodeHeartbeat(
-    nodeId: string,
-    metrics?: { latency_ms?: number; active_connections?: number; uptime_percent?: number }
-): Promise<{ status: string; server_time: number }> {
-    return apiPost(`/v1/provider/nodes/${nodeId}/heartbeat`, metrics ?? {});
+export interface NodePingResult {
+    alive: boolean;
+    message: string;
+    rtt_ms?: number;
+    /** not_connected | timeout | stream_failed | bad_reply | gateway_unreachable */
+    reason?: string;
+    checked_at?: string;
+}
+
+/** Send PING down the node's tunnel and wait for PONG. Read-only: changes nothing on the node. */
+export async function pingProviderNode(nodeId: string): Promise<NodePingResult> {
+    return apiPost<NodePingResult>(`/v1/provider/nodes/${nodeId}/ping`, {});
 }
 
 // ============ Provider service configurations ============

@@ -156,13 +156,13 @@ export function QuickMessageModal({
     if (step === 'success') {
         return (
             <Dialog open={isOpen} onOpenChange={onClose}>
-                <DialogContent className="sm:max-w-md bg-black/90 border-white/10">
+                <DialogContent className="sm:max-w-md bg-card border-border">
                     <div className="flex flex-col items-center justify-center py-8 space-y-4">
-                        <div className="w-16 h-16 rounded-full bg-emerald-500/20 flex items-center justify-center">
-                            <MessageSquare className="w-8 h-8 text-emerald-500" />
+                        <div className="w-16 h-16 rounded-full bg-success/20 flex items-center justify-center">
+                            <MessageSquare className="w-8 h-8 text-success" />
                         </div>
-                        <h3 className="text-lg font-semibold text-white">Message Sent!</h3>
-                        <p className="text-sm text-white/60 text-center">
+                        <h3 className="text-lg font-semibold text-foreground">Message Sent!</h3>
+                        <p className="text-sm text-muted-foreground text-center">
                             {providerName} has been notified and will respond soon.
                         </p>
                         <Button 
@@ -179,25 +179,25 @@ export function QuickMessageModal({
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="sm:max-w-lg bg-black/95 border-white/10 text-white">
+            <DialogContent className="sm:max-w-lg bg-card border-border text-foreground">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2 text-lg">
-                        <MessageSquare className="w-5 h-5 text-emerald-500" />
+                        <MessageSquare className="w-5 h-5 text-success" />
                         Message {providerName}
                     </DialogTitle>
                 </DialogHeader>
 
                 {/* Listing Context */}
-                <div className="bg-white/5 rounded-lg p-3 border border-white/10">
+                <div className="bg-secondary rounded-lg p-3 border border-border">
                     <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center">
-                            <Zap className="w-5 h-5 text-emerald-500" />
+                        <div className="w-10 h-10 rounded-lg bg-success/20 flex items-center justify-center">
+                            <Zap className="w-5 h-5 text-success" />
                         </div>
                         <div className="flex-1 min-w-0">
-                            <h4 className="text-sm font-medium text-white truncate">
+                            <h4 className="text-sm font-medium text-foreground truncate">
                                 {listingTitle}
                             </h4>
-                            <div className="flex items-center gap-2 text-xs text-white/50">
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                 {location && (
                                     <span className="flex items-center gap-1">
                                         <Globe className="w-3 h-3" />
@@ -214,7 +214,7 @@ export function QuickMessageModal({
 
                 {/* Intent Selection */}
                 <div className="space-y-2">
-                    <label className="text-xs font-medium text-white/70 uppercase tracking-wider">
+                    <label className="text-xs font-medium text-foreground">
                         What will you use this for?
                     </label>
                     <div className="grid grid-cols-2 gap-2">
@@ -228,14 +228,14 @@ export function QuickMessageModal({
                                     onClick={() => setIntent(i.value)}
                                     className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition-all ${
                                         selected
-                                            ? 'bg-emerald-500/20 border border-emerald-500/50 text-emerald-400'
-                                            : 'bg-white/5 border border-white/10 text-white/70 hover:bg-white/10'
+                                            ? 'bg-success/20 border border-success/50 text-success'
+                                            : 'bg-secondary border border-border text-foreground hover:bg-secondary'
                                     }`}
                                 >
                                     <Icon
                                         size={14}
                                         strokeWidth={1.75}
-                                        className={`shrink-0 ${selected ? 'text-emerald-400' : 'text-white/50'}`}
+                                        className={`shrink-0 ${selected ? 'text-success' : 'text-muted-foreground'}`}
                                     />
                                     <span className="text-left leading-snug">{i.label}</span>
                                 </button>
@@ -246,7 +246,7 @@ export function QuickMessageModal({
 
                 {/* Expected Usage */}
                 <div className="space-y-2">
-                    <label className="text-xs font-medium text-white/70 uppercase tracking-wider">
+                    <label className="text-xs font-medium text-foreground">
                         Expected monthly usage
                     </label>
                     <div className="flex flex-wrap gap-2">
@@ -256,8 +256,8 @@ export function QuickMessageModal({
                                 onClick={() => setExpectedGb(u.value)}
                                 className={`px-3 py-1.5 rounded-full text-xs transition-all ${
                                     expectedGb === u.value
-                                        ? 'bg-emerald-500 text-black font-medium'
-                                        : 'bg-white/10 text-white/70 hover:bg-white/20'
+                                        ? 'bg-success text-black font-medium'
+                                        : 'bg-secondary text-muted-foreground hover:bg-secondary-light'
                                 }`}
                             >
                                 {u.label}
@@ -268,20 +268,20 @@ export function QuickMessageModal({
 
                 {/* Message Input */}
                 <div className="space-y-2">
-                    <label className="text-xs font-medium text-white/70 uppercase tracking-wider">
+                    <label className="text-xs font-medium text-foreground">
                         Your message
                     </label>
                     <Textarea
                         value={message}
                         onChange={(e) => setMessage(e.target.value)}
                         placeholder="Hi! I'm interested in this proxy..."
-                        className="bg-white/5 border-white/10 text-white placeholder:text-white/30 min-h-[100px] resize-none"
+                        className="bg-secondary border-border text-foreground placeholder:text-muted-foreground min-h-[100px] resize-none"
                     />
                 </div>
 
                 {/* Provider Status */}
-                <div className="flex items-center gap-2 text-xs text-white/50">
-                    <span className={`w-2 h-2 rounded-full ${providerOnline ? 'bg-emerald-500 animate-pulse' : 'bg-white/30'}`} />
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span className={`w-2 h-2 rounded-full ${providerOnline ? 'bg-success animate-pulse' : 'bg-secondary-light'}`} />
                     <span>{providerOnline ? 'Online now' : 'Offline'}</span>
                     <span className="mx-1">•</span>
                     <span>Typical response: ~15 min</span>
@@ -292,14 +292,14 @@ export function QuickMessageModal({
                     <Button
                         variant="outline"
                         onClick={onClose}
-                        className="flex-1 bg-white/5 border-white/10 text-white hover:bg-white/10"
+                        className="flex-1 bg-secondary border-border text-foreground hover:bg-secondary"
                     >
                         Cancel
                     </Button>
                     <Button
                         onClick={handleSend}
                         disabled={isSending || !message.trim()}
-                        className="flex-1 bg-emerald-500 text-black hover:bg-emerald-400"
+                        className="flex-1 bg-success text-black hover:bg-success"
                     >
                         {isSending ? (
                             <>

@@ -1,15 +1,20 @@
 "use client";
 
 import type { ReactNode } from "react";
+import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export interface PageHeaderProps {
-  /** Small uppercase eyebrow above the title */
+  /** Small label above the title */
   eyebrow?: ReactNode;
   title: ReactNode;
   description?: ReactNode;
   /** Right-side actions (buttons, tabs, filters) */
   actions?: ReactNode;
+  /** Optional "back" link shown above the title */
+  backHref?: string;
+  backLabel?: string;
   className?: string;
 }
 
@@ -22,6 +27,8 @@ export function PageHeader({
   title,
   description,
   actions,
+  backHref,
+  backLabel = "Back",
   className,
 }: PageHeaderProps) {
   return (
@@ -32,10 +39,16 @@ export function PageHeader({
       )}
     >
       <div className="min-w-0 space-y-1.5">
+        {backHref ? (
+          <Link
+            href={backHref}
+            className="mb-2 inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+          >
+            <ArrowLeft size={12} aria-hidden /> {backLabel}
+          </Link>
+        ) : null}
         {eyebrow ? (
-          <div className="text-xs font-medium uppercase tracking-wider text-primary">
-            {eyebrow}
-          </div>
+          <div className="text-xs font-medium text-primary">{eyebrow}</div>
         ) : null}
         <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
           {title}

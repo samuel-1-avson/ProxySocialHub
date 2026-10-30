@@ -41,7 +41,7 @@ export function markerHtml(color: NodeColor, size: number, count: number, isActi
 }
 
 export function singleNodePopup(node: NodeGeoPoint, color: NodeColor): string {
-    const location = [node.city, node.country || node.region].filter(Boolean).map(esc).join(', ') || '—';
+    const location = [node.city, node.country || node.region].filter(Boolean).map(esc).join(', ') || 'Unknown';
     const typeLabel = node.trust_label
         || (node.network_class ? `${node.network_class} node` : null)
         || (node.is_validator ? 'High quality' : 'Proxy node');
@@ -50,11 +50,11 @@ export function singleNodePopup(node: NodeGeoPoint, color: NodeColor): string {
     const heading = node.title || location || 'Network node';
     const linkable = node.explorer_linkable !== false && !!node.node_id && !/^[a-f0-9]{16}$/i.test(node.node_id);
     const detailsLink = linkable
-        ? `<a href="/explorer/nodes/${esc(node.node_id)}" style="display:block;text-align:center;padding:6px;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);border-radius:8px;color:#6366f1;font-size:8px;font-weight:900;text-transform:uppercase;letter-spacing:.15em;text-decoration:none;">View Details →</a>`
-        : `<div style="text-align:center;padding:6px;color:rgba(255,255,255,.35);font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;">Availability only</div>`;
+        ? `<a href="/explorer/nodes/${esc(node.node_id)}" style="display:block;text-align:center;padding:6px;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);border-radius:8px;color:#6366f1;font-size:8px;font-weight:900;;letter-spacing:.15em;text-decoration:none;">View Details →</a>`
+        : `<div style="text-align:center;padding:6px;color:rgba(255,255,255,.35);font-size:8px;font-weight:700;;letter-spacing:.12em;">Availability only</div>`;
 
     return `<div style="background:#0a0a15;border:1px solid rgba(99,102,241,.3);border-radius:12px;padding:12px;min-width:220px;font-family:monospace;color:#fff;box-shadow:0 8px 32px rgba(0,0,0,.5);">
-        <div style="font-size:8px;font-weight:900;color:${color};text-transform:uppercase;letter-spacing:.2em;margin-bottom:6px;">${esc(typeLabel)}</div>
+        <div style="font-size:8px;font-weight:900;color:${color};;letter-spacing:.2em;margin-bottom:6px;">${esc(typeLabel)}</div>
         <div style="font-size:11px;color:#fff;margin-bottom:8px;font-weight:700;">${esc(heading)}</div>
         <div style="display:grid;gap:4px;background:rgba(255,255,255,.02);padding:8px;border-radius:8px;margin-bottom:8px;">
             <div style="display:flex;justify-content:space-between;font-size:9px;"><span style="color:rgba(255,255,255,.4)">Status</span><span style="color:${statusColor};font-weight:700;">${statusText}</span></div>
@@ -68,8 +68,10 @@ export function singleNodePopup(node: NodeGeoPoint, color: NodeColor): string {
     </div>`;
 }
 
+// Group by position, not node: different nodes snapped to the same city hub share exact
+// coordinates, and separate markers there would hide each other. Listings on one node
+// already share coordinates (server-side geo anchor), so they still group together.
 export function listingLocationKey(pin: ExplorerListingPin): string {
-    if (pin.node_id?.trim()) return `node:${pin.node_id.trim()}`;
     return `coord:${pin.lat.toFixed(4)},${pin.lon.toFixed(4)}`;
 }
 
@@ -92,7 +94,7 @@ export function listingMarkerHtml(price: number, selected: boolean, estimated: b
         ? `<span style="font-size:11px;font-weight:900;color:#fff;line-height:1;">${count}</span>`
         : `<span style="font-size:7px;font-weight:900;color:#fff;">${price.toFixed(4)}</span>`;
     const sublabel = count > 1
-        ? `<span style="position:absolute;bottom:-10px;left:50%;transform:translateX(-50%);font-size:6px;font-weight:800;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.08em;white-space:nowrap;">listings</span>`
+        ? `<span style="position:absolute;bottom:-10px;left:50%;transform:translateX(-50%);font-size:6px;font-weight:800;color:rgba(255,255,255,.55);;letter-spacing:.08em;white-space:nowrap;">listings</span>`
         : '';
     return `<div style="position:relative;width:${size}px;height:${size}px;">
         <div style="width:100%;height:100%;border-radius:${count > 1 ? '50%' : '6px'};background:${color};border:${border};box-shadow:0 0 14px ${color}88;display:flex;align-items:center;justify-content:center;cursor:pointer;">
@@ -104,7 +106,7 @@ export function listingMarkerHtml(price: number, selected: boolean, estimated: b
 
 function listingLocationLabel(pin: ExplorerListingPin & { city?: string }): string {
     const parts = [pin.city, pin.country].filter(Boolean);
-    return parts.length > 0 ? parts.join(', ') : (pin.country || '—');
+    return parts.length > 0 ? parts.join(', ') : (pin.country || 'Unknown');
 }
 
 function catalogPopupLine(pin: { catalog_product?: { title?: string; slug?: string } }): string {
@@ -112,7 +114,7 @@ function catalogPopupLine(pin: { catalog_product?: { title?: string; slug?: stri
     if (!title) return '';
     const slug = pin.catalog_product?.slug?.trim();
     const label = slug ? `/${slug}` : 'Catalog';
-    return `<div style="font-size:8px;font-weight:800;color:#c4b5fd;text-transform:uppercase;letter-spacing:.12em;margin-bottom:6px;">Catalog · ${esc(label)} · ${esc(title)}</div>`;
+    return `<div style="font-size:8px;font-weight:800;color:#c4b5fd;;letter-spacing:.12em;margin-bottom:6px;">Catalog · ${esc(label)} · ${esc(title)}</div>`;
 }
 
 function occupancyLine(pin: ExplorerListingPin): string {
@@ -132,10 +134,10 @@ export function listingPopup(
     const loc = esc(listingLocationLabel(pin));
     const catalogLine = catalogPopupLine(pin);
     const buyCtl = opts?.buyAction
-        ? `<button type="button" class="ph-listing-buy" data-listing-id="${esc(pin.listing_id)}" style="display:block;width:100%;text-align:center;padding:6px;background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.35);border-radius:8px;color:#10b981;font-size:8px;font-weight:900;text-transform:uppercase;cursor:pointer;font-family:monospace;">Buy →</button>`
-        : `<a href="/marketplace/map?listing=${esc(pin.listing_id)}" style="display:block;text-align:center;padding:6px;background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.35);border-radius:8px;color:#10b981;font-size:8px;font-weight:900;text-transform:uppercase;text-decoration:none;">Buy on map →</a>`;
+        ? `<button type="button" class="ph-listing-buy" data-listing-id="${esc(pin.listing_id)}" style="display:block;width:100%;text-align:center;padding:6px;background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.35);border-radius:8px;color:#10b981;font-size:8px;font-weight:900;;cursor:pointer;font-family:monospace;">Buy →</button>`
+        : `<a href="/marketplace/map?listing=${esc(pin.listing_id)}" style="display:block;text-align:center;padding:6px;background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.35);border-radius:8px;color:#10b981;font-size:8px;font-weight:900;;text-decoration:none;">Buy on map →</a>`;
     return `<div style="background:#0a0a15;border:1px solid rgba(16,185,129,.35);border-radius:12px;padding:12px;min-width:200px;font-family:monospace;color:#fff;">
-        <div style="font-size:8px;font-weight:900;color:#10b981;text-transform:uppercase;letter-spacing:.2em;margin-bottom:4px;">Market listing</div>
+        <div style="font-size:8px;font-weight:900;color:#10b981;;letter-spacing:.2em;margin-bottom:4px;">Market listing</div>
         ${catalogLine}
         <div style="font-size:11px;font-weight:700;margin-bottom:6px;">${esc(pin.title)}</div>
         <div style="font-size:9px;color:rgba(255,255,255,.5);margin-bottom:8px;">${loc} · $${pin.price_per_gb.toFixed(4)}/GB${occupancyLine(pin)}</div>
@@ -155,15 +157,15 @@ export function listingClusterPopup(pins: (ExplorerListingPin & { city?: string 
     }).join('');
 
     return `<div style="background:#0a0a15;border:1px solid rgba(16,185,129,.35);border-radius:12px;padding:12px;min-width:240px;max-width:280px;font-family:monospace;color:#fff;box-shadow:0 8px 32px rgba(0,0,0,.5);">
-        <div style="font-size:8px;font-weight:900;color:#10b981;text-transform:uppercase;letter-spacing:.2em;margin-bottom:4px;">${pins.length} listings here</div>
+        <div style="font-size:8px;font-weight:900;color:#10b981;;letter-spacing:.2em;margin-bottom:4px;">${pins.length} listings here</div>
         <div style="font-size:9px;color:rgba(255,255,255,.45);margin-bottom:8px;">📍 ${loc} · from $${minPrice.toFixed(4)}/GB</div>
         <div style="max-height:220px;overflow-y:auto;scrollbar-width:thin;">${rows}</div>
-        <div style="font-size:7px;color:rgba(255,255,255,.3);text-transform:uppercase;letter-spacing:.12em;margin-top:8px;text-align:center;">Tap a listing to select</div>
+        <div style="font-size:7px;color:rgba(255,255,255,.3);;letter-spacing:.12em;margin-top:8px;text-align:center;">Tap a listing to select</div>
     </div>`;
 }
 
 export function clusterPopup(nodes: NodeGeoPoint[], color: NodeColor): string {
-    const location = [nodes[0].city, nodes[0].country || nodes[0].region].filter(Boolean).map(esc).join(', ') || '—';
+    const location = [nodes[0].city, nodes[0].country || nodes[0].region].filter(Boolean).map(esc).join(', ') || 'Unknown';
     const rows = nodes.map(n => {
         const sc = n.is_active ? '#10b981' : '#ef4444';
         const linkable = n.explorer_linkable !== false && !!n.node_id && !/^[a-f0-9]{16}$/i.test(n.node_id);
@@ -183,7 +185,7 @@ export function clusterPopup(nodes: NodeGeoPoint[], color: NodeColor): string {
     }).join('');
 
     return `<div style="background:#0a0a15;border:1px solid rgba(99,102,241,.3);border-radius:12px;padding:12px;min-width:240px;max-width:270px;font-family:monospace;color:#fff;box-shadow:0 8px 32px rgba(0,0,0,.5);">
-        <div style="font-size:8px;font-weight:900;color:${color};text-transform:uppercase;letter-spacing:.2em;margin-bottom:6px;">${nodes.length} Nodes</div>
+        <div style="font-size:8px;font-weight:900;color:${color};;letter-spacing:.2em;margin-bottom:6px;">${nodes.length} Nodes</div>
         <div style="font-size:9px;color:rgba(255,255,255,.4);margin-bottom:8px;">📍 ${location}</div>
         <div style="max-height:220px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:rgba(99,102,241,.3) transparent;">${rows}</div>
     </div>`;

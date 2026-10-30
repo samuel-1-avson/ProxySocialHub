@@ -24,11 +24,11 @@ export function orderStatusLabel(status: string): string {
         case 'pending':
             return 'Pending';
         case 'pending_payment':
-            return 'Awaiting payment';
+            return 'Payment in progress';
         case 'active':
             return 'Active';
         case 'completed':
-            return 'Completed';
+            return 'Finished';
         case 'disputed':
             return 'Disputed';
         case 'refunded':
@@ -46,7 +46,7 @@ export function orderStatusDescription(status: string): string {
         case 'pending':
             return 'Order created. Fund escrow to activate proxy access.';
         case 'pending_payment':
-            return 'Escrow intent recorded. Waiting for on-chain payment confirmation.';
+            return 'We are confirming your payment. This usually takes a few seconds.';
         case 'active':
             return 'Escrow confirmed. Provisioning proxy credentials…';
         case 'completed':
@@ -56,7 +56,7 @@ export function orderStatusDescription(status: string): string {
         case 'refunded':
             return 'Escrow was refunded to the buyer.';
         case 'cancelled':
-            return 'Order cancelled before escrow completion.';
+            return 'This order was cancelled before it was paid. You were not charged for it.';
         default:
             return 'Unknown order status.';
     }

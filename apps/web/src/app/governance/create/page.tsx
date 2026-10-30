@@ -173,7 +173,7 @@ export default function CreateProposalPage() {
                                     {t.label}
                                 </option>
                             ))}
-                            <option value="custom_json">Advanced — raw JSON</option>
+                            <option value="custom_json">Advanced: raw JSON</option>
                         </select>
                         <small>Maps to API type: {template.apiType.replace(/_/g, " ")}</small>
                     </label>
@@ -208,7 +208,7 @@ export default function CreateProposalPage() {
                             className="ui-input w-full"
                             placeholder="Detailed technical specification and rationale for this consensus adjustment..."
                         />
-                        <small>Min 20 characters — {formData.description.trim().length}/20</small>
+                        <small>Min 20 characters: {formData.description.trim().length}/20</small>
                     </label>
 
                     <div className="space-y-4 border-t border-border pt-6">
@@ -297,7 +297,7 @@ export default function CreateProposalPage() {
                         <p className="ui-note">
                             Requires a linked Solana wallet. When PHB_TOKEN_MINT is configured, proposers need
                             ≥100 PHB. Voting is one wallet = one vote on-chain. Treasury transfers queue for
-                            custody — they do not auto-spend the hot wallet.
+                            custody. They do not auto-spend the hot wallet.
                         </p>
                     </div>
                 </form>

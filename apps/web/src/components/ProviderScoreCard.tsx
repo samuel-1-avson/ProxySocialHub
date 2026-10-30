@@ -15,18 +15,18 @@ export function ProviderScoreCard({ node }: ProviderScoreCardProps) {
 
     if (score >= 90) {
         tier = 'Platinum';
-        tierColor = 'text-cyan-400';
-        borderColor = 'border-cyan-500/50';
-        bgGradient = 'bg-gradient-to-br from-cyan-900/10 to-transparent';
+        tierColor = 'text-info';
+        borderColor = 'border-info/50';
+        bgGradient = 'bg-gradient-to-br from-info/10 to-transparent';
     } else if (score >= 80) {
         tier = 'Gold';
-        tierColor = 'text-yellow-400';
-        borderColor = 'border-yellow-500/50';
-        bgGradient = 'bg-gradient-to-br from-yellow-900/10 to-transparent';
+        tierColor = 'text-warning';
+        borderColor = 'border-warning/50';
+        bgGradient = 'bg-gradient-to-br from-warning/10 to-transparent';
     } else if (score >= 70) {
         tier = 'Silver';
-        tierColor = 'text-slate-300';
-        borderColor = 'border-slate-400/50';
+        tierColor = 'text-muted-foreground';
+        borderColor = 'border-border';
     }
 
     return (
@@ -39,13 +39,13 @@ export function ProviderScoreCard({ node }: ProviderScoreCardProps) {
             <div className="relative z-10 grid grid-cols-1 md:grid-cols-3 gap-6">
                 {/* Main Score */}
                 <div className="flex flex-col items-center justify-center p-4 border border-border bg-background/50 rounded-sm">
-                    <div className="text-[10px] font-mono font-bold uppercase text-muted-foreground mb-2 flex items-center gap-1">
+                    <div className="text-xs font-mono font-bold text-muted-foreground mb-2 flex items-center gap-1">
                         <Shield size={12} /> Trust Score
                     </div>
-                    <div className={`text-5xl font-black font-mono tracking-tighter ${tierColor}`}>
+                    <div className={`text-5xl font-semibold font-mono tracking-tight ${tierColor}`}>
                         {Number(score || 0).toFixed(1)}
                     </div>
-                    <div className={`mt-2 px-3 py-1 text-[10px] font-bold uppercase rounded-full border ${borderColor} ${tierColor} bg-background`}>
+                    <div className={`mt-2 px-3 py-1 text-xs font-bold rounded-full border ${borderColor} ${tierColor} bg-background`}>
                         {tier} Tier
                     </div>
                 </div>
@@ -54,15 +54,15 @@ export function ProviderScoreCard({ node }: ProviderScoreCardProps) {
                 <div className="col-span-2 grid grid-cols-2 gap-4">
                     <div className="p-4 bg-secondary/10 rounded-sm">
                         <div className="flex items-center gap-2 mb-2">
-                            <Clock size={14} className="text-green-500" />
-                            <span className="text-[10px] font-bold font-mono uppercase text-muted-foreground">Uptime</span>
+                            <Clock size={14} className="text-success" />
+                            <span className="text-xs font-bold font-mono text-muted-foreground">Uptime</span>
                         </div>
                         <div className="text-2xl font-bold font-mono">
                             {node.uptime_percent ? Number(node.uptime_percent).toFixed(1) + '%' : 'N/A'}
                         </div>
                         <div className="h-1 w-full bg-secondary mt-2 rounded-full overflow-hidden">
                             <div
-                                className="h-full bg-green-500 rounded-full"
+                                className="h-full bg-success rounded-full"
                                 style={{ width: `${node.uptime_percent || 0}%` }}
                             ></div>
                         </div>
@@ -70,21 +70,21 @@ export function ProviderScoreCard({ node }: ProviderScoreCardProps) {
 
                     <div className="p-4 bg-secondary/10 rounded-sm">
                         <div className="flex items-center gap-2 mb-2">
-                            <Wifi size={14} className="text-blue-500" />
-                            <span className="text-[10px] font-bold font-mono uppercase text-muted-foreground">Latency</span>
+                            <Wifi size={14} className="text-info" />
+                            <span className="text-xs font-bold font-mono text-muted-foreground">Latency</span>
                         </div>
                         <div className="text-2xl font-bold font-mono">
                             {node.latency_ms || '-'} <span className="text-sm text-muted-foreground">ms</span>
                         </div>
-                        <p className="text-[10px] text-muted-foreground mt-1">
+                        <p className="text-xs text-muted-foreground mt-1">
                             {node.latency_ms && node.latency_ms < 50 ? 'Excellent' : node.latency_ms && node.latency_ms < 150 ? 'Good' : 'Fair'}
                         </p>
                     </div>
 
                     <div className="p-4 bg-secondary/10 rounded-sm">
                         <div className="flex items-center gap-2 mb-2">
-                            <TrendingUp size={14} className="text-purple-500" />
-                            <span className="text-[10px] font-bold font-mono uppercase text-muted-foreground">Traffic</span>
+                            <TrendingUp size={14} className="text-primary" />
+                            <span className="text-xs font-bold font-mono text-muted-foreground">Traffic</span>
                         </div>
                         <div className="text-xl font-bold font-mono">
                             {node.active_connections || 0} <span className="text-sm text-muted-foreground">Active</span>
@@ -93,8 +93,8 @@ export function ProviderScoreCard({ node }: ProviderScoreCardProps) {
 
                     <div className="p-4 bg-secondary/10 rounded-sm">
                         <div className="flex items-center gap-2 mb-2">
-                            <AlertTriangle size={14} className="text-yellow-500" />
-                            <span className="text-[10px] font-bold font-mono uppercase text-muted-foreground">Disputes</span>
+                            <AlertTriangle size={14} className="text-warning" />
+                            <span className="text-xs font-bold font-mono text-muted-foreground">Disputes</span>
                         </div>
                         <div className="text-xl font-bold font-mono">
                             0 <span className="text-sm text-muted-foreground">Open</span>

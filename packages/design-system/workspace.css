@@ -139,6 +139,13 @@
   cursor: pointer;
   min-height: 28px;
 }
+/* The native option list does not inherit the transparent select background,
+   so it can open white with light text. Give it the theme colours. */
+.workspace-switcher select option,
+.ui-select option {
+  background: var(--popover);
+  color: var(--popover-foreground);
+}
 .workspace-nav-label {
   font-size: 10px;
   text-transform: uppercase;

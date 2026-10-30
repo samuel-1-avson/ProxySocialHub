@@ -55,8 +55,8 @@ export default function ProviderProfilePage() {
     if (loading) {
         return (
             <div className="flex flex-col items-center justify-center min-h-[60vh]">
-                <Loader2 className="w-12 h-12 animate-spin text-purple-500" />
-                <p className="mt-4 font-sans text-sm text-muted-foreground uppercase tracking-widest font-bold">Retrieving Profile...</p>
+                <Loader2 className="w-12 h-12 animate-spin text-primary" />
+                <p className="mt-4 font-sans text-sm text-muted-foreground font-bold">Retrieving Profile...</p>
             </div>
         );
     }
@@ -64,10 +64,10 @@ export default function ProviderProfilePage() {
     if (error) {
         return (
             <div className="flex flex-col items-center justify-center min-h-[60vh]">
-                <AlertCircle className="w-12 h-12 text-red-500 mb-4" />
+                <AlertCircle className="w-12 h-12 text-destructive mb-4" />
                 <h2 className="text-xl font-bold mb-2">Error</h2>
                 <p className="text-muted-foreground mb-6">{error}</p>
-                <Link href="/marketplace" className="px-6 py-2 bg-purple-600 rounded-lg font-bold">
+                <Link href="/marketplace" className="px-6 py-2 bg-primary rounded-lg font-bold">
                     Back to Marketplace
                 </Link>
             </div>
@@ -87,7 +87,7 @@ export default function ProviderProfilePage() {
     return (
         <div className="container mx-auto px-4 py-12 max-w-6xl">
             {/* Header / Nav */}
-            <Link href="/marketplace" className="inline-flex items-center gap-2 text-xs font-bold uppercase text-muted-foreground hover:text-purple-400 transition-colors mb-8">
+            <Link href="/marketplace" className="inline-flex items-center gap-2 text-xs font-bold text-muted-foreground hover:text-primary transition-colors mb-8">
                 <ArrowLeft size={14} /> Back to Marketplace
             </Link>
 
@@ -96,9 +96,9 @@ export default function ProviderProfilePage() {
                 <div className="absolute top-0 right-0 w-64 h-64 bg-purple-500/5 blur-3xl rounded-full -translate-y-1/2 translate-x-1/4" />
                 
                 <div className="relative z-10 flex flex-col md:flex-row gap-8 items-start">
-                    <div className="w-24 h-24 rounded-3xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-500 shadow-[0_0_30px_rgba(168,85,247,0.15)]">
+                    <div className="w-24 h-24 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
                         {profile.avatar_url ? (
-                            <img src={profile.avatar_url} alt={profile.display_name} className="w-full h-full rounded-3xl object-cover" />
+                            <img src={profile.avatar_url} alt={profile.display_name} className="w-full h-full rounded-lg object-cover" />
                         ) : (
                             <Server size={48} strokeWidth={1.5} />
                         )}
@@ -146,7 +146,7 @@ export default function ProviderProfilePage() {
             <div className="space-y-6">
                 <div className="flex items-center justify-between">
                     <h2 className="text-xl font-bold flex items-center gap-2">
-                        <Network size={20} className="text-purple-500" />
+                        <Network size={20} className="text-primary" />
                         Infrastructure Fleet
                     </h2>
                     <span className="text-sm font-medium text-muted-foreground">{listings.length} Listings Online</span>
@@ -185,7 +185,7 @@ function NodeMiniCard({ listing }: { listing: Listing }) {
             className="ui-surface flex flex-col h-full"
         >
             <div className="flex justify-between items-start mb-4">
-                <div className="p-2.5 rounded-xl bg-purple-500/10 text-purple-400 group-hover:bg-purple-500/20 transition-colors">
+                <div className="p-2.5 rounded-lg bg-primary/10 text-primary group-hover:bg-primary/20 transition-colors">
                     <Zap size={20} />
                 </div>
                 <StatusBadge status={listing.status === 'active' ? 'online' : 'offline'} label={listing.status === 'active' ? 'Online' : 'Offline'} pulse={listing.status === 'active'} />
@@ -210,12 +210,12 @@ function NodeMiniCard({ listing }: { listing: Listing }) {
                 </div>
             </div>
 
-            <div className="mt-auto pt-4 border-t border-white/5 flex items-center justify-between">
+            <div className="mt-auto pt-4 border-t border-border flex items-center justify-between">
                 <div className="flex flex-col">
                     <span className="ui-stat-label">Rate</span>
                     <span className="text-sm">{listing.price_per_gb != null ? `$${listing.price_per_gb.toFixed(4)}/GB` : "Not reported"}</span>
                 </div>
-                <Link href={`/marketplace/${listing.id}`} className="p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors text-muted-foreground hover:text-foreground">
+                <Link href={`/marketplace/${listing.id}`} className="p-2 rounded-lg bg-secondary hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground">
                     <ExternalLink size={16} />
                 </Link>
             </div>

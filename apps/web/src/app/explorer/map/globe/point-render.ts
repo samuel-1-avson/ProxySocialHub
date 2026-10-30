@@ -63,7 +63,7 @@ export function globePointAltitude(p: GlobePoint): number {
 }
 
 function listingTooltip(pin: ExplorerListingPin): string {
-    const loc = [pin.country].filter(Boolean).join(', ') || '—';
+    const loc = [pin.country].filter(Boolean).join(', ') || 'Unknown';
     const price = pin.price_per_gb.toFixed(4);
     const est = pin.estimated ? ' · estimated' : '';
     return `<div style="background:#0a0a15;border:1px solid rgba(16,185,129,.45);border-radius:10px;
@@ -82,7 +82,7 @@ function nodeTooltip(n: NodeGeoPoint): string {
     const sc = n.is_active ? '#10b981' : '#ef4444';
     const st = n.is_active ? '● Active' : '○ Offline';
     const ty = n.is_validator ? '⬡ Validator' : '◎ Proxy';
-    const loc = [n.city, n.country || n.region].filter(Boolean).join(', ') || '—';
+    const loc = [n.city, n.country || n.region].filter(Boolean).join(', ') || 'Unknown';
     return `<div style="background:#0a0a15;border:1px solid rgba(99,102,241,.4);border-radius:10px;
                 padding:10px 14px;font-family:monospace;color:#fff;min-width:190px;
                 box-shadow:0 4px 28px rgba(0,0,0,.9);pointer-events:none;">

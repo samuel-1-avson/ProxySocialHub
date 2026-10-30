@@ -127,11 +127,11 @@ export function formatSolanaWalletError(err: unknown): string {
     lower.includes("not authorized") ||
     lower.includes("not been authorized")
   ) {
-    return "Wallet not authorized — disconnect and connect again, then retry";
+    return "Wallet not authorized. Disconnect and connect again, then retry";
   }
 
   if (lower.includes("blockhash") || lower.includes("expired")) {
-    return "Transaction expired — try again";
+    return "Transaction expired. Try again";
   }
 
   if (

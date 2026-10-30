@@ -122,15 +122,15 @@ export default function SearchPage() {
         <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-8 font-mono max-w-4xl mx-auto">
             {/* Header */}
             <motion.header variants={itemVariants} className="flex flex-col gap-6 border-b border-border pb-8">
-                <Link href="/explorer" className="flex items-center gap-2 text-[10px] font-black text-muted-foreground hover:text-primary transition-colors uppercase tracking-[0.3em] w-fit">
+                <Link href="/explorer" className="flex items-center gap-2 text-xs font-semibold text-muted-foreground hover:text-primary transition-colors w-fit">
                     <ArrowLeft size={14} /> Back to Grid
                 </Link>
                 <div>
-                    <div className="text-[10px] font-black text-primary uppercase tracking-[0.5em] mb-1">Grid Telemetry // Search</div>
-                    <h1 className="text-4xl font-black uppercase tracking-tighter text-foreground flex items-center gap-4">
+                    <div className="text-xs font-semibold text-primary mb-1">Grid Telemetry // Search</div>
+                    <h1 className="text-4xl font-semibold tracking-tight text-foreground flex items-center gap-4">
                         <Search className="text-primary" size={32} /> Advanced Search
                     </h1>
-                    <p className="text-[11px] font-black text-muted-foreground uppercase tracking-widest mt-2">
+                    <p className="text-xs font-semibold text-muted-foreground mt-2">
                         Search transactions, wallets, blocks, and nodes
                     </p>
                 </div>
@@ -142,14 +142,14 @@ export default function SearchPage() {
                 <div className="flex flex-wrap gap-2">
                     {SEARCH_TYPES.map(t => (
                         <button key={t.value} onClick={() => setSearchType(t.value)}
-                            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest border transition-all ${searchType === t.value ? 'bg-primary/10 border-primary/30 text-primary' : 'bg-muted border-border text-muted-foreground hover:text-foreground'}`}>
+                            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold border transition-all ${searchType === t.value ? 'bg-primary/10 border-primary/30 text-primary' : 'bg-muted border-border text-muted-foreground hover:text-foreground'}`}>
                             <t.icon size={10} /> {t.label}
                         </button>
                     ))}
                 </div>
 
                 {/* Input */}
-                <GlassCard className="border-border bg-card rounded-[2rem] !p-2">
+                <GlassCard className="border-border bg-card rounded-lg !p-2">
                     <div className="flex items-center gap-3">
                         <Search size={16} className="text-muted-foreground ml-4 flex-shrink-0" />
                         <input
@@ -168,13 +168,13 @@ export default function SearchPage() {
                                 searchType === 'nodes_query' ? 'Search nodes by id, city, country...' :
                                 'Search transactions, wallets, blocks, nodes...'
                             }
-                            className="flex-1 bg-transparent text-foreground text-[11px] font-mono placeholder-muted-foreground outline-none py-4 pr-4"
+                            className="flex-1 bg-transparent text-foreground text-xs font-mono placeholder-muted-foreground outline-none py-4 pr-4"
                         />
                         <button
                             type="button"
                             data-testid="explorer-search-submit"
                             onClick={handleSearch}
-                            className="flex items-center gap-2 px-6 py-3 rounded-[1.5rem] bg-primary text-black text-[10px] font-black uppercase tracking-widest hover:bg-primary/90 transition-all flex-shrink-0">
+                            className="flex items-center gap-2 px-6 py-3 rounded-[1.5rem] bg-primary text-black text-xs font-semibold hover:bg-primary/90 transition-all flex-shrink-0">
                             {isLoading ? <Loader size={12} className="animate-spin" /> : <Search size={12} />}
                             Search
                         </button>
@@ -182,7 +182,7 @@ export default function SearchPage() {
                 </GlassCard>
 
                 {searchType !== 'auto' && (
-                    <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest px-2">
+                    <p className="text-xs font-semibold text-muted-foreground px-2">
                         {SEARCH_TYPES.find(t => t.value === searchType)?.hint}
                     </p>
                 )}
@@ -194,33 +194,33 @@ export default function SearchPage() {
                     <motion.section key={submitted} variants={itemVariants} initial="hidden" animate="show" className="space-y-4">
                         <div className="flex items-center gap-3 px-2">
                             <Fingerprint size={12} className="text-primary" />
-                            <span className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">
+                            <span className="text-xs font-semibold text-muted-foreground">
                                 Results for: <span className="text-primary font-mono">{submitted.slice(0, 30)}{submitted.length > 30 ? '...' : ''}</span>
                             </span>
                             {!isLoading && (
-                                <span className="text-[8px] font-black text-muted-foreground uppercase tracking-widest ml-2">
+                                <span className="text-xs font-semibold text-muted-foreground ml-2">
                                     Type: {resolvedType}
                                 </span>
                             )}
                         </div>
 
                         {isLoading && (
-                            <GlassCard className="border-border bg-card rounded-[2rem] !p-10 text-center">
+                            <GlassCard className="border-border bg-card rounded-lg !p-10 text-center">
                                 <Loader size={24} className="animate-spin text-primary mx-auto mb-4" />
-                                <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Scanning network...</p>
+                                <p className="text-xs font-semibold text-muted-foreground">Scanning network...</p>
                             </GlassCard>
                         )}
 
                         {/* Transaction Result */}
                         {txResult && (
-                            <GlassCard className="border-primary/20 bg-primary/[0.02] rounded-[2rem] !p-6 space-y-4">
+                            <GlassCard className="border-primary/20 bg-primary/[0.02] rounded-lg !p-6 space-y-4">
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-3">
                                         <ArrowRightLeft size={16} className="text-primary" />
-                                        <span className="text-[10px] font-black text-primary uppercase tracking-widest">Transaction Found</span>
+                                        <span className="text-xs font-semibold text-primary">Transaction Found</span>
                                     </div>
                                     <Link href={`/explorer/transactions/${submitted}`}
-                                        className="flex items-center gap-1 text-[9px] font-black text-primary uppercase tracking-widest hover:text-primary/80 transition-colors">
+                                        className="flex items-center gap-1 text-xs font-semibold text-primary hover:text-primary/80 transition-colors">
                                         View Full <ChevronRight size={10} />
                                     </Link>
                                 </div>
@@ -232,8 +232,8 @@ export default function SearchPage() {
                                     { label: 'Block', value: txResult.block_number?.toLocaleString() },
                                 ].map(f => (
                                     <div key={f.label} className="flex justify-between items-center py-2 border-b border-border">
-                                        <span className="text-[8px] font-black text-muted-foreground uppercase tracking-wider">{f.label}</span>
-                                        <span className="text-[10px] font-black text-foreground font-mono truncate max-w-[60%] text-right">{f.value || '—'}</span>
+                                        <span className="text-xs font-semibold text-muted-foreground">{f.label}</span>
+                                        <span className="text-xs font-semibold text-foreground font-mono truncate max-w-[60%] text-right">{f.value || 'Unknown'}</span>
                                     </div>
                                 ))}
                             </GlassCard>
@@ -241,14 +241,14 @@ export default function SearchPage() {
 
                         {/* Wallet Result */}
                         {walletResult && (
-                            <GlassCard className="border-primary/20 bg-primary/[0.02] rounded-[2rem] !p-6 space-y-4">
+                            <GlassCard className="border-primary/20 bg-primary/[0.02] rounded-lg !p-6 space-y-4">
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-3">
                                         <Wallet size={16} className="text-primary" />
-                                        <span className="text-[10px] font-black text-primary uppercase tracking-widest">Wallet Found</span>
+                                        <span className="text-xs font-semibold text-primary">Wallet Found</span>
                                     </div>
                                     <Link href={`/explorer/wallets/${submitted}`}
-                                        className="flex items-center gap-1 text-[9px] font-black text-primary uppercase tracking-widest hover:text-primary/80 transition-colors">
+                                        className="flex items-center gap-1 text-xs font-semibold text-primary hover:text-primary/80 transition-colors">
                                         View Full <ChevronRight size={10} />
                                     </Link>
                                 </div>
@@ -259,8 +259,8 @@ export default function SearchPage() {
                                     { label: 'Contract', value: walletResult.is_contract ? 'Yes' : 'No' },
                                 ].map(f => (
                                     <div key={f.label} className="flex justify-between items-center py-2 border-b border-border">
-                                        <span className="text-[8px] font-black text-muted-foreground uppercase tracking-wider">{f.label}</span>
-                                        <span className="text-[10px] font-black text-foreground font-mono truncate max-w-[60%] text-right">{f.value || '—'}</span>
+                                        <span className="text-xs font-semibold text-muted-foreground">{f.label}</span>
+                                        <span className="text-xs font-semibold text-foreground font-mono truncate max-w-[60%] text-right">{f.value || 'Unknown'}</span>
                                     </div>
                                 ))}
                             </GlassCard>
@@ -268,14 +268,14 @@ export default function SearchPage() {
 
                         {/* Block Result */}
                         {blockResult && (
-                            <GlassCard className="border-primary/20 bg-primary/[0.02] rounded-[2rem] !p-6 space-y-4">
+                            <GlassCard className="border-primary/20 bg-primary/[0.02] rounded-lg !p-6 space-y-4">
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-3">
                                         <Box size={16} className="text-primary" />
-                                        <span className="text-[10px] font-black text-primary uppercase tracking-widest">Block Found</span>
+                                        <span className="text-xs font-semibold text-primary">Block Found</span>
                                     </div>
                                     <Link href={`/explorer/blocks/${blockResult.block_number}`}
-                                        className="flex items-center gap-1 text-[9px] font-black text-primary uppercase tracking-widest hover:text-primary/80 transition-colors">
+                                        className="flex items-center gap-1 text-xs font-semibold text-primary hover:text-primary/80 transition-colors">
                                         View Full <ChevronRight size={10} />
                                     </Link>
                                 </div>
@@ -283,11 +283,11 @@ export default function SearchPage() {
                                     { label: 'Block #', value: blockResult.block_number?.toLocaleString() },
                                     { label: 'Hash', value: blockResult.block_hash?.slice(0, 24) + '...' },
                                     { label: 'Transactions', value: blockResult.transaction_count?.toLocaleString() },
-                                    { label: 'Validator', value: blockResult.validator_pubkey ? blockResult.validator_pubkey.slice(0, 20) + '...' : '—' },
+                                    { label: 'Validator', value: blockResult.validator_pubkey ? blockResult.validator_pubkey.slice(0, 20) + '...' : 'Unknown' },
                                 ].map(f => (
                                     <div key={f.label} className="flex justify-between items-center py-2 border-b border-border">
-                                        <span className="text-[8px] font-black text-muted-foreground uppercase tracking-wider">{f.label}</span>
-                                        <span className="text-[10px] font-black text-foreground font-mono truncate max-w-[60%] text-right">{f.value || '—'}</span>
+                                        <span className="text-xs font-semibold text-muted-foreground">{f.label}</span>
+                                        <span className="text-xs font-semibold text-foreground font-mono truncate max-w-[60%] text-right">{f.value || 'Unknown'}</span>
                                     </div>
                                 ))}
                             </GlassCard>
@@ -295,20 +295,20 @@ export default function SearchPage() {
 
                         {/* Node list search (no single-node lookup) */}
                         {isNodesBrowse && !isLoading && (
-                            <GlassCard className="border-primary/20 bg-primary/[0.02] rounded-[2rem] !p-6">
+                            <GlassCard className="border-primary/20 bg-primary/[0.02] rounded-lg !p-6">
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-3">
                                         <Server size={16} className="text-primary" />
-                                        <span className="text-[10px] font-black text-primary uppercase tracking-widest">Node search</span>
+                                        <span className="text-xs font-semibold text-primary">Node search</span>
                                     </div>
                                     <Link
                                         href={`/explorer/nodes?q=${encodeURIComponent(submitted)}`}
                                         data-testid="explorer-search-browse-nodes"
-                                        className="flex items-center gap-1 text-[9px] font-black text-primary uppercase tracking-widest hover:text-primary/80 transition-colors">
+                                        className="flex items-center gap-1 text-xs font-semibold text-primary hover:text-primary/80 transition-colors">
                                         Browse matches <ChevronRight size={10} />
                                     </Link>
                                 </div>
-                                <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mt-4">
+                                <p className="text-xs font-semibold text-muted-foreground mt-4">
                                     Opens the nodes grid filtered by id, region, country, or city.
                                 </p>
                             </GlassCard>
@@ -316,14 +316,14 @@ export default function SearchPage() {
 
                         {/* Contract Result */}
                         {contractResult && (
-                            <GlassCard className="border-primary/20 bg-primary/[0.02] rounded-[2rem] !p-6 space-y-4">
+                            <GlassCard className="border-primary/20 bg-primary/[0.02] rounded-lg !p-6 space-y-4">
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-3">
                                         <Fingerprint size={16} className="text-primary" />
-                                        <span className="text-[10px] font-black text-primary uppercase tracking-widest">Contract Found</span>
+                                        <span className="text-xs font-semibold text-primary">Contract Found</span>
                                     </div>
                                     <Link href={`/explorer/contracts/${submitted}`}
-                                        className="flex items-center gap-1 text-[9px] font-black text-primary uppercase tracking-widest hover:text-primary/80 transition-colors">
+                                        className="flex items-center gap-1 text-xs font-semibold text-primary hover:text-primary/80 transition-colors">
                                         View Full <ChevronRight size={10} />
                                     </Link>
                                 </div>
@@ -334,8 +334,8 @@ export default function SearchPage() {
                                     { label: 'Verified', value: contractResult.is_verified ? 'Yes' : 'No' },
                                 ].map(f => (
                                     <div key={f.label} className="flex justify-between items-center py-2 border-b border-border">
-                                        <span className="text-[8px] font-black text-muted-foreground uppercase tracking-wider">{f.label}</span>
-                                        <span className="text-[10px] font-black text-foreground font-mono truncate max-w-[60%] text-right">{f.value || '—'}</span>
+                                        <span className="text-xs font-semibold text-muted-foreground">{f.label}</span>
+                                        <span className="text-xs font-semibold text-foreground font-mono truncate max-w-[60%] text-right">{f.value || 'Unknown'}</span>
                                     </div>
                                 ))}
                             </GlassCard>
@@ -343,27 +343,27 @@ export default function SearchPage() {
 
                         {/* Node Result */}
                         {nodeResult && (
-                            <GlassCard className="border-primary/20 bg-primary/[0.02] rounded-[2rem] !p-6 space-y-4">
+                            <GlassCard className="border-primary/20 bg-primary/[0.02] rounded-lg !p-6 space-y-4">
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-3">
                                         <Server size={16} className="text-primary" />
-                                        <span className="text-[10px] font-black text-primary uppercase tracking-widest">Node Found</span>
+                                        <span className="text-xs font-semibold text-primary">Node Found</span>
                                     </div>
                                     <Link href={`/explorer/nodes/${submitted}`}
-                                        className="flex items-center gap-1 text-[9px] font-black text-primary uppercase tracking-widest hover:text-primary/80 transition-colors">
+                                        className="flex items-center gap-1 text-xs font-semibold text-primary hover:text-primary/80 transition-colors">
                                         View Full <ChevronRight size={10} />
                                     </Link>
                                 </div>
                                 {[
                                     { label: 'Node ID', value: nodeResult.node_id?.slice(0, 24) + '...' },
                                     { label: 'Type', value: nodeResult.is_validator ? 'Validator' : 'Proxy' },
-                                    { label: 'Region', value: nodeResult.region || '—' },
+                                    { label: 'Region', value: nodeResult.region || 'Unknown' },
                                     { label: 'Uptime', value: `${(nodeResult.uptime_percent || 0).toFixed(2)}%` },
                                     { label: 'Status', value: nodeResult.is_active ? 'Active' : 'Offline' },
                                 ].map(f => (
                                     <div key={f.label} className="flex justify-between items-center py-2 border-b border-border">
-                                        <span className="text-[8px] font-black text-muted-foreground uppercase tracking-wider">{f.label}</span>
-                                        <span className="text-[10px] font-black text-foreground font-mono truncate max-w-[60%] text-right">{f.value || '—'}</span>
+                                        <span className="text-xs font-semibold text-muted-foreground">{f.label}</span>
+                                        <span className="text-xs font-semibold text-foreground font-mono truncate max-w-[60%] text-right">{f.value || 'Unknown'}</span>
                                     </div>
                                 ))}
                             </GlassCard>
@@ -371,10 +371,10 @@ export default function SearchPage() {
 
                         {/* Not Found */}
                         {hasError && (
-                            <GlassCard className="border-rose-500/20 bg-rose-500/[0.02] rounded-[2rem] !p-10 text-center">
-                                <AlertCircle size={32} className="text-rose-400/40 mx-auto mb-4" />
-                                <p className="text-[10px] font-black text-rose-400/60 uppercase tracking-widest">Not Found</p>
-                                <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest mt-2">
+                            <GlassCard className="border-destructive/20 bg-destructive/[0.02] rounded-lg !p-10 text-center">
+                                <AlertCircle size={32} className="text-destructive/40 mx-auto mb-4" />
+                                <p className="text-xs font-semibold text-destructive/60">Not Found</p>
+                                <p className="text-xs font-semibold text-muted-foreground mt-2">
                                     No {resolvedType} matches this query
                                 </p>
                             </GlassCard>
@@ -387,43 +387,43 @@ export default function SearchPage() {
             {!submitted && (
                 <motion.div variants={itemVariants} className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {/* Recent Transactions */}
-                    <GlassCard className="border-border bg-card rounded-[2rem] !p-5">
-                        <h3 className="text-[10px] font-black text-muted-foreground uppercase tracking-widest mb-4 flex items-center gap-2">
+                    <GlassCard className="border-border bg-card rounded-lg !p-5">
+                        <h3 className="text-xs font-semibold text-muted-foreground mb-4 flex items-center gap-2">
                             <ArrowRightLeft size={10} /> Recent Transactions
                         </h3>
                         <div className="space-y-2">
                             {(recentTx?.transactions || []).slice(0, 5).map((tx: any) => (
                                 <Link key={tx.tx_hash} href={`/explorer/transactions/${tx.tx_hash}`}
                                     className="flex items-center justify-between py-2 border-b border-border hover:border-primary/20 transition-colors group">
-                                    <span className="font-mono text-[9px] text-primary group-hover:text-primary/80 transition-colors">
+                                    <span className="font-mono text-xs text-primary group-hover:text-primary/80 transition-colors">
                                         {tx.tx_hash?.slice(0, 14)}...
                                     </span>
-                                    <span className="text-[8px] text-muted-foreground">{tx.amount?.toFixed(3)} SOL</span>
+                                    <span className="text-xs text-muted-foreground">{tx.amount?.toFixed(3)} SOL</span>
                                 </Link>
                             ))}
                         </div>
-                        <Link href="/explorer/transactions" className="block mt-3 text-[8px] font-black text-primary/60 uppercase tracking-widest hover:text-primary transition-colors">
+                        <Link href="/explorer/transactions" className="block mt-3 text-xs font-semibold text-primary/60 hover:text-primary transition-colors">
                             View all transactions →
                         </Link>
                     </GlassCard>
 
                     {/* Recent Blocks */}
-                    <GlassCard className="border-border bg-card rounded-[2rem] !p-5">
-                        <h3 className="text-[10px] font-black text-muted-foreground uppercase tracking-widest mb-4 flex items-center gap-2">
+                    <GlassCard className="border-border bg-card rounded-lg !p-5">
+                        <h3 className="text-xs font-semibold text-muted-foreground mb-4 flex items-center gap-2">
                             <Box size={10} /> Recent Blocks
                         </h3>
                         <div className="space-y-2">
                             {(recentBlocks?.blocks || []).slice(0, 5).map((b: any) => (
                                 <Link key={b.block_hash} href={`/explorer/blocks/${b.block_number}`}
                                     className="flex items-center justify-between py-2 border-b border-border hover:border-primary/20 transition-colors group">
-                                    <span className="font-mono text-[9px] text-primary group-hover:text-primary/80 transition-colors">
+                                    <span className="font-mono text-xs text-primary group-hover:text-primary/80 transition-colors">
                                         #{b.block_number?.toLocaleString()}
                                     </span>
-                                    <span className="text-[8px] text-muted-foreground">{b.transaction_count} txs</span>
+                                    <span className="text-xs text-muted-foreground">{b.transaction_count} txs</span>
                                 </Link>
                             ))}
                         </div>
-                        <Link href="/explorer/blocks" className="block mt-3 text-[8px] font-black text-primary/60 uppercase tracking-widest hover:text-primary transition-colors">
+                        <Link href="/explorer/blocks" className="block mt-3 text-xs font-semibold text-primary/60 hover:text-primary transition-colors">
                             View all blocks →
                         </Link>
                     </GlassCard>

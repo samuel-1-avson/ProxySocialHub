@@ -26,37 +26,37 @@ interface UsageProofCardProps {
 const STATUS_CONFIG = {
     pending: {
         icon: Clock,
-        color: 'text-amber-400',
-        bg: 'bg-amber-400/10',
-        border: 'border-amber-400/20',
+        color: 'text-warning',
+        bg: 'bg-warning/10',
+        border: 'border-warning/20',
         label: 'Awaiting Signature'
     },
     signed: {
         icon: ShieldCheck,
-        color: 'text-blue-400',
-        bg: 'bg-blue-400/10',
-        border: 'border-blue-400/20',
+        color: 'text-info',
+        bg: 'bg-info/10',
+        border: 'border-info/20',
         label: 'Signed'
     },
     settling_confidential: {
         icon: History,
-        color: 'text-indigo-400',
-        bg: 'bg-indigo-400/10',
-        border: 'border-indigo-400/20',
+        color: 'text-info',
+        bg: 'bg-info/10',
+        border: 'border-info/20',
         label: 'Settling'
     },
     on_chain: {
         icon: Globe,
-        color: 'text-emerald-400',
-        bg: 'bg-emerald-400/10',
-        border: 'border-emerald-400/20',
+        color: 'text-success',
+        bg: 'bg-success/10',
+        border: 'border-success/20',
         label: 'On-Chain'
     },
     disputed: {
         icon: AlertTriangle,
-        color: 'text-rose-400',
-        bg: 'bg-rose-400/10',
-        border: 'border-rose-400/20',
+        color: 'text-destructive',
+        bg: 'bg-destructive/10',
+        border: 'border-destructive/20',
         label: 'Disputed'
     }
 };
@@ -87,18 +87,18 @@ export function UsageProofCard({ proof, onSign, onSubmit, isCompact = false }: U
                     {/* Header */}
                     <div className="flex justify-between items-start">
                         <div className="flex items-center gap-4">
-                            <div className={`p-3 rounded-2xl border ${config.bg} ${config.border} ${config.color} shadow-lg shadow-black/20`}>
+                            <div className={`p-3 rounded-lg border ${config.bg} ${config.border} ${config.color} shadow-sm shadow-black/20`}>
                                 <StatusIcon size={isCompact ? 18 : 24} />
                             </div>
                             <div>
-                                <h3 className="font-mono text-[11px] font-black uppercase tracking-widest flex items-center gap-2">
+                                <h3 className="font-mono text-xs font-semibold flex items-center gap-2">
                                     Proof Segment <span className="opacity-30">#{proof.id.slice(0, 8)}</span>
                                 </h3>
                                 <div className="flex items-center gap-2 mt-1">
-                                    <span className={`text-[9px] font-black font-mono uppercase px-1.5 py-0.5 rounded ${config.bg} ${config.color} border ${config.border}`}>
+                                    <span className={`text-xs font-semibold font-mono px-1.5 py-0.5 rounded ${config.bg} ${config.color} border ${config.border}`}>
                                         {config.label}
                                     </span>
-                                    <span className="text-[9px] font-mono font-black uppercase opacity-20">
+                                    <span className="text-xs font-mono font-semibold opacity-20">
                                         {formatDistanceToNow(new Date(proof.created_at), { addSuffix: true })}
                                     </span>
                                 </div>
@@ -107,8 +107,8 @@ export function UsageProofCard({ proof, onSign, onSubmit, isCompact = false }: U
                         
                         {!isCompact && (
                             <div className="flex flex-col items-end">
-                                <span className="text-[10px] font-black font-mono uppercase opacity-30 tracking-tighter">Consumption</span>
-                                <span className="text-xl font-black font-mono tabular-nums tracking-tighter bg-clip-text text-transparent bg-gradient-to-br from-white to-white/40">
+                                <span className="text-xs font-semibold font-mono opacity-30 tracking-tight">Consumption</span>
+                                <span className="text-xl font-semibold font-mono tabular-nums tracking-tight">
                                     {formatBytes(proof.total_bytes)}
                                 </span>
                             </div>
@@ -118,27 +118,27 @@ export function UsageProofCard({ proof, onSign, onSubmit, isCompact = false }: U
                     {!isCompact && (
                         <>
                             {/* Grid Data */}
-                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 py-4 border-y border-white/5">
+                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 py-4 border-y border-border">
                                 <div className="space-y-1">
-                                    <p className="text-[8px] font-black font-mono uppercase opacity-30 tracking-widest">Session</p>
-                                    <p className="text-[10px] font-mono font-black truncate max-w-[120px]">{proof.session_id}</p>
+                                    <p className="text-xs font-semibold font-mono opacity-30">Session</p>
+                                    <p className="text-xs font-mono font-semibold truncate max-w-[120px]">{proof.session_id}</p>
                                 </div>
                                 <div className="space-y-1 text-right lg:text-left">
-                                    <p className="text-[8px] font-black font-mono uppercase opacity-30 tracking-widest">Provider</p>
-                                    <p className="text-[10px] font-mono font-black truncate max-w-[120px]">{proof.provider_wallet}</p>
+                                    <p className="text-xs font-semibold font-mono opacity-30">Provider</p>
+                                    <p className="text-xs font-mono font-semibold truncate max-w-[120px]">{proof.provider_wallet}</p>
                                 </div>
                                 <div className="space-y-1">
-                                    <p className="text-[8px] font-black font-mono uppercase opacity-30 tracking-widest">Duration Segment</p>
-                                    <p className="text-[10px] font-mono font-black">
+                                    <p className="text-xs font-semibold font-mono opacity-30">Duration Segment</p>
+                                    <p className="text-xs font-mono font-semibold">
                                         {new Date(proof.period_start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - 
                                         {new Date(proof.period_end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                     </p>
                                 </div>
                                 <div className="space-y-1 text-right">
-                                    <p className="text-[8px] font-black font-mono uppercase opacity-30 tracking-widest">Network</p>
+                                    <p className="text-xs font-semibold font-mono opacity-30">Network</p>
                                     <div className="flex items-center justify-end gap-1">
                                         <Globe size={10} className="text-primary/50" />
-                                        <span className="text-[10px] font-mono font-black">Mainnet-v1</span>
+                                        <span className="text-xs font-mono font-semibold">Mainnet-v1</span>
                                     </div>
                                 </div>
                             </div>
@@ -147,27 +147,27 @@ export function UsageProofCard({ proof, onSign, onSubmit, isCompact = false }: U
                             <div className="flex flex-col md:flex-row justify-between items-center gap-4">
                                 <div className="flex items-center gap-4">
                                     <div className="flex -space-x-3">
-                                        <div className={`w-8 h-8 rounded-full border-2 border-background flex items-center justify-center bg-white/5 ${proof.provider_signature ? 'text-primary' : 'text-muted-foreground opacity-30'}`} title="Provider Signature">
+                                        <div className={`w-8 h-8 rounded-full border-2 border-background flex items-center justify-center bg-secondary ${proof.provider_signature ? 'text-primary' : 'text-muted-foreground opacity-30'}`} title="Provider Signature">
                                             <ShieldCheck size={14} />
                                         </div>
-                                        <div className={`w-8 h-8 rounded-full border-2 border-background flex items-center justify-center bg-white/5 ${proof.buyer_signature ? 'text-primary' : 'text-muted-foreground opacity-30'}`} title="Buyer Signature">
+                                        <div className={`w-8 h-8 rounded-full border-2 border-background flex items-center justify-center bg-secondary ${proof.buyer_signature ? 'text-primary' : 'text-muted-foreground opacity-30'}`} title="Buyer Signature">
                                             <ShieldCheck size={14} />
                                         </div>
                                     </div>
-                                    <span className="text-[9px] font-mono font-black uppercase opacity-20 tracking-tighter">
+                                    <span className="text-xs font-mono font-semibold opacity-20 tracking-tight">
                                         Multi-Sig Consensus: {proof.provider_signature && proof.buyer_signature ? 'Verified' : 'Incomplete'}
                                     </span>
                                 </div>
 
                                 <div className="flex items-center gap-3">
-                                    <span className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest">
+                                    <span className="text-xs font-mono text-muted-foreground">
                                         On-chain ZK verify not available
                                     </span>
 
                                     {proof.status === 'pending' && onSign && (
                                         <button 
                                             onClick={() => onSign(proof.id)}
-                                            className="px-6 py-2.5 bg-primary text-primary-foreground rounded-xl text-[10px] font-black font-mono uppercase tracking-widest hover:brightness-110 transition-all flex items-center gap-2 shadow-lg shadow-primary/20"
+                                            className="px-6 py-2.5 bg-primary text-primary-foreground rounded-lg text-xs font-semibold font-mono hover:brightness-110 transition-all flex items-center gap-2 shadow-sm"
                                         >
                                             <Zap size={14} /> Sign Proof
                                         </button>
@@ -175,7 +175,7 @@ export function UsageProofCard({ proof, onSign, onSubmit, isCompact = false }: U
                                     {proof.status === 'signed' && onSubmit && (
                                         <button 
                                             onClick={() => onSubmit(proof.id)}
-                                            className="px-6 py-2.5 bg-indigo-500 text-white rounded-xl text-[10px] font-black font-mono uppercase tracking-widest hover:brightness-110 transition-all flex items-center gap-2 shadow-lg shadow-indigo-500/20"
+                                            className="px-6 py-2.5 bg-info text-background rounded-lg text-xs font-semibold font-mono hover:brightness-110 transition-all flex items-center gap-2 shadow-sm shadow-indigo-500/20"
                                         >
                                             <Globe size={14} /> Submit On-Chain
                                         </button>
@@ -184,7 +184,7 @@ export function UsageProofCard({ proof, onSign, onSubmit, isCompact = false }: U
                                         <a 
                                             href={`https://explorer.solana.com/tx/${proof.on_chain_tx_hash}`} 
                                             target="_blank" 
-                                            className="p-2.5 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 transition-all text-muted-foreground hover:text-white"
+                                            className="p-2.5 bg-secondary border border-border rounded-lg hover:bg-secondary transition-all text-muted-foreground hover:text-foreground"
                                         >
                                             <ExternalLink size={16} />
                                         </a>
@@ -196,7 +196,7 @@ export function UsageProofCard({ proof, onSign, onSubmit, isCompact = false }: U
 
                     {isCompact && (
                         <div className="flex justify-between items-center">
-                            <span className="text-sm font-mono font-black tabular-nums">{formatBytes(proof.total_bytes)}</span>
+                            <span className="text-sm font-mono font-semibold tabular-nums">{formatBytes(proof.total_bytes)}</span>
                             <ChevronRight size={14} className="opacity-20" />
                         </div>
                     )}

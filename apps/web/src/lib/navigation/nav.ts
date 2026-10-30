@@ -7,13 +7,15 @@ import {
     Compass,
     Fingerprint,
     Gift,
-    Globe,
     Inbox,
     Landmark,
     LayoutDashboard,
     ListChecks,
     ListOrdered,
     Bookmark,
+    BookOpen,
+    FlaskConical,
+    Pickaxe,
     MapPin,
     MessageSquare,
     Network,
@@ -49,6 +51,8 @@ export interface NavigationItem {
     description?: string;
     policy: RoutePolicy;
     providerBadge?: boolean;
+    /** Early preview: listed under "Coming soon" with a Soon badge. */
+    comingSoon?: boolean;
     /** Extra routes that should mark this item active (e.g. Discover covers Map). */
     activeRouteKeys?: StaticRouteKey[];
 }
@@ -68,6 +72,7 @@ function navItem(
         description?: string;
         policy?: RoutePolicy;
         providerBadge?: boolean;
+        comingSoon?: boolean;
         activeRouteKeys?: StaticRouteKey[];
     } = {},
 ): NavigationItem {
@@ -80,6 +85,7 @@ function navItem(
         description: options.description,
         policy: options.policy ?? getRoutePolicyByKey(routeKey),
         providerBadge: options.providerBadge,
+        comingSoon: options.comingSoon,
         activeRouteKeys: options.activeRouteKeys,
     };
 }
@@ -90,10 +96,9 @@ export const NAV_SECTIONS: NavigationSection[] = [
         title: "Use",
         items: [
             navItem("dashboard", "Dashboard", LayoutDashboard),
-            navItem("dashboardProxy", "Connect", Globe, { description: "Create proxy sessions" }),
-            navItem("dashboardSessions", "Sessions", Wifi, { description: "Active & history" }),
-            navItem("dashboardUsage", "Usage & billing", BarChart3, { description: "Bandwidth & billing" }),
-            navItem("dashboardSubscriptions", "Access Passes", Layers, { description: "NFT tiers & entitlements" }),
+            navItem("dashboardSessions", "Sessions", Wifi, { description: "Live and past connections" }),
+            navItem("dashboardUsage", "Usage & billing", BarChart3, { description: "What you used and paid" }),
+            navItem("dashboardSubscriptions", "Access Passes", Layers, { description: "Monthly bandwidth plans" }),
         ],
     },
     {
@@ -110,11 +115,11 @@ export const NAV_SECTIONS: NavigationSection[] = [
                 activeRouteKeys: ["marketplaceMap"],
             }),
             navItem("marketplaceOrders", "Orders", ListOrdered, {
-                description: "Purchases & escrow status",
+                description: "Your plans and purchases",
                 policy: "authenticated",
             }),
             navItem("marketplaceSaved", "Saved", Bookmark, {
-                description: "Bookmarked offers",
+                description: "Listings you saved",
                 policy: "authenticated",
             }),
         ],
@@ -130,7 +135,7 @@ export const NAV_SECTIONS: NavigationSection[] = [
                 providerBadge: true,
                 activeRouteKeys: ["marketplaceCatalog"],
             }),
-            navItem("marketplaceMap", "Supply map", MapPin, {
+            navItem("marketplaceMap", "Provider map", MapPin, {
                 id: "sellSupplyMap",
                 description: "See where listings appear globally",
                 // Must match ROUTE_POLICIES.marketplaceMap — map is a public discovery surface.
@@ -141,14 +146,10 @@ export const NAV_SECTIONS: NavigationSection[] = [
     },
     {
         id: "advanced",
-        title: "Advanced",
+        title: "Insights",
         items: [
-            navItem("dashboardTrustless", "Usage proofs", ShieldCheck, { description: "Oracle-attested Merkle anchors (not trustless ZK yet)" }),
-            navItem("dashboardAgents", "Agent console", Bot, {
-                description: "Experimental — no payment or EXECUTE yet",
-            }),
-            navItem("dashboardAnalytics", "My analytics", BarChart3, { description: "Your usage & network stats" }),
-            navItem("dashboardMonitoring", "Operations", Activity, { description: "Infrastructure monitoring" }),
+            navItem("dashboardAnalytics", "My analytics", BarChart3, { description: "Your usage and network stats" }),
+            navItem("dashboardMonitoring", "Operations", Activity, { description: "Admin: infrastructure health" }),
         ],
     },
     {
@@ -180,16 +181,12 @@ export const NAV_SECTIONS: NavigationSection[] = [
                 description: "Register & manage nodes",
                 policy: "provider",
             }),
-            navItem("dashboardProviderHealth", "Node diagnostics", Activity, {
-                description: "Health check results",
-                policy: "provider",
-            }),
             navItem("dashboardProviderAnalytics", "Provider stats", BarChart3, {
-                description: "Performance & revenue",
+                description: "Performance and revenue",
                 policy: "provider",
             }),
             navItem("dashboardProviderEarnings", "Income", Coins, {
-                description: "Earnings & payouts",
+                description: "Earnings and payouts",
                 policy: "provider",
             }),
             navItem("dashboardProviderServices", "Services", Network, {
@@ -212,13 +209,13 @@ export const NAV_SECTIONS: NavigationSection[] = [
         items: [
             navItem("communityForum", "Forum", MessageSquare, {
                 policy: "public",
-                description: "Discussions & support",
+                description: "Questions and support",
             }),
             navItem("communityMessages", "Messages", Inbox, {
                 description: "Direct messages",
             }),
             navItem("communityFeed", "Activity", Newspaper, {
-                description: "Follows & social pulse",
+                description: "People you follow"
             }),
             navItem("communityReferrals", "Invite", Gift, {
                 description: "Invite & earn",
@@ -233,12 +230,43 @@ export const NAV_SECTIONS: NavigationSection[] = [
         ),
     },
     {
-        id: "governance",
-        title: "Governance",
+        id: "soon",
+        title: "Coming soon",
         items: [
-            navItem("governance", "Proposals", Vote, { policy: "public" }),
-            navItem("governanceCreate", "Create proposal", Plus),
-            navItem("treasury", "Treasury", Landmark, { policy: "public", description: "On-chain transparency" }),
+            navItem("governance", "Governance", Vote, {
+                description: "Vote on how the network is run",
+                policy: "public",
+                comingSoon: true,
+            }),
+            navItem("governanceCreate", "Create proposal", Plus, { comingSoon: true }),
+            navItem("treasury", "Treasury", Landmark, {
+                description: "Where platform funds are held",
+                policy: "public",
+                comingSoon: true,
+            }),
+            navItem("dashboardTrustless", "Usage proofs", ShieldCheck, {
+                description: "Verifiable records of your usage",
+                comingSoon: true,
+            }),
+            navItem("dashboardAgents", "Agent console", Bot, {
+                description: "Run automated agents on the network",
+                comingSoon: true,
+            }),
+            navItem("depin", "Mining portal", Pickaxe, {
+                description: "Earn by running network infrastructure",
+                policy: "public",
+                comingSoon: true,
+            }),
+            navItem("whitepaper", "Whitepaper", BookOpen, {
+                description: "How the protocol works",
+                policy: "public",
+                comingSoon: true,
+            }),
+            navItem("communityBeta", "Beta program", FlaskConical, {
+                description: "Test new features early",
+                policy: "public",
+                comingSoon: true,
+            }),
         ],
     },
 ];
@@ -267,8 +295,8 @@ export function getMobilePrimaryTabs(options: { isProvider: boolean; isConsumer:
         tabs.push(navItem("dashboardProviderNodes", "Nodes", Server, { policy: "provider" }));
         tabs.push(navItem("dashboardProviderEarnings", "Earn", Coins, { policy: "provider" }));
     } else {
-        tabs.push(navItem("dashboardProxy", "Connect", Globe));
         tabs.push(navItem("marketplace", "Market", Store, { policy: "public" }));
+        tabs.push(navItem("marketplaceOrders", "Orders", ListOrdered, { policy: "authenticated" }));
     }
 
     tabs.push(navItem("communityForum", "Forum", MessageSquare, { policy: "public" }));
@@ -276,6 +304,7 @@ export function getMobilePrimaryTabs(options: { isProvider: boolean; isConsumer:
 }
 
 export function getNavigationBadge(item: NavigationItem, options: { isProvider: boolean; isDualRole: boolean }): string | undefined {
+    if (item.comingSoon) return "Soon";
     if (!item.providerBadge) return undefined;
     return options.isProvider || options.isDualRole ? undefined : "provider";
 }

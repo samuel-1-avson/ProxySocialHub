@@ -86,7 +86,7 @@ export function OnboardingProfilePanel({ onboarding, onStateChange }: PanelProps
       await updateProfile({ display_name: name });
       const refreshed = await refetch();
       if (!isProfileComplete(refreshed.data)) {
-        throw new Error("Profile still incomplete — set a display name");
+        throw new Error("Profile still incomplete. Set a display name");
       }
       const next = await completeBuyerStep(onboarding, "profile", {
         username: refreshed.data?.username,
@@ -102,7 +102,7 @@ export function OnboardingProfilePanel({ onboarding, onStateChange }: PanelProps
 
   return (
     <div className="space-y-5">
-      <h2 className="text-lg font-bold font-mono uppercase border-b border-border pb-3 flex items-center gap-2">
+      <h2 className="text-lg font-bold font-mono border-b border-border pb-3 flex items-center gap-2">
         <UserRound className="w-4 h-4 text-primary" />
         Complete profile
       </h2>
@@ -112,15 +112,15 @@ export function OnboardingProfilePanel({ onboarding, onStateChange }: PanelProps
 
       <div className="grid sm:grid-cols-2 gap-3">
         <div className="border border-border bg-background p-4">
-          <p className="text-[10px] font-mono uppercase text-muted-foreground mb-2">Username</p>
+          <p className="text-xs font-mono text-muted-foreground mb-2">Username</p>
           {isLoading ? (
             <Loader2 className="w-4 h-4 animate-spin" />
           ) : (
-            <p className="font-mono text-sm">{profile?.username || "—"}</p>
+            <p className="font-mono text-sm">{profile?.username || "Not set"}</p>
           )}
         </div>
         <div className="border border-border bg-background p-4">
-          <p className="text-[10px] font-mono uppercase text-muted-foreground mb-2">Display name</p>
+          <p className="text-xs font-mono text-muted-foreground mb-2">Display name</p>
           {isLoading ? (
             <Loader2 className="w-4 h-4 animate-spin" />
           ) : (
@@ -131,7 +131,7 @@ export function OnboardingProfilePanel({ onboarding, onStateChange }: PanelProps
 
       {!ready && (
         <div className="space-y-3">
-          <label className="block text-[10px] font-mono uppercase text-muted-foreground">
+          <label className="block text-xs font-mono text-muted-foreground">
             Display name
           </label>
           <input
@@ -205,7 +205,7 @@ export function OnboardingFundPanel({ onboarding, onStateChange }: PanelProps) {
       const latest = await refetch();
       const addr = latest.data?.linked_solana_address;
       if (!addr) {
-        throw new Error("Link a Solana wallet first — marketplace buys fund escrow from your linked wallet");
+        throw new Error("Link a Solana wallet first. Marketplace buys fund escrow from your linked wallet");
       }
       const next = await completeBuyerStep(onboarding, "fund", {
         linked_solana_address: addr,
@@ -219,18 +219,18 @@ export function OnboardingFundPanel({ onboarding, onStateChange }: PanelProps) {
 
   return (
     <div className="space-y-5">
-      <h2 className="text-lg font-bold font-mono uppercase border-b border-border pb-3 flex items-center gap-2">
+      <h2 className="text-lg font-bold font-mono border-b border-border pb-3 flex items-center gap-2">
         <Wallet className="w-4 h-4 text-primary" />
         Link wallet for escrow
       </h2>
       <p className="text-sm text-muted-foreground">
         Marketplace bandwidth is funded from your <strong className="text-foreground">linked Solana wallet</strong> into
-        an on-chain escrow PDA — not from platform balance. Platform deposits remain optional dust for
+        on-chain escrow, not from your platform balance. Platform deposits remain optional dust for
         staking/referrals.
       </p>
 
       <div className="border border-border bg-background p-4 space-y-2">
-        <p className="text-[10px] font-mono uppercase text-muted-foreground">Linked Solana wallet</p>
+        <p className="text-xs font-mono text-muted-foreground">Linked Solana wallet</p>
         {isLoading ? (
           <Loader2 className="w-4 h-4 animate-spin" />
         ) : linked ? (
@@ -240,14 +240,14 @@ export function OnboardingFundPanel({ onboarding, onStateChange }: PanelProps) {
         ) : (
           <p className="font-mono text-sm text-muted-foreground">Not linked</p>
         )}
-        <p className="text-[10px] font-mono uppercase text-muted-foreground pt-2">
+        <p className="text-xs font-mono text-muted-foreground pt-2">
           Optional platform balance · {balance.toFixed(4)} {tokenLabel}
           {balance > 0 && balance < MIN_FUNDED_SOL ? " (dust)" : ""}
         </p>
       </div>
 
       {!linked && (
-        <div className="border border-border bg-background p-4 text-xs font-mono text-muted-foreground uppercase tracking-wide">
+        <div className="border border-border bg-background p-4 text-xs font-mono text-muted-foreground">
           Open the wallet page to link Phantom/Solflare, then return here.
         </div>
       )}
@@ -311,12 +311,12 @@ export function OnboardingBrowsePanel({ onboarding, onStateChange }: PanelProps)
 
   return (
     <div className="space-y-5">
-      <h2 className="text-lg font-bold font-mono uppercase border-b border-border pb-3 flex items-center gap-2">
+      <h2 className="text-lg font-bold font-mono border-b border-border pb-3 flex items-center gap-2">
         <Globe className="w-4 h-4 text-primary" />
         Browse marketplace
       </h2>
       <p className="text-sm text-muted-foreground">
-        Explore listings by region, price, and uptime. You can buy later — this step just opens the
+        Explore listings by region, price, and uptime. You can buy later. This step just opens the
         catalog.
       </p>
 
@@ -338,7 +338,7 @@ export function OnboardingBrowsePanel({ onboarding, onStateChange }: PanelProps)
           onClick={() => void markBrowsed()}
           className="btn-retro btn-retro-outline inline-flex items-center gap-2 px-4 py-2.5 text-sm"
         >
-          I&apos;ve already browsed — continue
+          I&apos;ve already browsed. Continue
           <ArrowRight className="w-4 h-4" />
         </button>
         <Link
@@ -399,7 +399,7 @@ export function OnboardingSessionPanel({ onboarding, onStateChange }: PanelProps
         ? hasStartedSession(latest.data.sessions, latest.data.intents)
         : false;
       if (!ready) {
-        throw new Error("No active session or intent yet — start one from Connect or Marketplace");
+        throw new Error("No active session or intent yet. Start one from Connect or Marketplace");
       }
       let next = await completeBuyerStep(onboarding, "session", {
         sessions: latest.data?.sessions.length || 0,
@@ -418,7 +418,7 @@ export function OnboardingSessionPanel({ onboarding, onStateChange }: PanelProps
 
   return (
     <div className="space-y-5">
-      <h2 className="text-lg font-bold font-mono uppercase border-b border-border pb-3 flex items-center gap-2">
+      <h2 className="text-lg font-bold font-mono border-b border-border pb-3 flex items-center gap-2">
         <Zap className="w-4 h-4 text-primary" />
         Start a session
       </h2>
@@ -426,7 +426,7 @@ export function OnboardingSessionPanel({ onboarding, onStateChange }: PanelProps
         Launch your first proxy session from Connect (quick start) or buy a listing on the marketplace.
       </p>
 
-      <div className="border border-border bg-background p-4 text-xs font-mono uppercase tracking-wide space-y-1">
+      <div className="border border-border bg-background p-4 text-xs font-mono space-y-1">
         {isLoading ? (
           <Loader2 className="w-4 h-4 animate-spin" />
         ) : (
@@ -444,10 +444,10 @@ export function OnboardingSessionPanel({ onboarding, onStateChange }: PanelProps
 
       <div className="flex flex-wrap gap-3">
         <Link
-          href={ROUTES.dashboardProxy}
+          href={ROUTES.marketplaceOrders}
           className="btn-retro btn-retro-primary inline-flex items-center gap-2 px-4 py-2.5 text-sm"
         >
-          Open Connect
+          My orders
           <ArrowRight className="w-4 h-4" />
         </Link>
         <Link

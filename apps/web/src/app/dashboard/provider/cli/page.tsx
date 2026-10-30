@@ -168,7 +168,7 @@ export default function CLIPage() {
         toast.success(
             'Download started',
             selectedPlatform === 'windows'
-                ? 'Open the .exe (or Launch-Provider-Console.cmd from a GitHub Release zip) — a console window stays open with the interactive menu.'
+                ? 'Open the .exe (or Launch-Provider-Console.cmd from a GitHub Release zip). A console window stays open with the interactive menu.'
                 : 'Run the binary in a terminal with no arguments to open the interactive Provider console.',
         );
         requestAnimationFrame(() => {
@@ -179,29 +179,29 @@ export default function CLIPage() {
     const checksum = formatChecksum(downloadInfo?.checksum);
     const verifyChecksumCmd = selectedPlatform === 'windows'
         ? (checksum
-            ? `# PowerShell — verify download\nGet-FileHash .\\${binaryHint} -Algorithm SHA256\n# expect: ${checksum}`
-            : `# PowerShell — verify download\nGet-FileHash .\\${binaryHint} -Algorithm SHA256`)
+            ? `# PowerShell: verify download\nGet-FileHash .\\${binaryHint} -Algorithm SHA256\n# expect: ${checksum}`
+            : `# PowerShell: verify download\nGet-FileHash .\\${binaryHint} -Algorithm SHA256`)
         : (checksum
             ? `# verify download\nshasum -a 256 ./${binaryHint}\n# expect: ${checksum}`
             : `# verify download\nshasum -a 256 ./${binaryHint}`);
 
     const openConsoleCmd = selectedPlatform === 'windows'
-        ? `# After download (browser Downloads folder):\n# Option A — double-click the .exe (interactive console)\n# Option B — from a Release zip, double-click Launch-Provider-Console.cmd\n\ncd $env:USERPROFILE\\Downloads\n.\\${binaryHint}\n\n# Put provider.toml at:\n#   ${configPath}\n# Prefer: Setup wizard / My nodes → Connect (do not register again)`
+        ? `# After download (browser Downloads folder):\n# Option A: double-click the .exe (interactive console)\n# Option B: from a Release zip, double-click Launch-Provider-Console.cmd\n\ncd $env:USERPROFILE\\Downloads\n.\\${binaryHint}\n\n# Put provider.toml at:\n#   ${configPath}\n# Prefer: Setup wizard / My nodes → Connect (do not register again)`
         : `# After download:\nchmod +x ./${binaryHint}\n# Optional install onto PATH:\n# sudo mv ./${binaryHint} /usr/local/bin/provider-node\n\n./${binaryHint}\n\n# Config path: ${configPath}\n# Prefer: Setup wizard / My nodes → Connect (do not register again)`;
 
     const installCmd = selectedPlatform === 'windows'
-        ? `# Recommended — after Setup / My nodes → Connect saved provider.toml\n# Do NOT run register again (creates a second orphan node).\n${exe} doctor ${cfg}\n${exe} start ${cfg}\n\n# Optional — start automatically each time you sign in to Windows:\n# ${exe} service install ${cfg}\n# ${exe} service start\n# ${exe} service status`
-        : `# Recommended — after Setup / My nodes → Connect saved provider.toml\n# Do NOT run register again (creates a second orphan node).\nchmod +x ./${binaryHint}\n./${binaryHint} doctor ${cfg}\n./${binaryHint} start ${cfg}\n\n# Optional — systemd/launchd service instead of foreground start:\n# provider-node service install ${cfg}\n# provider-node service start`;
+        ? `# Recommended: after Setup / My nodes → Connect saved provider.toml\n# Do NOT run register again (creates a second orphan node).\n${exe} doctor ${cfg}\n${exe} start ${cfg}\n\n# Optional: start automatically each time you sign in to Windows:\n# ${exe} service install ${cfg}\n# ${exe} service start\n# ${exe} service status`
+        : `# Recommended: after Setup / My nodes → Connect saved provider.toml\n# Do NOT run register again (creates a second orphan node).\nchmod +x ./${binaryHint}\n./${binaryHint} doctor ${cfg}\n./${binaryHint} start ${cfg}\n\n# Optional: systemd/launchd service instead of foreground start:\n# provider-node service install ${cfg}\n# provider-node service start`;
 
     const registerOnlyCmd = `${exe} register --api-url ${endpoints.controlApiUrl} --api-key <PROVIDER_TOKEN>\n${exe} start ${cfg}`;
 
     const localWorkspaceCmd = `# Dev bootstrap (writes ${configPath})\n.\\scripts\\bootstrap-provider-dev.ps1 -ForceNewToken\n.\\scripts\\test-provider-auth.ps1\n\n# Terminal 1: daemon\n.\\scripts\\proxyhubb-cli.ps1 start\n\n# Terminal 2: live TUI\n.\\scripts\\proxyhubb-cli.ps1 dashboard`;
 
-    const configTemplate = `# provider.toml — prefer Dashboard → My nodes → Connect for a filled file
+    const configTemplate = `# provider.toml: prefer Dashboard → My nodes → Connect for a filled file
 control_api_url = "${endpoints.controlApiUrl}"
 gateway_addr = "${endpoints.gatewayTunnelAddr}"
 api_key = "<provider_token from Dashboard → API tokens>"
-node_id = "<node_uuid from Setup or My nodes — not a new register>"
+node_id = "<node_uuid from Setup or My nodes, not a new register>"
 provider_signing_key = "<generated in Connect panel>"
 connection_type = "residential"
 use_tls = true
@@ -392,13 +392,13 @@ metrics_port = 9090`;
                     <div id="cli-next-steps" className="scroll-mt-24">
                         <div className="ui-section-heading">
                             <h2>
-                                {downloadStarted ? 'Download started — open your console' : 'Open the interactive console'}
+                                {downloadStarted ? 'Download started. Open your console' : 'Open the interactive console'}
                             </h2>
                         </div>
                         <p className="ui-note">
                             The binary is a console app, not a silent installer. Running it with no arguments keeps a window open
                             with a menu (dashboard, doctor, start). Already installed? Run{' '}
-                            <code>provider-node update</code> to replace the binary in place —
+                            <code>provider-node update</code> to replace the binary in place:
                             no need to delete the old download first.
                         </p>
                         <CodeBlock
@@ -461,7 +461,7 @@ metrics_port = 9090`;
                                         return (
                                             <tr key={node.id}>
                                                 <td>{node.name || node.id}</td>
-                                                <td>{node.country || '—'}</td>
+                                                <td>{node.country || 'Unknown'}</td>
                                                 <td>{node.connection_type || 'node'}</td>
                                                 <td>{node.latency_ms != null ? `${node.latency_ms}ms` : 'latency n/a'}</td>
                                                 <td>
@@ -504,7 +504,7 @@ metrics_port = 9090`;
                         ))}
                     </div>
                     <div className="ui-section-space">
-                        <h3>CLI-only path (new node — skip if you used Setup)</h3>
+                        <h3>CLI-only path (new node; skip if you used Setup)</h3>
                         <p className="ui-note">
                             Create a token under{' '}
                             <Link href="/dashboard/provider/tokens" className="ui-link">API tokens</Link>
@@ -544,13 +544,13 @@ metrics_port = 9090`;
                 <div className="ui-note">
                     <p>Auth split:</p>
                     <p>
-                        <code>api_key</code> — long-lived provider token from dashboard.
+                        <code>api_key</code>: long-lived provider token from dashboard.
                     </p>
                     <p>
-                        <code>jwt_token</code> — leave empty (auto-refreshed from api_key).
+                        <code>jwt_token</code>: leave empty (auto-refreshed from api_key).
                     </p>
                     <p>
-                        <code>provider_signing_key</code> — heartbeat hotkey. If your profile wallet is linked, prefer signing with that wallet rather than a random browser key.
+                        <code>provider_signing_key</code>: heartbeat hotkey. If your profile wallet is linked, prefer signing with that wallet rather than a random browser key.
                     </p>
                 </div>
                 <CodeBlock

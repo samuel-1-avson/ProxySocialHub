@@ -21,50 +21,50 @@ const TIER_CONFIG: Record<string, TierConfig> = {
   Bronze: {
     label: 'Bronze',
     icon: <Shield size={12} />,
-    badgeClass: 'bg-orange-900/30 border border-orange-700/50',
-    textClass: 'text-orange-400',
+    badgeClass: 'bg-warning/30 border border-warning/50',
+    textClass: 'text-warning',
   },
   Silver: {
     label: 'Silver',
     icon: <CheckCircle size={12} />,
-    badgeClass: 'bg-slate-800/60 border border-slate-500/50',
-    textClass: 'text-slate-300',
+    badgeClass: 'bg-secondary/60 border border-border',
+    textClass: 'text-muted-foreground',
   },
   Gold: {
     label: 'Gold',
     icon: <Crown size={12} />,
-    badgeClass: 'bg-amber-900/40 border border-amber-500/50 shadow-lg shadow-amber-500/10',
-    textClass: 'text-amber-400',
+    badgeClass: 'bg-warning/40 border border-warning/50 shadow-sm',
+    textClass: 'text-warning',
   },
   unverified: {
     label: 'Unverified',
     icon: <ShieldOff size={12} />,
-    badgeClass: 'bg-gray-800 border border-gray-600',
-    textClass: 'text-gray-400',
+    badgeClass: 'bg-secondary border border-border',
+    textClass: 'text-muted-foreground',
   },
   basic: {
     label: 'Bronze', // Mapping for legacy
     icon: <Shield size={12} />,
-    badgeClass: 'bg-blue-900/60 border border-blue-600/50',
-    textClass: 'text-blue-300',
+    badgeClass: 'bg-info/60 border border-info/50',
+    textClass: 'text-info',
   },
   verified: {
     label: 'Silver', // Mapping for legacy
     icon: <CheckCircle size={12} />,
-    badgeClass: 'bg-green-900/60 border border-green-600/50',
-    textClass: 'text-green-300',
+    badgeClass: 'bg-success/60 border border-success/50',
+    textClass: 'text-success',
   },
   premium: {
     label: 'Gold', // Mapping for legacy
     icon: <Star size={12} />,
-    badgeClass: 'bg-violet-900/60 border border-violet-500/50',
-    textClass: 'text-violet-300',
+    badgeClass: 'bg-primary/60 border border-primary/50',
+    textClass: 'text-primary',
   },
   enterprise: {
     label: 'Gold', // Mapping for legacy
     icon: <Crown size={12} />,
-    badgeClass: 'bg-amber-900/60 border border-amber-500/50',
-    textClass: 'text-amber-300',
+    badgeClass: 'bg-warning/60 border border-warning/50',
+    textClass: 'text-warning',
   },
 };
 

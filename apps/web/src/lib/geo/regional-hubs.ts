@@ -99,14 +99,20 @@ function placeKey(raw?: string): string {
     return (raw ?? '').trim().toLowerCase().replace(/-/g, ' ').replace(/\s+/g, ' ');
 }
 
+/** Spacing-insensitive key so typed names like "Capecoast" still hit "Cape Coast". */
+function compactKey(key: string): string {
+    return key.replace(/ /g, '');
+}
+
 function matchHubByText(hubs: RegionalHub[], raw?: string): RegionalHub | undefined {
     const key = placeKey(raw);
     if (!key) return undefined;
     for (const hub of hubs) {
-        if (placeKey(hub.name) === key) return hub;
+        const name = placeKey(hub.name);
+        if (name === key || compactKey(name) === compactKey(key)) return hub;
         for (const alias of hub.aliases) {
             const a = placeKey(alias);
-            if (a === key || key.includes(a) || a.includes(key)) return hub;
+            if (a === key || compactKey(a) === compactKey(key) || key.includes(a) || a.includes(key)) return hub;
         }
     }
     return undefined;
@@ -131,6 +137,26 @@ function nearestHub(hubs: RegionalHub[], lat: number, lon: number): RegionalHub 
         if (d < bestDist) {
             best = hub;
             bestDist = d;
+        }
+    }
+    return best;
+}
+
+/** Country codes that have regional hubs, i.e. the countries a node location can be set to. */
+export function hubCountryCodes(): string[] {
+    return Object.keys(HUBS_BY_COUNTRY).sort();
+}
+
+/** Closest hub in any country to a device position; used to snap "Use my location" to a city. */
+export function nearestHubWorldwide(
+    lat: number,
+    lon: number,
+): { country: string; hub: RegionalHub; km: number } | undefined {
+    let best: { country: string; hub: RegionalHub; km: number } | undefined;
+    for (const [country, hubs] of Object.entries(HUBS_BY_COUNTRY)) {
+        for (const hub of hubs) {
+            const km = haversineKm(lat, lon, hub.lat, hub.lon);
+            if (!best || km < best.km) best = { country, hub, km };
         }
     }
     return best;

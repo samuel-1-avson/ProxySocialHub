@@ -148,14 +148,14 @@ export function MessageBubble({
                                         setIsEditing(false);
                                         setEditContent(message.content);
                                     }}
-                                    className="p-1 hover:bg-white/10 rounded"
+                                    className="p-1 hover:bg-secondary rounded"
                                 >
                                     <X className="w-4 h-4" />
                                 </button>
                                 <button
                                     onClick={handleEdit}
                                     disabled={saving}
-                                    className="p-1 hover:bg-white/10 rounded"
+                                    className="p-1 hover:bg-secondary rounded"
                                 >
                                     {saving ? (
                                         <Loader2 className="w-4 h-4 animate-spin" />
@@ -198,7 +198,7 @@ export function MessageBubble({
 
                     {/* Timestamp */}
                     <div
-                        className={`flex items-center gap-1 mt-1 text-[10px] ${
+                        className={`flex items-center gap-1 mt-1 text-xs ${
                             isOwn ? "text-primary-foreground/60" : "text-muted-foreground"
                         }`}
                     >
@@ -249,7 +249,7 @@ export function MessageBubble({
                     >
                         {/* Emoji Picker */}
                         {showEmojiPicker && canReact && (
-                            <div className="absolute bottom-full mb-1 p-2 bg-card border border-border rounded-lg shadow-xl grid grid-cols-4 gap-1 z-50">
+                            <div className="absolute bottom-full mb-1 p-2 bg-card border border-border rounded-lg shadow-sm grid grid-cols-4 gap-1 z-50">
                                 {EMOJI_LIST.map((emoji) => (
                                     <button
                                         key={emoji}
@@ -292,7 +292,7 @@ export function MessageBubble({
                         {canDelete && (
                             <button
                                 onClick={handleDelete}
-                                className="p-1.5 rounded-full bg-card border border-border hover:bg-red-500/10 hover:text-red-500 shadow-sm"
+                                className="p-1.5 rounded-full bg-card border border-border hover:bg-destructive/10 hover:text-destructive shadow-sm"
                             >
                                 <Trash2 className="w-3.5 h-3.5" />
                             </button>

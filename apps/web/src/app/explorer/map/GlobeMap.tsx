@@ -23,7 +23,7 @@ export default function GlobeMap(props: GlobeMapProps) {
                 data-testid="explorer-globe-loading"
             >
                 <Loader2 className="animate-spin text-primary" size={28} />
-                <p className="text-[10px] font-black text-white/30 uppercase tracking-widest">
+                <p className="text-xs font-semibold text-muted-foreground">
                     Loading globe assets…
                 </p>
             </div>
@@ -36,14 +36,14 @@ export default function GlobeMap(props: GlobeMapProps) {
                 className="w-full h-full flex flex-col items-center justify-center gap-4 bg-[#050508] px-6 text-center"
                 data-testid="explorer-globe-error"
             >
-                <p className="text-[10px] font-black text-rose-400 uppercase tracking-widest">
+                <p className="text-xs font-semibold text-destructive">
                     Globe assets failed to load
                 </p>
-                <p className="text-[9px] text-white/40 max-w-sm">{assets.message}</p>
+                <p className="text-xs text-muted-foreground max-w-sm">{assets.message}</p>
                 <button
                     type="button"
                     onClick={assets.retry}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-white/15 bg-white/5 text-[9px] font-black uppercase tracking-widest text-white/70 hover:text-white"
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border bg-secondary text-xs font-semibold text-foreground hover:text-foreground"
                 >
                     <RefreshCw size={12} />
                     Retry

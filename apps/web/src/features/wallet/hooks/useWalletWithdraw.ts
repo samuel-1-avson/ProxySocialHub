@@ -166,7 +166,7 @@ export function useWalletWithdraw(opts: {
       if (amt > sigThreshold) {
         if (!signMessage || !connected || !publicKey) {
           throw new Error(
-            `Withdrawals over ${sigThreshold} SOL require wallet signature — connect Phantom/Solflare`,
+            `Withdrawals over ${sigThreshold} SOL require wallet signature. Connect Phantom/Solflare`,
           );
         }
         const linked = wallet.linked_solana_address;

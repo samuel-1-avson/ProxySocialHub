@@ -443,7 +443,7 @@ export default function GoogleProxyMapCanvas({
 
         try {
             if (!google.maps?.visualization?.HeatmapLayer) {
-                setHeatmapError('Session density library still loading — try again in a moment');
+                setHeatmapError('Session density library still loading. Try again in a moment');
                 return;
             }
 
@@ -612,7 +612,7 @@ export default function GoogleProxyMapCanvas({
         >
             {heatmapError && showHeatmap ? (
                 <div
-                    className="absolute top-3 left-1/2 z-[1000] -translate-x-1/2 rounded-xl border border-amber-500/40 bg-[#0a0a15]/90 px-4 py-2 text-[9px] font-black uppercase tracking-widest text-amber-300 backdrop-blur-sm"
+                    className="absolute top-3 left-1/2 z-[1000] -translate-x-1/2 rounded-lg border border-warning/40 bg-[#0a0a15]/90 px-4 py-2 text-xs font-semibold text-warning"
                     role="status"
                 >
                     {heatmapError}

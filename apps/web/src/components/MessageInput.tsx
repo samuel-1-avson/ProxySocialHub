@@ -158,7 +158,7 @@ export function MessageInput({
 
                     {/* Emoji Picker */}
                     {showEmojiPicker && (
-                        <div className="absolute bottom-full left-0 mb-2 p-2 bg-card border border-border rounded-lg shadow-xl grid grid-cols-4 gap-1 z-50">
+                        <div className="absolute bottom-full left-0 mb-2 p-2 bg-card border border-border rounded-lg shadow-sm grid grid-cols-4 gap-1 z-50">
                             {EMOJI_LIST.map((emoji) => (
                                 <button
                                     key={emoji}

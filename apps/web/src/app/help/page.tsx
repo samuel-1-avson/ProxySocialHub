@@ -13,7 +13,7 @@ export default function HelpPage() {
                 },
                 {
                     title: "Technical documentation",
-                    body: "API, SDKs, buyer proxy, marketplace, and provider CLI docs live at https://docs.proxyhubb.com — use that site for integration guides. This Help Center covers product support paths.",
+                    body: "API, SDKs, buyer proxy, marketplace, and provider CLI docs live at https://docs.proxyhubb.com. Use that site for integration guides. This Help Center covers product support paths.",
                 },
                 {
                     title: "Buying proxy bandwidth",
