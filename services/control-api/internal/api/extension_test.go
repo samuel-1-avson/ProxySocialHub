@@ -19,6 +19,31 @@ const extensionTestJWTSecret = "test-jwt-secret-for-ci-min-32-chars-long"
 const testExtensionID = "abcdefghijklmnopabcdefghijklmnop"
 
 func TestExtensionPairFinish_IssuesDeviceJWT(t *testing.T) {
+	runExtensionPairFlow(t, testExtensionID)
+}
+
+// Firefox reports its add-on id (manifest gecko.id), not a 32-char Chrome id.
+func TestExtensionPairFinish_FirefoxAddonID(t *testing.T) {
+	runExtensionPairFlow(t, "extension@proxyhubb.com")
+}
+
+func TestExtensionPairFinish_RejectsBadExtensionID(t *testing.T) {
+	r := setupTestRouter()
+	r.POST("/v1/extension/pair/finish", finishExtensionPair)
+	for _, id := range []string{"", "not an id", "{nope}"} {
+		body, _ := json.Marshal(map[string]string{"code": "ABCD2345", "extension_id": id})
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/v1/extension/pair/finish", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest && w.Code != http.StatusServiceUnavailable {
+			t.Fatalf("extension_id %q: want 400 got %d", id, w.Code)
+		}
+	}
+}
+
+func runExtensionPairFlow(t *testing.T, extensionID string) {
+	t.Helper()
 	t.Setenv("JWT_SECRET", extensionTestJWTSecret)
 	testutil.SetupTestDB(t)
 	testutil.CleanupTestData(t, "extension_pair_codes", "extension_devices", "users")
@@ -73,7 +98,7 @@ func TestExtensionPairFinish_IssuesDeviceJWT(t *testing.T) {
 
 	finishBody, _ := json.Marshal(map[string]string{
 		"code":         startBody.Code,
-		"extension_id": testExtensionID,
+		"extension_id": extensionID,
 	})
 	finishReq := httptest.NewRequest(http.MethodPost, "/v1/extension/pair/finish", bytes.NewBuffer(finishBody))
 	finishReq.Header.Set("Content-Type", "application/json")

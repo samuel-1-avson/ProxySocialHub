@@ -77,7 +77,7 @@ func EnsureBuyerBandwidthQuota(userID uuid.UUID, requestGB float64) error {
 	}
 	if requestGB > remaining+1e-9 {
 		return fmt.Errorf(
-			"access pass bandwidth quota exceeded: requesting %.2f GB, remaining %.2f GB of %.0f GB period limit — mint a higher Access Pass",
+			"access pass bandwidth quota exceeded: requesting %.2f GB, remaining %.2f GB of %.0f GB period limit. Get a bigger Access Pass",
 			requestGB, remaining, limitGB,
 		)
 	}

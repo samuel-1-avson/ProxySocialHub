@@ -19,6 +19,7 @@ import (
 	"github.com/mr-tron/base58"
 	"github.com/proxyhubb/control-api/internal/config"
 	"github.com/proxyhubb/control-api/internal/crypto"
+	"github.com/proxyhubb/control-api/internal/custody"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
@@ -52,9 +53,10 @@ func RegisterAuthRoutes(r *gin.RouterGroup) {
 		// Falls back to in-memory if Redis is unavailable.
 		auth.POST("/wallet/challenge", StrictRateLimit(), getAuthChallenge)
 		auth.POST("/wallet/login", StrictRateLimit(), walletLogin)
+		auth.POST("/google", StrictRateLimit(), googleLogin)
 		auth.POST("/refresh", StrictRateLimit(), refreshSession)
 		auth.POST("/logout", StrictRateLimit(), logoutSession)
-		log.Printf("[AUTH] Wallet-only mode enabled (/auth/dev/login disabled)")
+		log.Printf("[AUTH] Wallet + Google sign-in enabled (/auth/dev/login disabled)")
 		auth.GET("/me", getMe)
 	}
 }
@@ -228,75 +230,24 @@ func walletLogin(c *gin.Context) {
 		return
 	}
 	if !found {
-		// User not found → Create new user
+		// User not found → Create new user (default role "buyer").
 		tx := db.DB.Begin()
-
-		// Create new user — default role is "buyer".
 		username := "user_" + req.Address[:8]
 		email := req.Address + "@wallet.proxyhubb.com"
+		address := req.Address
 
-		// Insert into auth.users first (profiles.id has FK to auth.users.id)
-		// Use ON CONFLICT to handle retries (orphan rows from previous failed attempts)
-		var newID uuid.UUID
-		authUserSQL := `INSERT INTO auth.users (id, email, raw_user_meta_data, created_at, updated_at)
-			VALUES ($1, $2, '{}', NOW(), NOW())
-			ON CONFLICT (email) DO UPDATE SET updated_at = NOW()
-			RETURNING id`
-		row := tx.Raw(authUserSQL, uuid.New(), email).Row()
-		if row == nil {
+		created, err := createAccount(tx, email, username, &address)
+		if err != nil {
 			tx.Rollback()
-			log.Printf("[AUTH] Failed to create auth.users entry for %s: nil row", req.Address)
-			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to create user"})
-			return
-		}
-		if err := row.Scan(&newID); err != nil {
-			tx.Rollback()
-			log.Printf("[AUTH] Failed to scan auth.users ID for %s: %v", req.Address, err)
-			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to create user"})
-			return
-		}
-
-		// Insert profile (raw SQL to ensure our UUID is used, GORM Create may override)
-		profileSQL := `INSERT INTO profiles (id, email, role, status, trust_tier, wallet_address, username, created_at, updated_at)
-			VALUES ($1, $2, 'buyer', 'active', 'new', $3, $4, NOW(), NOW())
-			ON CONFLICT (id) DO UPDATE SET wallet_address = EXCLUDED.wallet_address, updated_at = NOW()`
-		if err := tx.Exec(profileSQL, newID, email, req.Address, username).Error; err != nil {
-			tx.Rollback()
-			log.Printf("[AUTH] Failed to create profile for %s (id=%s): %v", req.Address, newID, err)
-			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to create user"})
-			return
-		}
-
-		// Load the created/updated profile
-		if err := tx.Where("id = ?", newID).First(&user).Error; err != nil {
-			tx.Rollback()
-			log.Printf("[AUTH] Failed to load profile after create for %s: %v", req.Address, err)
-			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to create user"})
-			return
-		}
-
-		// Create wallet only when missing (retries / email conflict can reuse an existing user_id).
-		var existingWallet models.Wallet
-		walletErr := tx.Where("user_id = ?", user.ID).First(&existingWallet).Error
-		if walletErr != nil {
-			if !errors.Is(walletErr, gorm.ErrRecordNotFound) {
-				tx.Rollback()
-				log.Printf("[AUTH] Failed to look up wallet for %s: %v", req.Address, walletErr)
-				c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to create wallet"})
-				return
+			log.Printf("[AUTH] Failed to create account for %s: %v", req.Address, err)
+			msg := "Failed to create user"
+			if errors.Is(err, errAccountWallet) {
+				msg = "Failed to create wallet"
 			}
-			wallet := models.Wallet{
-				UserID:     user.ID,
-				BalanceSOL: 0,
-			}
-			wallet.InitializeWithDefaultLimits(models.TrustTierNew)
-			if err := tx.Create(&wallet).Error; err != nil {
-				tx.Rollback()
-				log.Printf("[AUTH] Failed to create wallet for %s: %v", req.Address, err)
-				c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to create wallet"})
-				return
-			}
+			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: msg})
+			return
 		}
+		user = created
 
 		if err := tx.Commit().Error; err != nil {
 			tx.Rollback()
@@ -305,7 +256,7 @@ func walletLogin(c *gin.Context) {
 			return
 		}
 
-		log.Printf("[AUTH] Created new user %s for wallet %s", newID, req.Address)
+		log.Printf("[AUTH] Created new user %s for wallet %s", user.ID, req.Address)
 		if code := strings.TrimSpace(req.ReferralCode); code != "" {
 			ProcessReferralSignup(user.ID, code)
 		}
@@ -491,6 +442,8 @@ func getMe(c *gin.Context) {
 		ScheduledDeletionAt   *time.Time        `json:"scheduled_deletion_at,omitempty"`
 		CreatedAt             time.Time         `json:"created_at"`
 		UpdatedAt             time.Time         `json:"updated_at"`
+		// ManagedWallet is set when ProxyHubb holds the user's wallet (Google sign-up).
+		ManagedWallet *managedWalletInfo `json:"managed_wallet,omitempty"`
 	}
 
 	response := SanitizedUser{
@@ -530,6 +483,15 @@ func getMe(c *gin.Context) {
 		CreatedAt:             user.CreatedAt,
 		UpdatedAt:             user.UpdatedAt,
 	}
+	if w, err := custody.FindWallet(db.DB, user.ID); err == nil {
+		response.ManagedWallet = &managedWalletInfo{Address: w.Address, Chain: w.Chain}
+	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+// managedWalletInfo is the public part of a server-held wallet: never key material.
+type managedWalletInfo struct {
+	Address string `json:"address"`
+	Chain   string `json:"chain"`
 }

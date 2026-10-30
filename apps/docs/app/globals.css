@@ -1534,3 +1534,268 @@ kbd {
   color: var(--accent-text) !important;
   text-decoration: none !important;
 }
+
+.mobile-dock {
+  display: none;
+}
+
+/* Plain-language pictures (components/mdx/diagrams.tsx) */
+.doc-figure {
+  margin: 1.6rem 0 2rem;
+  padding: 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--panel);
+}
+.doc-figure figcaption {
+  margin-top: 1rem;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--muted);
+  text-align: center;
+}
+
+.flow-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 3rem;
+  height: 3rem;
+  flex: none;
+  border-radius: 0.75rem;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+.flow-tone-signal .flow-icon,
+.flow-icon.flow-tone-signal {
+  background: color-mix(in srgb, var(--signal) 18%, transparent);
+  color: var(--signal);
+}
+.flow-tone-muted .flow-icon,
+.flow-icon.flow-tone-muted {
+  background: var(--rail);
+  color: var(--muted);
+}
+
+.flow-track {
+  display: flex;
+  align-items: stretch;
+  gap: 0.35rem;
+}
+.flow-step {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.9rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+  background: var(--bg-elevated);
+  text-align: center;
+}
+.flow-title {
+  font-size: 1rem;
+  line-height: 1.25;
+  color: var(--text);
+}
+.flow-text {
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: var(--text-body);
+}
+.flow-text p {
+  margin: 0;
+}
+.flow-arrow {
+  flex: 0 0 2.6rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+}
+.flow-arrow:has(.flow-arrow-label) {
+  flex-basis: 4.5rem;
+}
+.flow-arrow-line {
+  position: relative;
+  width: 100%;
+  height: 2px;
+  background: var(--accent);
+}
+.flow-arrow-line::after {
+  content: '';
+  position: absolute;
+  right: -1px;
+  top: 50%;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-top: 2px solid var(--accent);
+  border-right: 2px solid var(--accent);
+  transform: translateY(-50%) rotate(45deg);
+}
+.flow-arrow-label {
+  font-size: 0.72rem;
+  line-height: 1.2;
+  text-align: center;
+  color: var(--muted);
+}
+
+.money-track {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.money-box {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.9rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+  background: var(--bg-elevated);
+  text-align: center;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: var(--text-body);
+}
+.money-box strong {
+  font-size: 1rem;
+  color: var(--text);
+}
+.money-lock {
+  border-color: color-mix(in srgb, var(--signal) 55%, var(--border));
+}
+.money-split {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.money-arrow {
+  position: relative;
+  flex: 0 0 2rem;
+  height: 2px;
+  background: var(--signal);
+}
+.money-arrow::after {
+  content: '';
+  position: absolute;
+  right: -1px;
+  top: 50%;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-top: 2px solid var(--signal);
+  border-right: 2px solid var(--signal);
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.idea-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 1rem;
+  margin: 1.4rem 0 2rem;
+}
+.idea-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 1.1rem 1.15rem;
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+  background: var(--bg-elevated);
+}
+.idea-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.idea-title {
+  font-size: 1.08rem;
+  line-height: 1.3;
+  color: var(--text);
+}
+.idea-label {
+  align-self: flex-start;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.3rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.idea-body {
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: var(--text-body);
+}
+.idea-body p {
+  margin: 0;
+}
+.idea-body p + p {
+  margin-top: 0.5rem;
+}
+
+.doc-figure.flow,
+.doc-figure.money {
+  container-type: inline-size;
+}
+
+/* Stack vertically when the figure itself is narrow (phones, or nested inside <Steps>). */
+@container (max-width: 640px) {
+  .flow-track,
+  .money-track {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .flow-step,
+  .money-box {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    text-align: left;
+    column-gap: 0.75rem;
+  }
+  .flow-text,
+  .money-box > span:last-child {
+    flex-basis: 100%;
+  }
+  .flow-arrow,
+  .flow-arrow:has(.flow-arrow-label) {
+    flex: 0 0 auto;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 0.6rem;
+    padding: 0.15rem 0 0.15rem 1.45rem;
+  }
+  .flow-arrow-line {
+    width: 2px;
+    height: 1.6rem;
+  }
+  .flow-arrow-line::after {
+    right: 50%;
+    top: auto;
+    bottom: -1px;
+    transform: translateX(50%) rotate(135deg);
+  }
+  .flow-arrow-label {
+    text-align: left;
+  }
+  .money-arrow {
+    flex: 0 0 1.6rem;
+    width: 2px;
+    height: 1.6rem;
+    margin-left: 1.45rem;
+  }
+  .money-arrow::after {
+    right: 50%;
+    top: auto;
+    bottom: -1px;
+    transform: translateX(50%) rotate(135deg);
+  }
+}

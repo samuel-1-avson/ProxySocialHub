@@ -119,43 +119,43 @@ function StatsOverview({ stats }: { stats: ProviderStats }) {
             label: "Avg Download",
             value: measured(stats.avg_download_speed, 1, 'Mbps'),
             icon: Zap,
-            color: "text-emerald-500",
-            bgColor: "bg-emerald-500/10",
+            color: "text-success",
+            bgColor: "bg-success/10",
         },
         {
             label: "Avg Upload",
             value: measured(stats.avg_upload_speed, 1, 'Mbps'),
             icon: TrendingUp,
-            color: "text-blue-500",
-            bgColor: "bg-blue-500/10",
+            color: "text-info",
+            bgColor: "bg-info/10",
         },
         {
             label: "Avg Latency",
             value: measured(stats.avg_latency_ms, 1, 'ms'),
             icon: Clock,
-            color: "text-amber-500",
-            bgColor: "bg-amber-500/10",
+            color: "text-warning",
+            bgColor: "bg-warning/10",
         },
         {
             label: "Uptime",
             value: measured(stats.uptime_percent, 2, '%'),
             icon: Activity,
-            color: "text-purple-500",
-            bgColor: "bg-purple-500/10",
+            color: "text-primary",
+            bgColor: "bg-primary/10",
         },
         {
             label: "Sessions",
             value: measured(stats.total_sessions, 0),
             icon: Globe,
-            color: "text-cyan-500",
-            bgColor: "bg-cyan-500/10",
+            color: "text-info",
+            bgColor: "bg-info/10",
         },
         {
             label: "Customers",
             value: measured(stats.active_customers, 0),
             icon: Users,
-            color: "text-rose-500",
-            bgColor: "bg-rose-500/10",
+            color: "text-destructive",
+            bgColor: "bg-destructive/10",
         },
     ];
 
@@ -167,7 +167,7 @@ function StatsOverview({ stats }: { stats: ProviderStats }) {
             </div>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 {statCards.map((stat) => (
-                    <div key={stat.label} className="p-4 rounded-xl bg-secondary/20">
+                    <div key={stat.label} className="p-4 rounded-lg bg-secondary/20">
                         <div className={`w-10 h-10 rounded-lg ${stat.bgColor} flex items-center justify-center mb-3`}>
                             <stat.icon className={`w-5 h-5 ${stat.color}`} />
                         </div>
@@ -207,23 +207,23 @@ function SpeedTestSection({ speedTests }: { speedTests: SpeedTest[] }) {
 
             {/* Current Test */}
             <div className="grid md:grid-cols-3 gap-4 mb-6">
-                <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                <div className="p-4 rounded-lg bg-success/10 border border-success/20">
                     <p className="text-sm text-muted-foreground mb-1">Download</p>
-                    <p className="text-3xl font-bold font-mono text-emerald-500">
+                    <p className="text-3xl font-bold font-mono text-success">
                         {Number(currentTest.download_speed || 0).toFixed(1)}
                         <span className="text-lg ml-1">Mbps</span>
                     </p>
                 </div>
-                <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/20">
+                <div className="p-4 rounded-lg bg-info/10 border border-info/20">
                     <p className="text-sm text-muted-foreground mb-1">Upload</p>
-                    <p className="text-3xl font-bold font-mono text-blue-500">
+                    <p className="text-3xl font-bold font-mono text-info">
                         {Number(currentTest.upload_speed || 0).toFixed(1)}
                         <span className="text-lg ml-1">Mbps</span>
                     </p>
                 </div>
-                <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                <div className="p-4 rounded-lg bg-warning/10 border border-warning/20">
                     <p className="text-sm text-muted-foreground mb-1">Latency</p>
-                    <p className="text-3xl font-bold font-mono text-amber-500">
+                    <p className="text-3xl font-bold font-mono text-warning">
                         {currentTest.latency_ms}
                         <span className="text-lg ml-1">ms</span>
                     </p>
@@ -240,7 +240,7 @@ function SpeedTestSection({ speedTests }: { speedTests: SpeedTest[] }) {
                             <YAxis stroke="#666" fontSize={12} />
                             <Tooltip
                                 contentStyle={{
-                                    backgroundColor: "#1a1a1a",
+                                    backgroundColor: "var(--popover)", color: "var(--popover-foreground)",
                                     border: "1px solid #333",
                                     borderRadius: "8px",
                                 }}
@@ -331,13 +331,13 @@ function TestimonialsSection({ testimonials }: { testimonials: Testimonial[] }) 
 // Featured Testimonial Card
 function FeaturedTestimonialCard({ testimonial }: { testimonial: Testimonial }) {
     return (
-        <div className="p-6 rounded-xl bg-gradient-to-br from-primary/5 to-transparent border border-primary/20">
+        <div className="p-6 rounded-lg bg-gradient-to-br from-primary/5 to-transparent border border-primary/20">
             <div className="flex items-start gap-1 mb-3">
                 {[...Array(5)].map((_, i) => (
                     <Star
                         key={i}
                         className={`w-4 h-4 ${
-                            i < testimonial.rating ? "text-yellow-500 fill-yellow-500" : "text-muted-foreground"
+                            i < testimonial.rating ? "text-warning fill-warning" : "text-muted-foreground"
                         }`}
                     />
                 ))}
@@ -360,7 +360,7 @@ function FeaturedTestimonialCard({ testimonial }: { testimonial: Testimonial }) 
                 <div>
                     <p className="font-medium font-mono">@{testimonial.customer?.username}</p>
                     {testimonial.is_verified && (
-                        <span className="text-xs text-emerald-500 flex items-center gap-1">
+                        <span className="text-xs text-success flex items-center gap-1">
                             <CheckCircle2 className="w-3 h-3" />
                             Verified Purchase
                         </span>
@@ -374,13 +374,13 @@ function FeaturedTestimonialCard({ testimonial }: { testimonial: Testimonial }) 
 // Regular Testimonial Card
 function TestimonialCard({ testimonial }: { testimonial: Testimonial }) {
     return (
-        <div className="p-4 rounded-xl bg-secondary/20">
+        <div className="p-4 rounded-lg bg-secondary/20">
             <div className="flex items-start gap-1 mb-2">
                 {[...Array(5)].map((_, i) => (
                     <Star
                         key={i}
                         className={`w-3 h-3 ${
-                            i < testimonial.rating ? "text-yellow-500 fill-yellow-500" : "text-muted-foreground"
+                            i < testimonial.rating ? "text-warning fill-warning" : "text-muted-foreground"
                         }`}
                     />
                 ))}
@@ -388,7 +388,7 @@ function TestimonialCard({ testimonial }: { testimonial: Testimonial }) {
             <p className="text-sm text-muted-foreground line-clamp-3 mb-3">&ldquo;{testimonial.content}&rdquo;</p>
             <div className="flex items-center gap-2">
                 <span className="text-xs font-mono text-primary">@{testimonial.customer?.username}</span>
-                {testimonial.is_verified && <CheckCircle2 className="w-3 h-3 text-emerald-500" />}
+                {testimonial.is_verified && <CheckCircle2 className="w-3 h-3 text-success" />}
             </div>
         </div>
     );
@@ -402,7 +402,7 @@ function ShowcaseItem({ showcase }: { showcase: ProviderShowcase }) {
                 <Award className="w-5 h-5 text-primary" />
                 <h3 className="font-bold font-mono">{showcase.title}</h3>
                 {showcase.is_featured && (
-                    <span className="ml-auto px-2 py-0.5 bg-primary/10 text-primary text-[10px] font-bold font-mono rounded">
+                    <span className="ml-auto px-2 py-0.5 bg-primary/10 text-primary text-xs font-bold font-mono rounded">
                         FEATURED
                     </span>
                 )}
@@ -425,7 +425,7 @@ function ShowcaseItem({ showcase }: { showcase: ProviderShowcase }) {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     {Object.entries(showcase.metrics).map(([key, value]) => (
                         <div key={key} className="p-3 rounded-lg bg-secondary/30">
-                            <p className="text-xs text-muted-foreground uppercase font-mono">{key}</p>
+                            <p className="text-xs text-muted-foreground font-mono">{key}</p>
                             <p className="text-lg font-bold font-mono">{value}</p>
                         </div>
                     ))}

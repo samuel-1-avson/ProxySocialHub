@@ -73,14 +73,14 @@ export default function FeedPage() {
     const getEventIcon = (type: string) => {
         switch (type) {
             case "new_listing": return <Package className="text-primary" size={18} />;
-            case "new_review": return <Star className="text-amber-500 fill-amber-500/20" size={18} />;
-            case "new_sale": return <Coins className="text-emerald-500" size={18} />;
+            case "new_review": return <Star className="text-warning fill-warning/20" size={18} />;
+            case "new_sale": return <Coins className="text-success" size={18} />;
             case "badge_earned":
-            case "new_badge": return <Award className="text-blue-500" size={18} />;
-            case "milestone": return <TrendingUp className="text-violet-400" size={18} />;
-            case "new_thread": return <Terminal className="text-sky-400" size={18} />;
-            case "node_online": return <Zap className="text-yellow-400" size={18} />;
-            case "new_follower": return <Heart className="text-rose-500" size={18} />;
+            case "new_badge": return <Award className="text-info" size={18} />;
+            case "milestone": return <TrendingUp className="text-primary" size={18} />;
+            case "new_thread": return <Terminal className="text-info" size={18} />;
+            case "node_online": return <Zap className="text-warning" size={18} />;
+            case "new_follower": return <Heart className="text-destructive" size={18} />;
             default: return <Activity className="text-primary" size={18} />;
         }
     };
@@ -123,13 +123,13 @@ export default function FeedPage() {
             {/* V3 Terminal Header */}
             <motion.div variants={itemVariants} className="flex flex-col md:flex-row justify-between items-start md:items-end gap-8 border-b border-border pb-10">
                 <div className="space-y-4">
-                    <div className="flex items-center gap-2 text-primary text-[10px] font-black uppercase tracking-[0.4em]">
+                    <div className="flex items-center gap-2 text-primary text-xs font-semibold">
                         <Hexagon size={12} className="animate-spin-slow" /> Network Activity Sequence
                     </div>
                     <div>
-                        <h1 className="text-5xl font-black uppercase tracking-tighter leading-none bg-clip-text text-transparent bg-gradient-to-r from-primary to-emerald-400">Activity Pulse</h1>
-                        <p className="text-muted-foreground font-mono text-[10px] mt-3 uppercase tracking-widest flex items-center gap-3">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                        <h1 className="text-5xl font-semibold tracking-tight leading-none">Activity Pulse</h1>
+                        <p className="text-muted-foreground font-mono text-xs mt-3 flex items-center gap-3">
+                            <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse"></span>
                             Monitor live protocol events and discovery signals.
                         </p>
                     </div>
@@ -140,7 +140,7 @@ export default function FeedPage() {
                 {/* Main Content Stream */}
                 <div className="lg:col-span-8 space-y-8">
                     {/* Mode Selector */}
-                    <motion.div variants={itemVariants} className="flex gap-3 p-1.5 bg-muted border border-border rounded-2xl w-fit">
+                    <motion.div variants={itemVariants} className="flex gap-3 p-1.5 bg-muted border border-border rounded-lg w-fit">
                         {[
                             { id: 'feed', label: 'Pulse', icon: Rss },
                             { id: 'discover', label: 'Discover', icon: Compass },
@@ -149,8 +149,8 @@ export default function FeedPage() {
                             <button
                                 key={tab.id}
                                 onClick={() => setActiveTab(tab.id as any)}
-                                className={`flex items-center gap-3 px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === tab.id
-                                    ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20"
+                                className={`flex items-center gap-3 px-6 py-2.5 rounded-lg text-xs font-semibold transition-all ${activeTab === tab.id
+                                    ? "bg-primary text-primary-foreground shadow-sm "
                                     : "text-muted-foreground hover:text-foreground hover:bg-surface-hover"
                                     }`}
                             >
@@ -175,7 +175,7 @@ export default function FeedPage() {
                                         <Loader2 size={24} className="animate-pulse" />
                                     </div>
                                 </div>
-                                <p className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.5em]">Synchronizing Stream...</p>
+                                <p className="font-mono text-xs text-muted-foreground">Synchronizing Stream...</p>
                             </motion.div>
                         ) : (
                             <motion.div
@@ -194,25 +194,25 @@ export default function FeedPage() {
                                                     <Lock size={32} className="text-muted-foreground" />
                                                 </div>
                                                 <div className="space-y-3">
-                                                    <h3 className="text-xl font-black uppercase tracking-tighter">Authorization Required</h3>
-                                                    <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest leading-relaxed max-w-xs mx-auto">
+                                                    <h3 className="text-xl font-semibold tracking-tight">Authorization Required</h3>
+                                                    <p className="text-xs font-mono text-muted-foreground leading-relaxed max-w-xs mx-auto">
                                                         The activity pipeline requires a linear session identity. Initialize protocol to proceed.
                                                     </p>
                                                 </div>
-                                                <Link href="/login" className="px-10 py-4 bg-primary text-primary-foreground rounded-2xl font-black text-[10px] uppercase tracking-widest hover:shadow-lg hover:shadow-primary/20 transition-all inline-block">
-                                                    INITIALIZE SESSION
+                                                <Link href="/login" className="px-10 py-4 bg-primary text-primary-foreground rounded-lg font-semibold text-xs hover:shadow-sm transition-all inline-block">
+                                                    Initialize session
                                                 </Link>
                                             </GlassCard>
                                         ) : events.length === 0 ? (
                                             <GlassCard className="!p-16 text-center space-y-6 border-dashed border-border">
                                                 <Rss size={48} className="mx-auto text-muted-foreground" />
                                                 <div className="space-y-2">
-                                                    <h3 className="text-lg font-black uppercase tracking-tighter">Your feed is quiet</h3>
-                                                    <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest leading-relaxed max-w-sm mx-auto">
+                                                    <h3 className="text-lg font-semibold tracking-tight">Your feed is quiet</h3>
+                                                    <p className="text-xs font-mono text-muted-foreground leading-relaxed max-w-sm mx-auto">
                                                         Follow providers from the marketplace or Discover tab to see new listings, sales, and milestones here.
                                                     </p>
                                                 </div>
-                                                <button onClick={() => setActiveTab("discover")} className="px-6 py-3 glass-card border-border hover:border-primary/50 text-[10px] font-black uppercase tracking-widest transition-all rounded-xl">
+                                                <button onClick={() => setActiveTab("discover")} className="px-6 py-3 glass-card border-border hover:border-primary/50 text-xs font-semibold transition-all rounded-lg">
                                                     Discover providers
                                                 </button>
                                             </GlassCard>
@@ -223,12 +223,12 @@ export default function FeedPage() {
                                                     <GlassCard className="!p-6 group relative overflow-hidden active:scale-[0.99] transition-transform">
                                                         <div className="absolute left-0 top-0 w-1 h-full bg-primary opacity-0 group-hover:opacity-100 transition-opacity"></div>
                                                         <div className="flex gap-6 items-start">
-                                                            <div className="w-12 h-12 shrink-0 rounded-2xl bg-muted border border-border flex items-center justify-center group-hover:scale-110 transition-transform">
+                                                            <div className="w-12 h-12 shrink-0 rounded-lg bg-muted border border-border flex items-center justify-center group-hover:scale-110 transition-transform">
                                                                 {getEventIcon(event.event_type)}
                                                             </div>
                                                             <div className="flex-1 space-y-2">
-                                                                <p className="text-sm font-black tracking-tight leading-relaxed text-foreground">{event.content}</p>
-                                                                <div className="flex items-center gap-4 text-[9px] font-black text-muted-foreground uppercase tracking-widest">
+                                                                <p className="text-sm font-semibold tracking-tight leading-relaxed text-foreground">{event.content}</p>
+                                                                <div className="flex items-center gap-4 text-xs font-semibold text-muted-foreground">
                                                                     <div className="flex items-center gap-2"><Clock size={12} /> {new Date(event.created_at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}</div>
                                                                     <span className="text-border">•</span>
                                                                     <div className="flex items-center gap-2 text-primary/80">{event.event_type.replace(/_/g, ' ')}</div>
@@ -267,7 +267,7 @@ export default function FeedPage() {
                                 {activeTab === "discover" && (
                                     <div className="grid md:grid-cols-2 gap-6">
                                         {providers.length === 0 ? (
-                                            <div className="col-span-full py-20 text-center text-muted-foreground font-black uppercase text-[10px] tracking-[0.3em] italic">
+                                            <div className="col-span-full py-20 text-center text-muted-foreground font-semibold text-xs">
                                                 No signals detected in this cluster.
                                             </div>
                                         ) : (
@@ -280,28 +280,28 @@ export default function FeedPage() {
                                                         href={`/profile/${provider.username || provider.id}`}
                                                         className="flex items-center gap-6 flex-1 min-w-0 group"
                                                     >
-                                                        <div className="w-16 h-16 shrink-0 rounded-2xl bg-muted border border-border flex items-center justify-center overflow-hidden group-hover:scale-105 transition-transform shadow-xl">
+                                                        <div className="w-16 h-16 shrink-0 rounded-lg bg-muted border border-border flex items-center justify-center overflow-hidden group-hover:scale-105 transition-transform shadow-sm">
                                                             {provider.avatar_url ? (
                                                                 <img src={provider.avatar_url} alt="" className="w-full h-full object-cover" />
                                                             ) : (
-                                                                <span className="font-black text-xl text-primary/40">
+                                                                <span className="font-semibold text-xl text-primary/40">
                                                                     {(provider.display_name || provider.username || "?").charAt(0).toUpperCase()}
                                                                 </span>
                                                             )}
                                                         </div>
                                                         <div className="flex-1 min-w-0 space-y-1">
                                                             <div className="flex items-center gap-2">
-                                                                <span className="font-black text-base tracking-tighter truncate group-hover:text-primary transition-colors">
+                                                                <span className="font-semibold text-base tracking-tight truncate group-hover:text-primary transition-colors">
                                                                     {provider.display_name || provider.username}
                                                                 </span>
                                                                 {provider.verified && <ShieldCheck size={14} className="text-primary" />}
                                                             </div>
                                                             <div className="flex items-center gap-4 flex-wrap">
-                                                                <div className="flex items-center gap-1 text-[9px] font-black text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded-lg border border-amber-500/20">
+                                                                <div className="flex items-center gap-1 text-xs font-semibold text-warning bg-warning/10 px-2 py-0.5 rounded-lg border border-warning/20">
                                                                     <Star size={10} className="fill-current" />
                                                                     {provider.avg_rating?.toFixed(1) || "5.0"}
                                                                 </div>
-                                                                <span className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">
+                                                                <span className="text-xs font-semibold text-muted-foreground">
                                                                     {provider.total_bandwidth_sold?.toLocaleString() || 0} GB dispatched
                                                                 </span>
                                                             </div>
@@ -332,7 +332,7 @@ export default function FeedPage() {
                                 {activeTab === "trending" && (
                                     <div className="grid md:grid-cols-2 gap-6">
                                         {trending.length === 0 ? (
-                                            <div className="col-span-full py-20 text-center text-muted-foreground font-black uppercase text-[10px] tracking-[0.3em] italic">
+                                            <div className="col-span-full py-20 text-center text-muted-foreground font-semibold text-xs">
                                                 Calculating high-traffic signals...
                                             </div>
                                         ) : (
@@ -340,23 +340,23 @@ export default function FeedPage() {
                                                 <Link key={listing.id} href={`/marketplace/${listing.id}`} className="group">
                                                     <GlassCard className="!p-8 flex flex-col h-full hover:border-primary/40 transition-all active:scale-95 group">
                                                         <div className="flex justify-between items-start mb-6">
-                                                            <span className="px-4 py-1.5 rounded-xl bg-primary/10 border border-primary/20 text-[9px] font-black uppercase tracking-[0.2em] text-primary">
+                                                            <span className="px-4 py-1.5 rounded-lg bg-primary/10 border border-primary/20 text-xs font-semibold text-primary">
                                                                 {listing.proxy_type}
                                                             </span>
-                                                            <div className="flex items-center gap-2 text-[10px] font-black text-amber-500">
+                                                            <div className="flex items-center gap-2 text-xs font-semibold text-warning">
                                                                 <Flame size={14} className="animate-pulse" />
                                                                 {listing.orders_count || 0} PEAKS
                                                             </div>
                                                         </div>
-                                                        <h3 className="font-black text-lg tracking-tighter mb-8 leading-tight group-hover:text-primary transition-colors">{listing.title}</h3>
+                                                        <h3 className="font-semibold text-lg tracking-tight mb-8 leading-tight group-hover:text-primary transition-colors">{listing.title}</h3>
                                                         <div className="mt-auto pt-6 border-t border-border border-dashed flex justify-between items-end">
                                                             <div className="space-y-1">
-                                                                <div className="text-[10px] text-muted-foreground uppercase font-black tracking-widest">Rate</div>
-                                                                <div className="text-2xl font-black tracking-tighter">${Number(listing.price_per_gb || 0).toFixed(4)}<span className="text-[10px] text-muted-foreground">/GB</span></div>
+                                                                <div className="text-xs text-muted-foreground font-semibold">Rate</div>
+                                                                <div className="text-2xl font-semibold tracking-tight">${Number(listing.price_per_gb || 0).toFixed(4)}<span className="text-xs text-muted-foreground">/GB</span></div>
                                                             </div>
                                                             <div className="text-right space-y-1">
-                                                                <div className="text-[9px] font-black text-primary uppercase tracking-widest">{listing.available_bandwidth_gb} GB</div>
-                                                                <div className="text-[9px] font-black text-muted-foreground uppercase tracking-[0.2em]">AVAILABILITY</div>
+                                                                <div className="text-xs font-semibold text-primary">{listing.available_bandwidth_gb} GB</div>
+                                                                <div className="text-xs font-semibold text-muted-foreground">AVAILABILITY</div>
                                                             </div>
                                                         </div>
                                                     </GlassCard>
@@ -379,25 +379,25 @@ export default function FeedPage() {
                                 <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:scale-110 transition-transform">
                                     <Terminal size={120} className="text-primary" />
                                 </div>
-                                <h3 className="font-black uppercase text-[10px] tracking-[0.4em] mb-8 flex justify-between items-center text-muted-foreground border-b border-border pb-4 relative z-10">
+                                <h3 className="font-semibold text-xs mb-8 flex justify-between items-center text-muted-foreground border-b border-border pb-4 relative z-10">
                                     Operator Console
-                                    <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Pulse</div>
+                                    <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse"></span> Pulse</div>
                                 </h3>
                                 <div className="space-y-4 relative z-10">
-                                    <Link href="/marketplace" className="group flex items-center justify-between p-4 glass-card border-border hover:border-primary/50 rounded-2xl transition-all active:scale-95">
+                                    <Link href="/marketplace" className="group flex items-center justify-between p-4 glass-card border-border hover:border-primary/50 rounded-lg transition-all active:scale-95">
                                         <div className="flex items-center gap-4">
-                                            <div className="w-10 h-10 rounded-xl bg-card flex items-center justify-center text-muted-foreground group-hover:text-primary transition-colors"><Compass size={20} /></div>
-                                            <span className="text-[10px] font-black uppercase tracking-widest">Acquire Resources</span>
+                                            <div className="w-10 h-10 rounded-lg bg-card flex items-center justify-center text-muted-foreground group-hover:text-primary transition-colors"><Compass size={20} /></div>
+                                            <span className="text-xs font-semibold">Acquire Resources</span>
                                         </div>
                                         <ArrowRight size={16} className="text-primary/30 group-hover:translate-x-1 transition-transform" />
                                     </Link>
                                     {isProvider && (
-                                        <Link href="/marketplace/create" className="group flex items-center justify-between p-4 glass-card border-emerald-500/20 bg-emerald-500/5 hover:border-emerald-500/50 rounded-2xl transition-all active:scale-95">
+                                        <Link href="/marketplace/create" className="group flex items-center justify-between p-4 glass-card border-success/20 bg-success/5 hover:border-success/50 rounded-lg transition-all active:scale-95">
                                             <div className="flex items-center gap-4">
-                                                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-500"><Plus size={20} /></div>
-                                                <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Create listing</span>
+                                                <div className="w-10 h-10 rounded-lg bg-success/10 flex items-center justify-center text-success"><Plus size={20} /></div>
+                                                <span className="text-xs font-semibold text-success">Create listing</span>
                                             </div>
-                                            <Zap size={16} className="text-emerald-500 animate-pulse" />
+                                            <Zap size={16} className="text-success animate-pulse" />
                                         </Link>
                                     )}
                                 </div>
@@ -411,22 +411,22 @@ export default function FeedPage() {
                                 <Activity size={180} className="text-primary" />
                             </div>
                             <div className="flex justify-between items-center border-b border-border pb-4 mb-8">
-                                <h3 className="font-black uppercase text-[10px] tracking-[0.4em] text-muted-foreground">High Traffic NodeStream</h3>
-                                <div className="px-3 py-1 bg-primary/10 rounded-lg text-primary text-[8px] font-black uppercase tracking-widest">LIVE</div>
+                                <h3 className="font-semibold text-xs text-muted-foreground">High Traffic NodeStream</h3>
+                                <div className="px-3 py-1 bg-primary/10 rounded-lg text-primary text-xs font-semibold">LIVE</div>
                             </div>
                             <div className="space-y-4">
                                 {trending.slice(0, 3).map((listing, i) => (
                                     <Link key={listing.id} href={`/marketplace/${listing.id}`} className="block group/item">
-                                        <div className="p-5 glass-card border-border hover:border-primary/30 rounded-2xl transition-all active:scale-[0.98]">
+                                        <div className="p-5 glass-card border-border hover:border-primary/30 rounded-lg transition-all active:scale-[0.98]">
                                             <div className="flex gap-5">
-                                                <div className="font-black text-2xl text-muted-foreground opacity-30 group-hover/item:opacity-100 group-hover/item:text-primary transition-colors">0{i + 1}</div>
+                                                <div className="font-semibold text-2xl text-muted-foreground opacity-30 group-hover/item:opacity-100 group-hover/item:text-primary transition-colors">0{i + 1}</div>
                                                 <div className="min-w-0 space-y-1">
-                                                    <div className="font-black text-[11px] uppercase tracking-tighter truncate group-hover/item:text-primary transition-colors">{listing.title}</div>
+                                                    <div className="font-semibold text-xs tracking-tight truncate group-hover/item:text-primary transition-colors">{listing.title}</div>
                                                     <div className="flex justify-between items-center">
-                                                        <div className="font-black text-[9px] text-muted-foreground uppercase tracking-widest">${Number(listing.price_per_gb || 0).toFixed(4)} / GB</div>
+                                                        <div className="font-semibold text-xs text-muted-foreground">${Number(listing.price_per_gb || 0).toFixed(4)} / GB</div>
                                                         <div className="flex items-center gap-1.5">
-                                                            <div className="w-1 h-3 bg-emerald-500/50 rounded-full"></div>
-                                                            <div className="w-1 h-2 bg-emerald-500/30 rounded-full"></div>
+                                                            <div className="w-1 h-3 bg-success/50 rounded-full"></div>
+                                                            <div className="w-1 h-2 bg-success/30 rounded-full"></div>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -435,7 +435,7 @@ export default function FeedPage() {
                                     </Link>
                                 ))}
                             </div>
-                            <button onClick={() => setActiveTab("trending")} className="w-full mt-8 py-4 glass-card border-border hover:border-primary/50 text-[10px] font-black uppercase tracking-[0.4em] transition-all text-muted-foreground group-hover:text-primary">
+                            <button onClick={() => setActiveTab("trending")} className="w-full mt-8 py-4 glass-card border-border hover:border-primary/50 text-xs font-semibold transition-all text-muted-foreground group-hover:text-primary">
                                 ALL CHANNELS &rarr;
                             </button>
                         </GlassCard>

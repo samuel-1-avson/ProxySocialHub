@@ -1,4 +1,5 @@
 import { apiRequest } from './api';
+import { BROWSER_NAME } from './config';
 import { jwtExpMs, parseExpiresAtMs } from './reliability';
 
 const SESSION_KEYS = [
@@ -88,7 +89,7 @@ export async function pairFinish(code: string): Promise<DeviceSession> {
   const session = await apiRequest<DeviceSession>('POST', '/v1/extension/pair/finish', {
     code: code.trim(),
     extension_id: extensionId,
-    name: 'Chrome',
+    name: BROWSER_NAME,
   }, { anonymous: true });
   await saveSession(session);
   return session;

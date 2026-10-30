@@ -8,7 +8,7 @@ After the CLI / daemon is running, the control plane tracks the node via registr
 ## Lifecycle
 
 1. Install CLI / download config
-2. Enroll — provider token → auth → register node (or reuse `node_id`)
+2. Enroll: provider token → auth → register node (or reuse `node_id`)
 3. Open tunnel to gateway **`:3128`** (yamux)
 4. Fetch / renew capability lease when required
 5. Heartbeats keep status **online**
@@ -84,8 +84,8 @@ When `REQUIRE_PROVIDER_LEASE=true` (typical production), nodes without a valid l
 
 | Symptom | Fix |
 |---------|-----|
-| Offline after start | Heartbeat failing — check daemon logs, API URL, token |
-| `409` on create node | IP already registered — reuse `node_id` |
+| Offline after start | Heartbeat failing: check daemon logs, API URL, token |
+| `409` on create node | IP already registered: reuse `node_id` |
 | Admitted but no traffic | Listing unpublished / unhealthy; check lease if required |
 | Lease rejected | Refresh via `POST /v1/provider/lease`; bump `client_version` |
 

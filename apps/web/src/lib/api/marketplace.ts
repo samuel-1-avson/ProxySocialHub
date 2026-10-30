@@ -665,6 +665,59 @@ export function confirmEscrowPayment(orderId: string, txSignature?: string) {
     }>(`/v1/orders/${orderId}/confirm-escrow`, txSignature ? { tx_signature: txSignature } : {});
 }
 
+/** Paystack quote for a managed-wallet buyer, or a note that their balance already covers it. */
+export type PaystackQuote =
+    | {
+          pay_from_balance?: false;
+          reference: string;
+          access_code: string;
+          amount_minor: number;
+          amount_ghs: number;
+          currency: string;
+          amount_sol: number;
+          expires_in: number;
+          test_mode: boolean;
+      }
+    | { pay_from_balance: true; amount_sol: number; balance_sol: number };
+
+/** Start a GHS card / mobile money payment for an order (managed-wallet users only). */
+export function quotePaystackPayment(orderId: string) {
+    return apiPost<PaystackQuote>(`/v1/orders/${orderId}/pay/paystack`, {});
+}
+
+/** Exact GHS price for a listing before checkout, or the buyer's existing plan with that provider. */
+export type PaystackPreview =
+    | {
+          active_plan: true;
+          active_plan_order_id?: string;
+          active_plan_gb?: number;
+          active_plan_since?: string;
+      }
+    | {
+          active_plan: false;
+          usd_total: number;
+          amount_ghs: number;
+          credit_ghs?: number;
+          pay_from_balance?: boolean;
+      };
+
+export function getPaystackPreview(listingId: string, gb: number) {
+    return apiGet<PaystackPreview>(`/v1/listings/${listingId}/paystack-preview`, { gb: String(gb) });
+}
+
+/** Ask the server to confirm a Paystack charge and open the escrow. 202 = still in progress. */
+export function verifyPaystackPayment(orderId: string, reference: string) {
+    return apiPost<{ status: string; message?: string; error?: string; amount_ghs?: number }>(
+        `/v1/orders/${orderId}/pay/paystack/verify`,
+        { reference },
+    );
+}
+
+/** Open the order's escrow from SOL already in the managed wallet. */
+export function payOrderFromBalance(orderId: string) {
+    return apiPost<{ status: string; escrow_tx?: string }>(`/v1/orders/${orderId}/pay/balance`, {});
+}
+
 /**
  * Get user's orders
  */

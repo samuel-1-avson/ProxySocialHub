@@ -7,6 +7,7 @@ import { ArrowLeft } from 'lucide-react';
 import { WalletBoundary } from '@/providers/WalletBoundary';
 import { ROUTES } from '@/lib/navigation/routes';
 import { captureReferralCodeFromSearch, peekReferralCode } from '@/lib/referral';
+import { AuthMethodDivider, GoogleSignInButton, googleSignInEnabled } from '@/components/auth/GoogleSignInButton';
 
 const WalletAuthPanel = dynamic(
   () => import('@/components/WalletAuthPanel').then((mod) => mod.WalletAuthPanel),
@@ -44,16 +45,20 @@ export default function RegisterPage() {
           <div className="mb-8 text-center">
             <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Create your account</h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              Connect a Solana wallet. No passwords, no email gate.
+              {googleSignInEnabled
+                ? 'Sign up with Google and we create a wallet for you, or connect your own Solana wallet.'
+                : 'Connect a Solana wallet. No passwords, no email gate.'}
             </p>
             {referralCode ? (
-              <p className="mt-3 text-xs font-mono text-emerald-400/90 uppercase tracking-widest">
+              <p className="mt-3 text-xs font-mono text-success/90">
                 Invite code {referralCode} will apply on first signup
               </p>
             ) : null}
           </div>
 
           <div className="rounded-[var(--radius-lg)] border border-border bg-card p-6 sm:p-8">
+            <GoogleSignInButton text="signup_with" />
+            <AuthMethodDivider />
             <ol className="mb-6 space-y-3">
               {[
                 'Connect your Solana wallet',
@@ -80,7 +85,7 @@ export default function RegisterPage() {
           </p>
 
           <p className="mt-8 text-center text-xs text-muted-foreground">
-            By connecting your wallet, you agree to the{' '}
+            By creating an account, you agree to the{' '}
             <Link href={ROUTES.terms} className="text-primary hover:underline">Terms of Service</Link>
             {' '}and{' '}
             <Link href={ROUTES.privacy} className="text-primary hover:underline">Privacy Policy</Link>.

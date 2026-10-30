@@ -104,6 +104,8 @@ export const ROUTES = {
     terms: "/terms",
     privacy: "/privacy",
     extensionPrivacy: "/privacy/extension",
+    depin: "/depin",
+    whitepaper: "/whitepaper",
 } as const;
 
 export type AppRoute = (typeof ROUTES)[keyof typeof ROUTES];
@@ -158,15 +160,15 @@ export const ROUTE_LABELS: Record<string, RouteLabel> = {
     [ROUTES.marketplaceOrders]: { label: "Orders", breadcrumb: "Orders" },
     [ROUTES.marketplaceSaved]: { label: "Saved", breadcrumb: "Saved" },
     // marketplaceAgents / marketplaceAgentInstances alias dashboardAgents (same path)
-    [ROUTES.dashboard]: { label: "Dashboard", breadcrumb: "System" },
+    [ROUTES.dashboard]: { label: "Dashboard", breadcrumb: "Dashboard" },
     [ROUTES.dashboardAdmin]: { label: "Admin", breadcrumb: "Admin" },
     [ROUTES.dashboardAgents]: { label: "Agent console", breadcrumb: "Agents" },
     [ROUTES.dashboardAnalytics]: { label: "My analytics", breadcrumb: "Analytics" },
     [ROUTES.dashboardFeed]: { label: "Feed (legacy)", breadcrumb: "Feed" },
     [ROUTES.dashboardMessages]: { label: "Messages (legacy)", breadcrumb: "Messages" },
-    [ROUTES.dashboardMonitoring]: { label: "Operations", breadcrumb: "Ops" },
+    [ROUTES.dashboardMonitoring]: { label: "Operations", breadcrumb: "Operations" },
     [ROUTES.dashboardProfile]: { label: "Dashboard Profile", breadcrumb: "Profile" },
-    [ROUTES.dashboardProxy]: { label: "Connect", breadcrumb: "Proxy" },
+    [ROUTES.dashboardProxy]: { label: "Connect", breadcrumb: "Connect" },
     [ROUTES.dashboardSecurity]: { label: "Security (legacy)", breadcrumb: "Security" },
     [ROUTES.dashboardSessions]: { label: "Sessions" },
     [ROUTES.dashboardUsage]: { label: "Usage & Billing", breadcrumb: "Usage" },
@@ -176,8 +178,8 @@ export const ROUTE_LABELS: Record<string, RouteLabel> = {
     [ROUTES.dashboardBecomeProvider]: { label: "Become a Provider", breadcrumb: "Apply" },
     [ROUTES.dashboardProvider]: { label: "Provider" },
     [ROUTES.dashboardProviderAnalytics]: { label: "Provider Analytics", breadcrumb: "Analytics" },
-    [ROUTES.dashboardProviderNodes]: { label: "Node Health", breadcrumb: "Nodes" },
-    [ROUTES.dashboardProviderHealth]: { label: "Provider Health", breadcrumb: "Health" },
+    [ROUTES.dashboardProviderNodes]: { label: "My nodes", breadcrumb: "Nodes" },
+    [ROUTES.dashboardProviderHealth]: { label: "Node diagnostics", breadcrumb: "Diagnostics" },
     [ROUTES.dashboardProviderCircle]: { label: "Circle Pool", breadcrumb: "Circle" },
     [ROUTES.dashboardProviderRelationships]: { label: "Customers", breadcrumb: "Customers" },
     [ROUTES.dashboardProviderEarnings]: { label: "Income", breadcrumb: "Earnings" },

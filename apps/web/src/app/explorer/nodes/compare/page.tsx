@@ -26,16 +26,16 @@ const METRICS: { label: string; key: keyof NodeDetail; format: (v: any) => strin
     { label: 'Active Sessions', key: 'active_sessions', format: v => String(v ?? 0), highlight: 'higher_better' },
     { label: 'Total Sessions', key: 'total_sessions', format: v => (v ?? 0).toLocaleString(), highlight: 'higher_better' },
     { label: 'Bandwidth', key: 'bandwidth_gb', format: v => `${(v ?? 0).toFixed(2)} GB`, highlight: 'higher_better' },
-    { label: 'Region', key: 'region', format: v => v || '—' },
-    { label: 'Country', key: 'country', format: v => v || '—' },
-    { label: 'Version', key: 'version', format: v => v || '—' },
-    { label: 'Stake', key: 'stake_amount', format: v => v ? `${(v as number).toFixed(2)} SOL` : '—', highlight: 'higher_better' },
-    { label: 'Commission', key: 'commission_rate', format: v => v ? `${((v as number) * 100).toFixed(1)}%` : '—', highlight: 'lower_better' },
+    { label: 'Region', key: 'region', format: v => v || 'Unknown' },
+    { label: 'Country', key: 'country', format: v => v || 'Unknown' },
+    { label: 'Version', key: 'version', format: v => v || 'Unknown' },
+    { label: 'Stake', key: 'stake_amount', format: v => v ? `${(v as number).toFixed(2)} SOL` : 'None', highlight: 'higher_better' },
+    { label: 'Commission', key: 'commission_rate', format: v => v ? `${((v as number) * 100).toFixed(1)}%` : 'None', highlight: 'lower_better' },
 ];
 
-const COLUMN_COLORS = ['text-primary', 'text-cyan-400', 'text-purple-400'];
-const COLUMN_BORDERS = ['border-primary/20', 'border-cyan-400/20', 'border-purple-400/20'];
-const COLUMN_BG = ['bg-primary/[0.03]', 'bg-cyan-400/[0.03]', 'bg-purple-400/[0.03]'];
+const COLUMN_COLORS = ['text-primary', 'text-info', 'text-primary'];
+const COLUMN_BORDERS = ['border-primary/20', 'border-info/20', 'border-primary/20'];
+const COLUMN_BG = ['bg-primary/[0.03]', 'bg-info/[0.03]', 'bg-primary/[0.03]'];
 
 function getBestIndex(nodes: (NodeDetail | null)[], key: keyof NodeDetail, direction: 'higher_better' | 'lower_better'): number {
     const values = nodes.map(n => (n ? Number(n[key]) : NaN));
@@ -58,7 +58,7 @@ function NodeColumn({ node, idx, isLoading }: { node: NodeDetail | null; idx: nu
 
     if (isLoading) {
         return (
-            <div className={`rounded-[2rem] border ${border} ${bg} p-6 animate-pulse`}>
+            <div className={`rounded-lg border ${border} ${bg} p-6 animate-pulse`}>
                 <div className="h-4 bg-muted rounded mb-3 w-3/4" />
                 <div className="h-3 bg-muted rounded w-1/2" />
             </div>
@@ -67,52 +67,52 @@ function NodeColumn({ node, idx, isLoading }: { node: NodeDetail | null; idx: nu
 
     if (!node) {
         return (
-            <div className={`rounded-[2rem] border border-rose-500/20 bg-rose-500/[0.03] p-6 text-center`}>
-                <XCircle size={24} className="text-rose-500/40 mx-auto mb-2" />
-                <p className="text-[9px] font-black text-rose-400 uppercase tracking-widest">Node not found</p>
+            <div className={`rounded-lg border border-destructive/20 bg-destructive/[0.03] p-6 text-center`}>
+                <XCircle size={24} className="text-destructive/40 mx-auto mb-2" />
+                <p className="text-xs font-semibold text-destructive">Node not found</p>
             </div>
         );
     }
 
     return (
-        <div className={`rounded-[2rem] border ${border} ${bg} p-6 space-y-4`}>
+        <div className={`rounded-lg border ${border} ${bg} p-6 space-y-4`}>
             {/* Node header */}
             <div className="flex items-start justify-between gap-2">
                 <div>
-                    <div className={`text-[9px] font-black uppercase tracking-widest mb-1 ${color}`}>Node {idx + 1}</div>
+                    <div className={`text-xs font-semibold mb-1 ${color}`}>Node {idx + 1}</div>
                     <Link href={`/explorer/nodes/${node.node_id}`}
-                        className={`font-mono text-[11px] font-black ${color} hover:opacity-80 transition-opacity break-all`}>
+                        className={`font-mono text-xs font-semibold ${color} hover:opacity-80 transition-opacity break-all`}>
                         {node.node_id?.slice(0, 16)}...
                     </Link>
-                    {node.name && <div className="text-[9px] text-muted-foreground mt-0.5">{node.name}</div>}
+                    {node.name && <div className="text-xs text-muted-foreground mt-0.5">{node.name}</div>}
                 </div>
-                <div className={`w-2.5 h-2.5 rounded-full mt-1 flex-shrink-0 ${node.is_active ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                <div className={`w-2.5 h-2.5 rounded-full mt-1 flex-shrink-0 ${node.is_active ? 'bg-success' : 'bg-destructive'}`} />
             </div>
             {/* Type badge */}
             <div>
                 {node.is_validator ? (
-                    <span className="inline-flex items-center gap-1.5 text-[9px] font-black text-purple-400 bg-purple-400/10 px-3 py-1.5 rounded-lg uppercase tracking-wider">
+                    <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary bg-primary/10 px-3 py-1.5 rounded-lg">
                         <Shield size={9} /> Validator
                     </span>
                 ) : (
-                    <span className="inline-flex items-center gap-1.5 text-[9px] font-black text-blue-400 bg-blue-400/10 px-3 py-1.5 rounded-lg uppercase tracking-wider">
+                    <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-info bg-info/10 px-3 py-1.5 rounded-lg">
                         <Cloud size={9} /> Proxy Node
                     </span>
                 )}
             </div>
             {/* Location */}
-            <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <MapPin size={10} />
-                {[node.city, node.country, node.region].filter(Boolean).join(', ') || '—'}
+                {[node.city, node.country, node.region].filter(Boolean).join(', ') || 'Unknown'}
             </div>
             {/* Last heartbeat */}
-            <div className="text-[8px] font-black text-muted-foreground uppercase tracking-wider">
+            <div className="text-xs font-semibold text-muted-foreground">
                 {node.last_heartbeat
                     ? `Last seen ${formatDistanceToNow(new Date(node.last_heartbeat), { addSuffix: true })}`
                     : 'No heartbeat'}
             </div>
             <Link href={`/explorer/nodes/${node.node_id}`}
-                className={`block w-full text-center py-2 rounded-xl border ${border} ${color} text-[9px] font-black uppercase tracking-widest hover:opacity-80 transition-opacity`}>
+                className={`block w-full text-center py-2 rounded-lg border ${border} ${color} text-xs font-semibold hover:opacity-80 transition-opacity`}>
                 Full Details →
             </Link>
         </div>
@@ -138,9 +138,9 @@ function CompareContent() {
         return (
             <div className="py-24 text-center">
                 <Server size={48} className="text-muted-foreground mx-auto mb-4" />
-                <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest mb-2">No nodes selected</p>
-                <p className="text-[9px] text-muted-foreground mb-6">Select 2–3 nodes from the node list to compare them here.</p>
-                <Link href="/explorer/nodes" className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-primary/10 border border-primary/20 text-primary text-[9px] font-black uppercase tracking-widest hover:bg-primary/20 transition-all">
+                <p className="text-xs font-semibold text-muted-foreground mb-2">No nodes selected</p>
+                <p className="text-xs text-muted-foreground mb-6">Select 2–3 nodes from the node list to compare them here.</p>
+                <Link href="/explorer/nodes" className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary/10 border border-primary/20 text-primary text-xs font-semibold hover:bg-primary/20 transition-all">
                     ← Back to Nodes
                 </Link>
             </div>
@@ -151,15 +151,15 @@ function CompareContent() {
         <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-8 font-mono">
             {/* Header */}
             <motion.header variants={itemVariants} className="flex flex-col gap-6 border-b border-border pb-8">
-                <Link href="/explorer/nodes" className="flex items-center gap-2 text-[10px] font-black text-muted-foreground hover:text-primary transition-colors uppercase tracking-[0.3em] w-fit">
+                <Link href="/explorer/nodes" className="flex items-center gap-2 text-xs font-semibold text-muted-foreground hover:text-primary transition-colors w-fit">
                     <ArrowLeft size={14} /> Back to Nodes
                 </Link>
                 <div>
-                    <div className="text-[10px] font-black text-primary uppercase tracking-[0.5em] mb-1">Grid Telemetry // Nodes</div>
-                    <h1 className="text-4xl font-black uppercase tracking-tighter text-foreground flex items-center gap-4">
+                    <div className="text-xs font-semibold text-primary mb-1">Grid Telemetry // Nodes</div>
+                    <h1 className="text-4xl font-semibold tracking-tight text-foreground flex items-center gap-4">
                         <BarChart2 className="text-primary" size={32} /> Node Comparison
                     </h1>
-                    <p className="text-[11px] font-black text-muted-foreground uppercase tracking-widest mt-2">
+                    <p className="text-xs font-semibold text-muted-foreground mt-2">
                         Side-by-side performance analysis for {ids.length} node{ids.length > 1 ? 's' : ''}
                     </p>
                 </div>
@@ -176,15 +176,15 @@ function CompareContent() {
             {/* Metric comparison table */}
             {!isAnyLoading && nodes.some(Boolean) && (
                 <motion.section variants={itemVariants} data-testid="explorer-node-compare-metrics">
-                    <GlassCard className="overflow-hidden border-border bg-card rounded-[2rem]">
+                    <GlassCard className="overflow-hidden border-border bg-card rounded-lg">
                         <div className="px-6 py-4 border-b border-border flex items-center gap-3">
                             <Activity size={14} className="text-primary" />
-                            <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Metric Comparison</span>
+                            <span className="text-xs font-semibold text-muted-foreground">Metric Comparison</span>
                         </div>
                         <div className="overflow-x-auto">
                             <table className="w-full border-collapse">
                                 <thead>
-                                    <tr className="bg-muted text-muted-foreground text-[9px] uppercase tracking-[0.2em] font-black">
+                                    <tr className="bg-muted text-muted-foreground text-xs font-semibold">
                                         <th className="px-6 py-3 text-left w-40">Metric</th>
                                         {ids.map((_, i) => (
                                             <th key={i} className={`px-6 py-3 text-right ${COLUMN_COLORS[i]}`}>
@@ -201,19 +201,19 @@ function CompareContent() {
                                         return (
                                             <tr key={metric.key} className="hover:bg-surface-hover transition-colors">
                                                 <td className="px-6 py-3">
-                                                    <span className="text-[9px] font-black text-muted-foreground uppercase tracking-wider">{metric.label}</span>
+                                                    <span className="text-xs font-semibold text-muted-foreground">{metric.label}</span>
                                                 </td>
                                                 {ids.map((_, i) => {
                                                     const node = nodes[i];
-                                                    const val = node ? metric.format(node[metric.key]) : '—';
+                                                    const val = node ? metric.format(node[metric.key]) : 'Not available';
                                                     const isBest = bestIdx === i && nodes.filter(Boolean).length > 1;
                                                     return (
                                                         <td key={i} className="px-6 py-3 text-right">
-                                                            <span className={`font-mono text-[11px] font-black ${isBest ? COLUMN_COLORS[i] : 'text-muted-foreground'}`}>
+                                                            <span className={`font-mono text-xs font-semibold ${isBest ? COLUMN_COLORS[i] : 'text-muted-foreground'}`}>
                                                                 {val}
                                                             </span>
                                                             {isBest && (
-                                                                <span className={`ml-1.5 text-[7px] font-black uppercase ${COLUMN_COLORS[i]} opacity-70`}>
+                                                                <span className={`ml-1.5 text-[7px] font-semibold ${COLUMN_COLORS[i]} opacity-70`}>
                                                                     ▲ best
                                                                 </span>
                                                             )}
@@ -237,7 +237,7 @@ export default function ComparePage() {
     return (
         <Suspense fallback={
             <div className="py-24 text-center">
-                <div className="text-[10px] font-black text-muted-foreground uppercase tracking-widest animate-pulse">Loading comparison...</div>
+                <div className="text-xs font-semibold text-muted-foreground animate-pulse">Loading comparison...</div>
             </div>
         }>
             <CompareContent />

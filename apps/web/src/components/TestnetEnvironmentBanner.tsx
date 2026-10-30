@@ -27,11 +27,10 @@ export function TestnetEnvironmentBanner() {
       role="status"
       className="border-b border-border bg-secondary text-secondary-foreground"
     >
-      <p className="mx-auto max-w-[1120px] px-4 py-2 text-center text-xs leading-relaxed sm:px-6 sm:text-[13px]">
-        <span className="font-medium tracking-wide">Solana {network} · Testnet</span>
+      <p className="mx-auto max-w-[1120px] px-4 py-2 text-center text-xs leading-relaxed sm:px-6 sm:text-sm">
+        <span className="font-medium">Solana {network} · Testnet</span>
         <span className="text-muted-foreground">
-          {" "}
-          — test SOL only; balances may reset. Do not send mainnet funds.
+          {" · "}Test SOL only. Balances can reset. Do not send mainnet funds.
         </span>
       </p>
     </div>

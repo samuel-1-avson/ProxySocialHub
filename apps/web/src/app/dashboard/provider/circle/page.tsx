@@ -88,7 +88,7 @@ export default function CirclePoolingPage() {
         onSuccess: () => {
             addNotification({
                 type: "success",
-                title: "TELEMETRY SYNCED",
+                title: "Telemetry synced",
                 message: "Bandwidth coupled to enterprise pool successfully.",
             });
             setContributeModalOpen(false);
@@ -97,7 +97,7 @@ export default function CirclePoolingPage() {
         onError: (error: Error) => {
             addNotification({
                 type: "error",
-                title: "SYNC FAILED",
+                title: "Sync failed",
                 message: error.message,
             });
         },
@@ -109,7 +109,7 @@ export default function CirclePoolingPage() {
         onSuccess: (data) => {
             addNotification({
                 type: "success",
-                title: "REVENUE ACCESSED",
+                title: "Revenue accessed",
                 message: `${data.amount.toFixed(6)} SOL credited to your local balance.`,
             });
             queryClient.invalidateQueries({ queryKey: circlePoolingKeys.all });
@@ -117,7 +117,7 @@ export default function CirclePoolingPage() {
         onError: (error: Error) => {
             addNotification({
                 type: "error",
-                title: "ACCESS DENIED",
+                title: "Access denied",
                 message: error.message,
             });
         },
@@ -506,13 +506,13 @@ function CircleBrowseModal({ onClose, existingCircleIds, onCircleReady }: Circle
         onSuccess: (_data, circleId) => {
             addNotification({
                 type: "success",
-                title: "CIRCLE JOINED",
+                title: "Circle joined",
                 message: "You now have access to this pool.",
             });
             onCircleReady(circleId);
         },
         onError: (error: Error) => {
-            addNotification({ type: "error", title: "JOIN FAILED", message: error.message });
+            addNotification({ type: "error", title: "Join failed", message: error.message });
         },
     });
 
@@ -527,13 +527,13 @@ function CircleBrowseModal({ onClose, existingCircleIds, onCircleReady }: Circle
         onSuccess: (circle) => {
             addNotification({
                 type: "success",
-                title: "CIRCLE CREATED",
+                title: "Circle created",
                 message: `${circle.name} is ready to receive contributions.`,
             });
             onCircleReady(circle.id);
         },
         onError: (error: Error) => {
-            addNotification({ type: "error", title: "CREATE FAILED", message: error.message });
+            addNotification({ type: "error", title: "Create failed", message: error.message });
         },
     });
 

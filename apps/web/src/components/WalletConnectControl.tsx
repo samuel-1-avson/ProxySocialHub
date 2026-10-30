@@ -297,8 +297,8 @@ export function WalletConnectControl({
             </code>
             {matching
               ? signingReady === false
-                ? " — this wallet cannot approve transactions, so deposits stay disabled. Choose a wallet that supports transaction approval."
-                : " — ready to approve payments."
+                ? ". This wallet cannot approve transactions, so deposits stay disabled. Choose a wallet that supports transaction approval."
+                : ". Ready to approve payments."
               : ""}
           </p>
         )}

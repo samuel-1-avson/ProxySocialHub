@@ -68,7 +68,7 @@ func fundSessionSolana(c *gin.Context) {
 				return
 			}
 			if sellerAddr == "" {
-				sellerAddr = node.Hotkey
+				sellerAddr = nodePayoutAddress(node.UserID, node.Hotkey)
 			}
 			if pricePerGB <= 0 {
 				pricePerGB = node.BasePricePerGB
@@ -84,7 +84,7 @@ func fundSessionSolana(c *gin.Context) {
 			}
 		} else {
 			if sellerAddr == "" {
-				sellerAddr = providerNode.Hotkey
+				sellerAddr = nodePayoutAddress(providerNode.UserID, providerNode.Hotkey)
 			}
 			if pricePerGB <= 0 {
 				pricePerGB = providerNode.BasePricePerGB

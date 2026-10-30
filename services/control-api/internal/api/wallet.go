@@ -497,13 +497,13 @@ func transferP2P(c *gin.Context) {
 	if err := models.TransferP2PLocked(tx, &senderWallet, &recipientWallet, req.Amount, refID, senderDesc, recipientDesc); err != nil {
 		tx.Rollback()
 		logging.Error(err).Str("ref", refID).Msg("Failed to transfer P2P")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Transfer failed — could not update balances"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Transfer failed. Could not update balances."})
 		return
 	}
 
 	if err := tx.Commit().Error; err != nil {
 		logging.Error(err).Str("ref", refID).Msg("Failed to commit P2P transfer")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Transfer failed — could not commit transaction"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Transfer failed. Could not save the transaction."})
 		return
 	}
 
@@ -904,7 +904,7 @@ func attemptWithdrawalPayout(c *gin.Context, oracle *solana.OracleClient, userUU
 		"amount_sol":  amountSOL,
 		"destination": destAddress,
 		"new_balance": newBalance,
-		"message":     "Withdrawal submitted — usually completes in under a few minutes",
+		"message":     "Withdrawal submitted. It usually completes within a few minutes.",
 	}
 
 	claim := db.DB.Model(&models.WithdrawalPayout{}).
@@ -973,7 +973,7 @@ func attemptWithdrawalPayout(c *gin.Context, oracle *solana.OracleClient, userUU
 		}
 		// Definite pre-broadcast failure: refund synchronously (prior API
 		// behaviour), through the durable row.
-		if refundErr := refundWithdrawalPayoutRow(payoutID, withdrawalRef, userUUID, amountSOL, "Withdrawal failed: "+summarizeOnChainSendError(sendErr)+" — balance restored"); refundErr != nil {
+		if refundErr := refundWithdrawalPayoutRow(payoutID, withdrawalRef, userUUID, amountSOL, "Withdrawal failed: "+summarizeOnChainSendError(sendErr)+". Your balance was restored."); refundErr != nil {
 			logging.Error(refundErr).Str("user_id", userUUID.String()).Float64("amount", amountSOL).
 				Msg("CRITICAL: Compensating refund failed — enqueued for retry")
 			alerts.Send(alerts.Critical, "Compensating Refund Failed", fmt.Sprintf("User: %s | Amount: %.6f SOL | Ref: %s | Err: %v", userUUID, amountSOL, withdrawalRef, refundErr))
@@ -1029,7 +1029,7 @@ func attemptWithdrawalPayout(c *gin.Context, oracle *solana.OracleClient, userUU
 			"new_balance": newBalance,
 		}
 	case solana.TxFailed:
-		if refundErr := refundWithdrawalPayoutRow(payoutID, withdrawalRef, userUUID, amountSOL, "Withdrawal transaction failed on-chain — balance restored"); refundErr != nil {
+		if refundErr := refundWithdrawalPayoutRow(payoutID, withdrawalRef, userUUID, amountSOL, "Withdrawal failed on-chain. Your balance was restored."); refundErr != nil {
 			EnqueueCompensation(models.CompensationKindWithdrawalRefund, userUUID, nil, amountSOL, withdrawalRef, refundErr.Error())
 			alerts.Send(alerts.Critical, "Compensating Refund Failed", fmt.Sprintf("User: %s | Amount: %.6f SOL | Ref: %s | Err: %v", userUUID, amountSOL, withdrawalRef, refundErr))
 			return http.StatusInternalServerError, gin.H{
@@ -1050,7 +1050,7 @@ func attemptWithdrawalPayout(c *gin.Context, oracle *solana.OracleClient, userUU
 			"amount_sol":  amountSOL,
 			"destination": destAddress,
 			"new_balance": newBalance,
-			"message":     "Withdrawal submitted — awaiting on-chain confirmation",
+			"message":     "Withdrawal submitted. Waiting for on-chain confirmation.",
 		}
 		return http.StatusAccepted, body
 	}
@@ -1117,7 +1117,7 @@ func ledgerEntryStatus(l models.WalletLedgerEntry) string {
 func ledgerEntryDescription(l models.WalletLedgerEntry) string {
 	if l.Type == "withdrawal_failed_refund" && strings.HasPrefix(l.Description, "On-chain transfer failed:") {
 		// Legacy rows stored the full RPC error blob.
-		return "Withdrawal failed — balance restored (no SOL sent to linked wallet)"
+		return "Withdrawal failed. Your balance was restored and no SOL was sent."
 	}
 	return l.Description
 }

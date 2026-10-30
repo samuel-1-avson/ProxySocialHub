@@ -506,7 +506,7 @@ export default function NodeMapPage() {
                             </div>
                             <h2 className="text-sm font-black text-foreground leading-tight">{selectedListing.title}</h2>
                             <p className="text-[9px] text-muted-foreground uppercase tracking-widest">
-                                {selectedListing.country || '—'} · {measured(selectedListing.price_per_gb, 4, 'USD / GB')}
+                                {selectedListing.country || 'Unknown'} · {measured(selectedListing.price_per_gb, 4, 'USD / GB')}
                             </p>
                             <p className="text-[8px] text-muted-foreground uppercase tracking-widest">
                                 {geoSourceLabel(selectedListing as MarketplaceListingMapPin)}

@@ -3,14 +3,14 @@ title: Bulk pools
 description: Partner API keys, create pools, fetch CONNECT endpoints, and scrape with many stable proxies.
 ---
 
-Bulk pools give partners **many buyer-proxy endpoints** under one API key — without marketplace escrow. Traffic still uses **`proxy.proxyhubb.com:8090`** (CONNECT / SOCKS5).
+Bulk pools give partners **many buyer-proxy endpoints** under one API key, without marketplace escrow. Traffic still uses **`proxy.proxyhubb.com:8090`** (CONNECT / SOCKS5).
 
 ## Scopes (important)
 
 | Scope | Can |
 |-------|-----|
 | `proxy:read` / `proxy:write` | List/create/delete pools and read endpoints |
-| `orders:create` | B2B purchase paths — **not** the same as pools |
+| `orders:create` | B2B purchase paths: **not** the same as pools |
 | Dashboard JWT | Mint API keys, also call pool APIs |
 
 Buyer `phub_…` / `pk_…` keys **cannot** mint other keys. Mint with JWT:
@@ -91,6 +91,6 @@ See also [Access paths](/docs/concepts/access-paths).
 | Symptom | Fix |
 |---------|-----|
 | `401` / `403` on pools | Missing `proxy:read`/`proxy:write` on the key |
-| Intent create with pool key | Intents need JWT — wrong path |
-| `501` from proxy | Client not using CONNECT — [Buyer proxy](/docs/buyer/proxy) |
+| Intent create with pool key | Intents need JWT: wrong path |
+| `501` from proxy | Client not using CONNECT: [Buyer proxy](/docs/buyer/proxy) |
 | Key cannot create keys | Use JWT for `POST /v1/bulk/api-keys` |

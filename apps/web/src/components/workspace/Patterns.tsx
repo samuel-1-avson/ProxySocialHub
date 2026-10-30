@@ -115,7 +115,7 @@ export function Stat({
 export function amount(value: unknown, digits = 2): string {
   return typeof value === "number" && Number.isFinite(value)
     ? value.toLocaleString(undefined, { maximumFractionDigits: digits })
-    : "—";
+    : "Not available";
 }
 export function countryName(code?: string): string {
   if (!code) return "Location not specified";

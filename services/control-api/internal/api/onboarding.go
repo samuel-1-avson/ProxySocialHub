@@ -177,6 +177,16 @@ func defaultProviderAutoApproval(ctx context.Context, user *models.User) Provide
 		return result
 	}
 
+	// Google sign-in providers hold no crypto: their payout wallet is the one
+	// ProxyHubb created for them, so the SOL-balance anti-spam check does not apply.
+	if _, ok := managedWalletAddress(user.ID, user.WalletAddress); ok {
+		result.Status = "approved"
+		result.AutoApproved = true
+		result.ReasonCode = "managed_wallet"
+		result.Reason = "Your ProxyHubb wallet is ready to receive earnings."
+		return result
+	}
+
 	if oracle == nil {
 		result.Status = "pending"
 		result.ReasonCode = "verification_unavailable"
@@ -554,6 +564,7 @@ func applyForProvider(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to finalize provider application"})
 		return
 	}
+	providerApprovedWithManagedWallet(&user, decision)
 
 	c.JSON(autoDecisionStatusCode(decision, exists), gin.H{
 		"message":       autoDecisionMessage(decision),
@@ -600,6 +611,7 @@ func getProviderStatus(c *gin.Context) {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to refresh provider application status"})
 				return
 			}
+			providerApprovedWithManagedWallet(&user, decision)
 		}
 
 		c.JSON(http.StatusOK, gin.H{

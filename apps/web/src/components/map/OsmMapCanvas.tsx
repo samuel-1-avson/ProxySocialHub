@@ -157,7 +157,7 @@ export default function OsmMapCanvas({
     return (
         <div className="relative w-full h-full min-h-[320px]">
             <div ref={containerRef} className="w-full h-full" data-testid="osm-map-canvas" />
-            <div className="pointer-events-none absolute left-3 bottom-3 z-[500] rounded-md border border-white/10 bg-black/70 px-2 py-1 text-[8px] font-black uppercase tracking-widest text-white/45">
+            <div className="pointer-events-none absolute left-3 bottom-3 z-[500] rounded-md border border-border bg-card px-2 py-1 text-xs font-semibold text-muted-foreground">
                 OSM fallback · set NEXT_PUBLIC_GOOGLE_MAPS_API_KEY for Google Maps
             </div>
         </div>

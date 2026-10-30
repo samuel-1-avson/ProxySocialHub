@@ -436,7 +436,7 @@ func main() {
 			}
 		}
 
-		if allowOrigin == "" && middleware.ChromeExtensionOriginAllowed(origin) {
+		if allowOrigin == "" && middleware.ExtensionOriginAllowed(origin) {
 			allowOrigin = origin
 		}
 
@@ -584,6 +584,7 @@ func main() {
 		api.RegisterPublicReviewRoutes(v1)
 		api.RegisterSystemRoutes(v1)
 		api.RegisterKYCRoutes(v1)
+		api.RegisterPaystackWebhook(v1)
 		api.RegisterReputationRoutes(v1)               // Phase 9.2 Trust Layer
 		api.RegisterExplorerRoutes(v1)                 // System Explorer (Public blockchain explorer)
 		api.RegisterExplorerWSRoutes(v1)               // Explorer WebSocket for real-time updates
@@ -616,6 +617,7 @@ func main() {
 	{
 		api.RegisterBulkRoutes(bulkAuth)
 		api.RegisterPartnerPurchaseRoutes(bulkAuth)
+		api.RegisterFiatOrderRoutes(bulkAuth)
 	}
 
 	// Protected Routes (Require Authentication)
@@ -643,6 +645,7 @@ func main() {
 		api.RegisterGatewayTokenRoute(v1)     // Public: exchange provider token → gateway JWT
 		api.RegisterSessionRoutes(protected)
 		api.RegisterWalletRoutes(protected)
+		api.RegisterCashoutRoutes(protected)
 		api.RegisterOrderRoutes(protected)
 		api.RegisterEscrowRoutes(protected)
 		api.RegisterUsageRoutes(protected)
@@ -1039,6 +1042,9 @@ func main() {
 	// EV-05 lite: drain metering_wal_spill → usage_receipts when Redis WAL writes fail.
 	worker.StartMeteringSpillDrainWorker(context.Background())
 	log.Println("Metering Spill Drain Worker started")
+
+	// Fiat (Paystack) payments: retry rows stuck between paid and active.
+	go api.RunFiatPaymentReconciler(context.Background())
 
 	// Start Marketplace Watcher (Phase 9.1 Real-time Telemetry)
 	mw := worker.NewMarketplaceWatcher()

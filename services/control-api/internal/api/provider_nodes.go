@@ -38,6 +38,8 @@ func RegisterProviderNodeRoutes(rg *gin.RouterGroup) {
 	rg.GET("/provider/nodes/:id/uptime", getNodeUptime)
 	rg.GET("/provider/nodes/:id/connect", getNodeConnectInfo)
 	rg.POST("/provider/nodes/:id/heartbeat", nodeHeartbeat)
+	rg.POST("/provider/nodes/:id/ping", pingProviderNode)
+	rg.PUT("/provider/nodes/:id/location", setNodeLocation)
 	rg.POST("/provider/listings/sign-offer", signListingOfferDev)
 }
 
@@ -108,6 +110,8 @@ func createNode(c *gin.Context) {
 		Country:   req.Country,
 		City:      req.City,
 		Status:    models.NodeOffline,
+		// A city typed or picked at registration is the owner's; gateway IP geo must not replace it.
+		LocationUserSet: strings.TrimSpace(req.City) != "",
 	}
 
 	// PostgreSQL inet column rejects empty string — omit the column so it defaults to NULL
@@ -190,7 +194,7 @@ func autoPublishListing(userID uuid.UUID, node models.ProviderNode, connType str
 			}
 			loc += node.Country
 		}
-		title = node.Name + " — " + loc
+		title = node.Name + " · " + loc
 	}
 
 	// Default USD/GB by infrastructure type (traffic-first vs centralized mid-market).
@@ -587,16 +591,21 @@ func nodeHeartbeat(c *gin.Context) {
 
 	now := time.Now()
 	updates := map[string]interface{}{
-		"last_seen_at":                        now,
-		"status":                              models.NodeOnline,
-		"is_healthy":                          true,
-		"latest_heartbeat_hash":               proofResult.Hash,
-		"latest_heartbeat_signature":          proofResult.Signature,
-		"latest_heartbeat_signer":             proofResult.Signer,
-		"latest_heartbeat_signed_at":          proofResult.SignedAt,
-		"latest_heartbeat_verified":           proofResult.Verified,
-		"latest_heartbeat_verification_error": proofResult.VerificationError,
-		"latest_heartbeat_nonce":              proofResult.Nonce,
+		"last_seen_at": now,
+		"status":       models.NodeOnline,
+		"is_healthy":   true,
+	}
+	// Only a heartbeat that carries a proof updates the proof fields. An unsigned call
+	// (old dashboard tab, CLI without a signing key) must not wipe a verified proof.
+	// Invalid proofs were already rejected above.
+	if proofResult.Present {
+		updates["latest_heartbeat_hash"] = proofResult.Hash
+		updates["latest_heartbeat_signature"] = proofResult.Signature
+		updates["latest_heartbeat_signer"] = proofResult.Signer
+		updates["latest_heartbeat_signed_at"] = proofResult.SignedAt
+		updates["latest_heartbeat_verified"] = proofResult.Verified
+		updates["latest_heartbeat_verification_error"] = proofResult.VerificationError
+		updates["latest_heartbeat_nonce"] = proofResult.Nonce
 	}
 	if req.LatencyMs > 0 {
 		updates["avg_latency_ms"] = req.LatencyMs

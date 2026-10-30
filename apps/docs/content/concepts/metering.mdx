@@ -5,6 +5,17 @@ description: How the edge measures bytes, how usage reaches the ledger, and what
 
 ProxyHubb meters **bytes at the edge gateway**, then records usage in the control plane for billing, provider earnings, and (eventually) on-chain settlement batches.
 
+## In plain English
+
+Metering is the **taxi meter**. Every bit of data that passes between a buyer and a provider is counted at ProxyHubb's switchboard. Those counts become the bill: the provider is paid for what was used, and the buyer is refunded the rest.
+
+<Flow caption="Counted in one place (the switchboard), recorded in another (the office), paid out on Solana.">
+  <FlowStep icon="meter" title="Switchboard counts">Every byte sent and received</FlowStep>
+  <FlowStep icon="report" title="Signed report" arrow="sends">A tamper-proof usage report goes to the office</FlowStep>
+  <FlowStep icon="office" title="Office records">Adds it to the ledger and the provider's earnings</FlowStep>
+  <FlowStep icon="chain" title="Solana settles" arrow="when done">The locked box pays out</FlowStep>
+</Flow>
+
 ## Mental model
 
 ```text
@@ -23,8 +34,8 @@ Provider tunnels (`:3128`) carry the upstream leg; usage proofs / signing keys o
 |---------|----------|-------|
 | `GET /v1/usage/me`, session usage, analytics | Buyers (JWT) | Observe your own consumption |
 | Provider earnings / unsigned-usage fixes | Providers | Dashboard + CLI doctor / signing key |
-| `POST /v1/gateway/usage/report` | Edge only | Requires `X-Gateway-Auth` — **not** for apps |
-| Trustless / ZK batch routes | Advanced / JWT | Batch status — do not over-claim “ZK proves traffic” |
+| `POST /v1/gateway/usage/report` | Edge only | Requires `X-Gateway-Auth`: **not** for apps |
+| Trustless / ZK batch routes | Advanced / JWT | Batch status: do not over-claim “ZK proves traffic” |
 
 Apps and SDKs should **never** send gateway usage reports. The edge is the byte source of truth.
 
@@ -38,7 +49,7 @@ High-level states you may see in telemetry or support contexts:
 | `batched` | Included in a settlement batch |
 | `chain_committed` | Batch reflected on-chain |
 
-Exact field names vary by endpoint — prefer [API reference](/docs/api) for schemas.
+Exact field names vary by endpoint: prefer [API reference](/docs/api) for schemas.
 
 ## Quotas vs metering
 

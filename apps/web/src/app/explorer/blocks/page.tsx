@@ -45,26 +45,26 @@ export default function BlocksExplorer() {
             <motion.header variants={itemVariants} className="flex flex-col gap-6 border-b border-border pb-8">
                 <Link
                     href="/explorer"
-                    className="flex items-center gap-2 text-[10px] font-black text-muted-foreground hover:text-primary transition-colors uppercase tracking-[0.3em] w-fit"
+                    className="flex items-center gap-2 text-xs font-semibold text-muted-foreground hover:text-primary transition-colors w-fit"
                 >
                     <ArrowLeft size={14} /> Back to Grid
                 </Link>
                 
                 <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-6">
                     <div>
-                        <div className="text-[10px] font-black text-primary uppercase tracking-[0.5em] mb-1">Grid Telemetry // Blocks</div>
-                        <h1 className="text-4xl font-black uppercase tracking-tighter text-foreground flex items-center gap-4">
+                        <div className="text-xs font-semibold text-primary mb-1">Grid Telemetry // Blocks</div>
+                        <h1 className="text-4xl font-semibold tracking-tight text-foreground flex items-center gap-4">
                             <Box className="text-primary" size={32} /> 
                             Sequence Blocks
                         </h1>
-                        <p className="text-[11px] font-black text-muted-foreground uppercase tracking-widest mt-2">
+                        <p className="text-xs font-semibold text-muted-foreground mt-2">
                             Historical record of all verified segment hashes
                         </p>
                     </div>
                     
                     <div className="text-right">
-                        <p className="text-[9px] font-black text-muted-foreground uppercase tracking-[0.3em]">Total Blocks</p>
-                        <p className="text-3xl font-black text-foreground tracking-tighter">
+                        <p className="text-xs font-semibold text-muted-foreground">Total Blocks</p>
+                        <p className="text-3xl font-semibold text-foreground tracking-tight">
                             {data?.total?.toLocaleString() || '0'}
                         </p>
                     </div>
@@ -77,7 +77,7 @@ export default function BlocksExplorer() {
                     <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse">
                             <thead>
-                                <tr className="bg-muted text-muted-foreground text-[10px] uppercase tracking-[0.2em] font-black">
+                                <tr className="bg-muted text-muted-foreground text-xs font-semibold">
                                     <th className="px-6 py-4">Block</th>
                                     <th className="px-6 py-4">Hash</th>
                                     <th className="px-6 py-4">Time</th>
@@ -97,10 +97,10 @@ export default function BlocksExplorer() {
                                         <td colSpan={5} className="px-6 py-20 text-center">
                                             <div className="flex flex-col items-center gap-4">
                                                 <Database size={48} className="text-muted-foreground" />
-                                                <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.3em]">
+                                                <p className="text-xs font-semibold text-muted-foreground">
                                                     No blocks indexed yet
                                                 </p>
-                                                <p className="text-[10px] text-muted-foreground max-w-md">
+                                                <p className="text-xs text-muted-foreground max-w-md">
                                                     The blockchain indexer is starting up. Blocks will appear here once the sync is complete.
                                                 </p>
                                             </div>
@@ -118,23 +118,23 @@ export default function BlocksExplorer() {
                                                 </Link>
                                             </td>
                                             <td className="px-6 py-4">
-                                                <span className="font-mono text-[10px] text-muted-foreground group-hover:text-foreground transition-colors">
+                                                <span className="font-mono text-xs text-muted-foreground group-hover:text-foreground transition-colors">
                                                     {block.block_hash?.slice(0, 20)}...{block.block_hash?.slice(-12)}
                                                 </span>
                                             </td>
-                                            <td className="px-6 py-4 text-[11px] text-muted-foreground">
+                                            <td className="px-6 py-4 text-xs text-muted-foreground">
                                                 <div className="flex items-center gap-2">
                                                     <Clock size={12} />
                                                     {block.timestamp ? formatDistanceToNow(new Date(block.timestamp), { addSuffix: true }) : '-'}
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4 text-center">
-                                                <span className="px-3 py-1 rounded-lg bg-muted text-[10px] text-muted-foreground font-bold border border-border">
+                                                <span className="px-3 py-1 rounded-lg bg-muted text-xs text-muted-foreground font-bold border border-border">
                                                     {block.transaction_count} TXS
                                                 </span>
                                             </td>
                                             <td className="px-6 py-4">
-                                                <span className="text-[10px] text-muted-foreground font-mono uppercase tracking-widest">
+                                                <span className="text-xs text-muted-foreground font-mono">
                                                     {block.chain}
                                                 </span>
                                             </td>
@@ -147,7 +147,7 @@ export default function BlocksExplorer() {
 
                     {/* Pagination */}
                     <div className="p-6 bg-muted flex items-center justify-between border-t border-border">
-                        <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">
+                        <p className="text-xs font-semibold text-muted-foreground">
                             {hasBlocks ? (
                                 <>
                                     Page <span className="text-foreground">{page}</span> of{' '}
@@ -180,7 +180,7 @@ export default function BlocksExplorer() {
             {error && (
                 <motion.div 
                     variants={itemVariants}
-                    className="p-6 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[10px] font-black uppercase tracking-widest text-center"
+                    className="p-6 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-xs font-semibold text-center"
                 >
                     Failed to load blocks. Please check your connection to the ProxyHub network.
                 </motion.div>

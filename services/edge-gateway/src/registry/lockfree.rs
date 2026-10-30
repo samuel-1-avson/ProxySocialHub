@@ -342,6 +342,12 @@ impl LockFreeNodeRegistry {
         })
     }
 
+    /// Get a yamux Control for a liveness probe. Unlike `get_by_id` this skips the
+    /// health and lease gates: a ping should test the tunnel, not hide an unhealthy one.
+    pub fn control_for_probe(&self, node_id: &str) -> Option<Control> {
+        self.nodes.get(node_id).and_then(|entry| entry.pick_control())
+    }
+
     /// Atomically mark a node unhealthy (called by circuit breaker / heartbeat).
     pub fn mark_unhealthy(&self, node_id: &str) {
         if let Some(entry) = self.nodes.get(node_id) {

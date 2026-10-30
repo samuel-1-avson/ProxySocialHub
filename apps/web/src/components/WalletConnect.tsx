@@ -104,7 +104,7 @@ export function WalletConnect({ onLogin }: WalletConnectProps) {
                     )}
 
                     {error && (
-                        <div className="text-red-500 text-sm text-center bg-red-50 p-2 rounded">
+                        <div className="text-destructive text-sm text-center bg-destructive p-2 rounded">
                             {error}
                             <Button variant="link" onClick={connectWallet} className="px-1 py-0 h-auto font-normal">Try Again</Button>
                         </div>
@@ -126,7 +126,7 @@ export function WalletConnect({ onLogin }: WalletConnectProps) {
                                         <span className="text-xs text-muted-foreground font-mono break-all line-clamp-1">
                                             {acc.address}
                                         </span>
-                                        <span className="text-[10px] text-muted-foreground uppercase bg-secondary px-1.5 rounded">
+                                        <span className="text-xs text-muted-foreground bg-secondary px-1.5 rounded">
                                             {acc.meta.source}
                                         </span>
                                     </div>

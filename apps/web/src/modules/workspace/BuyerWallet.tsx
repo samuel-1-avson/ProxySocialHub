@@ -31,6 +31,8 @@ import {
   amount,
   shortDate,
 } from "@/components/workspace/Patterns";
+import { ManagedWalletCard } from "@/components/wallet/ManagedWalletCard";
+import { CashOutCard } from "@/components/wallet/CashOutCard";
 import { useOrders } from "./queries";
 
 export function BuyerWallet() {
@@ -140,6 +142,9 @@ export function BuyerWallet() {
   const canFund = Boolean(
     wallet && configuredNetwork && !ledgerMismatch && !processing,
   );
+  // Google accounts get a wallet ProxyHubb holds for them: top up and cash out
+  // in cedis instead of linking Phantom and picking networks.
+  const managed = Boolean(user?.managed_wallet?.address);
   const linkedStatus = matching
     ? "Connected"
     : differentWallet
@@ -192,11 +197,17 @@ export function BuyerWallet() {
         }
       />
       <nav className="ui-tabs" aria-label="Wallet views">
-        {[
-          ["overview", "Your wallet"],
-          ["funds", "Account funds"],
-          ["history", "Activity"],
-        ].map(([key, label]) => (
+        {(managed
+          ? [
+              ["overview", "Your money"],
+              ["history", "Activity"],
+            ]
+          : [
+              ["overview", "Your wallet"],
+              ["funds", "Account funds"],
+              ["history", "Activity"],
+            ]
+        ).map(([key, label]) => (
           <Link
             key={key}
             href={key === "overview" ? "/app/wallet" : `/app/wallet?tab=${key}`}
@@ -207,6 +218,13 @@ export function BuyerWallet() {
           </Link>
         ))}
       </nav>
+      {managed && tab !== "history" && (
+        <div className="space-y-4">
+          <ManagedWalletCard />
+          <CashOutCard />
+        </div>
+      )}
+      {!managed && (
       <div className="wallet-toolbar">
         <label className="ui-field">
           Balance network
@@ -237,7 +255,8 @@ export function BuyerWallet() {
           {balanceRefreshing ? "Refreshing…" : "Refresh balances"}
         </button>
       </div>
-      {!configuredNetwork && (
+      )}
+      {!managed && !configuredNetwork && (
         <p className="ui-attention" role="status">
           You are inspecting another network. Return to {page.solanaNetwork} to
           use account funding controls.
@@ -274,7 +293,7 @@ export function BuyerWallet() {
           )}
         </div>
       )}
-      {tab === "overview" && (
+      {tab === "overview" && !managed && (
         <>
           <div className="wallet-overview-grid">
             <section
@@ -301,7 +320,7 @@ export function BuyerWallet() {
                   <div className="wallet-balance-value">
                     {chainBalance.isSuccess
                       ? amount(chainBalance.data, 9)
-                      : "—"}{" "}
+                      : "…"}{" "}
                     <span>SOL</span>
                   </div>
                 )}
@@ -387,7 +406,7 @@ export function BuyerWallet() {
               <section className="ui-surface">
                 <h2>Account funds</h2>
                 <div className="ui-stat-value">
-                  {wallet ? `${amount(wallet.balance_sol, 9)} SOL` : "—"}
+                  {wallet ? `${amount(wallet.balance_sol, 9)} SOL` : "…"}
                 </div>
                 <p className="ui-note">
                   Deposits for supported account services. These funds are
@@ -407,7 +426,7 @@ export function BuyerWallet() {
                   <strong>
                     {orders.isSuccess
                       ? `${orders.data.filter((order) => order.status === "active").length} orders`
-                      : "—"}
+                      : "…"}
                   </strong>
                   <p className="ui-note">
                     Active orders. Each order has its own escrow and payment
@@ -450,7 +469,7 @@ export function BuyerWallet() {
           </div>
         </>
       )}
-      {tab === "funds" && (
+      {tab === "funds" && !managed && (
         <WalletFunds
           wallet={wallet}
           network={page.solanaNetwork}

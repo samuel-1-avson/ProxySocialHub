@@ -59,13 +59,13 @@ Still readable for entitlement status; **mutations are gone**.
 
 | Method | Path | Status |
 |--------|------|--------|
-| GET | `/v1/subscriptions/plans` | **200** — often `{ plans, legacy: true, … }` pointing to Access Passes |
-| GET | `/v1/subscriptions/my` | **200** — current entitlement (legacy or pass-backed) |
+| GET | `/v1/subscriptions/plans` | **200**: often `{ plans, legacy: true, … }` pointing to Access Passes |
+| GET | `/v1/subscriptions/my` | **200**: current entitlement (legacy or pass-backed) |
 | POST | `/v1/subscriptions` | **410 Gone** |
 | PUT | `/v1/subscriptions` | **410 Gone** |
 | DELETE | `/v1/subscriptions` | Cancel legacy; access may continue until `current_period_end` |
 
-Historical SKU names (`free` / `pro` / `scale`) may not match live catalog pricing — always prefer `/v1/passes/catalog`.
+Historical SKU names (`free` / `pro` / `scale`) may not match live catalog pricing. Always prefer `/v1/passes/catalog`.
 
 ## When quota hits
 
@@ -79,7 +79,7 @@ See [Troubleshooting](/docs/troubleshooting).
 
 ## Related
 
-- [Concepts](/docs/concepts) — how entitlements fit the mental model
+- [Concepts](/docs/concepts): how entitlements fit the mental model
 - [Session intents](/docs/buyer/connect)
 - [Wallet auth](/docs/wallet/auth) (JWT required)
 - [API reference](/docs/api)

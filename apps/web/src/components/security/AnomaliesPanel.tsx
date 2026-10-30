@@ -88,10 +88,10 @@ export default function AnomaliesPanel() {
 
     const getSeverityColor = (severity: string) => {
         switch (severity.toLowerCase()) {
-            case 'critical': return 'text-red-500 bg-red-500/10 border-red-500/30';
-            case 'high': return 'text-orange-500 bg-orange-500/10 border-orange-500/30';
-            case 'medium': return 'text-amber-500 bg-amber-500/10 border-amber-500/30';
-            case 'low': return 'text-yellow-500 bg-yellow-500/10 border-yellow-500/30';
+            case 'critical': return 'text-destructive bg-destructive/10 border-destructive/30';
+            case 'high': return 'text-warning bg-warning/10 border-warning/30';
+            case 'medium': return 'text-warning bg-warning/10 border-warning/30';
+            case 'low': return 'text-warning bg-warning/10 border-warning/30';
             default: return 'text-muted-foreground bg-secondary border-border';
         }
     };
@@ -130,21 +130,21 @@ export default function AnomaliesPanel() {
             {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
-                    <h3 className="text-sm font-bold font-mono uppercase flex items-center gap-2">
+                    <h3 className="text-sm font-bold font-mono flex items-center gap-2">
                         <Shield size={14} className="text-primary" />
                         Security Alerts
                     </h3>
-                    <p className="text-[10px] font-mono text-muted-foreground">
+                    <p className="text-xs font-mono text-muted-foreground">
                         {unresolvedCount > 0 ? (
-                            <span className="text-amber-500">{unresolvedCount} UNRESOLVED ALERT{unresolvedCount !== 1 ? 'S' : ''}</span>
+                            <span className="text-warning">{unresolvedCount} UNRESOLVED ALERT{unresolvedCount !== 1 ? 'S' : ''}</span>
                         ) : (
-                            <span className="text-green-500">ALL CLEAR</span>
+                            <span className="text-success">All clear</span>
                         )}
                     </p>
                 </div>
                 <button
                     onClick={loadAnomalies}
-                    className="btn-retro btn-retro-outline py-1.5 px-3 text-[10px] flex items-center gap-1.5"
+                    className="btn-retro btn-retro-outline py-1.5 px-3 text-xs flex items-center gap-1.5"
                 >
                     <RefreshCw size={12} /> REFRESH
                 </button>
@@ -161,7 +161,7 @@ export default function AnomaliesPanel() {
                 {anomalies.map((anomaly) => (
                     <div
                         key={anomaly.id}
-                        className={`border rounded-sm p-4 ${anomaly.is_resolved ? 'border-border/50 bg-secondary/20 opacity-60' : 'border-amber-500/30 bg-amber-500/5'}`}
+                        className={`border rounded-sm p-4 ${anomaly.is_resolved ? 'border-border/50 bg-secondary/20 opacity-60' : 'border-warning/30 bg-warning/5'}`}
                     >
                         <div className="flex items-start justify-between">
                             <div className="flex items-start gap-3">
@@ -173,16 +173,16 @@ export default function AnomaliesPanel() {
                                         <span className="font-mono text-sm font-bold">
                                             {getAnomalyTypeLabel(anomaly.anomaly_type)}
                                         </span>
-                                        <span className={`px-1.5 py-0.5 text-[9px] font-mono font-bold rounded-sm border ${getSeverityColor(anomaly.severity)}`}>
+                                        <span className={`px-1.5 py-0.5 text-xs font-mono font-bold rounded-sm border ${getSeverityColor(anomaly.severity)}`}>
                                             {anomaly.severity.toUpperCase()}
                                         </span>
                                         {anomaly.is_resolved && (
-                                            <span className="px-1.5 py-0.5 bg-green-500/10 text-green-500 border border-green-500/30 text-[9px] font-mono font-bold rounded-sm flex items-center gap-1">
+                                            <span className="px-1.5 py-0.5 bg-success/10 text-success border border-success/30 text-xs font-mono font-bold rounded-sm flex items-center gap-1">
                                                 <Check size={10} /> RESOLVED
                                             </span>
                                         )}
                                     </div>
-                                    <div className="flex items-center gap-3 mt-1 text-[10px] font-mono text-muted-foreground">
+                                    <div className="flex items-center gap-3 mt-1 text-xs font-mono text-muted-foreground">
                                         <span className="flex items-center gap-1">
                                             <MapPin size={10} />
                                             {anomaly.detected_ip}
@@ -193,16 +193,16 @@ export default function AnomaliesPanel() {
                                             {formatDate(anomaly.created_at)}
                                         </span>
                                     </div>
-                                    <div className="mt-2 text-[10px] font-mono">
+                                    <div className="mt-2 text-xs font-mono">
                                         <span className="text-muted-foreground">Risk Score: </span>
-                                        <span className={anomaly.risk_score >= 60 ? 'text-red-500' : anomaly.risk_score >= 40 ? 'text-amber-500' : 'text-yellow-500'}>
+                                        <span className={anomaly.risk_score >= 60 ? 'text-destructive' : anomaly.risk_score >= 40 ? 'text-warning' : 'text-warning'}>
                                             {anomaly.risk_score}/100
                                         </span>
                                         <span className="text-muted-foreground ml-3">Action: </span>
                                         <span className="text-primary">{anomaly.action_taken}</span>
                                     </div>
                                     {anomaly.resolution && (
-                                        <div className="mt-2 text-[10px] font-mono text-green-500">
+                                        <div className="mt-2 text-xs font-mono text-success">
                                             Resolution: {anomaly.resolution}
                                         </div>
                                     )}
@@ -211,7 +211,7 @@ export default function AnomaliesPanel() {
                             {!anomaly.is_resolved && (
                                 <button
                                     onClick={() => setShowResolutionModal(anomaly.id)}
-                                    className="btn-retro btn-retro-outline py-1 px-2 text-[10px] flex items-center gap-1"
+                                    className="btn-retro btn-retro-outline py-1 px-2 text-xs flex items-center gap-1"
                                 >
                                     <Eye size={12} /> REVIEW
                                 </button>
@@ -224,8 +224,8 @@ export default function AnomaliesPanel() {
             {anomalies.length === 0 && !loading && (
                 <div className="text-center py-12 text-muted-foreground">
                     <Shield size={32} className="mx-auto mb-3 opacity-30" />
-                    <p className="font-mono text-xs text-green-500">NO SECURITY ALERTS</p>
-                    <p className="font-mono text-[10px] mt-1">Your account is secure</p>
+                    <p className="font-mono text-xs text-success">No security alerts</p>
+                    <p className="font-mono text-xs mt-1">Your account is secure</p>
                 </div>
             )}
 

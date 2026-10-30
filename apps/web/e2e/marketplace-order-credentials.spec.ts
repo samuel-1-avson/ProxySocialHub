@@ -27,7 +27,10 @@ test.describe('marketplace order credentials page', () => {
 
         const credentials = page.getByTestId('marketplace-order-credentials');
         await expect(credentials).toBeVisible({ timeout: 30_000 });
-        await expect(credentials.getByText(mockProxyCredentials.endpoint).first()).toBeVisible();
+        await credentials.getByText('Use in another app or device').click();
+        const [host, port] = mockProxyCredentials.endpoint.split(':');
+        await expect(credentials.getByText(host, { exact: true })).toBeVisible();
+        await expect(credentials.getByText(port, { exact: true })).toBeVisible();
         await expect(credentials.getByText(mockProxyCredentials.username).first()).toBeVisible();
 
         const curl = page.getByTestId('marketplace-order-credentials-curl');
@@ -35,13 +38,16 @@ test.describe('marketplace order credentials page', () => {
         await expect(curl).toContainText(mockProxyCredentials.username);
         await expect(curl).not.toContainText('phubb1.');
         await expect(curl).not.toContainText(mockSessionCapability);
+        // Internal soak tokens and gateway jargon are not shown to buyers.
+        await expect(page.getByText(/soak|HMAC|edge gateway/i)).toHaveCount(0);
 
-        await expect(page.getByTestId('marketplace-order-credentials-advanced')).toBeVisible();
+        // No extension in this browser: the card explains, and there is no Turn on button.
         await expect(page.getByTestId('extension-connect-card')).toBeVisible();
-        await expect(page.getByTestId('extension-connect-button')).toHaveText(/Connect with ProxyHubb/i);
+        await expect(page.getByTestId('extension-install-hint')).not.toHaveText(/Checking/i, { timeout: 15_000 });
+        await expect(page.getByTestId('extension-connect-button')).toHaveCount(0);
     });
 
-    test('Connect with ProxyHubb pairs and turns on a mocked extension', async ({ page }) => {
+    test('Turn on proxy pairs and turns on a mocked extension', async ({ page }) => {
         await enableE2EMockBuy(page, BASE_URL);
         await mockExtensionHandoff(page);
         await stubPurchaseApis(page, verifiedMapListingId);
@@ -53,11 +59,12 @@ test.describe('marketplace order credentials page', () => {
         });
 
         await expect(page.getByTestId('extension-connect-card')).toBeVisible({ timeout: 30_000 });
-        await expect(page.getByTestId('extension-connect-button')).toBeEnabled();
+        await expect(page.getByTestId('extension-connect-button')).toHaveText(/Turn on proxy/i, { timeout: 15_000 });
         await page.getByTestId('extension-connect-button').click();
-        await expect(page.getByTestId('extension-connect-status')).toContainText(/Connected/i, {
-            timeout: 15_000,
-        });
-        await expect(page.getByTestId('extension-connect-button')).toHaveText(/Connected in this browser/i);
+        await expect(page.getByText('Proxy is on in this browser')).toBeVisible({ timeout: 15_000 });
+        await expect(page.getByTestId('extension-install-hint')).toContainText('203.0.113.7');
+
+        await page.getByTestId('extension-disconnect-button').click();
+        await expect(page.getByTestId('extension-connect-button')).toHaveText(/Turn on proxy/i);
     });
 });

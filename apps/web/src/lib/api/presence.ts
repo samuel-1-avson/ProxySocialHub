@@ -231,11 +231,11 @@ export function getLastSeenText(presence: PresenceStatus | null | undefined): st
 }
 
 export function getOnlineStatusColor(isOnline: boolean): string {
-    return isOnline ? 'text-emerald-400' : 'text-gray-400';
+    return isOnline ? 'text-success' : 'text-muted-foreground';
 }
 
 export function getOnlineStatusBg(isOnline: boolean): string {
-    return isOnline ? 'bg-emerald-500' : 'bg-gray-500';
+    return isOnline ? 'bg-success' : 'bg-muted';
 }
 
 /**

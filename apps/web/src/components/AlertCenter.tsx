@@ -54,11 +54,11 @@ export function AlertCenter() {
     const getSeverityStyles = (severity: string) => {
         switch (severity) {
             case 'CRITICAL':
-                return 'bg-red-500/10 border-red-500/20 text-red-500';
+                return 'bg-destructive/10 border-destructive/20 text-destructive';
             case 'WARNING':
-                return 'bg-yellow-500/10 border-yellow-500/20 text-yellow-500';
+                return 'bg-warning/10 border-warning/20 text-warning';
             default:
-                return 'bg-blue-500/10 border-blue-500/20 text-blue-500';
+                return 'bg-info/10 border-info/20 text-info';
         }
     };
 
@@ -81,12 +81,12 @@ export function AlertCenter() {
                     setIsOpen(!isOpen);
                     setUnreadCount(0);
                 }}
-                className={`relative p-2 rounded-full transition-all duration-300 ${isOpen ? 'bg-primary/20 text-primary' : 'bg-white/5 text-muted-foreground hover:bg-white/10 hover:text-white'
+                className={`relative p-2 rounded-full transition-all duration-300 ${isOpen ? 'bg-primary/20 text-primary' : 'bg-secondary text-muted-foreground hover:bg-secondary hover:text-foreground'
                     }`}
             >
                 <Bell size={20} />
                 {unreadCount > 0 && (
-                    <span className="absolute top-0 right-0 w-4 h-4 bg-red-500 text-[8px] font-black text-white rounded-full flex items-center justify-center animate-pulse">
+                    <span className="absolute top-0 right-0 w-4 h-4 bg-destructive text-xs font-semibold text-destructive-foreground rounded-full flex items-center justify-center animate-pulse">
                         {unreadCount}
                     </span>
                 )}
@@ -97,35 +97,35 @@ export function AlertCenter() {
                 {isOpen && (
                     <>
                         <div
-                            className="fixed inset-0 z-40 bg-black/20 backdrop-blur-[2px]"
+                            className="fixed inset-0 z-40 bg-secondary backdrop-blur-[2px]"
                             onClick={() => setIsOpen(false)}
                         />
                         <motion.div
                             initial={{ opacity: 0, y: 10, scale: 0.95 }}
                             animate={{ opacity: 1, y: 0, scale: 1 }}
                             exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                            className="absolute right-0 mt-4 w-80 z-50 bg-[#0a0a0a] border border-white/10 rounded-2xl shadow-2xl overflow-hidden"
+                            className="absolute right-0 mt-4 w-80 z-50 bg-[#0a0a0a] border border-border rounded-lg shadow-sm overflow-hidden"
                         >
-                            <div className="p-4 border-b border-white/5 flex items-center justify-between bg-white/[0.02]">
+                            <div className="p-4 border-b border-border flex items-center justify-between bg-secondary">
                                 <div className="flex items-center gap-2">
                                     <Activity size={16} className="text-primary" />
-                                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-white">Watchtower Sentry</h3>
+                                    <h3 className="text-xs font-semibold text-foreground">Watchtower Sentry</h3>
                                 </div>
-                                <button onClick={() => setIsOpen(false)} className="text-white/20 hover:text-white transition-colors">
+                                <button onClick={() => setIsOpen(false)} className="text-muted-foreground hover:text-foreground transition-colors">
                                     <X size={16} />
                                 </button>
                             </div>
 
                             <div className="max-h-[400px] overflow-y-auto custom-scrollbar p-2 space-y-2">
                                 {alerts.length === 0 ? (
-                                    <div className="py-10 text-center text-[10px] font-mono text-white/20 uppercase">
+                                    <div className="py-10 text-center text-xs font-mono text-muted-foreground">
                                         No active triggers detected
                                     </div>
                                 ) : (
                                     alerts.map((alert, idx) => (
                                         <div
                                             key={idx}
-                                            className={`p-3 rounded-xl border transition-all ${getSeverityStyles(alert.severity)}`}
+                                            className={`p-3 rounded-lg border transition-all ${getSeverityStyles(alert.severity)}`}
                                         >
                                             <div className="flex items-start gap-3">
                                                 <div className="mt-0.5">
@@ -133,14 +133,14 @@ export function AlertCenter() {
                                                 </div>
                                                 <div className="flex-1 space-y-1">
                                                     <div className="flex items-center justify-between">
-                                                        <span className="text-[10px] font-black uppercase tracking-widest">{alert.severity}</span>
-                                                        <span className="text-[8px] opacity-40 font-mono flex items-center gap-1">
+                                                        <span className="text-xs font-semibold">{alert.severity}</span>
+                                                        <span className="text-xs opacity-40 font-mono flex items-center gap-1">
                                                             <Clock size={8} />
                                                             {new Date(alert.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                                         </span>
                                                     </div>
-                                                    <p className="text-xs font-bold text-white/90 leading-tight">{alert.message}</p>
-                                                    <p className="text-[9px] font-mono opacity-60 break-all">{alert.resource}</p>
+                                                    <p className="text-xs font-bold text-foreground leading-tight">{alert.message}</p>
+                                                    <p className="text-xs font-mono opacity-60 break-all">{alert.resource}</p>
                                                 </div>
                                             </div>
                                         </div>
@@ -148,8 +148,8 @@ export function AlertCenter() {
                                 )}
                             </div>
 
-                            <div className="p-3 border-t border-white/5 text-center">
-                                <button className="text-[8px] font-black uppercase tracking-widest text-white/30 hover:text-white transition-colors">
+                            <div className="p-3 border-t border-border text-center">
+                                <button className="text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors">
                                     View Security Audit Log
                                 </button>
                             </div>

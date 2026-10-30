@@ -81,27 +81,27 @@ export function ListingQASection({
 
     return (
         <div
-            className={`rounded-xl border border-white/10 bg-white/[0.02] ${compact ? 'p-4 space-y-3' : 'p-5 space-y-4'} ${className}`}
+            className={`rounded-lg border border-border bg-secondary ${compact ? 'p-4 space-y-3' : 'p-5 space-y-4'} ${className}`}
         >
             <div className="flex items-center justify-between gap-2">
-                <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                <h3 className="text-xs font-semibold text-muted-foreground flex items-center gap-2">
                     <HelpCircle size={14} className="text-primary/70" />
                     Questions & answers
                 </h3>
                 {!compact && questions.length > 0 && (
-                    <span className="text-[9px] font-mono text-muted-foreground/50 uppercase">
+                    <span className="text-xs font-mono text-muted-foreground/50">
                         {questions.length} thread{questions.length === 1 ? '' : 's'}
                     </span>
                 )}
             </div>
 
             {loading ? (
-                <div className="flex items-center gap-2 text-[10px] font-mono uppercase text-muted-foreground/40">
+                <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground/40">
                     <Loader2 size={14} className="animate-spin" />
                     Loading Q&A…
                 </div>
             ) : questions.length === 0 ? (
-                <p className="text-[10px] font-mono text-muted-foreground/50 uppercase leading-relaxed">
+                <p className="text-xs font-mono text-muted-foreground/50 leading-relaxed">
                     No questions yet. Ask about latency, routing, or availability before you buy.
                 </p>
             ) : (
@@ -110,12 +110,12 @@ export function ListingQASection({
                         <li key={q.id}>
                             <Link
                                 href={`/community/forum/thread/${q.id}`}
-                                className="block rounded-lg border border-white/5 bg-black/20 px-3 py-2 hover:border-primary/30 transition-colors"
+                                className="block rounded-lg border border-border bg-secondary px-3 py-2 hover:border-primary/30 transition-colors"
                             >
-                                <div className="text-[11px] font-bold text-foreground line-clamp-1">
+                                <div className="text-xs font-bold text-foreground line-clamp-1">
                                     {q.title}
                                 </div>
-                                <div className="flex flex-wrap items-center gap-2 mt-1 text-[9px] font-mono uppercase text-muted-foreground/50">
+                                <div className="flex flex-wrap items-center gap-2 mt-1 text-xs font-mono text-muted-foreground/50">
                                     <span className="inline-flex items-center gap-1">
                                         <MessageSquare size={10} />
                                         {q.replies_count} replies
@@ -133,14 +133,14 @@ export function ListingQASection({
             )}
 
             {showForm ? (
-                <form onSubmit={handleSubmit} className="space-y-3 border-t border-white/5 pt-3">
+                <form onSubmit={handleSubmit} className="space-y-3 border-t border-border pt-3">
                     <input
                         type="text"
                         value={title}
                         onChange={(e) => setTitle(e.target.value)}
                         placeholder="Question title (min 5 chars)"
                         maxLength={200}
-                        className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/40"
+                        className="w-full rounded-lg border border-border bg-secondary px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/40"
                     />
                     <textarea
                         value={content}
@@ -148,13 +148,13 @@ export function ListingQASection({
                         placeholder="Details for the provider (min 10 chars)"
                         rows={compact ? 3 : 4}
                         maxLength={2000}
-                        className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/40 resize-none"
+                        className="w-full rounded-lg border border-border bg-secondary px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/40 resize-none"
                     />
                     <div className="flex gap-2">
                         <button
                             type="submit"
                             disabled={submitting}
-                            className="inline-flex items-center justify-center gap-2 flex-1 py-2 rounded-lg bg-primary/15 border border-primary/30 text-[10px] font-black uppercase tracking-widest text-primary hover:bg-primary/25 disabled:opacity-50"
+                            className="inline-flex items-center justify-center gap-2 flex-1 py-2 rounded-lg bg-primary/15 border border-primary/30 text-xs font-semibold text-primary hover:bg-primary/25 disabled:opacity-50"
                         >
                             {submitting ? (
                                 <Loader2 size={14} className="animate-spin" />
@@ -166,7 +166,7 @@ export function ListingQASection({
                         <button
                             type="button"
                             onClick={() => setShowForm(false)}
-                            className="py-2 px-3 rounded-lg border border-white/10 text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:text-foreground"
+                            className="py-2 px-3 rounded-lg border border-border text-xs font-semibold text-muted-foreground hover:text-foreground"
                         >
                             Cancel
                         </button>
@@ -182,7 +182,7 @@ export function ListingQASection({
                         }
                         setShowForm(true);
                     }}
-                    className="w-full py-2.5 rounded-lg border border-white/10 bg-white/5 text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:text-foreground hover:border-primary/30 transition-colors"
+                    className="w-full py-2.5 rounded-lg border border-border bg-secondary text-xs font-semibold text-muted-foreground hover:text-foreground hover:border-primary/30 transition-colors"
                 >
                     Ask a question
                 </button>
