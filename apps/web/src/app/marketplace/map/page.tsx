@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
@@ -41,6 +41,10 @@ const ProxyMapCanvas = dynamic(
 export default function MarketplaceMapPage() {
     const searchParams = useSearchParams();
     const highlightListingId = searchParams.get('listing');
+    return <MarketplaceMapContent key={highlightListingId ?? ''} highlightListingId={highlightListingId} />;
+}
+
+function MarketplaceMapContent({ highlightListingId }: { highlightListingId: string | null }) {
     const [proxyType, setProxyType] = useState('');
     const [protocol, setProtocol] = useState('');
     const [country, setCountry] = useState('');
@@ -48,7 +52,9 @@ export default function MarketplaceMapPage() {
     const [maxPrice, setMaxPrice] = useState('');
     const [minUptime, setMinUptime] = useState('');
     const [maxLatency, setMaxLatency] = useState('');
-    const [selectedPin, setSelectedPin] = useState<MarketplaceListingMapPin | null>(null);
+    const [selectedListingId, setSelectedListingId] = useState<string | null>(highlightListingId);
+    const setSelectedPin = useCallback((pin: MarketplaceListingMapPin | null) => setSelectedListingId(pin?.listing_id ?? null), []);
+    const [filtersOpen, setFiltersOpen] = useState(!highlightListingId);
     const [selectedCluster, setSelectedCluster] = useState<MarketplaceListingMapPin[] | null>(null);
     const [selectedNode, setSelectedNode] = useState<NodeGeoPoint | null>(null);
     const [buyListing, setBuyListing] = useState<Listing | null>(null);
@@ -58,12 +64,13 @@ export default function MarketplaceMapPage() {
     const [searchBBox, setSearchBBox] = useState<MapBBox | null>(null);
     const facets = useQuery({ queryKey: marketplaceKeys.facets(), queryFn: getListingFacets, staleTime: 60_000 });
 
-    useEffect(() => {
+    function changeFilter(setFilter: Dispatch<SetStateAction<string>>, value: string) {
+        setFilter(value);
         setSearchBBox(null);
         setSelectedPin(null);
         setSelectedCluster(null);
         setSelectedNode(null);
-    }, [proxyType, protocol, country, minPrice, maxPrice, minUptime, maxLatency]);
+    }
 
     const bboxParam = searchBBox ? bboxToParam(searchBBox) : undefined;
     const mapFilters = useMemo<MarketplaceMapFilters>(() => ({
@@ -107,7 +114,7 @@ export default function MarketplaceMapPage() {
         setSearchBBox(viewport);
         setSelectedPin(null);
         setSelectedCluster(null);
-    }, [viewport]);
+    }, [viewport, setSelectedPin]);
 
     const clearAreaSearch = useCallback(() => {
         setSearchBBox(null);
@@ -125,22 +132,8 @@ export default function MarketplaceMapPage() {
         [pins],
     );
 
-    useEffect(() => {
-        if (!highlightListingId || plotted.length === 0) return;
-        const pin = plotted.find(p => p.listing_id === highlightListingId);
-        if (!pin) return;
-        setSelectedPin(prev => {
-            if (prev?.listing_id === pin.listing_id) return prev;
-            return pin;
-        });
-    }, [highlightListingId, plotted]);
-
-    // When deep-linking to a listing, clear competing selection once on first highlight.
-    useEffect(() => {
-        if (!highlightListingId) return;
-        setSelectedCluster(null);
-        setSelectedNode(null);
-    }, [highlightListingId]);
+    // Keep the inspector on the current API record, including after a map refresh.
+    const selectedPin = plotted.find(pin => pin.listing_id === selectedListingId) ?? null;
 
     const viewportPins = useMemo(() => {
         if (!viewport) return plotted;
@@ -170,19 +163,22 @@ export default function MarketplaceMapPage() {
         setSelectedNode(node);
         setSelectedPin(null);
         setSelectedCluster(null);
-    }, []);
+        setFiltersOpen(false);
+    }, [setSelectedPin]);
 
     const handleSelectListing = useCallback((pin: ExplorerListingPin) => {
         setSelectedPin(pin as MarketplaceListingMapPin);
         setSelectedCluster(null);
         setSelectedNode(null);
-    }, []);
+        setFiltersOpen(false);
+    }, [setSelectedPin]);
 
     const handleSelectListingGroup = useCallback((pins: ExplorerListingPin[]) => {
         setSelectedCluster(pins as MarketplaceListingMapPin[]);
         setSelectedPin(null);
         setSelectedNode(null);
-    }, []);
+        setFiltersOpen(false);
+    }, [setSelectedPin]);
 
     const handleBuy = useCallback(async (pin: MarketplaceListingMapPin) => {
         if (!pin.purchasable) return;
@@ -283,11 +279,12 @@ export default function MarketplaceMapPage() {
                 </div>
 
                 <div className="market-map-side">
-                    <section className="ui-surface" aria-label="Map filters">
-                        <h2>Filters</h2>
+                    <details className="ui-surface market-map-filters" open={filtersOpen} onToggle={event => setFiltersOpen(event.currentTarget.open)}>
+                        <summary className="market-map-filter-summary"><h2>Filters</h2><span>{filtersOpen ? 'Hide' : 'Show'}</span></summary>
+                        <section aria-label="Map filters">
                         <div className="grid gap-3">
                             <label className="ui-field">Proxy type
-                                <select aria-label="Proxy type" className="ui-select" value={proxyType} onChange={e => setProxyType(e.target.value)}>
+                                <select aria-label="Proxy type" className="ui-select" value={proxyType} onChange={e => changeFilter(setProxyType, e.target.value)}>
                                     <option value="">All types</option>
                                     <option value="residential">Residential</option>
                                     <option value="mobile">Mobile</option>
@@ -295,32 +292,32 @@ export default function MarketplaceMapPage() {
                                 </select>
                             </label>
                             <label className="ui-field">Protocol
-                                <select aria-label="Protocol" className="ui-select" value={protocol} onChange={e => setProtocol(e.target.value)}>
+                                <select aria-label="Protocol" className="ui-select" value={protocol} onChange={e => changeFilter(setProtocol, e.target.value)}>
                                     <option value="">All protocols</option>
                                     <option value="http">HTTP</option>
                                     <option value="socks5">SOCKS5</option>
                                 </select>
                             </label>
                             <label className="ui-field">Country
-                                <select aria-label="Country" className="ui-select" value={country} onChange={e => setCountry(e.target.value)}>
+                                <select aria-label="Country" className="ui-select" value={country} onChange={e => changeFilter(setCountry, e.target.value)}>
                                     <option value="">All countries</option>
                                     {countries.map(c => <option key={c} value={c}>{c}</option>)}
                                 </select>
                             </label>
                             <div className="grid grid-cols-2 gap-2">
                                 <label className="ui-field">Minimum price
-                                    <input className="ui-input" type="number" min="0" step="0.01" value={minPrice} aria-label="Minimum price" onChange={e => setMinPrice(e.target.value)} />
+                                    <input className="ui-input" type="number" min="0" step="0.01" value={minPrice} aria-label="Minimum price" onChange={e => changeFilter(setMinPrice, e.target.value)} />
                                 </label>
                                 <label className="ui-field">Maximum price
-                                    <input className="ui-input" type="number" min="0" step="0.01" value={maxPrice} aria-label="Maximum price" onChange={e => setMaxPrice(e.target.value)} />
+                                    <input className="ui-input" type="number" min="0" step="0.01" value={maxPrice} aria-label="Maximum price" onChange={e => changeFilter(setMaxPrice, e.target.value)} />
                                 </label>
                             </div>
                             <div className="grid grid-cols-2 gap-2">
                                 <label className="ui-field">Minimum uptime
-                                    <input className="ui-input" type="number" min="0" max="100" step="1" value={minUptime} aria-label="Minimum uptime percent" onChange={e => setMinUptime(e.target.value)} />
+                                    <input className="ui-input" type="number" min="0" max="100" step="1" value={minUptime} aria-label="Minimum uptime percent" onChange={e => changeFilter(setMinUptime, e.target.value)} />
                                 </label>
                                 <label className="ui-field">Maximum latency
-                                    <input className="ui-input" type="number" min="0" step="1" value={maxLatency} aria-label="Maximum latency milliseconds" onChange={e => setMaxLatency(e.target.value)} />
+                                    <input className="ui-input" type="number" min="0" step="1" value={maxLatency} aria-label="Maximum latency milliseconds" onChange={e => changeFilter(setMaxLatency, e.target.value)} />
                                 </label>
                             </div>
                             <button
@@ -335,12 +332,16 @@ export default function MarketplaceMapPage() {
                                     setMinUptime('');
                                     setMaxLatency('');
                                     setSearchBBox(null);
+                                    setSelectedPin(null);
+                                    setSelectedCluster(null);
+                                    setSelectedNode(null);
                                 }}
                             >
                                 Reset filters
                             </button>
                         </div>
-                    </section>
+                        </section>
+                    </details>
 
                     {selectedCluster && selectedCluster.length > 1 ? (
                         <section className="ui-surface">
@@ -447,7 +448,7 @@ export default function MarketplaceMapPage() {
                                         type="button"
                                         className={selectedPin?.listing_id === p.listing_id ? 'active' : ''}
                                         aria-current={selectedPin?.listing_id === p.listing_id ? 'true' : undefined}
-                                        onClick={() => { setSelectedPin(p); setSelectedCluster(null); }}
+                                        onClick={() => { setSelectedPin(p); setSelectedCluster(null); setSelectedNode(null); setFiltersOpen(false); }}
                                     >
                                         <span>{p.title}</span>
                                         <small>
