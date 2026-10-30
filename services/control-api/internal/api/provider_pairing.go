@@ -373,7 +373,11 @@ func redeemProviderPairing(c *gin.Context, p models.ProviderPairing, now time.Ti
 			GatewayNodeID: providerGatewayNodeID(userID),
 			IsHealthy:     false,
 		}
-		if err := tx.Create(&pn).Error; err != nil {
+		// No address yet: the gateway records the computer's public address when the node first
+		// connects. provider_nodes.ip_address is inet, so an empty string is not "unknown", it is
+		// invalid input (SQLSTATE 22P02) and failed every real pairing. Leave the column out so it
+		// stays NULL. (Tests used to hide this, see testutil.WithoutProviderNodeIPDefault.)
+		if err := tx.Omit("ip_address").Create(&pn).Error; err != nil {
 			return &redeemStepError{"node", err}
 		}
 		reg := models.ProviderNodeRegistration{

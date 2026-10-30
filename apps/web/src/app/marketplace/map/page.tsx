@@ -1,18 +1,22 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
+import { useQuery } from '@tanstack/react-query';
 import { Loader2, Search, X } from 'lucide-react';
 import { BuyListingModal } from '@/components/BuyListingModal';
 import { PageHeading } from '@/components/workspace/Patterns';
+import { measured } from '@/lib/measurements';
 import { CatalogProductBadge } from '@/components/marketplace/CatalogProductBadge';
 import { ListingSocialPanel } from '@/components/marketplace/ListingSocialPanel';
 import { ListingQASection } from '@/components/marketplace/ListingQASection';
 import { MarketplaceDiscoverTabs } from '@/components/marketplace/MarketplaceDiscoverTabs';
 import {
     getListing,
+    getListingFacets,
+    marketplaceKeys,
     type Listing,
     type MarketplaceMapFilters,
 } from '@/lib/api/marketplace';
@@ -37,6 +41,10 @@ const ProxyMapCanvas = dynamic(
 export default function MarketplaceMapPage() {
     const searchParams = useSearchParams();
     const highlightListingId = searchParams.get('listing');
+    return <MarketplaceMapContent key={highlightListingId ?? ''} highlightListingId={highlightListingId} />;
+}
+
+function MarketplaceMapContent({ highlightListingId }: { highlightListingId: string | null }) {
     const [proxyType, setProxyType] = useState('');
     const [protocol, setProtocol] = useState('');
     const [country, setCountry] = useState('');
@@ -44,20 +52,25 @@ export default function MarketplaceMapPage() {
     const [maxPrice, setMaxPrice] = useState('');
     const [minUptime, setMinUptime] = useState('');
     const [maxLatency, setMaxLatency] = useState('');
-    const [selectedPin, setSelectedPin] = useState<MarketplaceListingMapPin | null>(null);
+    const [selectedListingId, setSelectedListingId] = useState<string | null>(highlightListingId);
+    const setSelectedPin = useCallback((pin: MarketplaceListingMapPin | null) => setSelectedListingId(pin?.listing_id ?? null), []);
+    const [filtersOpen, setFiltersOpen] = useState(!highlightListingId);
     const [selectedCluster, setSelectedCluster] = useState<MarketplaceListingMapPin[] | null>(null);
     const [selectedNode, setSelectedNode] = useState<NodeGeoPoint | null>(null);
     const [buyListing, setBuyListing] = useState<Listing | null>(null);
     const [buyLoading, setBuyLoading] = useState(false);
+    const [buyError, setBuyError] = useState<string>();
     const [viewport, setViewport] = useState<MapBBox | null>(null);
     const [searchBBox, setSearchBBox] = useState<MapBBox | null>(null);
+    const facets = useQuery({ queryKey: marketplaceKeys.facets(), queryFn: getListingFacets, staleTime: 60_000 });
 
-    useEffect(() => {
+    function changeFilter(setFilter: Dispatch<SetStateAction<string>>, value: string) {
+        setFilter(value);
         setSearchBBox(null);
         setSelectedPin(null);
         setSelectedCluster(null);
         setSelectedNode(null);
-    }, [proxyType, protocol, country, minPrice, maxPrice, minUptime, maxLatency]);
+    }
 
     const bboxParam = searchBBox ? bboxToParam(searchBBox) : undefined;
     const mapFilters = useMemo<MarketplaceMapFilters>(() => ({
@@ -101,7 +114,7 @@ export default function MarketplaceMapPage() {
         setSearchBBox(viewport);
         setSelectedPin(null);
         setSelectedCluster(null);
-    }, [viewport]);
+    }, [viewport, setSelectedPin]);
 
     const clearAreaSearch = useCallback(() => {
         setSearchBBox(null);
@@ -119,22 +132,8 @@ export default function MarketplaceMapPage() {
         [pins],
     );
 
-    useEffect(() => {
-        if (!highlightListingId || plotted.length === 0) return;
-        const pin = plotted.find(p => p.listing_id === highlightListingId);
-        if (!pin) return;
-        setSelectedPin(prev => {
-            if (prev?.listing_id === pin.listing_id) return prev;
-            return pin;
-        });
-    }, [highlightListingId, plotted]);
-
-    // When deep-linking to a listing, clear competing selection once on first highlight.
-    useEffect(() => {
-        if (!highlightListingId) return;
-        setSelectedCluster(null);
-        setSelectedNode(null);
-    }, [highlightListingId]);
+    // Keep the inspector on the current API record, including after a map refresh.
+    const selectedPin = plotted.find(pin => pin.listing_id === selectedListingId) ?? null;
 
     const viewportPins = useMemo(() => {
         if (!viewport) return plotted;
@@ -142,11 +141,13 @@ export default function MarketplaceMapPage() {
     }, [plotted, viewport]);
     const countries = useMemo(() => {
         const set = new Set<string>();
+        for (const bucket of facets.data?.countries ?? []) set.add(bucket.value);
+        if (country) set.add(country);
         for (const p of pins) {
             if (p.country) set.add(p.country);
         }
         return Array.from(set).sort();
-    }, [pins]);
+    }, [pins, country, facets.data]);
 
     const focusBounds = useMemo((): [[number, number], [number, number]] | null => {
         if (!country || plotted.length === 0) return null;
@@ -162,56 +163,33 @@ export default function MarketplaceMapPage() {
         setSelectedNode(node);
         setSelectedPin(null);
         setSelectedCluster(null);
-    }, []);
+        setFiltersOpen(false);
+    }, [setSelectedPin]);
 
     const handleSelectListing = useCallback((pin: ExplorerListingPin) => {
         setSelectedPin(pin as MarketplaceListingMapPin);
         setSelectedCluster(null);
         setSelectedNode(null);
-    }, []);
+        setFiltersOpen(false);
+    }, [setSelectedPin]);
 
     const handleSelectListingGroup = useCallback((pins: ExplorerListingPin[]) => {
         setSelectedCluster(pins as MarketplaceListingMapPin[]);
         setSelectedPin(null);
         setSelectedNode(null);
-    }, []);
+        setFiltersOpen(false);
+    }, [setSelectedPin]);
 
     const handleBuy = useCallback(async (pin: MarketplaceListingMapPin) => {
         if (!pin.purchasable) return;
         setBuyLoading(true);
+        setBuyError(undefined);
+        setBuyListing(null);
         try {
             const res = await getListing(pin.listing_id);
             setBuyListing(res.listing);
-        } catch {
-            setBuyListing({
-                id: pin.listing_id,
-                seller_id: pin.seller_id ?? '',
-                node_id: pin.node_id ?? '',
-                title: pin.title,
-                description: '',
-                price_per_gb: pin.price_per_gb,
-                min_purchase_gb: 1,
-                available_bandwidth_gb: pin.available_bandwidth_gb,
-                max_concurrency: 5,
-                proxy_type: pin.proxy_type as Listing['proxy_type'],
-                protocol: pin.protocol ?? 'http',
-                status: pin.status ?? 'active',
-                country: pin.country,
-                uptime_percent: pin.uptime_percent ?? 0,
-                avg_latency_ms: pin.latency_ms ?? 0,
-                success_rate: pin.success_rate ?? 0,
-                quality_score: pin.quality_score ?? 0,
-                views_count: 0,
-                saves_count: 0,
-                orders_count: 0,
-                total_sales: 0,
-                rating: 0,
-                staked_amount: 0,
-                priority_rank: 0,
-                is_priority: false,
-                created_at: new Date().toISOString(),
-                listing_offer_verified: pin.listing_offer_verified,
-            });
+        } catch (error) {
+            setBuyError(error instanceof Error ? `Current offer terms are unavailable: ${error.message}` : 'Current offer terms are unavailable. Try the offer again before checkout.');
         } finally {
             setBuyLoading(false);
         }
@@ -224,13 +202,15 @@ export default function MarketplaceMapPage() {
     return (
         <div className="ui-page">
             <MarketplaceDiscoverTabs />
+            {buyError && <p className="ui-error" role="alert">{buyError}</p>}
+            {data && <p className="ui-note">{error ? 'Showing the last reported map records; refresh is unavailable.' : isFetching ? 'Refreshing map records…' : 'Map records loaded from the marketplace.'} {data.generated_at && !Number.isNaN(Date.parse(data.generated_at)) ? `Source updated ${new Date(data.generated_at).toLocaleString()}.` : 'Source timestamp not reported.'}</p>}
             <PageHeading
                 eyebrow="Marketplace"
                 title="Map"
                 description={
                     searchBBox
-                        ? "Purchasable proxies in the selected map area. Choose a pin to review the offer."
-                        : "Purchasable proxies by location. Choose a pin to review the offer."
+                        ? "Proxy offers in the selected map area. Choose a pin to review its terms and reported evidence."
+                        : "Proxy offers by reported location. Choose a pin to review its terms and evidence."
                 }
                 actions={
                     <>
@@ -299,11 +279,12 @@ export default function MarketplaceMapPage() {
                 </div>
 
                 <div className="market-map-side">
-                    <section className="ui-surface" aria-label="Map filters">
-                        <h2>Filters</h2>
+                    <details className="ui-surface market-map-filters" open={filtersOpen} onToggle={event => setFiltersOpen(event.currentTarget.open)}>
+                        <summary className="market-map-filter-summary"><h2>Filters</h2><span>{filtersOpen ? 'Hide' : 'Show'}</span></summary>
+                        <section aria-label="Map filters">
                         <div className="grid gap-3">
                             <label className="ui-field">Proxy type
-                                <select aria-label="Proxy type" className="ui-select" value={proxyType} onChange={e => setProxyType(e.target.value)}>
+                                <select aria-label="Proxy type" className="ui-select" value={proxyType} onChange={e => changeFilter(setProxyType, e.target.value)}>
                                     <option value="">All types</option>
                                     <option value="residential">Residential</option>
                                     <option value="mobile">Mobile</option>
@@ -311,32 +292,32 @@ export default function MarketplaceMapPage() {
                                 </select>
                             </label>
                             <label className="ui-field">Protocol
-                                <select aria-label="Protocol" className="ui-select" value={protocol} onChange={e => setProtocol(e.target.value)}>
+                                <select aria-label="Protocol" className="ui-select" value={protocol} onChange={e => changeFilter(setProtocol, e.target.value)}>
                                     <option value="">All protocols</option>
                                     <option value="http">HTTP</option>
                                     <option value="socks5">SOCKS5</option>
                                 </select>
                             </label>
                             <label className="ui-field">Country
-                                <select aria-label="Country" className="ui-select" value={country} onChange={e => setCountry(e.target.value)}>
+                                <select aria-label="Country" className="ui-select" value={country} onChange={e => changeFilter(setCountry, e.target.value)}>
                                     <option value="">All countries</option>
                                     {countries.map(c => <option key={c} value={c}>{c}</option>)}
                                 </select>
                             </label>
                             <div className="grid grid-cols-2 gap-2">
                                 <label className="ui-field">Minimum price
-                                    <input className="ui-input" type="number" min="0" step="0.01" value={minPrice} aria-label="Minimum price" onChange={e => setMinPrice(e.target.value)} />
+                                    <input className="ui-input" type="number" min="0" step="0.01" value={minPrice} aria-label="Minimum price" onChange={e => changeFilter(setMinPrice, e.target.value)} />
                                 </label>
                                 <label className="ui-field">Maximum price
-                                    <input className="ui-input" type="number" min="0" step="0.01" value={maxPrice} aria-label="Maximum price" onChange={e => setMaxPrice(e.target.value)} />
+                                    <input className="ui-input" type="number" min="0" step="0.01" value={maxPrice} aria-label="Maximum price" onChange={e => changeFilter(setMaxPrice, e.target.value)} />
                                 </label>
                             </div>
                             <div className="grid grid-cols-2 gap-2">
                                 <label className="ui-field">Minimum uptime
-                                    <input className="ui-input" type="number" min="0" max="100" step="1" value={minUptime} aria-label="Minimum uptime percent" onChange={e => setMinUptime(e.target.value)} />
+                                    <input className="ui-input" type="number" min="0" max="100" step="1" value={minUptime} aria-label="Minimum uptime percent" onChange={e => changeFilter(setMinUptime, e.target.value)} />
                                 </label>
                                 <label className="ui-field">Maximum latency
-                                    <input className="ui-input" type="number" min="0" step="1" value={maxLatency} aria-label="Maximum latency milliseconds" onChange={e => setMaxLatency(e.target.value)} />
+                                    <input className="ui-input" type="number" min="0" step="1" value={maxLatency} aria-label="Maximum latency milliseconds" onChange={e => changeFilter(setMaxLatency, e.target.value)} />
                                 </label>
                             </div>
                             <button
@@ -351,12 +332,16 @@ export default function MarketplaceMapPage() {
                                     setMinUptime('');
                                     setMaxLatency('');
                                     setSearchBBox(null);
+                                    setSelectedPin(null);
+                                    setSelectedCluster(null);
+                                    setSelectedNode(null);
                                 }}
                             >
                                 Reset filters
                             </button>
                         </div>
-                    </section>
+                        </section>
+                    </details>
 
                     {selectedCluster && selectedCluster.length > 1 ? (
                         <section className="ui-surface">
@@ -370,7 +355,7 @@ export default function MarketplaceMapPage() {
                                     <li key={p.listing_id}>
                                         <button type="button" onClick={() => { setSelectedPin(p); setSelectedCluster(null); }}>
                                             <span>{p.title}</span>
-                                            <small>${p.price_per_gb.toFixed(4)}/GB · {(p.uptime_percent || 0).toFixed(1)}% uptime</small>
+                                            <small>{measured(p.price_per_gb, 4, 'USD / GB')} · Uptime {measured(p.uptime_percent, 1, '%')}</small>
                                         </button>
                                     </li>
                                 ))}
@@ -392,22 +377,23 @@ export default function MarketplaceMapPage() {
                                     </dd>
                                 </div>
                                 {selectedPin.network_class ? <div><dt>Network</dt><dd style={{ textTransform: 'capitalize' }}>{selectedPin.network_class}</dd></div> : null}
-                                {selectedPin.trust_label ? <div><dt>Trust</dt><dd>{selectedPin.trust_label}</dd></div> : null}
-                                <div><dt>Price</dt><dd>${selectedPin.price_per_gb.toFixed(4)}/GB</dd></div>
-                                <div><dt>Available</dt><dd>{selectedPin.available_bandwidth_gb.toFixed(1)} GB</dd></div>
-                                <div><dt>In use</dt><dd>{selectedPin.active_sessions || 0}{selectedPin.max_concurrency ? `/${selectedPin.max_concurrency}` : ''} buyers</dd></div>
+                                {selectedPin.trust_label ? <div><dt>Reported trust</dt><dd>{selectedPin.trust_label}</dd></div> : null}
+                                <div><dt>Price</dt><dd>{measured(selectedPin.price_per_gb, 4, 'USD / GB')}</dd></div>
+                                <div><dt>Available</dt><dd>{measured(selectedPin.available_bandwidth_gb, 1, 'GB')}</dd></div>
+                                <div><dt>In use</dt><dd>{measured(selectedPin.active_sessions, 0)}{selectedPin.max_concurrency ? `/${selectedPin.max_concurrency}` : ''} buyers</dd></div>
                                 <div>
-                                    <dt>Uptime</dt>
-                                    <dd>{(selectedPin.uptime_percent || 0).toFixed(1)}%{selectedPin.sla_source === 'gateway' ? ' (live)' : ''}</dd>
+                                    <dt>Reported uptime</dt>
+                                    <dd>{measured(selectedPin.uptime_percent, 1, '%')}{selectedPin.sla_source === 'gateway' ? ' (gateway)' : ''}</dd>
                                 </div>
-                                {selectedPin.quality_score != null ? <div><dt>Quality</dt><dd>{selectedPin.quality_score.toFixed(0)}</dd></div> : null}
-                                {selectedPin.success_rate != null ? <div><dt>Success</dt><dd>{selectedPin.success_rate.toFixed(0)}%</dd></div> : null}
+                                {selectedPin.quality_score != null ? <div><dt>Reported quality</dt><dd>{selectedPin.quality_score.toFixed(0)}</dd></div> : null}
+                                {selectedPin.success_rate != null ? <div><dt>Reported success</dt><dd>{selectedPin.success_rate.toFixed(0)}%</dd></div> : null}
                                 <div>
                                     <dt>Offer proof</dt>
                                     <dd>{selectedPin.listing_offer_verified ? 'Provider signed' : 'Unsigned'}</dd>
                                 </div>
                                 {selectedPin.latency_ms != null && selectedPin.latency_ms > 0 ? <div><dt>Latency</dt><dd>{selectedPin.latency_ms} ms</dd></div> : null}
                             </dl>
+                            <p className="ui-note">Quality and uptime are reports from the source. Live connectivity requires a successful routed request.</p>
                             {selectedPin.estimated ? <p className="ui-note">The pin shows a regional area, not a street address.</p> : null}
                             {!selectedPin.purchasable ? <p className="ui-note">This listing is not currently purchasable.</p> : null}
                             <button
@@ -436,13 +422,13 @@ export default function MarketplaceMapPage() {
                                 <button type="button" className="ui-button ghost" onClick={() => setSelectedNode(null)}>Close</button>
                             </div>
                             <dl className="market-kv">
-                                <div><dt>Status</dt><dd>{selectedNode.is_active ? 'Active' : 'Offline'}</dd></div>
-                                <div><dt>Trust</dt><dd>{selectedNode.trust_label || (selectedNode.is_validator ? 'High quality' : 'Standard')}</dd></div>
+                                <div><dt>Reported status</dt><dd>{selectedNode.status || 'Not reported'}</dd></div>
+                                <div><dt>Reported trust</dt><dd>{selectedNode.trust_label || 'Not reported'}</dd></div>
                                 {selectedNode.network_class ? <div><dt>Network</dt><dd style={{ textTransform: 'capitalize' }}>{selectedNode.network_class}</dd></div> : null}
                                 <div><dt>Location</dt><dd>{[selectedNode.city, selectedNode.country || selectedNode.region].filter(Boolean).join(', ') || 'Not reported'}</dd></div>
-                                {selectedNode.quality_score != null ? <div><dt>Quality</dt><dd>{selectedNode.quality_score.toFixed(0)}</dd></div> : null}
-                                <div><dt>Uptime</dt><dd>{(selectedNode.uptime_percent || 0).toFixed(1)}%</dd></div>
-                                <div><dt>Sessions</dt><dd>{selectedNode.active_sessions || 0}</dd></div>
+                                {selectedNode.quality_score != null ? <div><dt>Reported quality</dt><dd>{selectedNode.quality_score.toFixed(0)}</dd></div> : null}
+                                <div><dt>Reported uptime</dt><dd>{measured(selectedNode.uptime_percent, 1, '%')}</dd></div>
+                                <div><dt>Sessions</dt><dd>{measured(selectedNode.active_sessions, 0)}</dd></div>
                             </dl>
                             <p className="ui-note">This is an approximate hub location. Select a listing pin to buy bandwidth.</p>
                         </section>
@@ -462,12 +448,12 @@ export default function MarketplaceMapPage() {
                                         type="button"
                                         className={selectedPin?.listing_id === p.listing_id ? 'active' : ''}
                                         aria-current={selectedPin?.listing_id === p.listing_id ? 'true' : undefined}
-                                        onClick={() => { setSelectedPin(p); setSelectedCluster(null); }}
+                                        onClick={() => { setSelectedPin(p); setSelectedCluster(null); setSelectedNode(null); setFiltersOpen(false); }}
                                     >
                                         <span>{p.title}</span>
                                         <small>
                                             {[p.city, p.country].filter(Boolean).join(', ') || p.country || 'Location not reported'}
-                                            {' · '}${p.price_per_gb.toFixed(4)}/GB
+                                            {' · '}{measured(p.price_per_gb, 4, 'USD / GB')}
                                         </small>
                                     </button>
                                 </li>

@@ -5,8 +5,9 @@ import { useRouter } from 'next/navigation';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { ArrowRight, AlertCircle, Loader2 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
-import { SolanaWalletButton } from '@/components/SolanaWalletButton';
+import { WalletConnectControl } from '@/components/WalletConnectControl';
 import { classifySignInError, forceDisconnectSolanaWallet } from '@/lib/solana-wallet-session';
+import { readAuthRedirectFromSearch } from '@/lib/navigation/safe-redirect';
 
 interface WalletAuthPanelProps {
     actionLabel: string;
@@ -31,7 +32,11 @@ export function WalletAuthPanel({ actionLabel, idleMessage, mode }: WalletAuthPa
 
         try {
             await walletLogin(publicKey.toBase58(), { signMessage });
-            router.push('/dashboard');
+            // Middleware sends signed-out users to /login?next=<return path>;
+            // honor it so a user headed for the wallet lands back there.
+            const returnTo =
+                readAuthRedirectFromSearch(window.location.search) || '/dashboard';
+            router.push(returnTo);
             router.refresh();
         } catch (err: unknown) {
             const { message, resetWallet } = classifySignInError(err, `Wallet ${mode} failed`);
@@ -54,8 +59,8 @@ export function WalletAuthPanel({ actionLabel, idleMessage, mode }: WalletAuthPa
                 </div>
             )}
 
-            <div className="mb-6 flex justify-center">
-                <SolanaWalletButton />
+            <div className="mb-6">
+                <WalletConnectControl />
             </div>
 
             {connected && publicKey && (

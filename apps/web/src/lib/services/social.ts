@@ -50,14 +50,14 @@ export interface Friendship {
 
 export async function listFriends(): Promise<Friendship[]> {
     const response = await fetchWithAuth(`${API_BASE_URL}/v1/friends`);
-    if (!response.ok) return [];
+    if (!response.ok) throw new Error('Friends are unavailable');
     const data = await response.json();
     return Array.isArray(data) ? data : (data.friends || []);
 }
 
 export async function getFriendRequests(): Promise<Friendship[]> {
     const response = await fetchWithAuth(`${API_BASE_URL}/v1/friends/requests`);
-    if (!response.ok) return [];
+    if (!response.ok) throw new Error('Friend requests are unavailable');
     const data = await response.json();
     return Array.isArray(data) ? data : (data.requests || []);
 }

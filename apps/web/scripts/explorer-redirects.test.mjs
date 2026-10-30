@@ -25,7 +25,7 @@ test('Explorer migration does not capture private actions or purchase routes', (
   }
 });
 test('Public Explorer paths resolve onto the standalone origin', () => {
-  assert.equal(matchExplorerRedirect('', '/explorer'), null);
+  assert.equal(matchExplorerRedirect('', '/explorer'), 'https://explorer.proxyhubb.com/');
   assert.equal(matchExplorerRedirect('https://explorer.proxyhubb.com', '/explorer'), 'https://explorer.proxyhubb.com/');
   assert.equal(
     matchExplorerRedirect('https://explorer.proxyhubb.com', '/explorer/transactions/abc'),
@@ -39,7 +39,10 @@ test('Public Explorer paths resolve onto the standalone origin', () => {
     matchExplorerRedirect('https://explorer.proxyhubb.com', '/explorer/nodes/compare'),
     'https://explorer.proxyhubb.com/nodes?view=compare',
   );
-  for (const path of ['/explorer/sessions', '/explorer/earnings', '/governance', '/governance/create', '/marketplace/map', '/app']) {
+  for (const path of ['/explorer/sessions', '/explorer/earnings']) {
+    assert.equal(matchExplorerRedirect('https://explorer.proxyhubb.com', path), 'https://explorer.proxyhubb.com/');
+  }
+  for (const path of ['/governance', '/governance/create', '/marketplace/map', '/app']) {
     assert.equal(matchExplorerRedirect('https://explorer.proxyhubb.com', path), null);
   }
 });
@@ -47,4 +50,26 @@ test('Malformed and non-HTTPS Explorer origins fail the build', () => {
   for (const origin of ['http://explorer.proxyhubb.com', 'https://explorer.proxyhubb.com/path', 'https://example.com?query=1', 'https://user:pass@example.com']) {
     assert.throws(() => explorerRedirects(origin));
   }
+});
+
+test('Encoded record identifiers survive migration without double encoding', () => {
+  assert.equal(
+    matchExplorerRedirect('', '/explorer/nodes/node%2Fpart'),
+    'https://explorer.proxyhubb.com/nodes/node%2Fpart',
+  );
+});
+
+test('Malformed record encoding falls back safely and retains query context', () => {
+  assert.equal(
+    matchExplorerRedirect('', '/explorer/nodes/%E0%A4%A', '?country=GH'),
+    'https://explorer.proxyhubb.com/?country=GH',
+  );
+});
+
+test('Retired Explorer views retain filters without capturing private workspace actions', () => {
+  assert.equal(
+    matchExplorerRedirect('', '/explorer/sessions', '?page=2'),
+    'https://explorer.proxyhubb.com/?page=2',
+  );
+  assert.equal(matchExplorerRedirect('', '/app/activity', '?tab=billing'), null);
 });

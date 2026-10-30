@@ -1,5 +1,11 @@
 /**
- * Redirect only public record routes after the independent Explorer is enabled.
+ * Public Explorer lives on its own site. Main-site /explorer paths only redirect there.
+ * @type {string}
+ */
+export const STANDALONE_EXPLORER_ORIGIN = 'https://explorer.proxyhubb.com';
+
+/**
+ * Redirect public record routes, then any leftover /explorer path, once an origin is configured.
  * @param {string | undefined} configured
  */
 export function explorerRedirects(configured) {
@@ -25,6 +31,7 @@ export function explorerRedirects(configured) {
   for (const section of ['nodes', 'transactions', 'blocks', 'wallets', 'contracts']) {
     aliases.push([`/explorer/${section}/:id`, `/${section}/:id`]);
   }
+  aliases.push(['/explorer/:path*', '/']);
   return aliases.map(([source, target]) => ({
     source,
     destination: `${url.origin}${target}`,
@@ -35,42 +42,64 @@ export function explorerRedirects(configured) {
 
 /**
  * Resolve one public Explorer path to the standalone origin.
- * Returns null when the origin is unset or the path stays on the main app.
+ * Returns null for routes that stay on the main app.
  * @param {string | undefined} configured
  * @param {string} pathname
  * @param {string} [search]
  */
 export function matchExplorerRedirect(configured, pathname, search = '') {
-  let rules;
-  try {
-    rules = explorerRedirects(configured);
-  } catch {
-    return null;
-  }
+  const origin = explorerOrigin(configured);
+  const rules = explorerRedirects(origin);
   const pathParts = pathname.split('/').filter(Boolean);
+  let destination;
   for (const rule of rules) {
+    if (rule.source.includes('*')) continue;
     const sourceParts = rule.source.split('/').filter(Boolean);
     if (sourceParts.length !== pathParts.length) continue;
     const params = {};
     let matched = true;
     for (let index = 0; index < sourceParts.length; index += 1) {
       const token = sourceParts[index];
-      if (token.startsWith(':')) params[token.slice(1)] = pathParts[index];
-      else if (token !== pathParts[index]) {
+      if (token.startsWith(':')) {
+        try {
+          params[token.slice(1)] = decodeURIComponent(pathParts[index]);
+        } catch {
+          matched = false;
+          break;
+        }
+      } else if (token !== pathParts[index]) {
         matched = false;
         break;
       }
     }
     if (!matched) continue;
-    const destination = new URL(rule.destination);
+    destination = new URL(rule.destination);
     destination.pathname = destination.pathname.replace(/:([A-Za-z0-9_]+)/g, (_, name) =>
       encodeURIComponent(params[name] ?? ''),
     );
-    const incoming = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
-    incoming.forEach((value, key) => {
-      if (!destination.searchParams.has(key)) destination.searchParams.append(key, value);
-    });
-    return destination.toString();
+    break;
   }
-  return null;
+  if (!destination && (pathname === '/explorer' || pathname.startsWith('/explorer/'))) {
+    destination = new URL('/', origin);
+  }
+  if (!destination) return null;
+  const incoming = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
+  incoming.forEach((value, key) => {
+    if (!destination.searchParams.has(key)) destination.searchParams.append(key, value);
+  });
+  return destination.toString();
+}
+
+/** @param {string | undefined} configured */
+function explorerOrigin(configured) {
+  const candidate = configured?.trim() || STANDALONE_EXPLORER_ORIGIN;
+  try {
+    const url = new URL(candidate);
+    if (url.protocol === 'https:' && url.pathname === '/' && !url.search && !url.hash && !url.username && !url.password) {
+      return url.origin;
+    }
+  } catch {
+    /* Use the dedicated Explorer host. */
+  }
+  return STANDALONE_EXPLORER_ORIGIN;
 }

@@ -1,8 +1,8 @@
-# Dockerfile for Web App (Next.js 15)
+# Dockerfile for Web App
 # Multi-stage build for production
 
 # Stage 1: Dependencies
-FROM node:20-alpine AS deps
+FROM node:22-alpine AS deps
 WORKDIR /repo/apps/web
 # Install build tools needed for native addons (usb, lightningcss, etc.).
 # Retry apk: Alpine CDN occasionally aborts mid-extract (e.g. python3-pycache-pyc0).
@@ -17,11 +17,11 @@ COPY apps/web/package.json apps/web/package-lock.json ./
 RUN npm ci
 
 # Stage 2: Builder
-FROM node:20-alpine AS builder
+FROM deps AS builder
 WORKDIR /repo/apps/web
 
-# Copy dependencies installed for the correct platform
-COPY --from=deps /repo/apps/web/node_modules ./node_modules
+# Reuse the dependency stage directly. Copying its entire node_modules tree into
+# another stage adds a costly filesystem traversal on the cloud build disk.
 
 # Copy source code
 COPY apps/web/ ./
@@ -32,10 +32,6 @@ COPY packages/design-system/ /repo/packages/design-system/
 # to the browser bundle). It must be baked in at build time for standalone mode.
 ARG API_URL=http://control-api:8080
 ARG NEXT_PUBLIC_GATEWAY_URL
-ARG NEXT_PUBLIC_ENABLE_EVM_WALLETS=false
-ARG NEXT_PUBLIC_EVM_CHAIN=sepolia
-ARG NEXT_PUBLIC_EVM_RPC_URL=
-ARG NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID
 ARG NEXT_PUBLIC_SOLANA_NETWORK=devnet
 ARG NEXT_PUBLIC_SOLANA_PROGRAM_ID=AZGhGfvsiGJQ5S91nkdhGi9qvSNKv3sBZyVJ63KQLfvu
 ARG NEXT_PUBLIC_SUPABASE_URL
@@ -65,10 +61,6 @@ ARG NEXT_PUBLIC_EXTENSION_TEST_DOWNLOAD=
 ARG NEXT_PUBLIC_EXTENSION_DEV=
 ENV API_URL=${API_URL}
 ENV NEXT_PUBLIC_GATEWAY_URL=${NEXT_PUBLIC_GATEWAY_URL}
-ENV NEXT_PUBLIC_ENABLE_EVM_WALLETS=${NEXT_PUBLIC_ENABLE_EVM_WALLETS}
-ENV NEXT_PUBLIC_EVM_CHAIN=${NEXT_PUBLIC_EVM_CHAIN}
-ENV NEXT_PUBLIC_EVM_RPC_URL=${NEXT_PUBLIC_EVM_RPC_URL}
-ENV NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=${NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID}
 ENV NEXT_PUBLIC_SOLANA_NETWORK=${NEXT_PUBLIC_SOLANA_NETWORK}
 ENV NEXT_PUBLIC_SOLANA_PROGRAM_ID=${NEXT_PUBLIC_SOLANA_PROGRAM_ID}
 ENV NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
@@ -97,7 +89,7 @@ ENV NEXT_PUBLIC_EXPLORER_URL=${NEXT_PUBLIC_EXPLORER_URL}
 RUN npm run build
 
 # Stage 3: Runner
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
