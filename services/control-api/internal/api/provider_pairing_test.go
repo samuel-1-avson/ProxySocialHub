@@ -267,6 +267,16 @@ func TestProviderPairing_HappyPath(t *testing.T) {
 	if pn.UserID != e.owner.ID || pn.Name != "Jane's Laptop" {
 		t.Errorf("node = %+v", pn)
 	}
+	// Pairing cannot know the node's egress IP before its first real heartbeat.
+	// Preserve unknown as SQL NULL: an empty inet value fails on production
+	// PostgreSQL, and a test callback used to hide that failure with an invented IP.
+	var unknownIP bool
+	if err := db.DB.Raw("SELECT ip_address IS NULL FROM provider_nodes WHERE id = ?", pn.ID).Scan(&unknownIP).Error; err != nil {
+		t.Fatalf("read paired node IP: %v", err)
+	}
+	if !unknownIP || pn.IPAddress != "" || pn.Status != models.NodeOffline || pn.IsHealthy {
+		t.Error("an unconnected paired node must have an unknown IP and remain offline/unhealthy")
+	}
 	var reg models.ProviderNodeRegistration
 	if err := db.DB.Where("token_id = ? AND is_active = ?", token.ID, true).First(&reg).Error; err != nil {
 		t.Fatalf("registration missing: %v", err)

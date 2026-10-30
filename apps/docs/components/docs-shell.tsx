@@ -463,6 +463,7 @@ export function DocsShell({
   const [searchOpen, setSearchOpen] = useState(false);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const sidebarRef = useRef<HTMLElement>(null);
+  const menuRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     setNavOpen(false);
@@ -510,7 +511,6 @@ export function DocsShell({
 
   useEffect(() => {
     if (!navOpen || searchOpen) return;
-    const previousFocus = document.activeElement as HTMLElement | null;
     sidebarRef.current?.querySelector<HTMLElement>('a, button, select')?.focus();
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { event.preventDefault(); setNavOpen(false); }
@@ -525,7 +525,7 @@ export function DocsShell({
     window.addEventListener('keydown', onKey);
     return () => {
       window.removeEventListener('keydown', onKey);
-      if (previousFocus?.isConnected) previousFocus.focus();
+      menuRef.current?.focus();
     };
   }, [navOpen, searchOpen]);
 
@@ -537,6 +537,7 @@ export function DocsShell({
 
       <header className="mobile-bar">
         <button
+          ref={menuRef}
           type="button"
           className="icon-btn"
           aria-expanded={navOpen}
@@ -584,7 +585,7 @@ export function DocsShell({
         </div>
 
         <div className="sidebar-tools">
-          <button type="button" className="search-trigger" onClick={() => setSearchOpen(true)} aria-label="Search documentation">
+          <button type="button" className="search-trigger" onClick={(event) => { event.currentTarget.focus(); setSearchOpen(true); }} aria-label="Search documentation">
             <span>Search</span>
             <kbd>/</kbd>
           </button>
@@ -627,7 +628,7 @@ export function DocsShell({
         <button
           type="button"
           className="dock-btn"
-          onClick={() => setSearchOpen(true)}
+          onClick={(event) => { event.currentTarget.focus(); setSearchOpen(true); }}
           aria-label="Search documentation"
         >
           Search
