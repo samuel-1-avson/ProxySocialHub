@@ -154,6 +154,55 @@ export function pickAutoReconnectWallet(
 export const WALLET_CONNECTION_ERROR_EVENT = 'proxyhubb:wallet-connection-error';
 
 /**
+ * Raised when the wallet adapter session must be recreated with fresh
+ * adapter instances (a hung attempt wedged the shared adapter flags, so
+ * later connects resolve silently without connecting or erroring).
+ */
+export const WALLET_SESSION_RESET_EVENT = 'proxyhubb:wallet-session-reset';
+
+export function requestWalletSessionReset(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.dispatchEvent(new CustomEvent(WALLET_SESSION_RESET_EVENT));
+  } catch {
+    // ignore
+  }
+}
+
+const LAST_WALLET_ERROR_KEY = 'proxyhubb:wallet-last-error';
+
+/**
+ * The last connection error, kept across adapter-session resets (a reset
+ * remounts the connect controls, so React state alone would lose it).
+ */
+export function writeLastWalletError(message: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(LAST_WALLET_ERROR_KEY, message);
+  } catch {
+    // ignore
+  }
+}
+
+export function readLastWalletError(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.sessionStorage.getItem(LAST_WALLET_ERROR_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function clearLastWalletError(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.removeItem(LAST_WALLET_ERROR_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+/**
  * Turn a wallet connection failure into an actionable message.
  *
  * Connection errors used to be logged to the console only, so the Connect
@@ -176,6 +225,9 @@ export function formatWalletConnectionError(err: unknown): string {
   }
   if (/disconnect/.test(lower)) {
     return 'Your wallet disconnected. Click Connect wallet to reconnect it.';
+  }
+  if (/timed? ?out|did not respond/.test(lower)) {
+    return 'The wallet did not respond. Unlock it, approve the request in the extension if one appeared, then try again.';
   }
   return msg || 'Wallet connection failed. Check your wallet extension and try again.';
 }

@@ -5,6 +5,7 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { WalletReadyState, type WalletName } from "@solana/wallet-adapter-base";
 import { useAuth } from "@/lib/auth";
 import {
+  AUTH_LOGOUT_EVENT,
   clearManualSolanaWalletDisconnect,
   isManualSolanaWalletDisconnectActive,
   pickAutoReconnectWallet,
@@ -23,6 +24,14 @@ import {
  * dead Connect button. Loadable web wallets are never picked: connecting
  * one without a click can open a blocking hosted-wallet page.
  */
+/**
+ * Addresses automatic restore already attempted in this page lifetime.
+ * Adapter-session resets remount this component; without a page-level
+ * record a reset would re-trigger the same failing silent attempt in a
+ * loop. Explicit logout clears the record for the next sign-in.
+ */
+const attemptedAutoRestoreFor = new Set<string>();
+
 export function LinkedWalletAutoReconnect() {
   const { user } = useAuth();
   const { connected, connecting, publicKey, wallet, wallets, select, connect } =
@@ -34,6 +43,12 @@ export function LinkedWalletAutoReconnect() {
   useEffect(() => {
     attempted.current = false;
   }, [expected]);
+
+  useEffect(() => {
+    const onLogout = () => attemptedAutoRestoreFor.clear();
+    window.addEventListener(AUTH_LOGOUT_EVENT, onLogout);
+    return () => window.removeEventListener(AUTH_LOGOUT_EVENT, onLogout);
+  }, []);
 
   useEffect(() => {
     if (!expected || connecting) return;
@@ -53,7 +68,7 @@ export function LinkedWalletAutoReconnect() {
       return;
     }
 
-    if (attempted.current) return;
+    if (attempted.current || attemptedAutoRestoreFor.has(expected)) return;
 
     if (!wallet) {
       // Selection was dropped (a previous silent reconnect failed) or never
@@ -81,6 +96,7 @@ export function LinkedWalletAutoReconnect() {
     if (wallet.readyState !== WalletReadyState.Installed) return;
 
     attempted.current = true;
+    attemptedAutoRestoreFor.add(expected);
     // Go through the provider's connect so connection state and failures
     // stay visible. The provider error handler republishes failures to the
     // connect controls; nothing is fabricated if the wallet declines.
