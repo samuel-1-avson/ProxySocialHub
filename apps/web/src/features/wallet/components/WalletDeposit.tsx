@@ -61,42 +61,42 @@ export function WalletDeposit({
 }: WalletDepositProps) {
   return (
     <>
-      <div className="space-y-4 p-6 rounded-2xl border border-emerald-500/10 bg-emerald-500/5">
-        <p className="text-[10px] font-black font-mono uppercase text-emerald-500 tracking-widest flex items-center gap-2">
+      <div className="space-y-4 p-6 rounded-lg border border-success/10 bg-success/5">
+        <p className="text-xs font-semibold font-mono text-success flex items-center gap-2">
           <ArrowDownLeft size={14} /> Deposit SOL
         </p>
-        <p className="text-[10px] font-mono text-muted-foreground/70 leading-relaxed">
+        <p className="text-xs font-mono text-muted-foreground/70 leading-relaxed">
           Transfer SOL from your linked wallet to the platform{' '}
           {destinationKind === 'vault' ? 'deposit vault' : 'treasury'}. We credit your{' '}
-          <span className="text-white/70">platform balance</span> after confirmation.
+          <span className="text-foreground">platform balance</span> after confirmation.
         </p>
         <MoneyRailHint rail="platform" />
         {isLocalSolanaRpc ? (
-          <p className="text-[9px] font-mono text-amber-500/80 leading-relaxed">
+          <p className="text-xs font-mono text-warning/80 leading-relaxed">
             Local validator: set Phantom RPC to http://127.0.0.1:8899 before depositing.
           </p>
         ) : isDevnet ? (
-          <p className="text-[9px] font-mono text-amber-500/80 leading-relaxed">
+          <p className="text-xs font-mono text-warning/80 leading-relaxed">
             Devnet: use Phantom on devnet, or Ledger with the Solana app set to Devnet and blind
             signing enabled.
           </p>
         ) : null}
         {treasuryAddress ? (
           <div className="flex gap-2 items-stretch">
-            <code className="flex-1 text-[9px] font-mono break-all bg-black/40 p-3 rounded-lg border border-white/5">
+            <code className="flex-1 text-xs font-mono break-all bg-secondary p-3 rounded-lg border border-border">
               {treasuryAddress}
             </code>
             <button
               type="button"
               onClick={onCopyTreasury}
-              className="px-3 rounded-lg border border-white/10 hover:border-primary/40 text-muted-foreground hover:text-primary transition-colors"
+              className="px-3 rounded-lg border border-border hover:border-primary/40 text-muted-foreground hover:text-primary transition-colors"
               title="Copy treasury address"
             >
               <Copy size={14} />
             </button>
           </div>
         ) : (
-          <p className="text-[9px] font-mono text-amber-500/80 uppercase">
+          <p className="text-xs font-mono text-warning/80">
             Treasury address loading…
           </p>
         )}
@@ -107,7 +107,7 @@ export function WalletDeposit({
           placeholder="Amount (SOL)"
           value={depositAmount}
           onChange={(e) => onDepositAmountChange(e.target.value)}
-          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm font-mono focus:border-primary/50 outline-none"
+          className="w-full bg-secondary border border-border rounded-lg px-4 py-3 text-sm font-mono focus:border-primary/50 outline-none"
         />
         {linkedAddress && !connected && (
           <UnlockWalletPrompt expectedAddress={linkedAddress} compact />
@@ -119,7 +119,7 @@ export function WalletDeposit({
           type="button"
           onClick={onInitiateDeposit}
           disabled={processing || !linkedAddress}
-          className="w-full btn-retro !py-3 text-[10px] uppercase font-black tracking-widest disabled:opacity-40"
+          className="w-full btn-retro !py-3 text-xs font-semibold disabled:opacity-40"
         >
           {processing ? (
             <span className="flex items-center justify-center gap-2">
@@ -130,31 +130,31 @@ export function WalletDeposit({
           )}
         </button>
         {!linkedAddress && (
-          <p className="text-[9px] font-mono text-amber-500/80 uppercase">
+          <p className="text-xs font-mono text-warning/80">
             Link a wallet on the Linked Wallets tab first
           </p>
         )}
         <button
           type="button"
           onClick={onToggleManualDeposit}
-          className="text-[9px] font-mono text-muted-foreground/60 hover:text-primary uppercase tracking-widest"
+          className="text-xs font-mono text-muted-foreground/60 hover:text-primary"
         >
           {showManualDeposit ? 'Hide manual verification' : 'Already sent SOL? Paste signature'}
         </button>
         {showManualDeposit && (
-          <div className="space-y-3 pt-2 border-t border-white/5">
+          <div className="space-y-3 pt-2 border-t border-border">
             <input
               type="text"
               placeholder="Transaction signature"
               value={depositTxHash}
               onChange={(e) => onDepositTxHashChange(e.target.value)}
-              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm font-mono focus:border-primary/50 outline-none"
+              className="w-full bg-secondary border border-border rounded-lg px-4 py-3 text-sm font-mono focus:border-primary/50 outline-none"
             />
             <button
               type="button"
               onClick={onVerifyDeposit}
               disabled={processing || !linkedAddress}
-              className="w-full py-2 text-[10px] uppercase font-black tracking-widest border border-white/10 rounded-xl hover:border-primary/40 disabled:opacity-40"
+              className="w-full py-2 text-xs font-semibold border border-border rounded-lg hover:border-primary/40 disabled:opacity-40"
             >
               Verify pasted signature
             </button>
@@ -175,7 +175,7 @@ export function WalletDeposit({
         onConfirm={onConfirmDeposit}
       >
         {depositConfirmAmount !== null && (
-          <div className="space-y-3 font-mono text-[10px] uppercase">
+          <div className="space-y-3 font-mono text-xs">
             <div className="flex justify-between border-b border-[var(--border)] pb-2">
               <span className="text-muted-foreground">Deposit Amount</span>
               <span className="font-bold text-foreground">{depositConfirmAmount} SOL</span>
@@ -187,12 +187,12 @@ export function WalletDeposit({
             {treasuryAddress ? (
               <div className="space-y-1">
                 <span className="text-muted-foreground block">Treasury Destination</span>
-                <div className="p-2.5 rounded-lg bg-[var(--secondary)] border border-[var(--border)] text-[9px] break-all select-all font-mono font-bold text-foreground leading-normal">
+                <div className="p-2.5 rounded-lg bg-[var(--secondary)] border border-[var(--border)] text-xs break-all select-all font-mono font-bold text-foreground leading-normal">
                   {treasuryAddress}
                 </div>
               </div>
             ) : null}
-            <p className="text-[9px] text-muted-foreground leading-relaxed normal-case tracking-normal">
+            <p className="text-xs text-muted-foreground leading-relaxed normal-case tracking-normal">
               You will approve one transaction in your linked wallet adapter to transfer SOL to the
               ProxyHub Treasury. Once confirmed, your custodial account is credited.
             </p>

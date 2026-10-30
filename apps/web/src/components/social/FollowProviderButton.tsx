@@ -91,13 +91,13 @@ export function FollowProviderButton({
             onClick={handleClick}
             disabled={busy}
             title={followed ? 'Unfollow provider' : 'Follow for personalized feed'}
-            className={`inline-flex items-center justify-center gap-2 rounded-lg border font-black uppercase tracking-widest transition-colors disabled:opacity-50 ${
+            className={`inline-flex items-center justify-center gap-2 rounded-lg border font-semibold transition-colors disabled:opacity-50 ${
                 compact
-                    ? 'py-2 px-3 text-[9px]'
-                    : 'py-2.5 px-3 text-[10px]'
+                    ? 'py-2 px-3 text-xs'
+                    : 'py-2.5 px-3 text-xs'
             } ${
                 followed
-                    ? 'border-white/10 bg-white/5 text-muted-foreground hover:text-foreground'
+                    ? 'border-border bg-secondary text-muted-foreground hover:text-foreground'
                     : 'border-primary/30 bg-primary/10 text-primary hover:bg-primary/20'
             } ${className}`}
         >
@@ -116,7 +116,7 @@ export function FollowProviderButton({
 /** Inline hint shown near follow actions on marketplace surfaces. */
 export function FollowFeedHint({ className = '' }: { className?: string }) {
     return (
-        <p className={`text-[9px] font-mono text-muted-foreground/40 uppercase tracking-wider ${className}`}>
+        <p className={`text-xs font-mono text-muted-foreground/40 ${className}`}>
             Follow providers to see their listings on{' '}
             <Link href="/community/feed" className="text-primary/80 hover:text-primary">
                 your feed

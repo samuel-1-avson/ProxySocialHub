@@ -20,15 +20,15 @@ import {
 import { ROUTES } from "@/lib/navigation/routes";
 
 const notificationIcons: Record<string, React.ReactNode> = {
-    [NotificationType.NewFollower]: <Heart className="w-4 h-4 text-rose-500" />,
-    [NotificationType.NewFriendRequest]: <UserPlus className="w-4 h-4 text-blue-500" />,
+    [NotificationType.NewFollower]: <Heart className="w-4 h-4 text-destructive" />,
+    [NotificationType.NewFriendRequest]: <UserPlus className="w-4 h-4 text-info" />,
     [NotificationType.Message]: <MessageSquare className="w-4 h-4 text-primary" />,
-    [NotificationType.NewOrder]: <Package className="w-4 h-4 text-amber-500" />,
-    [NotificationType.PaymentReceived]: <Coins className="w-4 h-4 text-green-500" />,
-    [NotificationType.BadgeEarned]: <Award className="w-4 h-4 text-purple-500" />,
-    [NotificationType.SecurityAlert]: <AlertTriangle className="w-4 h-4 text-red-500" />,
-    [NotificationType.TrustTierChange]: <Award className="w-4 h-4 text-yellow-500" />,
-    [NotificationType.ThreadFeatured]: <Bell className="w-4 h-4 text-cyan-500" />,
+    [NotificationType.NewOrder]: <Package className="w-4 h-4 text-warning" />,
+    [NotificationType.PaymentReceived]: <Coins className="w-4 h-4 text-success" />,
+    [NotificationType.BadgeEarned]: <Award className="w-4 h-4 text-primary" />,
+    [NotificationType.SecurityAlert]: <AlertTriangle className="w-4 h-4 text-destructive" />,
+    [NotificationType.TrustTierChange]: <Award className="w-4 h-4 text-warning" />,
+    [NotificationType.ThreadFeatured]: <Bell className="w-4 h-4 text-info" />,
 };
 
 interface VirtualizedNotificationListProps {

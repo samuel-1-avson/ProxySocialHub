@@ -16,7 +16,7 @@ const ProxyMapCanvas = dynamic(
         ssr: false,
         loading: () => (
             <div className="flex flex-1 min-h-[380px] items-center justify-center bg-[#050508]">
-                <span className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-white/30">
+                <span className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
                     <Loader2 size={14} className="animate-spin" />
                     Loading map…
                 </span>
@@ -58,17 +58,17 @@ export function NetworkMapEmbed() {
                 className="flex flex-1 min-h-[380px] flex-col items-center justify-center gap-3 p-6 text-center"
                 data-testid="network-map-embed-error"
             >
-                <p className="text-sm text-red-400/90">Could not load map data.</p>
+                <p className="text-sm text-destructive/90">Could not load map data.</p>
                 <button
                     type="button"
                     onClick={() => refetch()}
-                    className="text-[10px] font-bold uppercase tracking-wider text-primary hover:underline"
+                    className="text-xs font-bold text-primary hover:underline"
                 >
                     Retry
                 </button>
                 <Link
                     href="/marketplace/map"
-                    className="text-[10px] font-bold uppercase tracking-wider text-white/50 hover:text-white"
+                    className="text-xs font-bold text-muted-foreground hover:text-foreground"
                 >
                     Open marketplace map
                 </Link>
@@ -82,7 +82,7 @@ export function NetworkMapEmbed() {
                 className="flex flex-1 min-h-[380px] items-center justify-center bg-[#050508]"
                 data-testid="network-map-embed-loading"
             >
-                <span className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-white/30">
+                <span className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
                     <Loader2 size={14} className="animate-spin" />
                     Loading map…
                 </span>
@@ -107,7 +107,7 @@ export function NetworkMapEmbed() {
             <div className="absolute top-3 right-3 z-[1000] flex flex-col items-end gap-2">
                 <Link
                     href="/marketplace/map"
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-black/70 px-3 py-1.5 text-[9px] font-black uppercase tracking-wider text-white/90 backdrop-blur hover:bg-black/90"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-card"
                     data-testid="network-map-full-link"
                 >
                     Full map &amp; buy
@@ -116,7 +116,7 @@ export function NetworkMapEmbed() {
                 {selectedListing && (
                     <Link
                         href={`/marketplace/map?listing=${encodeURIComponent(selectedListing.listing_id)}`}
-                        className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-[9px] font-bold uppercase tracking-wider text-emerald-400 backdrop-blur hover:bg-emerald-500/20"
+                        className="rounded-lg border border-success/30 bg-success/10 px-3 py-1.5 text-xs font-bold text-success hover:bg-success/20"
                     >
                         View listing on map
                     </Link>
@@ -124,14 +124,14 @@ export function NetworkMapEmbed() {
                 {selectedNodeId && (
                     <Link
                         href="/explorer/map"
-                        className="rounded-lg border border-primary/30 bg-primary/10 px-3 py-1.5 text-[9px] font-bold uppercase tracking-wider text-primary backdrop-blur hover:bg-primary/20"
+                        className="rounded-lg border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary hover:bg-primary/20"
                     >
                         Open network map
                     </Link>
                 )}
             </div>
-            <p className="absolute bottom-3 left-3 z-[1000] max-w-[240px] rounded-lg border border-white/10 bg-black/60 px-2 py-1 text-[8px] font-mono text-white/40 backdrop-blur">
-                Preview — filters, Q&amp;A, and wallet checkout on the marketplace map.
+            <p className="absolute bottom-3 left-3 z-[1000] max-w-[240px] rounded-lg border border-border bg-secondary px-2 py-1 text-xs font-mono text-muted-foreground">
+                Preview. Filters, Q&amp;A, and wallet checkout on the marketplace map.
             </p>
         </div>
     );

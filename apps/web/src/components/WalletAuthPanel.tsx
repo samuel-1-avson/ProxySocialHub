@@ -77,7 +77,7 @@ export function WalletAuthPanel({ actionLabel, idleMessage, mode }: WalletAuthPa
             )}
 
             {!connected && idleMessage && (
-                <p className="text-center text-muted-foreground text-xs font-mono uppercase tracking-wider mt-4">
+                <p className="text-center text-muted-foreground text-xs font-mono mt-4">
                     {idleMessage}
                 </p>
             )}

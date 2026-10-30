@@ -61,7 +61,7 @@ export function UnlockWalletPrompt({
           : "Disconnected. Switch Phantom to the linked account, then reconnect.",
       );
     } catch {
-      setHint("Disconnect failed — open Phantom and disconnect this site, then retry.");
+      setHint("Disconnect failed. Open Phantom and disconnect this site, then retry.");
     } finally {
       setBusy(false);
     }
@@ -75,7 +75,7 @@ export function UnlockWalletPrompt({
   if (compact) {
     return (
       <div className={`space-y-3 min-w-0 ${className}`}>
-        <p className="text-xs text-amber-400/90 leading-relaxed">{body}</p>
+        <p className="text-xs text-warning/90 leading-relaxed">{body}</p>
         <div onClickCapture={handleConnectClick}>
           <SolanaWalletButton fullWidth />
         </div>
@@ -84,7 +84,7 @@ export function UnlockWalletPrompt({
             type="button"
             disabled={busy}
             onClick={() => void handleDisconnect()}
-            className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs font-medium text-muted-foreground hover:border-rose-500/40 hover:text-rose-300 transition-colors disabled:opacity-50"
+            className="w-full rounded-lg border border-border bg-secondary px-3 py-2 text-xs font-medium text-muted-foreground hover:border-destructive/40 hover:text-destructive transition-colors disabled:opacity-50"
           >
             {busy ? "Disconnecting…" : "Disconnect browser wallet"}
           </button>
@@ -95,14 +95,14 @@ export function UnlockWalletPrompt({
 
   return (
     <div
-      className={`rounded-xl border border-amber-500/30 bg-amber-500/[0.08] p-4 space-y-4 min-w-0 overflow-hidden ${className}`}
+      className={`rounded-lg border border-warning/30 bg-warning/[0.08] p-4 space-y-4 min-w-0 overflow-hidden ${className}`}
     >
       <div className="space-y-1">
-        <p className="text-sm font-semibold text-amber-300">{title}</p>
-        <p className="text-sm text-amber-200/80 leading-relaxed">{body}</p>
+        <p className="text-sm font-semibold text-warning">{title}</p>
+        <p className="text-sm text-warning/80 leading-relaxed">{body}</p>
       </div>
 
-      <ol className="list-decimal list-inside space-y-1 text-sm text-amber-100/70">
+      <ol className="list-decimal list-inside space-y-1 text-sm text-warning/70">
         <li>Open Phantom and select {expected || "the linked account"}</li>
         <li>Disconnect below (stays disconnected until you reconnect)</li>
         <li>Select Wallet / Connect with that account</li>
@@ -119,7 +119,7 @@ export function UnlockWalletPrompt({
         ) : null}
         <div className="flex items-baseline justify-between gap-3 min-w-0">
           <dt className="shrink-0 text-muted-foreground">Connected</dt>
-          <dd className={`truncate ${connected && mismatch ? "text-rose-400" : "text-foreground"}`}>
+          <dd className={`truncate ${connected && mismatch ? "text-destructive" : "text-foreground"}`}>
             {connected && current ? current : "None"}
           </dd>
         </div>
@@ -131,7 +131,7 @@ export function UnlockWalletPrompt({
             type="button"
             disabled={busy}
             onClick={() => void handleDisconnect()}
-            className="w-full rounded-xl border border-rose-500/40 bg-rose-500/10 px-3 py-3 text-sm font-semibold text-rose-200 hover:bg-rose-500/20 transition-colors disabled:opacity-50"
+            className="w-full rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-3 text-sm font-semibold text-destructive hover:bg-destructive/20 transition-colors disabled:opacity-50"
           >
             {busy ? "Disconnecting…" : "Disconnect browser wallet"}
           </button>
@@ -140,7 +140,7 @@ export function UnlockWalletPrompt({
             <SolanaWalletButton fullWidth />
           </div>
         )}
-        {hint ? <p className="text-xs text-emerald-300/90 leading-relaxed">{hint}</p> : null}
+        {hint ? <p className="text-xs text-success/90 leading-relaxed">{hint}</p> : null}
       </div>
     </div>
   );

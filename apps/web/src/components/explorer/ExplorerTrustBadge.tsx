@@ -27,10 +27,10 @@ export function ExplorerTrustBadge({ className, windowSlots = 256 }: ExplorerTru
     const tone = !data || data.recent_slots_analyzed === 0
         ? "text-muted-foreground border-border bg-muted"
         : data.fully_decentralized
-            ? "text-emerald-300 border-emerald-500/30 bg-emerald-500/10"
+            ? "text-success border-success/30 bg-success/10"
             : (data.conflicting_slots || 0) > 0
-                ? "text-rose-300 border-rose-500/30 bg-rose-500/10"
-                : "text-amber-950 border-amber-300 bg-amber-200 dark:text-yellow-300 dark:border-yellow-500/30 dark:bg-yellow-500/10";
+                ? "text-destructive border-destructive/30 bg-destructive/10"
+                : "text-warning border-warning bg-warning dark:text-warning dark:border-warning/30 dark:bg-warning/10";
 
     const label = !data || data.recent_slots_analyzed === 0
         ? "Trust: Bootstrapping"
@@ -44,7 +44,7 @@ export function ExplorerTrustBadge({ className, windowSlots = 256 }: ExplorerTru
         <Link
             href="/explorer"
             className={cn(
-                "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all hover:brightness-110",
+                "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all hover:brightness-110",
                 tone,
                 className,
             )}
@@ -53,7 +53,7 @@ export function ExplorerTrustBadge({ className, windowSlots = 256 }: ExplorerTru
             <ShieldCheck size={12} />
             <span>{label}</span>
             {data && data.recent_slots_analyzed > 0 && (
-                <span className="text-[9px] opacity-80">
+                <span className="text-xs opacity-80">
                     {data.unique_writers}/{data.min_writers_required} • {quorumPct}%
                 </span>
             )}

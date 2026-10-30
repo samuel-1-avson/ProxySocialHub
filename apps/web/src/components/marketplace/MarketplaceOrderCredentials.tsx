@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CheckCircle, Copy, Eye, EyeOff } from 'lucide-react';
 import type { MarketplaceProxyCredentials } from '@/lib/api/marketplace';
+import { detectBrowser } from '@/lib/extension';
 import { getBuyerProxyEndpoint } from '@/lib/proxy-endpoint';
 
 type CredentialField = {
@@ -23,10 +24,6 @@ function normalizeCredentials(
             ? `${rec.host}:${rec.port}`
             : getBuyerProxyEndpoint());
 
-    const sessionCapability =
-        typed.session_capability ||
-        (typeof rec.session_capability === 'string' ? rec.session_capability : undefined);
-
     return {
         username: String(typed.username ?? ''),
         password: String(typed.password ?? ''),
@@ -35,22 +32,88 @@ function normalizeCredentials(
         listing_title: typed.listing_title,
         legacy_password: typed.legacy_password,
         auth_for_endpoint: typed.auth_for_endpoint,
-        session_capability: sessionCapability,
-        session_capability_note: typed.session_capability_note,
     };
+}
+
+/** Settings screens ask for the server and the port separately. */
+function splitEndpoint(endpoint: string): { host: string; port: string } {
+    const at = endpoint.lastIndexOf(':');
+    if (at <= 0) {
+        return { host: endpoint, port: '' };
+    }
+    return { host: endpoint.slice(0, at), port: endpoint.slice(at + 1) };
+}
+
+function setupGuides(host: string, port: string): Array<{ key: string; title: string; steps: string[] }> {
+    return [
+        {
+            key: 'firefox',
+            title: 'Firefox',
+            steps: [
+                'Open Settings and search for "proxy", then click Settings…',
+                `Choose Manual proxy configuration. HTTP Proxy: ${host}, Port: ${port}.`,
+                'Tick "Also use this proxy for HTTPS" and click OK.',
+                'Firefox asks for the username and password on the first site you open.',
+            ],
+        },
+        {
+            key: 'windows',
+            title: 'Windows',
+            steps: [
+                'Open Settings, then Network & internet, then Proxy.',
+                `Next to Manual proxy setup, click Set up. Turn it on, enter ${host} and port ${port}, then Save.`,
+                'Your browser asks for the username and password the first time.',
+            ],
+        },
+        {
+            key: 'mac',
+            title: 'Mac',
+            steps: [
+                'Open System Settings, then Network, pick your connection, then Details, then Proxies.',
+                `Turn on Web proxy (HTTP) and Secure web proxy (HTTPS). Server: ${host}, port: ${port}.`,
+                'Turn on "Proxy server requires password", enter the username and password, then OK.',
+            ],
+        },
+        {
+            key: 'iphone',
+            title: 'iPhone or iPad',
+            steps: [
+                'Open Settings, then Wi-Fi, and tap the (i) next to your network.',
+                `Tap Configure Proxy, then Manual. Server: ${host}, Port: ${port}.`,
+                'Turn on Authentication, enter the username and password, then Save. This only applies on that Wi-Fi.',
+            ],
+        },
+        {
+            key: 'android',
+            title: 'Android',
+            steps: [
+                'Open Settings, then Wi-Fi, and open your network’s settings (gear icon).',
+                `Under Proxy choose Manual. Hostname: ${host}, Port: ${port}, then Save.`,
+                'Your browser asks for the username and password the first time. This only applies on that Wi-Fi.',
+            ],
+        },
+    ];
 }
 
 export function MarketplaceOrderCredentials({
     credentials,
-    orderId,
 }: {
     credentials: MarketplaceProxyCredentials | Record<string, unknown>;
     orderId?: string;
 }) {
     const creds = normalizeCredentials(credentials);
+    const { host, port } = splitEndpoint(creds.endpoint);
+    const [open, setOpen] = useState(false);
     const [showPass, setShowPass] = useState(false);
-    const [showCapability, setShowCapability] = useState(false);
     const [copied, setCopied] = useState<string | null>(null);
+
+    // Browsers the extension can't run in rely on these details, so show them open.
+    useEffect(() => {
+        const browser = detectBrowser();
+        if (browser === 'safari' || browser === 'other') {
+            queueMicrotask(() => setOpen(true));
+        }
+    }, []);
 
     const copyToClipboard = async (value: string, key: string) => {
         await navigator.clipboard.writeText(value);
@@ -59,7 +122,8 @@ export function MarketplaceOrderCredentials({
     };
 
     const fields: CredentialField[] = [
-        { label: 'Endpoint', value: creds.endpoint, key: 'endpoint' },
+        { label: 'Server', value: host, key: 'host' },
+        { label: 'Port', value: port, key: 'port' },
         { label: 'Username', value: creds.username, key: 'username' },
         { label: 'Password', value: creds.password, key: 'password', secret: true },
     ];
@@ -67,118 +131,83 @@ export function MarketplaceOrderCredentials({
     const curlExample = `curl -x http://${encodeURIComponent(creds.username)}:${encodeURIComponent(creds.password)}@${creds.endpoint} https://httpbin.org/ip`;
 
     return (
-        <div className="space-y-4" data-testid="marketplace-order-credentials">
-            <div className="space-y-3 bg-secondary rounded-2xl p-4 border border-border">
-                <p className="text-xs font-medium text-muted-foreground">Proxy credentials</p>
+        <details
+            open={open}
+            onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
+            className="rounded-lg border border-border bg-secondary p-4"
+            data-testid="marketplace-order-credentials"
+        >
+            <summary className="cursor-pointer text-sm font-semibold text-foreground">
+                Use in another app or device
+            </summary>
+            <div className="mt-3 space-y-4">
                 <p className="text-xs text-muted-foreground">
-                    HTTP CONNECT to the endpoint below. Password is HMAC for the public buyer edge
-                    ({creds.endpoint || 'proxy.proxyhubb.com:8090'}).
+                    Enter these in any app or device that supports an HTTP proxy. Works with sites that start with https://.
                 </p>
-                {fields.map(({ label, value, key, secret }) => (
-                    <div key={key} className="flex items-center justify-between gap-2">
-                        <div className="min-w-0 flex-1">
-                            <p className="text-xs text-muted-foreground uppercase tracking-widest">{label}</p>
-                            <p className="text-xs font-mono text-foreground break-all">
-                                {secret && !showPass ? '••••••••••••' : value}
-                            </p>
-                        </div>
-                        <div className="flex gap-1 shrink-0">
-                            {secret && (
+                <div className="space-y-3">
+                    {fields.map(({ label, value, key, secret }) => (
+                        <div key={key} className="flex items-center justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                                <p className="text-xs text-muted-foreground">{label}</p>
+                                <p className="break-all font-mono text-xs text-foreground">
+                                    {secret && !showPass ? '••••••••••••' : value}
+                                </p>
+                            </div>
+                            <div className="flex shrink-0 gap-1">
+                                {secret && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowPass((v) => !v)}
+                                        className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
+                                        aria-label={showPass ? 'Hide password' : 'Show password'}
+                                    >
+                                        {showPass ? <EyeOff size={14} /> : <Eye size={14} />}
+                                    </button>
+                                )}
                                 <button
                                     type="button"
-                                    onClick={() => setShowPass((v) => !v)}
-                                    className="p-2 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-                                    aria-label={showPass ? 'Hide password' : 'Show password'}
+                                    onClick={() => copyToClipboard(value, key)}
+                                    className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
+                                    aria-label={`Copy ${label}`}
                                 >
-                                    {showPass ? <EyeOff size={14} /> : <Eye size={14} />}
+                                    {copied === key ? <CheckCircle size={14} className="text-success" /> : <Copy size={14} />}
                                 </button>
-                            )}
-                            <button
-                                type="button"
-                                onClick={() => copyToClipboard(value, key)}
-                                className="p-2 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-                                aria-label={`Copy ${label}`}
-                            >
-                                {copied === key ? (
-                                    <CheckCircle size={14} className="text-green-500" />
-                                ) : (
-                                    <Copy size={14} />
-                                )}
-                            </button>
+                            </div>
                         </div>
-                    </div>
-                ))}
-            </div>
+                    ))}
+                </div>
 
-            <div className="space-y-2">
-                <p className="text-xs font-medium text-muted-foreground">Quick test</p>
-                <p className="text-xs text-muted-foreground">
-                    Endpoint is HTTP CONNECT / SOCKS5 only (absolute-URI forward proxy returns 501). Chrome and
-                    curl use this username + password — not a capability token.
-                </p>
-                <pre
-                    data-testid="marketplace-order-credentials-curl"
-                    className="text-xs font-mono text-foreground bg-secondary border border-border rounded-xl p-3 overflow-x-auto whitespace-pre-wrap break-all"
-                >
-                    {curlExample}
-                </pre>
-                <button
-                    type="button"
-                    onClick={() => copyToClipboard(curlExample, 'curl')}
-                    className="text-xs font-bold uppercase tracking-widest text-primary hover:text-primary"
-                >
-                    {copied === 'curl' ? 'Copied curl command' : 'Copy curl command'}
-                </button>
-            </div>
+                <div className="space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground">How to set it up</p>
+                    {setupGuides(host, port).map((guide) => (
+                        <details key={guide.key} className="rounded-md border border-border bg-background px-3 py-2">
+                            <summary className="cursor-pointer text-xs font-medium text-foreground">{guide.title}</summary>
+                            <ol className="mt-2 list-decimal space-y-1 pl-4 text-xs text-muted-foreground">
+                                {guide.steps.map((step) => (
+                                    <li key={step}>{step}</li>
+                                ))}
+                            </ol>
+                        </details>
+                    ))}
+                </div>
 
-            {creds.session_capability ? (
-                <details
-                    data-testid="marketplace-order-credentials-advanced"
-                    className="rounded-2xl border border-border bg-card p-4"
-                >
-                    <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
-                        Advanced: soak capability token
-                    </summary>
-                    <p className="mt-2 text-xs text-muted-foreground">
-                        {creds.session_capability_note ||
-                            'Not for the public buyer edge. Host-A capability soak (:18091) only.'}
-                    </p>
-                    <div className="mt-3 flex items-start justify-between gap-2">
-                        <p className="min-w-0 break-all font-mono text-xs text-muted-foreground">
-                            {showCapability ? creds.session_capability : '••••••••••••'}
-                        </p>
-                        <div className="flex shrink-0 gap-1">
-                            <button
-                                type="button"
-                                onClick={() => setShowCapability((v) => !v)}
-                                className="rounded-lg p-2 text-muted-foreground hover:bg-secondary hover:text-foreground"
-                                aria-label={showCapability ? 'Hide capability token' : 'Show capability token'}
-                            >
-                                {showCapability ? <EyeOff size={14} /> : <Eye size={14} />}
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => copyToClipboard(creds.session_capability ?? '', 'capability')}
-                                className="rounded-lg p-2 text-muted-foreground hover:bg-secondary hover:text-foreground"
-                                aria-label="Copy capability token"
-                            >
-                                {copied === 'capability' ? (
-                                    <CheckCircle size={14} className="text-green-500" />
-                                ) : (
-                                    <Copy size={14} />
-                                )}
-                            </button>
-                        </div>
-                    </div>
+                <details className="rounded-md border border-border bg-background px-3 py-2">
+                    <summary className="cursor-pointer text-xs font-medium text-foreground">For developers</summary>
+                    <pre
+                        data-testid="marketplace-order-credentials-curl"
+                        className="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded-md border border-border bg-secondary p-3 font-mono text-xs text-foreground"
+                    >
+                        {curlExample}
+                    </pre>
+                    <button
+                        type="button"
+                        onClick={() => copyToClipboard(curlExample, 'curl')}
+                        className="mt-2 text-xs font-medium text-primary"
+                    >
+                        {copied === 'curl' ? 'Copied' : 'Copy command'}
+                    </button>
                 </details>
-            ) : null}
-
-            {orderId && (
-                <p className="text-xs text-muted-foreground">
-                    Order <span className="font-mono text-muted-foreground">{orderId}</span> — traffic routes through the edge
-                    gateway using the credentials above.
-                </p>
-            )}
-        </div>
+            </div>
+        </details>
     );
 }

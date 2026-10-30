@@ -157,7 +157,7 @@ export function FriendButton({
                     <button
                         onClick={handleRemove}
                         disabled={loading}
-                        className="p-2 rounded-lg bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 transition-colors"
+                        className="p-2 rounded-lg bg-success/10 text-success hover:bg-success/20 transition-colors"
                         title="Friends (click to remove)"
                     >
                         {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserCheck className="w-4 h-4" />}
@@ -168,7 +168,7 @@ export function FriendButton({
                     <button
                         onClick={handleCancel}
                         disabled={loading}
-                        className="p-2 rounded-lg bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 transition-colors"
+                        className="p-2 rounded-lg bg-warning/10 text-warning hover:bg-warning/20 transition-colors"
                         title="Request pending (click to cancel)"
                     >
                         {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Clock className="w-4 h-4" />}
@@ -180,7 +180,7 @@ export function FriendButton({
                         <button
                             onClick={handleAccept}
                             disabled={loading}
-                            className="p-2 rounded-lg bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 transition-colors"
+                            className="p-2 rounded-lg bg-success/10 text-success hover:bg-success/20 transition-colors"
                             title="Accept request"
                         >
                             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
@@ -188,7 +188,7 @@ export function FriendButton({
                         <button
                             onClick={handleReject}
                             disabled={loading}
-                            className="p-2 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors"
+                            className="p-2 rounded-lg bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors"
                             title="Reject request"
                         >
                             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
@@ -223,7 +223,7 @@ export function FriendButton({
                     <button
                         onClick={handleRemove}
                         disabled={loading}
-                        className="inline-flex items-center gap-2 px-4 py-2 border border-emerald-500/30 text-emerald-500 rounded-lg font-mono text-sm hover:bg-emerald-500/10 transition-colors"
+                        className="inline-flex items-center gap-2 px-4 py-2 border border-success/30 text-success rounded-lg font-mono text-sm hover:bg-success/10 transition-colors"
                     >
                         {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserCheck className="w-4 h-4" />}
                         Friends
@@ -234,7 +234,7 @@ export function FriendButton({
                     <button
                         onClick={handleCancel}
                         disabled={loading}
-                        className="inline-flex items-center gap-2 px-4 py-2 border border-amber-500/30 text-amber-500 rounded-lg font-mono text-sm hover:bg-amber-500/10 transition-colors"
+                        className="inline-flex items-center gap-2 px-4 py-2 border border-warning/30 text-warning rounded-lg font-mono text-sm hover:bg-warning/10 transition-colors"
                     >
                         {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Clock className="w-4 h-4" />}
                         Pending
@@ -246,7 +246,7 @@ export function FriendButton({
                         <button
                             onClick={handleAccept}
                             disabled={loading}
-                            className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-500 text-white rounded-lg font-mono text-sm hover:bg-emerald-600 transition-colors"
+                            className="inline-flex items-center gap-2 px-4 py-2 bg-success text-primary-foreground rounded-lg font-mono text-sm hover:bg-success transition-colors"
                         >
                             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                             Accept
@@ -286,14 +286,14 @@ export function FriendButton({
         case "friends":
             return (
                 <div className="relative group">
-                    <button className="inline-flex items-center gap-2 px-6 py-3 bg-emerald-500/10 text-emerald-500 rounded-lg font-bold font-mono text-sm">
+                    <button className="inline-flex items-center gap-2 px-6 py-3 bg-success/10 text-success rounded-lg font-bold font-mono text-sm">
                         <UserCheck className="w-4 h-4" />
                         Friends
                     </button>
                     <button
                         onClick={handleRemove}
                         disabled={loading}
-                        className="absolute inset-0 inline-flex items-center justify-center gap-2 px-6 py-3 bg-red-500/10 text-red-500 rounded-lg font-bold font-mono text-sm opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="absolute inset-0 inline-flex items-center justify-center gap-2 px-6 py-3 bg-destructive/10 text-destructive rounded-lg font-bold font-mono text-sm opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                         {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserX className="w-4 h-4" />}
                         Remove
@@ -305,7 +305,7 @@ export function FriendButton({
                 <button
                     onClick={handleCancel}
                     disabled={loading}
-                    className="inline-flex items-center gap-2 px-6 py-3 bg-amber-500/10 text-amber-500 rounded-lg font-bold font-mono text-sm hover:bg-amber-500/20 transition-colors"
+                    className="inline-flex items-center gap-2 px-6 py-3 bg-warning/10 text-warning rounded-lg font-bold font-mono text-sm hover:bg-warning/20 transition-colors"
                 >
                     {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Clock className="w-4 h-4" />}
                     Request Sent
@@ -317,7 +317,7 @@ export function FriendButton({
                     <button
                         onClick={handleAccept}
                         disabled={loading}
-                        className="inline-flex items-center gap-2 px-6 py-3 bg-emerald-500 text-white rounded-lg font-bold font-mono text-sm hover:bg-emerald-600 transition-colors"
+                        className="inline-flex items-center gap-2 px-6 py-3 bg-success text-primary-foreground rounded-lg font-bold font-mono text-sm hover:bg-success transition-colors"
                     >
                         {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                         Accept

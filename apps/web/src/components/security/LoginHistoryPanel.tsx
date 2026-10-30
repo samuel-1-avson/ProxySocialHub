@@ -67,12 +67,12 @@ export default function LoginHistoryPanel() {
 
     const getSeverityIcon = (log: AuditLog) => {
         if (!log.success || log.event_type === 'auth.login_failed') {
-            return <X className="w-4 h-4 text-red-500" />;
+            return <X className="w-4 h-4 text-destructive" />;
         }
         if (log.severity === 'warning') {
-            return <AlertTriangle className="w-4 h-4 text-amber-500" />;
+            return <AlertTriangle className="w-4 h-4 text-warning" />;
         }
-        return <Check className="w-4 h-4 text-green-500" />;
+        return <Check className="w-4 h-4 text-success" />;
     };
 
     const formatDate = (dateStr: string) => {
@@ -105,16 +105,16 @@ export default function LoginHistoryPanel() {
             {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
-                    <h3 className="text-sm font-bold font-mono uppercase flex items-center gap-2">
+                    <h3 className="text-sm font-bold font-mono flex items-center gap-2">
                         <Clock size={14} className="text-primary" />
                         Login History
                     </h3>
-                    <p className="text-[10px] font-mono text-muted-foreground">
+                    <p className="text-xs font-mono text-muted-foreground">
                         {logs.length} RECENT EVENT{logs.length !== 1 ? 'S' : ''}
                     </p>
                 </div>
                 <div className="flex gap-2">
-                    <div className="flex border border-border rounded-sm overflow-hidden text-[10px] font-mono">
+                    <div className="flex border border-border rounded-sm overflow-hidden text-xs font-mono">
                         <button
                             onClick={() => setFilter('all')}
                             className={`px-2 py-1 ${filter === 'all' ? 'bg-primary text-primary-foreground' : 'bg-secondary hover:bg-secondary/80'}`}
@@ -123,20 +123,20 @@ export default function LoginHistoryPanel() {
                         </button>
                         <button
                             onClick={() => setFilter('success')}
-                            className={`px-2 py-1 border-l border-border ${filter === 'success' ? 'bg-green-500/20 text-green-500' : 'bg-secondary hover:bg-secondary/80'}`}
+                            className={`px-2 py-1 border-l border-border ${filter === 'success' ? 'bg-success/20 text-success' : 'bg-secondary hover:bg-secondary/80'}`}
                         >
                             SUCCESS
                         </button>
                         <button
                             onClick={() => setFilter('failed')}
-                            className={`px-2 py-1 border-l border-border ${filter === 'failed' ? 'bg-red-500/20 text-red-500' : 'bg-secondary hover:bg-secondary/80'}`}
+                            className={`px-2 py-1 border-l border-border ${filter === 'failed' ? 'bg-destructive/20 text-destructive' : 'bg-secondary hover:bg-secondary/80'}`}
                         >
                             FAILED
                         </button>
                     </div>
                     <button
                         onClick={loadLogs}
-                        className="btn-retro btn-retro-outline py-1.5 px-3 text-[10px] flex items-center gap-1.5"
+                        className="btn-retro btn-retro-outline py-1.5 px-3 text-xs flex items-center gap-1.5"
                     >
                         <RefreshCw size={12} />
                     </button>
@@ -153,7 +153,7 @@ export default function LoginHistoryPanel() {
             <div className="border border-border rounded-sm overflow-hidden">
                 <table className="w-full text-xs font-mono">
                     <thead className="bg-secondary border-b border-border">
-                        <tr className="text-left text-[10px] uppercase text-muted-foreground">
+                        <tr className="text-left text-xs text-muted-foreground">
                             <th className="py-2 px-3 w-8"></th>
                             <th className="py-2 px-3">Event</th>
                             <th className="py-2 px-3 hidden md:table-cell">IP Address</th>
@@ -169,15 +169,15 @@ export default function LoginHistoryPanel() {
                                 <td className="py-2 px-3">
                                     <span className="font-bold">{getEventLabel(log.event_type)}</span>
                                     {log.description && (
-                                        <p className="text-[10px] text-muted-foreground truncate max-w-[200px]">
+                                        <p className="text-xs text-muted-foreground truncate max-w-[200px]">
                                             {log.description}
                                         </p>
                                     )}
                                 </td>
                                 <td className="py-2 px-3 text-muted-foreground hidden md:table-cell">
-                                    {log.ip_address || '—'}
+                                    {log.ip_address || 'Unknown'}
                                 </td>
-                                <td className="py-2 px-3 text-muted-foreground text-[10px]">
+                                <td className="py-2 px-3 text-muted-foreground text-xs">
                                     {formatDate(log.created_at)}
                                 </td>
                             </tr>
@@ -189,7 +189,7 @@ export default function LoginHistoryPanel() {
             {filteredLogs.length === 0 && !loading && (
                 <div className="text-center py-8 text-muted-foreground">
                     <Clock size={24} className="mx-auto mb-2 opacity-30" />
-                    <p className="font-mono text-[10px]">NO EVENTS FOUND</p>
+                    <p className="font-mono text-xs">No events found</p>
                 </div>
             )}
         </div>

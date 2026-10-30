@@ -205,7 +205,7 @@ export default function Home() {
                 </p>
               </div>
               <div>
-                <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                <h3 className="text-xs font-medium text-muted-foreground">
                   Platform
                 </h3>
                 <ul className="mt-5 space-y-3 text-sm">
@@ -219,7 +219,7 @@ export default function Home() {
                 </ul>
               </div>
               <div>
-                <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                <h3 className="text-xs font-medium text-muted-foreground">
                   Support
                 </h3>
                 <ul className="mt-5 space-y-3 text-sm">
@@ -233,7 +233,7 @@ export default function Home() {
                 </ul>
               </div>
               <div>
-                <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                <h3 className="text-xs font-medium text-muted-foreground">
                   Legal
                 </h3>
                 <ul className="mt-5 space-y-3 text-sm">

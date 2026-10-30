@@ -1,22 +1,26 @@
 "use client";
 
-type MoneyRail = "platform" | "linked" | "escrow";
+type MoneyRail = "platform" | "linked" | "escrow" | "paystack";
 
 const COPY: Record<
   MoneyRail,
   { title: string; body: string }
 > = {
   platform: {
-    title: "Uses platform balance",
-    body: "This action moves SOL in your custodial ProxyHubb balance (deposits in, withdraws out). It does not spend Phantom escrow for marketplace bandwidth.",
+    title: "Paid from your ProxyHubb balance",
+    body: "This moves SOL in your ProxyHubb balance. Marketplace purchases don't use it.",
   },
   linked: {
-    title: "Uses linked Solana wallet",
-    body: "This action pays from your unlocked Phantom/Solflare account. Platform balance is not used.",
+    title: "Paid from your own wallet",
+    body: "This pays from your Phantom or Solflare wallet. Your ProxyHubb balance is not used.",
   },
   escrow: {
-    title: "Uses on-chain escrow",
-    body: "Marketplace bandwidth is funded from your linked wallet into a Solana escrow PDA — not from platform balance.",
+    title: "Held safely until you use it",
+    body: "You pay from your own wallet. The money is held on Solana and only released to the provider as you use the bandwidth.",
+  },
+  paystack: {
+    title: "Card or mobile money",
+    body: "You pay by card or mobile money. We hold it safely and release it to the provider as you use the bandwidth.",
   },
 };
 
@@ -30,12 +34,12 @@ export function MoneyRailHint({ rail, className = "" }: MoneyRailHintProps) {
   const c = COPY[rail];
   return (
     <div
-      className={`rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 ${className}`}
+      className={`rounded-lg border border-border bg-secondary px-3 py-2.5 ${className}`}
     >
-      <p className="text-[10px] font-black uppercase tracking-widest text-primary/90">
+      <p className="text-xs font-semibold text-primary/90">
         {c.title}
       </p>
-      <p className="text-[10px] text-muted-foreground/80 mt-1 leading-relaxed">{c.body}</p>
+      <p className="text-xs text-muted-foreground/80 mt-1 leading-relaxed">{c.body}</p>
     </div>
   );
 }

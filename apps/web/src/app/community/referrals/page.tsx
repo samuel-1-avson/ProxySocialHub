@@ -85,12 +85,12 @@ export default function ReferralPage() {
                     <section className="ui-surface ui-page">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                             <div>
-                                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                                <p className="text-xs font-bold text-muted-foreground">
                                     Your code
                                 </p>
-                                <p className="text-2xl font-mono font-black mt-1">{code || "—"}</p>
+                                <p className="text-2xl font-mono font-semibold mt-1">{code || "Not set"}</p>
                                 {inviteLink ? (
-                                    <p className="mt-2 text-[10px] font-mono text-muted-foreground break-all">
+                                    <p className="mt-2 text-xs font-mono text-muted-foreground break-all">
                                         {inviteLink}
                                     </p>
                                 ) : null}

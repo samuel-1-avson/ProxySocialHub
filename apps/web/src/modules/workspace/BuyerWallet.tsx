@@ -32,6 +32,8 @@ import {
   amount,
   shortDate,
 } from "@/components/workspace/Patterns";
+import { ManagedWalletCard } from "@/components/wallet/ManagedWalletCard";
+import { CashOutCard } from "@/components/wallet/CashOutCard";
 import { useOrders } from "./queries";
 
 export function BuyerWallet() {
@@ -140,6 +142,9 @@ export function BuyerWallet() {
   const canFund = Boolean(
     wallet && configuredNetwork && !ledgerMismatch && !processing,
   );
+  // Google accounts get a wallet ProxyHubb holds for them: top up and cash out
+  // in cedis instead of linking Phantom and picking networks.
+  const managed = Boolean(user?.managed_wallet?.address);
   const linkedStatus = matching
     ? "Connected · address matches"
     : address
@@ -158,11 +163,17 @@ export function BuyerWallet() {
         }
       />
       <nav className="ui-tabs" aria-label="Wallet views">
-        {[
-          ["overview", "Overview & linking"],
-          ["funds", "Account funds"],
-          ["history", "Activity"],
-        ].map(([key, label]) => (
+        {(managed
+          ? [
+              ["overview", "Your money"],
+              ["history", "Activity"],
+            ]
+          : [
+              ["overview", "Overview & linking"],
+              ["funds", "Account funds"],
+              ["history", "Activity"],
+            ]
+        ).map(([key, label]) => (
           <Link
             key={key}
             href={key === "overview" ? "/app/wallet" : `/app/wallet?tab=${key}`}
@@ -173,6 +184,13 @@ export function BuyerWallet() {
           </Link>
         ))}
       </nav>
+      {managed && tab !== "history" && (
+        <div className="space-y-4">
+          <ManagedWalletCard />
+          <CashOutCard />
+        </div>
+      )}
+      {!managed && (
       <div className="ui-actions">
         <label className="ui-field">
           Balance network
@@ -192,7 +210,8 @@ export function BuyerWallet() {
           not change settlement.
         </p>
       </div>
-      {!configuredNetwork && (
+      )}
+      {!managed && !configuredNetwork && (
         <p className="ui-attention" role="status">
           You are inspecting another network. Return to {page.solanaNetwork} to
           use account funding controls.
@@ -229,12 +248,12 @@ export function BuyerWallet() {
           )}
         </div>
       )}
-      {tab === "overview" && (
+      {tab === "overview" && !managed && (
         <>
           <section className="ui-stats">
             <Stat
               label="Account funds"
-              value={wallet ? `${amount(wallet.balance_sol, 9)} SOL` : "—"}
+              value={wallet ? `${amount(wallet.balance_sol, 9)} SOL` : "…"}
               detail="Custodial account ledger; separate from escrow"
             />
             <Stat
@@ -242,7 +261,7 @@ export function BuyerWallet() {
               value={
                 chainBalance.isSuccess
                   ? `${amount(chainBalance.data, 9)} SOL`
-                  : "—"
+                  : "…"
               }
               detail={`On-chain observation · ${inspection}`}
             />
@@ -251,7 +270,7 @@ export function BuyerWallet() {
               value={
                 orders.isSuccess
                   ? `${orders.data.filter((order) => order.status === "active").length} orders`
-                  : "—"
+                  : "…"
               }
               detail="Inspect each order for its payment record"
             />
@@ -344,7 +363,7 @@ export function BuyerWallet() {
           </section>
         </>
       )}
-      {tab === "funds" && (
+      {tab === "funds" && !managed && (
         <>
           <section className="ui-surface ui-page">
             <h2>Deposit into account funds</h2>
@@ -457,7 +476,7 @@ export function BuyerWallet() {
             </p>
             <Stat
               label="Account balance"
-              value={wallet ? `${amount(wallet.balance_sol, 9)} SOL` : "—"}
+              value={wallet ? `${amount(wallet.balance_sol, 9)} SOL` : "…"}
               detail="This is not the connected wallet’s on-chain balance"
             />
             <label className="ui-field">

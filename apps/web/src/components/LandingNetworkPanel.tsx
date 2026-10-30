@@ -67,14 +67,14 @@ export function LandingNetworkPanel() {
                     <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_40%,rgba(0,0,0,0.55)_100%)]" />
                     <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between gap-3">
                         <div>
-                            <p className="text-[10px] font-black font-mono uppercase tracking-[0.35em] text-primary mb-1">
+                            <p className="text-xs font-semibold font-mono text-primary mb-1">
                                 Infrastructure map
                             </p>
                             <p className="text-sm font-mono font-bold text-foreground">
                                 Explore the live network map
                             </p>
                         </div>
-                        <span className="inline-flex items-center gap-1.5 text-[10px] font-black font-mono uppercase tracking-widest text-foreground/80 group-hover:text-primary transition-colors">
+                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold font-mono text-foreground/80 group-hover:text-primary transition-colors">
                             <MapPin size={12} /> Open map
                         </span>
                     </div>
@@ -84,8 +84,8 @@ export function LandingNetworkPanel() {
                 <div className="p-6 sm:p-8 flex flex-col justify-between gap-6">
                     <div>
                         <div className="flex items-center gap-2 mb-4">
-                            <Radio size={14} className={snap.loading ? 'text-amber-400 animate-pulse' : 'text-emerald-500'} />
-                            <span className="text-[10px] font-black font-mono uppercase tracking-[0.3em] text-muted-foreground">
+                            <Radio size={14} className={snap.loading ? 'text-warning animate-pulse' : 'text-success'} />
+                            <span className="text-xs font-semibold font-mono text-muted-foreground">
                                 {snap.loading ? 'Syncing network…' : snap.error ? 'Network status unavailable' : 'Live network'}
                             </span>
                         </div>
@@ -93,19 +93,19 @@ export function LandingNetworkPanel() {
                             <div className="border border-border rounded-sm p-4 bg-background/60">
                                 <div className="flex items-center gap-2 text-muted-foreground mb-2">
                                     <Server size={12} />
-                                    <span className="text-[9px] font-mono font-bold uppercase tracking-widest">Providers</span>
+                                    <span className="text-xs font-mono font-bold">Providers</span>
                                 </div>
                                 <p className="text-3xl font-mono font-bold tabular-nums">
-                                    {snap.loading ? '—' : snap.nodeCount}
+                                    {snap.loading ? '…' : snap.nodeCount}
                                 </p>
                             </div>
                             <div className="border border-border rounded-sm p-4 bg-background/60">
                                 <div className="flex items-center gap-2 text-muted-foreground mb-2">
                                     <Globe size={12} />
-                                    <span className="text-[9px] font-mono font-bold uppercase tracking-widest">Listings</span>
+                                    <span className="text-xs font-mono font-bold">Listings</span>
                                 </div>
                                 <p className="text-3xl font-mono font-bold tabular-nums">
-                                    {snap.loading ? '—' : snap.listingCount}
+                                    {snap.loading ? '…' : snap.listingCount}
                                 </p>
                             </div>
                         </div>
@@ -114,7 +114,7 @@ export function LandingNetworkPanel() {
                     {forming ? (
                         <div className="space-y-3">
                             <p className="text-sm text-muted-foreground leading-relaxed">
-                                The network is forming — no provider nodes are online yet. Be among the first to register and appear on the map.
+                                The network is forming. No provider nodes are online yet. Be among the first to register and appear on the map.
                             </p>
                             <Link
                                 href={`${ROUTES.register}?role=provider`}
