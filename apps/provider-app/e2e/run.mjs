@@ -23,6 +23,8 @@ const E = process.env;
 const APP_EXE = E.APP_EXE ?? join(appDir, 'src-tauri', 'target', 'debug', 'proxyhubb-provider-app.exe');
 const API = E.E2E_API ?? 'http://127.0.0.1:18099';
 const OWNER = E.E2E_OWNER_ID;
+// Run one scenario that needs no control-api (E2E_ONLY=resume-pause); unset runs them all.
+const ONLY = E.E2E_ONLY ?? '';
 const CDP_PORT = Number(E.CDP_PORT ?? 9444);
 const OUT = resolve(E.E2E_OUT ?? join(here, 'artifacts'));
 const METRICS_PORT = 9090; // provider-node's default; not configurable, so it must be free
@@ -52,7 +54,7 @@ async function until(fn, label, ms = 30000, step = 400) {
 // ── guards: never touch anything real ────────────────────────────────────────
 
 function preflight() {
-  if (!OWNER) throw new Error('set E2E_OWNER_ID (printed by the control-api harness)');
+  if (!OWNER && !ONLY) throw new Error('set E2E_OWNER_ID (printed by the control-api harness)');
   const host = new URL(API).hostname;
   if (!['127.0.0.1', 'localhost', '::1'].includes(host)) throw new Error(`E2E_API must be a loopback address, got ${host}`);
   if (!existsSync(APP_EXE)) throw new Error(`app executable not found: ${APP_EXE}`);
@@ -125,10 +127,14 @@ async function connect() {
 
 // ── one isolated app instance ────────────────────────────────────────────────
 
-async function launch(label, args = []) {
+// Every app this run starts, so the end can stop exactly those and never someone's real app.
+const spawnedApps = new Set();
+
+async function launch(label, args = [], seed = undefined) {
   const work = join(OUT, 'work', label);
   rmSync(work, { recursive: true, force: true });
   for (const d of ['app', 'state', 'webview2']) mkdirSync(join(work, d), { recursive: true });
+  if (seed) seed(work);
   const env = {
     ...process.env,
     // Explicit overrides, not a redirected profile: WebView2 and the Windows folder APIs ignore
@@ -143,6 +149,7 @@ async function launch(label, args = []) {
   };
   const logFd = openSync(join(work, 'app.log'), 'a');
   const child = spawn(APP_EXE, args, { env, stdio: ['ignore', logFd, logFd], windowsHide: false });
+  spawnedApps.add(child.pid);
   const page = await connect();
   const files = {
     config: join(work, 'provider.toml'),
@@ -319,23 +326,77 @@ async function hiddenAndSingleInstance() {
   }
 }
 
+// An app that was installed, consented and paired earlier and is now paused: the scenario can
+// start from the Resume button. The node it will start is isolated and sits in "connecting"
+// (nothing listens on the loopback gateway), which is exactly the node that was hard to stop.
+function seedPausedAndPaired(work) {
+  const nl = String.fromCharCode(10);
+  writeFileSync(join(work, 'app', 'settings.json'), JSON.stringify({ consent: { version: 1, accepted_at_unix: 1 }, sharing_wanted: false }));
+  writeFileSync(join(work, 'provider.toml'), [
+    'api_key = "e2e-not-a-real-key"',
+    `control_api_url = "${API}"`,
+    'gateway_addr = "127.0.0.1:3128"',
+    'node_id = "e2e-seeded-node"',
+    '',
+  ].join(nl));
+}
+
+async function resumeThenPause() {
+  console.log(''); console.log('— Scenario 5: resume a node that cannot reach its gateway, then pause it');
+  const app = await launch('resume-pause', [], seedPausedAndPaired);
+  const { page } = app;
+  try {
+    await until(async () => (await page.text()).includes('Sharing is paused'), 'the paused screen');
+    check('a consented, paired, paused app offers Resume', (await page.buttonState('Resume sharing')) === 'enabled');
+    await page.clickButton('Resume sharing');
+    const pid = await until(() => { const p = app.readPid(); return p && pidAlive(p) ? p : 0; }, 'the node to run', 25000);
+    check('Resume starts the node', true, `pid ${pid}`);
+    await until(async () => /Connecting|Sharing is on/.test(await page.text()), 'the Connecting screen', 20000);
+
+    // The regression. Resume waited for the node to EXIT: the background node kept the pipe the
+    // app was reading open, so the page stayed busy and Pause was greyed out for as long as the
+    // node ran. A person whose node cannot connect must still be able to stop it.
+    const usable = await until(async () => (await page.buttonState('Pause sharing')) === 'enabled', 'Pause to be usable after Resume', 15000).then(() => true, () => false);
+    check('Pause is usable after Resume (the page is not stuck busy)', usable);
+    await page.shot('06-resumed');
+    if (!usable) return;
+
+    await page.clickButton('Pause sharing');
+    await until(async () => (await page.text()).includes('Sharing is paused'), 'the paused screen after Pause', 20000);
+    await until(() => !pidAlive(pid), 'the node to stop', 15000);
+    check('Pause stops the node', true);
+    check('Pause is remembered', app.settings().sharing_wanted === false);
+    check('and Resume is offered again', (await page.buttonState('Resume sharing')) === 'enabled');
+    await sleep(7000); // longer than the supervisor's pass: nothing may bring the node back
+    check('the node stays stopped', app.readPid() === 0 || !pidAlive(app.readPid()));
+  } finally {
+    await app.stop();
+  }
+}
+
 // ── main ─────────────────────────────────────────────────────────────────────
 
 mkdirSync(OUT, { recursive: true });
 let failed = true;
 try {
   preflight();
+  // This run starts its own isolated apps and, when it ends, stops only those. A real app that
+  // is already open would also hold the single-instance lock and the node's metrics port.
+  if (appRunning()) throw new Error('a ProxyHubb Provider app is already running; close it (tray, Quit) first. Refusing to run');
   if (await portInUse(METRICS_PORT)) throw new Error(`port ${METRICS_PORT} is in use: a real node may be running; refusing to run`);
   if (anyProviderNode()) throw new Error('a provider-node.exe is already running; refusing to run');
-  await happyPath();
-  await deniedPath();
-  await cancelPath();
-  await hiddenAndSingleInstance();
+  if (!ONLY) {
+    await happyPath();
+    await deniedPath();
+    await cancelPath();
+    await hiddenAndSingleInstance();
+  }
+  if (!ONLY || ONLY === 'resume-pause') await resumeThenPause();
   failed = results.some((r) => !r.ok);
 } catch (e) {
   console.log(`\nFAIL  ${e.message}`);
 } finally {
-  spawnSync('taskkill', ['/F', '/IM', 'proxyhubb-provider-app.exe', '/T'], { stdio: 'ignore' });
+  for (const pid of spawnedApps) spawnSync('taskkill', ['/F', '/T', '/PID', String(pid)], { stdio: 'ignore' });
   console.log(`\n${results.filter((r) => r.ok).length}/${results.length} checks passed`);
   process.exit(failed ? 1 : 0);
 }

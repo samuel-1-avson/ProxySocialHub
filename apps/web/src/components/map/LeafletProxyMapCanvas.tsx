@@ -1,11 +1,11 @@
 'use client';
 
 /**
- * Leaflet fallback map engine (CARTO tiles) used when
+ * Leaflet fallback map engine (OpenStreetMap tiles) used when
  * NEXT_PUBLIC_GOOGLE_MAPS_API_KEY is unset.
  */
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import 'leaflet/dist/leaflet.css';
 import Supercluster from 'supercluster';
 import type { Map as LeafletMap, Marker } from 'leaflet';
@@ -17,6 +17,7 @@ import {
     listingClusterPopup,
     listingMarkerHtml,
     listingPopup,
+    lowestListingPrice,
     markerHtml,
     nodeColor,
     singleNodePopup,
@@ -26,8 +27,8 @@ export type { ExplorerListingPin, MapNodeUpdate, MapViewportBounds, ProxyMapCanv
 
 const MAP_CSS = `
 .leaflet-container { background: #050508; font-family: monospace; }
-.leaflet-control-attribution { background: rgba(0,0,0,.6)!important; color: rgba(255,255,255,.2)!important; font-size: 8px!important; border-top-left-radius: 8px!important; }
-.leaflet-control-attribution a { color: rgba(99,102,241,.6)!important; }
+.leaflet-control-attribution { background: rgba(255,255,255,.95)!important; color: #333!important; font-size: 11px!important; border-top-left-radius: 8px!important; }
+.leaflet-control-attribution a { color: #2454a4!important; }
 .leaflet-control-zoom { border: none!important; margin-left: 24px!important; margin-top: 24px!important; }
 .leaflet-control-zoom a { background: rgba(10,10,15,0.8)!important; color: rgba(255,255,255,0.6)!important; border: 1px solid rgba(255,255,255,0.05)!important; border-radius: 8px!important; margin-bottom: 4px!important; backdrop-filter: blur(8px); }
 .leaflet-control-zoom a:hover { background: rgba(99,102,241,0.2)!important; color: #6366f1!important; border-color: rgba(99,102,241,0.4)!important; }
@@ -52,6 +53,8 @@ export default function LeafletProxyMapCanvas({
     selectedListingId,
     onBoundsChange,
 }: ProxyMapCanvasProps) {
+    const [ready, setReady] = useState(false);
+    const [mapError, setMapError] = useState<string>();
     const containerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<LeafletMap | null>(null);
     const mapInitRef = useRef(false);
@@ -98,16 +101,8 @@ export default function LeafletProxyMapCanvas({
                 return;
             }
 
-            L.tileLayer(
-                'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-                {
-                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-                    subdomains: 'abcd',
-                    maxZoom: 20,
-                },
-            ).addTo(map);
-
             mapRef.current = map;
+            setReady(true);
             const emitBounds = () => {
                 const b = map.getBounds();
                 onBoundsChange?.({
@@ -127,8 +122,9 @@ export default function LeafletProxyMapCanvas({
                 document.head.appendChild(style);
             }
 
-            setTimeout(() => map.invalidateSize(), 100);
-            setTimeout(() => map.invalidateSize(), 500);
+            map.invalidateSize();
+        }).catch(() => {
+            if (!cancelled) setMapError('The geographic map could not load. Use the listing results to inspect available capacity.');
         });
 
         return () => {
@@ -139,6 +135,26 @@ export default function LeafletProxyMapCanvas({
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps -- map must init once per mount
     }, []);
+
+    useEffect(() => {
+        if (!ready || !mapRef.current) return;
+        let cancelled = false;
+        let dispose: (() => void) | undefined;
+        void import('leaflet').then((L) => {
+            if (cancelled || !mapRef.current) return;
+            const layer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                maxZoom: 19, keepBuffer: 0,
+            });
+            layer.on('tileerror', () => setMapError('Map tiles are unavailable. Listing data remains available.'));
+            layer.on('tileload', () => setMapError(undefined));
+            layer.addTo(mapRef.current);
+            const observer = new ResizeObserver(() => mapRef.current?.invalidateSize());
+            if (containerRef.current) observer.observe(containerRef.current);
+            dispose = () => { observer.disconnect(); layer.off(); layer.remove(); };
+        });
+        return () => { cancelled = true; dispose?.(); };
+    }, [ready]);
 
     const renderMarkers = useCallback(async (currentNodes: NodeGeoPoint[], selId?: string) => {
         const map = mapRef.current;
@@ -242,7 +258,7 @@ export default function LeafletProxyMapCanvas({
             const selected = count === 1
                 ? group[0].listing_id === selectedListingId
                 : group.some(p => p.listing_id === selectedListingId);
-            const minPrice = Math.min(...group.map(p => p.price_per_gb));
+            const minPrice = lowestListingPrice(group);
             const size = count > 1 ? 30 : 24;
             const icon = L.divIcon({
                 html: listingMarkerHtml(minPrice, selected, !!pin.estimated, count),
@@ -314,7 +330,8 @@ export default function LeafletProxyMapCanvas({
         for (const node of currentNodes) {
             if (Math.abs(node.lat) < 0.001 && Math.abs(node.lon) < 0.001) continue;
             const point = map.latLngToContainerPoint([node.lat, node.lon]);
-            const weight = node.is_active ? 1 + node.active_sessions * 0.3 : 0.3;
+            if (!Number.isFinite(node.active_sessions) || (node.active_sessions ?? 0) <= 0) continue;
+            const weight = node.active_sessions ?? 0;
             const radius = Math.min(20 + weight * 12, 70);
             const alpha = Math.min(0.25 + weight * 0.04, 0.55);
 
@@ -351,17 +368,17 @@ export default function LeafletProxyMapCanvas({
 
         map.on('zoomend moveend', refresh);
         return () => { map.off('zoomend moveend', refresh); };
-    }, [selectedNodeId, showHeatmap, renderMarkers, renderListingMarkers, drawHeatmap, onBoundsChange]);
+    }, [ready, selectedNodeId, showHeatmap, renderMarkers, renderListingMarkers, drawHeatmap, onBoundsChange]);
 
     useEffect(() => {
         nodeMapRef.current = new Map(nodes.map(n => [n.node_id, n]));
         void renderMarkers(nodes, selectedNodeId);
         void renderListingMarkers();
-    }, [nodes, selectedNodeId, renderMarkers, renderListingMarkers]);
+    }, [ready, nodes, selectedNodeId, renderMarkers, renderListingMarkers]);
 
     useEffect(() => {
         void renderListingMarkers();
-    }, [listingPins, selectedListingId, renderListingMarkers]);
+    }, [ready, listingPins, selectedListingId, renderListingMarkers]);
 
     useEffect(() => {
         if (liveUpdates.length === 0) return;
@@ -425,7 +442,7 @@ export default function LeafletProxyMapCanvas({
             map.fitBounds(focusBounds, { padding: [60, 60], maxZoom: 6, animate: true });
         }, 80);
         return () => clearTimeout(timer);
-    }, [focusBounds, focusBoundsKey]);
+    }, [ready, focusBounds, focusBoundsKey]);
 
     useEffect(() => {
         const map = mapRef.current;
@@ -448,15 +465,16 @@ export default function LeafletProxyMapCanvas({
                 ctx?.clearRect(0, 0, canvas.width, canvas.height);
             }
         }
-    }, [showHeatmap, drawHeatmap]);
+    }, [ready, showHeatmap, drawHeatmap]);
 
     return (
         <div
             data-testid="proxy-map-canvas"
             data-map-engine="leaflet"
             className="leaflet-map-root"
-            style={{ position: 'relative', width: '100%', height: '100%', minHeight: 480, borderRadius: 'inherit' }}
+            style={{ position: 'relative', isolation: 'isolate', zIndex: 0, width: '100%', height: '100%', minHeight: 480, borderRadius: 'inherit' }}
         >
+            {mapError && <p className="absolute top-2 left-2 right-2 z-[600] rounded border border-border bg-card p-3 text-sm text-foreground" role="alert">{mapError}</p>}
             <div ref={containerRef} style={{ width: '100%', height: '100%', minHeight: 480, borderRadius: 'inherit' }} />
             <canvas
                 ref={canvasRef}

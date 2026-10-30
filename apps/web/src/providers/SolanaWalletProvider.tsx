@@ -16,6 +16,11 @@ import { clusterApiUrl, Keypair, PublicKey, Transaction, VersionedTransaction } 
 // Import default styles
 import '@solana/wallet-adapter-react-ui/styles.css';
 import { WalletAuthSync } from '@/components/WalletAuthSync';
+import {
+    emitWalletConnectionError,
+    formatWalletConnectionError,
+    rememberConnectedWalletName,
+} from '@/lib/solana-wallet-session';
 
 interface Props {
     children: ReactNode;
@@ -59,7 +64,7 @@ function playwrightTestWalletSecret(): string | undefined {
 class PlaywrightSolanaTestWalletAdapter extends BaseMessageSignerWalletAdapter<'Playwright Devnet Wallet'> {
     name = 'Playwright Devnet Wallet' as WalletName<'Playwright Devnet Wallet'>;
     url = 'https://proxyhubb.local/e2e-wallet';
-    icon = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iOCIgZmlsbD0iIzEwYjk4MSIvPjx0ZXh0IHg9IjE2IiB5PSIyMSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNCIgZm9udC13ZWlnaHQ9IjcwMCIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZmlsbD0iIzAwMCI+UEg8L3RleHQ+PC9zdmc+';
+    icon = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iOCIgZmlsbD0iIzEwYjk4MSIvPjx0ZXh0IHg9IjE2IiB5PSIyMSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNCIgZm9udC1hbmNob3I9Im1pZGRsZSIgZmlsbD0iIzAwMCI+UEg8L3RleHQ+PC9zdmc+';
     readyState = WalletReadyState.Loadable;
     supportedTransactionVersions = null;
     connecting = false;
@@ -136,14 +141,21 @@ function PlaywrightWalletConnector() {
     return null;
 }
 
-export const SolanaWalletProvider: FC<Props> = ({ children }) => {
-    const [mounted, setMounted] = useState(false);
+/** Persist which wallet connected so the next provider mount restores it. */
+function WalletSelectionRecorder() {
+    const { connected, wallet } = useWallet();
 
     useEffect(() => {
-        // Prevent hydration mismatch
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setMounted(true);
-    }, []);
+        if (connected && wallet) {
+            rememberConnectedWalletName(wallet.adapter.name);
+        }
+    }, [connected, wallet]);
+
+    return null;
+}
+
+export const SolanaWalletProvider: FC<Props> = ({ children }) => {
+    const [walletError, setWalletError] = useState('');
 
     const rawNetwork = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'devnet';
     const network = rawNetwork === 'mainnet' || rawNetwork === 'mainnet-beta'
@@ -161,22 +173,26 @@ export const SolanaWalletProvider: FC<Props> = ({ children }) => {
 
     useEffect(() => {
         if (playwrightTestWalletEnabled()) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect
             setRuntimeTestWallet(true);
         }
     }, []);
 
     const enableTestWallet = playwrightTestWalletEnabled() || runtimeTestWallet;
     const testWalletSecret = playwrightTestWalletSecret();
+    // Create adapters on the first client render. This provider only mounts
+    // client-side (WalletBoundary is dynamic ssr:false), and starting with an
+    // empty wallet list made WalletProvider mount, run its auto-connect
+    // bookkeeping against no adapter, then swap adapters in a tick later.
     const wallets = useMemo(() => {
         if (enableTestWallet && testWalletSecret) {
             return [new PlaywrightSolanaTestWalletAdapter(testWalletSecret)];
         }
-        if (!mounted) return [];
         return [
             new PhantomWalletAdapter(),
             new SolflareWalletAdapter({ network: network as WalletAdapterNetwork }),
         ];
-    }, [enableTestWallet, mounted, testWalletSecret, network]);
+    }, [enableTestWallet, testWalletSecret, network]);
 
     useEffect(() => {
         if (!enableTestWallet || wallets.length === 0) return;
@@ -189,19 +205,37 @@ export const SolanaWalletProvider: FC<Props> = ({ children }) => {
 
     return (
         <ConnectionProvider endpoint={endpoint}>
-            <WalletProvider wallets={wallets} autoConnect onError={(err) => {
-                // Suppress "source not authorized" errors from autoConnect which are expected if user declined
-                if (err.message?.includes('not authorized') || err.message?.includes('The source')) {
-                    console.log('Wallet auto-connect declined or not authorized yet.');
-                } else if (err.name === 'WalletConnectionError' && err.message?.includes('The source')) {
-                    console.log('Wallet connection waiting for user approval.');
-                } else {
+            <WalletProvider
+                wallets={wallets}
+                // Only silently reconnect an installed browser extension. A
+                // loadable web wallet (Solflare) must never auto-open its
+                // hosted wallet UI on page load; the user picks it instead.
+                autoConnect={async (adapter) => adapter.readyState === WalletReadyState.Installed}
+                onError={(err) => {
                     console.error('Wallet Error:', err);
-                }
-            }}>
+                    // Never swallow a connection failure: show it in the
+                    // banner below and next to the connect control.
+                    emitWalletConnectionError(err);
+                    if (!/Disconnected|Disconnection/.test(err.name || '')) {
+                        setWalletError(formatWalletConnectionError(err));
+                    }
+                }}
+            >
                 <WalletModalProvider>
                     <PlaywrightWalletConnector />
+                    <WalletSelectionRecorder />
                     <WalletAuthSync />
+                    {walletError && (
+                        <div className="ui-error" role="alert">
+                            <p>{walletError}</p>
+                            <button
+                                className="ui-button secondary small"
+                                onClick={() => setWalletError('')}
+                            >
+                                Dismiss
+                            </button>
+                        </div>
+                    )}
                     {children}
                 </WalletModalProvider>
             </WalletProvider>

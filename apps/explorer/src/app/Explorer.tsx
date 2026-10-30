@@ -6,10 +6,15 @@ import {
   type ReactNode,
 } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import type { PublicResource } from "../lib/public-data";
 type Data = Record<string, unknown>;
+const PublicNodeMap = dynamic(() => import("./PublicNodeMap"), {
+  ssr: false,
+  loading: () => <p className="ui-loading" role="status">Loading geographic map…</p>,
+});
 const record = (value: unknown): Data =>
   value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Data)
@@ -653,31 +658,7 @@ function RegionalMap({ source }: { source: ReturnType<typeof usePublic> }) {
       <SourceState source={source} />
       {clusters.size ? (
         <>
-          <div className="explorer-map-frame">
-            <svg viewBox="0 0 1000 480" role="img" aria-label="Approximate public node distribution by region">
-              <title>Approximate public node distribution</title>
-              {[100, 200, 300, 400].map((y) => <line key={`h${y}`} x1="24" x2="976" y1={y} y2={y} className="explorer-map-grid" />)}
-              {[200, 400, 600, 800].map((x) => <line key={`v${x}`} y1="20" y2="460" x1={x} x2={x} className="explorer-map-grid" />)}
-              <path className="explorer-map-land" d="M75 110 120 68 190 75 225 108 207 146 230 171 205 198 178 190 163 216 133 206 121 177 93 170 77 143ZM227 222 258 235 272 268 255 312 245 357 224 388 214 344 202 302 207 263ZM389 112 423 88 455 97 471 121 458 137 429 132ZM425 149 469 145 503 175 497 226 470 276 447 319 430 275 412 229 404 185ZM473 105 528 76 599 69 675 91 732 87 782 110 834 143 866 178 838 198 799 184 769 205 729 194 709 220 680 198 643 203 619 172 590 164 562 145 531 147 505 128ZM792 284 822 277 842 293 832 316 805 322 787 305ZM892 362 919 348 938 358 930 376 906 380Z" />
-              {[...clusters.values()].map((cluster) => {
-                const x = 24 + ((cluster.lon + 180) / 360) * 952;
-                const y = 20 + ((90 - cluster.lat) / 180) * 440;
-                const radius = Math.min(13, 4 + Math.log2(cluster.count));
-                return (
-                  <circle
-                    key={`${cluster.lat}:${cluster.lon}`}
-                    cx={x}
-                    cy={y}
-                    r={radius}
-                    className={cluster.active ? "explorer-map-point active" : "explorer-map-point"}
-                  >
-                    <title>{`${cluster.count} nodes in an approximate region; ${cluster.active} reported active`}</title>
-                  </circle>
-                );
-              })}
-            </svg>
-          </div>
-          <p className="explorer-map-disclosure">Node positions are deliberately rounded to roughly 5° and grouped. The map is regional context, not a precise address or live traffic trace.</p>
+          <PublicNodeMap nodes={rows} />
           <div className="explorer-region-grid" aria-label="Node counts by reported region">
             {sortedRegions.slice(0, 8).map(([region, counts]) => (
               <div className="explorer-region-row" key={region}>

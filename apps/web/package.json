@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "test:dependency-compat": "node --test scripts/dependency-compat.test.mjs",
+    "test:map-evidence": "node --test scripts/map-evidence.test.mjs",
     "dev": "next dev -H 0.0.0.0 -p 4011",
     "dev:e2e": "next dev -H 0.0.0.0 -p 4011 --webpack",
     "build": "next build",
@@ -10,6 +12,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
     "test:provider-config": "node scripts/provider-config-contract.mjs",
     "test:sol-amount": "node --test scripts/sol-amount.test.mjs",
+    "test:measurements": "node --test scripts/measurements.test.mjs",
+    "test:e2e:live-data": "playwright test e2e/live-data.spec.ts --project=chromium --workers=1",
     "test:solana-transfer": "node --test scripts/solana-transfer.test.mjs",
     "test:e2e:buyer": "playwright test e2e/buyer-journey.spec.ts e2e/workspace.spec.ts e2e/marketplace-browse-buy.spec.ts e2e/marketplace-order-credentials.spec.ts --project=chromium --workers=1",
     "test:e2e:seller": "playwright test e2e/seller-workflows.spec.ts e2e/workspace.spec.ts --project=chromium --workers=1",
@@ -46,7 +50,6 @@
     "@project-serum/anchor": "^0.26.0",
     "@radix-ui/react-dialog": "^1.0.5",
     "@radix-ui/react-slot": "^1.0.2",
-    "@rainbow-me/rainbowkit": "^2.2.10",
     "@react-google-maps/api": "^2.20.8",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.5.0",
@@ -80,9 +83,6 @@
     "tailwind-merge": "^3.4.0",
     "tailwindcss-animate": "^1.0.7",
     "three": "^0.183.2",
-    "viem": "^2.44.4",
-    "wagmi": "^2.19.5",
-    "zod": "^3.25.76",
     "zustand": "^5.0.10"
   },
   "devDependencies": {
@@ -103,6 +103,16 @@
     "eslint-config-next": "16.4.3",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "overrides": {
+    "toml": "^5.0.1",
+    "eslint-plugin-react-hooks": {
+      "zod": "^4.6.6"
+    },
+    "uuid@<11.1.1": "^11.1.1",
+    "metro": "0.84.6",
+    "metro-config": "0.84.6",
+    "metro-transform-worker": "0.84.6"
   },
   "optionalDependencies": {
     "@next/swc-win32-x64-msvc": "^16.2.7"

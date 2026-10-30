@@ -90,6 +90,113 @@ export function clearManualSolanaWalletDisconnect(): void {
   }
 }
 
+const LAST_WALLET_NAME_KEY = 'proxyhubb:wallet-name';
+
+/**
+ * Remember the wallet the user actually connected with (sign-in, linking, or
+ * any successful connection) under our own storage key.
+ *
+ * The adapter library keeps its own `walletName` key and deletes it whenever
+ * a silent reconnect fails, which used to strand the workspace with no
+ * selected wallet even though the user had just signed in with one. This
+ * record survives that, so the workspace can restore the same wallet.
+ */
+export function rememberConnectedWalletName(name: string | null | undefined): void {
+  if (typeof window === 'undefined' || !name) return;
+  try {
+    window.localStorage.setItem(LAST_WALLET_NAME_KEY, name);
+  } catch {
+    // ignore
+  }
+}
+
+export function readRememberedWalletName(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.localStorage.getItem(LAST_WALLET_NAME_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function forgetRememberedWalletName(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(LAST_WALLET_NAME_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Decide which wallet auto-reconnect may pick when none is selected.
+ *
+ * The wallet used at sign-in wins whenever it is installed. Otherwise only
+ * an unambiguous single installed wallet may be picked; guessing between
+ * several installed wallets could connect the wrong account, so the user
+ * chooses in the picker instead. Loadable web wallets are never picked.
+ */
+export function pickAutoReconnectWallet(
+  entries: { name: string; readyState: string }[],
+  rememberedName: string | null,
+): string | null {
+  const installed = entries.filter((entry) => entry.readyState === 'Installed');
+  if (
+    rememberedName &&
+    installed.some((entry) => entry.name === rememberedName)
+  ) {
+    return rememberedName;
+  }
+  return installed.length === 1 ? installed[0].name : null;
+}
+
+/** Raised when a wallet connection attempt fails so the UI can show it. */
+export const WALLET_CONNECTION_ERROR_EVENT = 'proxyhubb:wallet-connection-error';
+
+/**
+ * Turn a wallet connection failure into an actionable message.
+ *
+ * Connection errors used to be logged to the console only, so the Connect
+ * button appeared to do nothing. Every failure path must surface one of
+ * these messages next to the control that started the attempt.
+ */
+export function formatWalletConnectionError(err: unknown): string {
+  const name = err instanceof Error ? err.name : '';
+  const msg = (err instanceof Error ? err.message : typeof err === 'string' ? err : '').trim();
+  const lower = `${name} ${msg}`.toLowerCase();
+
+  if (/reject|denied|declin|cancel|4001/.test(lower)) {
+    return 'You declined the request in your wallet. Click Connect wallet to try again.';
+  }
+  if (/not ready|not detected|not installed|no wallet|walletnotready/.test(lower)) {
+    return 'No Solana wallet was found in this browser. Install Phantom or Solflare, unlock it, then click Connect wallet.';
+  }
+  if (/not authorized|not been authorized|unlock/.test(lower)) {
+    return 'Your wallet is locked or this site is not approved in it yet. Unlock your wallet, click Connect wallet, and approve the connection in the extension.';
+  }
+  if (/disconnect/.test(lower)) {
+    return 'Your wallet disconnected. Click Connect wallet to reconnect it.';
+  }
+  return msg || 'Wallet connection failed. Check your wallet extension and try again.';
+}
+
+/** Broadcast a connection failure so mounted connect controls can display it. */
+export function emitWalletConnectionError(err: unknown): void {
+  if (typeof window === 'undefined') return;
+  // A disconnect the user asked for is not a connection failure to report.
+  const name = err instanceof Error ? err.name : '';
+  if (/Disconnected|Disconnection/.test(name)) return;
+  try {
+    window.dispatchEvent(
+      new CustomEvent(WALLET_CONNECTION_ERROR_EVENT, {
+        detail: { message: formatWalletConnectionError(err) },
+      }),
+    );
+  } catch {
+    // ignore
+  }
+}
+
 /**
  * Turn a failure from the wallet's sign step into a message and a recovery decision.
  *

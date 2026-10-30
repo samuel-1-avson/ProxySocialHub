@@ -110,13 +110,57 @@ test.describe("buyer journey and recovery", () => {
       .click();
     await page.getByLabel("Deposit amount (SOL)").fill("0.1");
     await expect(
-      page.getByRole("button", { name: "Review account deposit" }),
+      page.getByRole("button", { name: "Review deposit", exact: true }),
     ).toBeDisabled();
     await page
       .getByRole("banner")
       .getByRole("combobox", { name: "Color theme" })
       .selectOption("light");
     await capture(page, info.outputPath("buyer-wallet.png"));
+  });
+  for (const width of [1440, 320]) {
+    test(`shows funded linked wallet separately from an empty account at ${width}px`, async ({ page, browserName }, info) => {
+      await page.setViewportSize({ width, height: 950 });
+      const address = "11111111111111111111111111111111";
+      await setup(page, { "GET /v1/wallet": { json: { wallet: {
+        id: "wallet", balance_sol: 0, linked_solana_address: address, solana_network: "devnet",
+      } } } });
+      let lamports = 15_000_000_000;
+      await page.route("https://api.devnet.solana.com/**", route => route.fulfill({ json: {
+        jsonrpc: "2.0", id: route.request().postDataJSON()?.id,
+        result: { context: { slot: 1 }, value: lamports },
+      } }));
+      if (browserName === "chromium") await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+      await page.goto(`${base}/app/wallet`, { waitUntil: "domcontentloaded" });
+      const paymentWallet = page.getByRole("region", { name: "Your payment wallet" });
+      await expect(paymentWallet.getByText("15 SOL", { exact: true })).toBeVisible();
+      await expect(paymentWallet.getByText("Reconnect to approve payments", { exact: true })).toBeVisible();
+      await expect(paymentWallet.getByRole("button", { name: "Connect wallet", exact: true })).toBeVisible();
+      await expect(page.getByText("A zero account balance does not mean your linked wallet is empty.")).toBeVisible();
+      if (browserName === "chromium") {
+        await paymentWallet.getByRole("button", { name: "Copy address", exact: true }).click();
+        await expect(paymentWallet.getByRole("button", { name: "Copied", exact: true })).toBeVisible();
+        expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(address);
+      }
+      lamports = 16_000_000_000;
+      await page.getByRole("button", { name: "Refresh balances", exact: true }).click();
+      await expect(paymentWallet.getByText("16 SOL", { exact: true })).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      await page.getByRole("banner").getByRole("combobox", { name: "Color theme" }).selectOption(width === 320 ? "light" : "dark");
+      await capture(page, info.outputPath(`wallet-linked-${width}.png`));
+    });
+  }
+  test("keeps an unavailable chain balance distinct from zero account funds", async ({ page }) => {
+    await setup(page, { "GET /v1/wallet": { json: { wallet: {
+      id: "wallet", balance_sol: 0, linked_solana_address: "11111111111111111111111111111111", solana_network: "devnet",
+    } } } });
+    await page.route("https://api.devnet.solana.com/**", route => route.fulfill({ status: 503, body: "RPC unavailable" }));
+    await page.goto(`${base}/app/wallet`, { waitUntil: "domcontentloaded" });
+    const paymentWallet = page.getByRole("region", { name: "Your payment wallet" });
+    await expect(paymentWallet.getByRole("alert")).toBeVisible();
+    await expect(paymentWallet.getByText("0 SOL", { exact: true })).toHaveCount(0);
+    await expect(paymentWallet.getByRole("button", { name: "Try again", exact: true })).toBeVisible();
+    await expect(page.getByText("0 SOL", { exact: true })).toBeVisible();
   });
   test("checks original order escrow without creating an order and preserves funded cancellation errors", async ({
     page,
@@ -336,21 +380,11 @@ test.describe("buyer journey and recovery", () => {
     await page.goto(`${base}/app/wallet?tab=funds`, {
       waitUntil: "domcontentloaded",
     });
-    await page
-      .getByRole("button", { name: "Resume previous account transfer" })
-      .click();
-    await expect(page.getByLabel("Existing transaction signature")).toHaveValue(
-      "original-account-signature",
-    );
-    await expect(page.getByLabel("Deposit amount (SOL)")).toHaveValue("0.1");
-    await page
-      .getByRole("button", { name: "Verify this transfer", exact: true })
-      .click();
+    await expect(page.getByText("0.1 SOL deposit", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Existing transaction signature")).toHaveCount(0);
+    await expect(page.getByText(/Confirmation is taking longer than usual/)).toBeVisible();
     await expect(
-      page.getByText("Verification temporarily unavailable", { exact: true }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Review account deposit" }),
+      page.getByRole("button", { name: "Review deposit", exact: true }),
     ).toBeDisabled();
     const credits = requests.filter(
       (r) => r.path === "/v1/wallet/deposit/crypto",

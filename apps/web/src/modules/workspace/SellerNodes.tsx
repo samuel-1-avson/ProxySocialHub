@@ -679,6 +679,9 @@ export function SellerNodes() {
         <Link className="ui-button ghost" href="/dashboard/provider/services">
           Advanced services →
         </Link>
+        <Link className="ui-button secondary" href="/dashboard/provider/pair">Pair a computer</Link>
+        <Link className="ui-button ghost" href="/dashboard/provider/cli">Software downloads</Link>
+        <Link className="ui-button ghost" href="/dashboard/provider/health">Node health</Link>
       </div>
       {query.isLoading && <Loading label="Loading your nodes…" />}
       {query.isError && (

@@ -9,12 +9,41 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { WorkspaceMode } from "@/lib/store/workspace-store";
+import { STANDALONE_EXPLORER_ORIGIN } from "@/lib/navigation/explorer-redirects.mjs";
 export interface WorkspaceDestination {
   label: string;
   href: string;
   icon: LucideIcon;
   legacyPaths: string[];
 }
+export const SHARED_WORKSPACE_TOOLS = [
+  { label: 'API keys', href: '/dashboard/settings/api-keys' },
+  { label: 'Account data & export', href: '/dashboard/settings/account' },
+  { label: 'Help forum', href: '/help/forum' },
+  { label: 'Referrals & invitations', href: '/app/settings?tab=referrals' },
+  { label: 'Governance participation', href: '/governance/create' },
+];
+export const WORKSPACE_TOOLS: Record<WorkspaceMode, Array<{ label: string; href: string }>> = {
+  buyer: [
+    { label: 'Marketplace map', href: '/marketplace/map' },
+    { label: 'Saved offers', href: '/marketplace?filter=saved' },
+    { label: 'Usage analytics', href: '/dashboard/analytics' },
+    { label: 'Billing & Access Passes', href: '/app/activity?tab=billing' },
+    { label: 'Client & SDK integration', href: '/dashboard/proxy' },
+    { label: 'Usage proof records', href: '/dashboard/trustless' },
+  ],
+  seller: [
+    { label: 'Pair a computer', href: '/dashboard/provider/pair' },
+    { label: 'Node credentials', href: '/provider/nodes/credentials' },
+    { label: 'Software downloads', href: '/dashboard/provider/cli' },
+    { label: 'Node health', href: '/dashboard/provider/health' },
+    { label: 'Performance analytics', href: '/dashboard/provider/analytics' },
+    { label: 'Service configuration', href: '/dashboard/provider/services' },
+    { label: 'Catalog products', href: '/marketplace/manage/products' },
+    { label: 'Customers', href: '/dashboard/provider/relationships' },
+    { label: 'Enterprise pooling', href: '/dashboard/provider/circle' },
+  ],
+};
 export const WORKSPACE_DESTINATIONS: Record<
   WorkspaceMode,
   WorkspaceDestination[]
@@ -128,20 +157,22 @@ export function isWorkspaceDestinationActive(
     return path === candidate || path.startsWith(candidate + "/");
   });
 }
-/** Preserve current public URLs until the separate deployment is configured. */
+/** Dedicated Explorer host. Clicks never stay on the main site. */
 export function explorerHref(path = "/"): string {
   const configured = process.env.NEXT_PUBLIC_EXPLORER_URL?.trim();
+  let origin = STANDALONE_EXPLORER_ORIGIN;
   if (configured) {
     try {
       const url = new URL(configured);
       if (
         url.protocol === "https:" ||
         (url.protocol === "http:" && process.env.NODE_ENV !== "production")
-      )
-        return `${configured.replace(/\/$/, "")}${path === "/" ? "" : path}`;
+      ) {
+        origin = configured.replace(/\/$/, "");
+      }
     } catch {
-      /* Legacy fallback. */
+      /* Dedicated Explorer host. */
     }
   }
-  return `/explorer${path === "/" ? "" : path}`;
+  return `${origin}${path === "/" ? "" : path}`;
 }

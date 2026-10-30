@@ -5,6 +5,20 @@ import {
   publicResourcePath,
 } from "../src/lib/public-data.ts";
 
+test('public map uses only valid reported coordinate pairs and preserves privacy rounding', () => {
+  const result = projectPublicData('node-geo', { nodes: [
+    { node_id: 'reported', lat: 5.6037, lon: -0.187, geo_source: 'gateway', ip_address: 'private' },
+    { node_id: 'missing', lat: 2 },
+    { node_id: 'invalid', lat: 91, lon: 181 },
+    { node_id: 'unknown', lat: 0, lon: 0, geo_source: 'unknown' },
+  ] });
+  assert.deepEqual(result.nodes[0], { node_id: 'reported', lat: 5, lon: -0, geo_source: 'gateway' });
+  for (const node of result.nodes.slice(1)) {
+    assert.equal('lat' in node, false);
+    assert.equal('lon' in node, false);
+  }
+});
+
 test("public transaction projection excludes raw payload and identities", () => {
   const result = projectPublicData("transaction", {
     tx_hash: "public-hash",

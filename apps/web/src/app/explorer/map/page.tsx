@@ -15,6 +15,7 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { GlassCard } from '@/components/ui/glass-card';
 import { BuyListingModal } from '@/components/BuyListingModal';
+import { measured } from '@/lib/measurements';
 import type { NodeGeoPoint } from '@/lib/services/explorer';
 import { useMapPoints } from '@/lib/hooks/useMapPoints';
 import type { ExplorerListingPin } from '@/components/map/types';
@@ -41,7 +42,7 @@ const MapCanvas = dynamic(() => import('@/components/map/ProxyMapCanvas'), {
     ssr: false,
     loading: () => (
         <div className="w-full h-full flex items-center justify-center bg-[#050508]">
-            <div className="text-xs font-semibold text-muted-foreground animate-pulse">
+            <div className="text-[10px] font-black text-white/50 uppercase tracking-widest animate-pulse">
                 Initialising map…
             </div>
         </div>
@@ -70,6 +71,7 @@ export default function NodeMapPage() {
     const [searchBBox, setSearchBBox] = useState<MapBBox | null>(null);
     const [buyListing, setBuyListing] = useState<Listing | null>(null);
     const [buyLoading, setBuyLoading] = useState(false);
+    const [buyError, setBuyError] = useState<string>();
     const mapBuyEnabled = explorerMapBuyEnabled();
     const listingsPlottedOnMap = showListingsLayer;
 
@@ -197,43 +199,13 @@ export default function NodeMapPage() {
     const handleBuy = useCallback(async (pin: MarketplaceListingMapPin) => {
         if (!pin.purchasable) return;
         setBuyLoading(true);
+        setBuyError(undefined);
+        setBuyListing(null);
         try {
             const res = await getListing(pin.listing_id);
             setBuyListing(res.listing);
-        } catch {
-            setBuyListing({
-                id: pin.listing_id,
-                seller_id: pin.seller_id ?? '',
-                node_id: pin.node_id ?? '',
-                title: pin.title,
-                description: '',
-                price_per_gb: pin.price_per_gb,
-                min_purchase_gb: 1,
-                available_bandwidth_gb: pin.available_bandwidth_gb,
-                max_concurrency: 5,
-                proxy_type: (pin.proxy_type ?? 'residential') as Listing['proxy_type'],
-                protocol: pin.protocol ?? 'http',
-                status: pin.status ?? 'active',
-                country: pin.country,
-                isp: pin.isp,
-                uptime_percent: pin.uptime_percent ?? 0,
-                avg_latency_ms: 0,
-                success_rate: 100,
-                quality_score: 100,
-                views_count: 0,
-                saves_count: 0,
-                orders_count: 0,
-                total_sales: 0,
-                rating: 0,
-                staked_amount: 0,
-                priority_rank: 0,
-                is_priority: false,
-                created_at: new Date().toISOString(),
-                listing_offer_verified: pin.listing_offer_verified,
-                listing_offer_signer: pin.listing_offer_signer,
-                listing_offer_signed_at: pin.listing_offer_signed_at,
-                listing_offer_verification_error: pin.listing_offer_verification_error,
-            });
+        } catch (error) {
+            setBuyError(error instanceof Error ? error.message : 'Current offer terms are unavailable.');
         } finally {
             setBuyLoading(false);
         }
@@ -241,28 +213,29 @@ export default function NodeMapPage() {
 
     return (
         <motion.div variants={container} initial="hidden" animate="show" className="space-y-8 font-mono">
+            {buyError && <p className="ui-error" role="alert">{buyError}</p>}
 
             {/* ── Header ── */}
             <motion.header variants={item} className="flex flex-col gap-6 border-b border-border pb-8">
                 <div className="flex flex-wrap items-center gap-4">
-                    <Link href="/explorer" className="flex items-center gap-2 text-xs font-semibold text-muted-foreground hover:text-primary transition-colors w-fit">
+                    <Link href="/explorer" className="flex items-center gap-2 text-[10px] font-black text-muted-foreground hover:text-primary transition-colors uppercase tracking-[0.3em] w-fit">
                         <ArrowLeft size={14} /> Back to Grid
                     </Link>
-                    <Link href={ROUTES.marketplaceMap} className="flex items-center gap-2 text-xs font-semibold text-success/80 hover:text-success transition-colors w-fit">
+                    <Link href={ROUTES.marketplaceMap} className="flex items-center gap-2 text-[10px] font-black text-emerald-400/80 hover:text-emerald-400 transition-colors uppercase tracking-[0.3em] w-fit">
                         Buy on map →
                     </Link>
                 </div>
                 {!mapBuyEnabled && (
                     <div
                         role="status"
-                        className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-xs text-warning/90"
+                        className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[11px] text-amber-100/90"
                     >
                         <div className="flex items-start gap-2 flex-1">
-                            <Search size={14} className="mt-0.5 shrink-0 text-warning" aria-hidden />
+                            <Search size={14} className="mt-0.5 shrink-0 text-amber-400" aria-hidden />
                             <p>
-                                <span className="font-semibold text-warning">Discovery map.</span>{' '}
+                                <span className="font-black uppercase tracking-wider text-amber-300">Discovery map.</span>{' '}
                                 Browse nodes and listing pins here. To purchase bandwidth with wallet checkout, use the{' '}
-                                <Link href={ROUTES.marketplaceMap} className="text-success hover:text-success underline underline-offset-2">
+                                <Link href={ROUTES.marketplaceMap} className="text-emerald-400 hover:text-emerald-300 underline underline-offset-2">
                                     marketplace map
                                 </Link>
                                 .
@@ -270,7 +243,7 @@ export default function NodeMapPage() {
                         </div>
                         <Link
                             href={ROUTES.marketplaceMap}
-                            className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-success/40 bg-success/15 px-3 py-2 text-xs font-semibold text-success hover:bg-success/25 transition-colors shrink-0"
+                            className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-emerald-300 hover:bg-emerald-500/25 transition-colors shrink-0"
                         >
                             <ShoppingCart size={12} aria-hidden />
                             Open marketplace map
@@ -279,53 +252,53 @@ export default function NodeMapPage() {
                 )}
                 <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-4">
                     <div>
-                        <div className="text-xs font-semibold text-success mb-1">
+                        <div className="text-[10px] font-black text-emerald-400 uppercase tracking-[0.5em] mb-1">
                             Grid Telemetry // 2D Map
                         </div>
-                        <h1 className="text-4xl font-semibold tracking-tight text-foreground flex items-center gap-4">
-                            <MapPin className="text-success" size={32} />
+                        <h1 className="text-4xl font-black uppercase tracking-tighter text-foreground flex items-center gap-4">
+                            <MapPin className="text-emerald-400" size={32} />
                             Network Wide Map
                         </h1>
-                        <p className="text-xs font-semibold text-muted-foreground mt-2">
+                        <p className="text-[11px] font-black text-muted-foreground uppercase tracking-widest mt-2">
                             Live relay nodes · Flat dark roadmap
                         </p>
                     </div>
                     <div className="flex gap-3 flex-wrap">
                         {([
                             { label: 'Total', value: nodes.length, color: 'text-foreground' },
-                            { label: 'Active', value: totalActive, color: 'text-success' },
-                            { label: 'Validators', value: totalValidator, color: 'text-primary' },
+                            { label: 'Active', value: totalActive, color: 'text-emerald-400' },
+                            { label: 'Validators', value: totalValidator, color: 'text-purple-400' },
                             { label: 'Plotted', value: mappedCount, color: 'text-primary' },
                             ...(showListingsLayer
                                 ? [{
                                     label: 'Listings',
                                     value: listingPins.length,
-                                    color: 'text-success',
+                                    color: 'text-emerald-400',
                                     testId: 'explorer-map-stat-listings',
                                 }]
                                 : []),
                         ] as Array<{ label: string; value: number; color: string; testId?: string }>).map(s => (
-                            <GlassCard key={s.label} className="!p-4 border-border bg-card rounded-lg text-center min-w-[72px]">
-                                <div className={`text-xl font-semibold ${s.color}`} data-testid={s.testId}>{s.value}</div>
-                                <div className="text-xs font-semibold text-muted-foreground mt-0.5">{s.label}</div>
+                            <GlassCard key={s.label} className="!p-4 border-border bg-card rounded-2xl text-center min-w-[72px]">
+                                <div className={`text-xl font-black ${s.color}`} data-testid={s.testId}>{s.value}</div>
+                                <div className="text-[8px] font-black text-muted-foreground uppercase tracking-widest mt-0.5">{s.label}</div>
                             </GlassCard>
                         ))}
                     </div>
                 </div>
 
                 {/* Status bar */}
-                <div className="flex items-center gap-4 text-xs font-bold flex-wrap">
-                    <div className={`flex items-center gap-2 ${error ? 'text-destructive' : isLoading ? 'text-warning' : 'text-success'}`}>
-                        <div className={`w-2 h-2 rounded-full ${error ? 'bg-destructive animate-pulse' : isLoading ? 'bg-warning animate-pulse' : 'bg-success'}`} />
+                <div className="flex items-center gap-4 text-[9px] font-bold uppercase tracking-wider flex-wrap">
+                    <div className={`flex items-center gap-2 ${error ? 'text-rose-400' : isLoading ? 'text-amber-400' : 'text-emerald-400'}`}>
+                        <div className={`w-2 h-2 rounded-full ${error ? 'bg-rose-500 animate-pulse' : isLoading ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`} />
                         {error ? 'Disconnected' : isLoading ? 'Syncing…' : 'Live'}
                     </div>
                     <div
-                        className={`flex items-center gap-2 ${wsConnected ? 'text-info' : 'text-muted-foreground'}`}
+                        className={`flex items-center gap-2 ${wsConnected ? 'text-blue-400' : 'text-muted-foreground'}`}
                         data-testid="explorer-map-ws-status"
                     >
                         <Zap size={9} /> {wsConnected ? 'WS Connected' : 'WS Connecting…'}
                     </div>
-                    <div className="flex items-center gap-2 text-success/80" data-testid="explorer-map-live-active">
+                    <div className="flex items-center gap-2 text-emerald-400/80" data-testid="explorer-map-live-active">
                         <Activity size={9} /> {totalActive} live active
                     </div>
                     {lastUpdated && (
@@ -344,12 +317,12 @@ export default function NodeMapPage() {
 
                 {/* Map */}
                 <div className="xl:col-span-3">
-                    <GlassCard className="border-border bg-card rounded-lg overflow-hidden !p-0">
+                    <GlassCard className="border-border bg-card rounded-[2rem] overflow-hidden !p-0">
                         {/* Toolbar */}
                         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between px-5 py-3 border-b border-border gap-3 flex-wrap">
                             <div className="flex items-center gap-3">
                                 <Radio size={13} className={`text-primary ${isLoading ? 'animate-pulse' : ''}`} />
-                                <span className="text-xs font-semibold text-muted-foreground">
+                                <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">
                                     {isLoading
                                         ? 'Fetching nodes…'
                                         : error
@@ -361,20 +334,20 @@ export default function NodeMapPage() {
                                 <select
                                     value={selectedRegion}
                                     onChange={e => setSelectedRegion(e.target.value)}
-                                    className="bg-muted border border-border rounded-lg px-3 py-1.5 text-xs font-bold text-foreground focus:outline-none focus:border-primary/50"
+                                    className="bg-muted border border-border rounded-lg px-3 py-1.5 text-[9px] font-bold text-foreground uppercase tracking-wider focus:outline-none focus:border-primary/50"
                                 >
                                     <option value="all">All Regions</option>
                                     {regionBreakdown.map(([r]) => <option key={r} value={r}>{r}</option>)}
                                 </select>
                                 <button
                                     onClick={() => setShowValidatorsOnly(v => !v)}
-                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold transition-all ${showValidatorsOnly ? 'bg-primary/20 border-primary/50 text-primary' : 'bg-muted border-border text-muted-foreground hover:text-foreground'}`}
+                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[9px] font-bold uppercase tracking-wider transition-all ${showValidatorsOnly ? 'bg-purple-500/20 border-purple-500/50 text-purple-400' : 'bg-muted border-border text-muted-foreground hover:text-foreground'}`}
                                 >
                                     <Shield size={9} /> Validators
                                 </button>
                                 <button
                                     onClick={() => setShowActiveOnly(v => !v)}
-                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold transition-all ${showActiveOnly ? 'bg-success/20 border-success/50 text-success' : 'bg-muted border-border text-muted-foreground hover:text-foreground'}`}
+                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[9px] font-bold uppercase tracking-wider transition-all ${showActiveOnly ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400' : 'bg-muted border-border text-muted-foreground hover:text-foreground'}`}
                                 >
                                     <Activity size={9} /> Active Only
                                 </button>
@@ -382,14 +355,14 @@ export default function NodeMapPage() {
                             {/* Legend */}
                             <div className="flex items-center gap-3">
                                 {[
-                                    { color: 'bg-success', label: 'Active' },
-                                    { color: 'bg-primary', label: 'Validator' },
-                                    { color: 'bg-destructive', label: 'Offline' },
-                                    ...(showListingsLayer ? [{ color: 'bg-success', label: 'Listing' }] : []),
+                                    { color: 'bg-emerald-500', label: 'Active' },
+                                    { color: 'bg-purple-500', label: 'Validator' },
+                                    { color: 'bg-rose-500', label: 'Offline' },
+                                    ...(showListingsLayer ? [{ color: 'bg-emerald-400', label: 'Listing' }] : []),
                                 ].map(l => (
                                     <div key={l.label} className="flex items-center gap-1.5">
                                         <div className={`w-2 h-2 rounded-full ${l.color}`} />
-                                        <span className="text-xs font-semibold text-muted-foreground hidden sm:block">{l.label}</span>
+                                        <span className="text-[8px] font-black text-muted-foreground uppercase hidden sm:block">{l.label}</span>
                                     </div>
                                 ))}
                             </div>
@@ -423,7 +396,7 @@ export default function NodeMapPage() {
                                         type="button"
                                         onClick={searchThisArea}
                                         disabled={mapFetching}
-                                        className="flex items-center gap-2 px-4 py-2 rounded-full bg-success/20 border border-success/50 text-xs font-semibold text-success hover:bg-success/30 shadow-sm disabled:opacity-50"
+                                        className="flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/20 border border-emerald-500/50 text-[10px] font-black uppercase tracking-widest text-emerald-300 hover:bg-emerald-500/30 shadow-lg disabled:opacity-50"
                                     >
                                         {mapFetching ? (
                                             <Loader2 size={12} className="animate-spin" />
@@ -436,7 +409,7 @@ export default function NodeMapPage() {
                                         <button
                                             type="button"
                                             onClick={clearAreaSearch}
-                                            className="px-3 py-2 rounded-full bg-secondary border border-border text-xs font-semibold text-muted-foreground hover:text-foreground"
+                                            className="px-3 py-2 rounded-full bg-white/10 border border-white/20 text-[10px] font-black uppercase tracking-widest text-white/60 hover:text-white"
                                         >
                                             Clear area
                                         </button>
@@ -445,13 +418,13 @@ export default function NodeMapPage() {
                             ) : null}
 
                             {showListingsLayer && (
-                                <div className="absolute bottom-6 left-6 z-[1000] max-w-xs px-4 py-3 rounded-lg bg-[#0a0a15]/90 border border-success/30 shadow-sm">
-                                    <p className="text-xs font-semibold text-success leading-relaxed">
+                                <div className="absolute bottom-6 left-6 z-[1000] max-w-xs px-4 py-3 rounded-2xl bg-[#0a0a15]/90 border border-emerald-500/30 backdrop-blur-sm shadow-xl">
+                                    <p className="text-[9px] font-black text-emerald-300 uppercase tracking-widest leading-relaxed">
                                         Emerald pins are marketplace listings.
                                     </p>
                                     <Link
                                         href={ROUTES.marketplaceMap}
-                                        className="mt-2 inline-block text-xs font-semibold text-success hover:text-success"
+                                        className="mt-2 inline-block text-[9px] font-black text-emerald-400 uppercase tracking-widest hover:text-emerald-300"
                                     >
                                         Open marketplace map →
                                     </Link>
@@ -460,10 +433,10 @@ export default function NodeMapPage() {
 
                             {/* Error overlay */}
                             {error != null ? (
-                                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-3 px-5 py-3 bg-[#0a0a15]/90 border border-destructive/40 rounded-lg shadow-sm">
-                                    <div className="w-2 h-2 rounded-full bg-destructive animate-pulse flex-shrink-0" />
-                                    <span className="text-xs font-semibold text-destructive whitespace-nowrap">API Unavailable</span>
-                                    <button onClick={() => refetchMap()} className="ml-2 px-2 py-1 bg-destructive/15 border border-destructive/30 rounded-lg text-xs font-semibold text-destructive hover:bg-destructive/25 transition-all">
+                                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-3 px-5 py-3 bg-[#0a0a15]/90 border border-rose-500/40 rounded-2xl backdrop-blur-sm shadow-xl">
+                                    <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse flex-shrink-0" />
+                                    <span className="text-[9px] font-black text-rose-400 uppercase tracking-widest whitespace-nowrap">API Unavailable</span>
+                                    <button onClick={() => refetchMap()} className="ml-2 px-2 py-1 bg-rose-500/15 border border-rose-500/30 rounded-lg text-[8px] font-black text-rose-400 uppercase tracking-wider hover:bg-rose-500/25 transition-all">
                                         Retry
                                     </button>
                                 </div>
@@ -471,9 +444,9 @@ export default function NodeMapPage() {
 
                             {/* Empty state */}
                             {!isLoading && error == null && nodes.length === 0 ? (
-                                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] flex flex-col items-center gap-2 px-6 py-4 bg-[#0a0a15]/90 border border-border rounded-lg text-center max-w-xs">
-                                    <Globe size={20} className="text-muted-foreground" />
-                                    <p className="text-xs font-semibold text-muted-foreground">
+                                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] flex flex-col items-center gap-2 px-6 py-4 bg-[#0a0a15]/90 border border-white/10 rounded-2xl backdrop-blur-sm text-center max-w-xs">
+                                    <Globe size={20} className="text-white/20" />
+                                    <p className="text-[9px] font-black text-white/40 uppercase tracking-widest">
                                         {selectedRegion !== 'all' || showValidatorsOnly || showActiveOnly
                                             ? 'No nodes match filters'
                                             : 'No nodes registered yet'}
@@ -481,7 +454,7 @@ export default function NodeMapPage() {
                                     {(selectedRegion !== 'all' || showValidatorsOnly || showActiveOnly) && (
                                         <button
                                             onClick={() => { setSelectedRegion('all'); setShowValidatorsOnly(false); setShowActiveOnly(false); }}
-                                            className="px-3 py-1 bg-primary/10 border border-primary/20 rounded-lg text-xs font-semibold text-primary hover:bg-primary/20 transition-all">
+                                            className="px-3 py-1 bg-primary/10 border border-primary/20 rounded-lg text-[8px] font-black text-primary uppercase tracking-widest hover:bg-primary/20 transition-all">
                                             Clear Filters
                                         </button>
                                     )}
@@ -489,9 +462,9 @@ export default function NodeMapPage() {
                             ) : null}
 
                             {isLoading && (
-                                <div className="absolute top-4 right-4 z-[1000] flex items-center gap-2 px-3 py-2 bg-[#0a0a15]/80 border border-border rounded-lg">
-                                    <div className="w-1.5 h-1.5 rounded-full bg-warning animate-pulse" />
-                                    <span className="text-xs font-semibold text-muted-foreground">Syncing…</span>
+                                <div className="absolute top-4 right-4 z-[1000] flex items-center gap-2 px-3 py-2 bg-[#0a0a15]/80 border border-white/10 rounded-xl backdrop-blur-sm">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                                    <span className="text-[8px] font-black text-white/40 uppercase tracking-widest">Syncing…</span>
                                 </div>
                             )}
                         </div>
@@ -501,16 +474,16 @@ export default function NodeMapPage() {
                 {/* Sidebar */}
                 <div className="xl:col-span-1 space-y-4">
                     {/* Search & Discovery */}
-                    <GlassCard className="border-border bg-card rounded-lg !p-5 space-y-4">
-                        <div className="text-xs font-semibold text-muted-foreground flex items-center gap-2">
+                    <GlassCard className="border-border bg-card rounded-[2rem] !p-5 space-y-4">
+                        <div className="text-[9px] font-black text-muted-foreground uppercase tracking-widest flex items-center gap-2">
                             <Layers size={10} /> Search Network
                         </div>
                         <div className="relative group">
-                            <div className="absolute -inset-0.5 bg-primary/20 blur opacity-0 group-hover:opacity-100 transition-opacity rounded-lg" />
+                            <div className="absolute -inset-0.5 bg-primary/20 blur opacity-0 group-hover:opacity-100 transition-opacity rounded-xl" />
                             <input
                                 type="text"
                                 placeholder="Search Town, ISP, or HW ID..."
-                                className="w-full bg-muted border border-border rounded-lg py-3 pl-4 pr-10 text-xs font-semibold text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/40 focus:bg-surface-hover transition-all relative z-10"
+                                className="w-full bg-muted border border-border rounded-xl py-3 pl-4 pr-10 text-[10px] font-black uppercase tracking-widest text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/40 focus:bg-surface-hover transition-all relative z-10"
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                             />
@@ -526,16 +499,16 @@ export default function NodeMapPage() {
                     </GlassCard>
 
                     {selectedListing ? (
-                        <GlassCard className="border-success/20 bg-success/[0.02] rounded-lg !p-6 space-y-4">
+                        <GlassCard className="border-emerald-500/20 bg-emerald-500/[0.02] rounded-[2rem] !p-6 space-y-4">
                             <div className="flex items-center justify-between">
-                                <span className="text-xs font-semibold text-success">Market listing</span>
+                                <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">Market listing</span>
                                 <button onClick={() => setSelectedListing(null)} className="text-muted-foreground hover:text-foreground text-xs">✕</button>
                             </div>
-                            <h2 className="text-sm font-semibold text-foreground leading-tight">{selectedListing.title}</h2>
-                            <p className="text-xs text-muted-foreground">
-                                {selectedListing.country || 'Unknown'} · ${selectedListing.price_per_gb.toFixed(4)}/GB
+                            <h2 className="text-sm font-black text-foreground leading-tight">{selectedListing.title}</h2>
+                            <p className="text-[9px] text-muted-foreground uppercase tracking-widest">
+                                {selectedListing.country || 'Unknown'} · {measured(selectedListing.price_per_gb, 4, 'USD / GB')}
                             </p>
-                            <p className="text-xs text-muted-foreground">
+                            <p className="text-[8px] text-muted-foreground uppercase tracking-widest">
                                 {geoSourceLabel(selectedListing as MarketplaceListingMapPin)}
                             </p>
                             <ListingSlaBadge
@@ -550,7 +523,7 @@ export default function NodeMapPage() {
                                     type="button"
                                     onClick={() => handleBuy(selectedListing as MarketplaceListingMapPin)}
                                     disabled={buyLoading}
-                                    className="flex items-center justify-center gap-2 w-full py-2 rounded-lg bg-success/25 border border-success/50 text-success text-xs font-semibold hover:bg-success/35 transition-all disabled:opacity-50"
+                                    className="flex items-center justify-center gap-2 w-full py-2 rounded-xl bg-emerald-500/25 border border-emerald-500/50 text-emerald-300 text-[9px] font-black uppercase tracking-widest hover:bg-emerald-500/35 transition-all disabled:opacity-50"
                                 >
                                     {buyLoading ? (
                                         <Loader2 size={12} className="animate-spin" />
@@ -562,40 +535,40 @@ export default function NodeMapPage() {
                             )}
                             <Link
                                 href={`/marketplace/map?listing=${selectedListing.listing_id}`}
-                                className="block w-full text-center py-2 rounded-lg bg-success/15 border border-success/35 text-success text-xs font-semibold hover:bg-success/25 transition-all"
+                                className="block w-full text-center py-2 rounded-xl bg-emerald-500/15 border border-emerald-500/35 text-emerald-400 text-[9px] font-black uppercase tracking-widest hover:bg-emerald-500/25 transition-all"
                             >
                                 Buy on marketplace map →
                             </Link>
                             <Link
                                 href={`/marketplace/${selectedListing.listing_id}`}
-                                className="block text-center text-xs font-semibold text-muted-foreground hover:text-success"
+                                className="block text-center text-[8px] font-black text-muted-foreground uppercase tracking-widest hover:text-emerald-400"
                             >
                                 Listing details
                             </Link>
                             {!mapBuyEnabled && (
                                 <Link
                                     href={ROUTES.marketplaceMap}
-                                    className="block text-center text-xs font-semibold text-muted-foreground hover:text-success"
+                                    className="block text-center text-[8px] font-black text-muted-foreground uppercase tracking-widest hover:text-emerald-400"
                                 >
                                     Open marketplace map
                                 </Link>
                             )}
                         </GlassCard>
                     ) : selectedNode ? (
-                        <GlassCard className="border-primary/20 bg-primary/[0.02] rounded-lg !p-6 space-y-4">
+                        <GlassCard className="border-primary/20 bg-primary/[0.02] rounded-[2rem] !p-6 space-y-4">
                             <div className="flex items-center justify-between">
-                                <span className="text-xs font-semibold text-primary">Selected Node</span>
+                                <span className="text-[9px] font-black text-primary uppercase tracking-widest">Selected Node</span>
                                 <button onClick={() => setSelectedNode(null)} className="text-muted-foreground hover:text-foreground text-xs">✕</button>
                             </div>
                             <div className="space-y-1.5">
                                 {[
                                     { label: 'Node ID', value: `${selectedNode.node_id.slice(0, 14)}…`, mono: true },
-                                    { label: 'Status', value: selectedNode.is_active ? '● Active' : '○ Offline', color: selectedNode.is_active ? 'text-success' : 'text-destructive' },
-                                    { label: 'Type', value: selectedNode.is_validator ? '⬡ Validator' : '◎ Proxy', color: selectedNode.is_validator ? 'text-primary' : 'text-info' },
-                                    { label: 'Country', value: selectedNode.country || 'Unknown' },
-                                    { label: 'Region', value: selectedNode.region || 'Unknown' },
-                                    { label: 'City', value: selectedNode.city || 'Unknown' },
-                                    { label: 'ISP', value: selectedNode.isp || 'Unknown' },
+                                    { label: 'Status', value: selectedNode.is_active ? '● Active' : '○ Offline', color: selectedNode.is_active ? 'text-emerald-400' : 'text-rose-400' },
+                                    { label: 'Type', value: selectedNode.is_validator ? '⬡ Validator' : '◎ Proxy', color: selectedNode.is_validator ? 'text-purple-400' : 'text-blue-400' },
+                                    { label: 'Country', value: selectedNode.country || '—' },
+                                    { label: 'Region', value: selectedNode.region || '—' },
+                                    { label: 'City', value: selectedNode.city || '—' },
+                                    { label: 'ISP', value: selectedNode.isp || '—' },
                                     { label: 'Uptime', value: `${(selectedNode.uptime_percent || 0).toFixed(2)}%` },
                                     { label: 'Sessions', value: String(selectedNode.active_sessions || 0) },
                                     {
@@ -606,30 +579,30 @@ export default function NodeMapPage() {
                                     },
                                 ].map(f => (
                                     <div key={f.label} className="flex justify-between items-center py-1 border-b border-border">
-                                        <span className="text-xs font-semibold text-muted-foreground">{f.label}</span>
-                                        <span className={`text-xs font-semibold truncate max-w-[120px] ${(f as any).color || ((f as any).mono ? 'text-primary font-mono' : 'text-foreground')}`}>
+                                        <span className="text-[8px] font-black text-muted-foreground uppercase tracking-wider">{f.label}</span>
+                                        <span className={`text-[9px] font-black truncate max-w-[120px] ${(f as any).color || ((f as any).mono ? 'text-primary font-mono' : 'text-foreground')}`}>
                                             {f.value}
                                         </span>
                                     </div>
                                 ))}
                             </div>
                             <Link href={`/explorer/nodes/${selectedNode.node_id}`}
-                                className="block w-full text-center py-2 rounded-lg bg-primary/10 border border-primary/20 text-primary text-xs font-semibold hover:bg-primary/20 transition-all">
+                                className="block w-full text-center py-2 rounded-xl bg-primary/10 border border-primary/20 text-primary text-[9px] font-black uppercase tracking-widest hover:bg-primary/20 transition-all">
                                 Full Details →
                             </Link>
                         </GlassCard>
                     ) : (
-                        <GlassCard className="border-border bg-card rounded-lg !p-6 text-center">
+                        <GlassCard className="border-border bg-card rounded-[2rem] !p-6 text-center">
                             <MapPin size={32} className="mx-auto text-muted-foreground mb-3" />
-                            <p className="text-xs font-semibold text-muted-foreground leading-relaxed">
+                            <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest leading-relaxed">
                                 Click any node marker to inspect it
                             </p>
                         </GlassCard>
                     )}
 
                     {/* Map controls */}
-                    <GlassCard className="border-border bg-card rounded-lg !p-5 space-y-4">
-                        <div className="text-xs font-semibold text-muted-foreground flex items-center gap-2">
+                    <GlassCard className="border-border bg-card rounded-[2rem] !p-5 space-y-4">
+                        <div className="text-[9px] font-black text-muted-foreground uppercase tracking-widest flex items-center gap-2">
                             <Layers size={10} /> Map Controls
                         </div>
 
@@ -640,10 +613,10 @@ export default function NodeMapPage() {
                         <button
                             type="button"
                             onClick={toggleListingsLayer}
-                            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg border text-xs font-bold transition-all ${showListingsLayer ? 'bg-success/10 border-success/30 text-success' : 'bg-muted border-border text-muted-foreground hover:text-foreground'}`}
+                            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-[9px] font-bold uppercase tracking-wider transition-all ${showListingsLayer ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-muted border-border text-muted-foreground hover:text-foreground'}`}
                         >
                             <span>Marketplace listings</span>
-                            <span className="text-xs opacity-60">
+                            <span className="text-[8px] opacity-60">
                                 {showListingsLayer ? 'ON' : 'OFF'}
                             </span>
                         </button>
@@ -651,24 +624,24 @@ export default function NodeMapPage() {
                         <button
                             type="button"
                             onClick={() => setShowHeatmap(h => !h)}
-                            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg border text-xs font-bold transition-all ${showHeatmap ? 'bg-success/10 border-success/30 text-success' : 'bg-muted border-border text-muted-foreground hover:text-foreground'}`}
+                            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-[9px] font-bold uppercase tracking-wider transition-all ${showHeatmap ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-muted border-border text-muted-foreground hover:text-foreground'}`}
                         >
                             <span>Session Density</span>
-                            <div className={`w-8 h-4 rounded-full transition-all relative ${showHeatmap ? 'bg-success' : 'bg-muted'}`}>
-                                <div className={`absolute top-0 w-4 h-4 rounded-full bg-card shadow transition-transform ${showHeatmap ? 'translate-x-4' : 'translate-x-0'}`} />
+                            <div className={`w-8 h-4 rounded-full transition-all relative ${showHeatmap ? 'bg-emerald-500' : 'bg-muted'}`}>
+                                <div className={`absolute top-0 w-4 h-4 rounded-full bg-white shadow transition-transform ${showHeatmap ? 'translate-x-4' : 'translate-x-0'}`} />
                             </div>
                         </button>
                         <div className="space-y-2">
                             {[
-                                { color: 'bg-success', label: 'Active Proxy', desc: 'Online, serving traffic' },
-                                { color: 'bg-primary', label: 'Validator', desc: 'High-stake validator node' },
-                                { color: 'bg-destructive', label: 'Offline', desc: 'No recent heartbeat' },
-                                { color: 'bg-warning', label: 'Selected', desc: 'Currently inspected' },
+                                { color: 'bg-emerald-500', label: 'Active Proxy', desc: 'Online, serving traffic' },
+                                { color: 'bg-purple-500', label: 'Validator', desc: 'High-stake validator node' },
+                                { color: 'bg-rose-500', label: 'Offline', desc: 'No recent heartbeat' },
+                                { color: 'bg-amber-400', label: 'Selected', desc: 'Currently inspected' },
                             ].map(i => (
                                 <div key={i.label} className="flex items-start gap-2">
                                     <div className={`w-2.5 h-2.5 rounded-full ${i.color} mt-0.5 flex-shrink-0`} />
                                     <div>
-                                        <span className="text-xs font-semibold text-muted-foreground">{i.label}</span>
+                                        <span className="text-[8px] font-black text-muted-foreground uppercase">{i.label}</span>
                                         <p className="text-[7px] text-muted-foreground">{i.desc}</p>
                                     </div>
                                 </div>
@@ -677,12 +650,12 @@ export default function NodeMapPage() {
                     </GlassCard>
 
                     {/* Region breakdown */}
-                    <GlassCard className="border-border bg-card rounded-lg !p-5">
-                        <div className="text-xs font-semibold text-muted-foreground mb-3 flex items-center gap-2">
+                    <GlassCard className="border-border bg-card rounded-[2rem] !p-5">
+                        <div className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mb-3 flex items-center gap-2">
                             <Globe size={10} /> Region Distribution
                         </div>
                         {regionBreakdown.length === 0 ? (
-                            <p className="text-xs font-semibold text-muted-foreground text-center py-4">No nodes yet</p>
+                            <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest text-center py-4">No nodes yet</p>
                         ) : (
                             <div className="space-y-1.5 max-h-52 overflow-y-auto">
                                 {regionBreakdown.map(([region, count]) => {
@@ -692,16 +665,16 @@ export default function NodeMapPage() {
                                             className="flex items-center gap-2 cursor-pointer hover:bg-surface-hover px-1 py-1 rounded transition-colors"
                                             onClick={() => setSelectedRegion(selectedRegion === region ? 'all' : region)}>
                                             <div className="flex-1 bg-muted rounded-full h-1.5 overflow-hidden">
-                                                <div className={`h-full rounded-full transition-all ${selectedRegion === region ? 'bg-warning' : 'bg-primary'}`}
+                                                <div className={`h-full rounded-full transition-all ${selectedRegion === region ? 'bg-amber-400' : 'bg-primary'}`}
                                                     style={{ width: `${(count / total) * 100}%` }} />
                                             </div>
                                             <span
                                                 data-testid={`explorer-map-region-${region}`}
-                                                className={`text-xs font-semibold w-20 text-right truncate ${selectedRegion === region ? 'text-warning' : 'text-muted-foreground'}`}
+                                                className={`text-[8px] font-black uppercase w-20 text-right truncate ${selectedRegion === region ? 'text-amber-400' : 'text-muted-foreground'}`}
                                             >
                                                 {region}
                                             </span>
-                                            <span className="text-xs font-semibold text-foreground w-4 text-right">{count}</span>
+                                            <span className="text-[8px] font-black text-foreground w-4 text-right">{count}</span>
                                         </div>
                                     );
                                 })}
@@ -709,14 +682,14 @@ export default function NodeMapPage() {
                         )}
                         {selectedRegion !== 'all' && (
                             <button onClick={() => setSelectedRegion('all')}
-                                className="mt-3 w-full text-center text-xs font-bold text-primary hover:text-primary/80 transition-colors">
+                                className="mt-3 w-full text-center text-[8px] font-bold text-primary hover:text-primary/80 uppercase tracking-wider transition-colors">
                                 Clear Filter ✕
                             </button>
                         )}
                     </GlassCard>
 
                     {unmapped > 0 && (
-                        <div className="text-xs font-semibold text-warning/60 text-center px-3 py-2.5 bg-warning/5 rounded-lg border border-warning/10 leading-relaxed">
+                        <div className="text-[8px] font-black text-amber-400/60 uppercase tracking-widest text-center px-3 py-2.5 bg-amber-500/5 rounded-xl border border-amber-500/10 leading-relaxed">
                             ⚠ {unmapped} node{unmapped > 1 ? 's' : ''} missing GPS
                             <p className="text-[7px] text-muted-foreground normal-case mt-0.5 font-normal">GeoIP backfill will resolve these automatically</p>
                         </div>
@@ -726,16 +699,16 @@ export default function NodeMapPage() {
 
             {/* ── Node table ── */}
             <motion.section variants={item}>
-                <h2 className="text-sm font-semibold tracking-tight text-foreground flex items-center gap-2 mb-4">
+                <h2 className="text-sm font-black uppercase tracking-tighter text-foreground flex items-center gap-2 mb-4">
                     <Server size={14} className="text-primary" /> Located Nodes
-                    {mappedCount > 0 && <span className="text-xs font-bold text-muted-foreground ml-1">({mappedCount} with coordinates)</span>}
+                    {mappedCount > 0 && <span className="text-[9px] font-bold text-muted-foreground ml-1">({mappedCount} with coordinates)</span>}
                 </h2>
-                <GlassCard className="overflow-hidden border-border bg-card rounded-lg">
+                <GlassCard className="overflow-hidden border-border bg-card rounded-[2rem]">
                     {nodes.length === 0 ? (
                         <div className="py-16 text-center">
                             <Server size={40} className="text-muted-foreground mx-auto mb-4" />
-                            <p className="text-xs font-semibold text-muted-foreground mb-2">No nodes registered</p>
-                            <p className="text-xs text-muted-foreground max-w-xs mx-auto">
+                            <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest mb-2">No nodes registered</p>
+                            <p className="text-[8px] text-muted-foreground max-w-xs mx-auto">
                                 Nodes appear here once providers join the network with location data.
                             </p>
                         </div>
@@ -743,7 +716,7 @@ export default function NodeMapPage() {
                         <div className="overflow-x-auto">
                             <table className="w-full text-left border-collapse">
                                 <thead>
-                                    <tr className="bg-muted text-muted-foreground text-xs font-semibold">
+                                    <tr className="bg-muted text-muted-foreground text-[9px] uppercase tracking-[0.2em] font-black">
                                         <th className="px-5 py-3">Node</th>
                                         <th className="px-5 py-3">Type</th>
                                         <th className="px-5 py-3">Location</th>
@@ -760,35 +733,35 @@ export default function NodeMapPage() {
                                             className={`hover:bg-surface-hover transition-colors cursor-pointer ${selectedNode?.node_id === n.node_id ? 'bg-primary/5' : ''}`}>
                                             <td className="px-5 py-2.5">
                                                 <Link href={`/explorer/nodes/${n.node_id}`}
-                                                    className="font-mono text-primary hover:text-primary/80 text-xs font-bold"
+                                                    className="font-mono text-primary hover:text-primary/80 text-[10px] font-bold"
                                                     onClick={e => e.stopPropagation()}>
                                                     {n.node_id.slice(0, 14)}…
                                                 </Link>
                                             </td>
                                             <td className="px-5 py-2.5">
-                                                <span className={`text-xs font-semibold px-2 py-0.5 rounded-md ${n.is_validator ? 'text-primary bg-primary/10' : 'text-info bg-info/10'}`}>
+                                                <span className={`text-[8px] font-black px-2 py-0.5 rounded-md uppercase ${n.is_validator ? 'text-purple-400 bg-purple-400/10' : 'text-blue-400 bg-blue-400/10'}`}>
                                                     {n.is_validator ? 'Validator' : 'Proxy'}
                                                 </span>
                                             </td>
                                             <td className="px-5 py-2.5">
                                                 <div className="flex items-center gap-1.5">
                                                     <MapPin size={8} className="text-muted-foreground flex-shrink-0" />
-                                                    <span className="text-xs text-muted-foreground">
-                                                        {[n.city, n.country || n.region].filter(Boolean).join(', ') || 'Unknown'}
+                                                    <span className="text-[9px] text-muted-foreground">
+                                                        {[n.city, n.country || n.region].filter(Boolean).join(', ') || '—'}
                                                     </span>
                                                 </div>
                                             </td>
                                             <td className="px-5 py-2.5">
-                                                <span className="text-xs text-muted-foreground">{n.isp || 'Unknown'}</span>
+                                                <span className="text-[9px] text-muted-foreground">{n.isp || '—'}</span>
                                             </td>
-                                            <td className="px-5 py-2.5 text-right font-mono text-xs font-semibold text-foreground">
+                                            <td className="px-5 py-2.5 text-right font-mono text-[10px] font-black text-foreground">
                                                 {(n.uptime_percent || 0).toFixed(1)}%
                                             </td>
-                                            <td className="px-5 py-2.5 text-right font-mono text-xs font-semibold text-foreground">
+                                            <td className="px-5 py-2.5 text-right font-mono text-[10px] font-black text-foreground">
                                                 {n.active_sessions}
                                             </td>
                                             <td className="px-5 py-2.5 text-center">
-                                                <span className={`inline-block w-2 h-2 rounded-full ${n.is_active ? 'bg-success' : 'bg-destructive'}`} />
+                                                <span className={`inline-block w-2 h-2 rounded-full ${n.is_active ? 'bg-emerald-500' : 'bg-rose-500'}`} />
                                             </td>
                                         </tr>
                                     ))}

@@ -102,4 +102,51 @@ function fakeBrowser() {
     assert(mod.classifySignInError(new Error('Unexpected error'), 'x').resetWallet === false, 'only WalletSignMessageError resets');
 }
 
+// 6. Connection failures are formatted into actionable messages and emitted
+//    for the connect controls; a user-requested disconnect is not an error.
+{
+    const { win } = fakeBrowser();
+    const named = (name, message) => Object.assign(new Error(message), { name });
+    assert(/declined/.test(mod.formatWalletConnectionError(named('WalletConnectionError', 'User rejected the request.'))), 'rejection should explain the decline');
+    assert(/No Solana wallet was found/.test(mod.formatWalletConnectionError(named('WalletNotReadyError', 'Wallet not ready'))), 'missing wallet should explain installation');
+    assert(/locked or this site is not approved/.test(mod.formatWalletConnectionError(new Error('The wallet is not authorized'))), 'unauthorized should explain approval');
+    assert(/disconnected/.test(mod.formatWalletConnectionError(named('WalletDisconnectedError', 'disconnected'))), 'disconnect should explain reconnect');
+    assert(mod.formatWalletConnectionError(new Error('boom')) === 'boom', 'unknown errors pass through');
+    assert(/Wallet connection failed/.test(mod.formatWalletConnectionError(undefined)), 'empty errors use the fallback');
+
+    let seen = '';
+    const onError = (event) => { seen = event.detail.message; };
+    win.addEventListener(mod.WALLET_CONNECTION_ERROR_EVENT, onError);
+    mod.emitWalletConnectionError(new Error('User rejected the request.'));
+    assert(/declined/.test(seen), 'emitted event should carry the formatted message');
+    seen = '';
+    mod.emitWalletConnectionError(named('WalletDisconnectedError', 'disconnected'));
+    assert(seen === '', 'disconnect errors must not be emitted as connection failures');
+    win.removeEventListener(mod.WALLET_CONNECTION_ERROR_EVENT, onError);
+}
+
+// 7. The connected wallet name is remembered under our own key, and the
+//    auto-reconnect pick prefers it over a lone installed wallet, never
+//    guesses between several, and never picks a loadable web wallet.
+{
+    const { win } = fakeBrowser();
+    assert(mod.readRememberedWalletName() === null, 'remembered wallet starts empty');
+    mod.rememberConnectedWalletName('Phantom');
+    assert(mod.readRememberedWalletName() === 'Phantom', 'remembered wallet persists');
+    mod.rememberConnectedWalletName('');
+    assert(mod.readRememberedWalletName() === 'Phantom', 'empty names are not remembered');
+    mod.forgetRememberedWalletName();
+    assert(mod.readRememberedWalletName() === null, 'logout forgets the remembered wallet');
+    const entries = [
+        { name: 'Phantom', readyState: 'Installed' },
+        { name: 'Solflare', readyState: 'Loadable' },
+        { name: 'Backpack', readyState: 'Installed' },
+    ];
+    assert(mod.pickAutoReconnectWallet(entries, 'Backpack') === 'Backpack', 'remembered wallet wins among several installed');
+    assert(mod.pickAutoReconnectWallet(entries, 'Missing') === null, 'no guess between several installed wallets');
+    assert(mod.pickAutoReconnectWallet(entries.slice(0, 2), null) === 'Phantom', 'single installed wallet is picked');
+    assert(mod.pickAutoReconnectWallet([entries[1]], null) === null, 'loadable web wallet is never picked');
+    assert(win.localStorage.getItem('walletName') === '"Phantom"', 'library walletName key is left untouched');
+}
+
 console.log('wallet-session contract OK');

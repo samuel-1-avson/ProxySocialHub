@@ -3,9 +3,11 @@ import {
   PublicKey,
   SystemProgram,
   Transaction,
+  SendTransactionError,
   type SendOptions,
   type TransactionSignature,
 } from "@solana/web3.js";
+import bs58 from "bs58";
 
 export type WalletSigners = {
   publicKey: PublicKey;
@@ -33,6 +35,13 @@ export class SolTransferFailedError extends Error {
     this.signature = signature;
   }
 }
+export class SolTransferRejectedError extends SolTransferFailedError {
+  constructor(signature: TransactionSignature) {
+    super(signature);
+    this.name = "SolTransferRejectedError";
+    this.message = "The wallet transfer was rejected before it could be sent.";
+  }
+}
 
 /**
  * Send a native SOL transfer using the connected wallet.
@@ -44,6 +53,7 @@ export async function sendSolTransfer(
   to: PublicKey,
   lamports: number,
   onSubmitted?: (signature: TransactionSignature) => void,
+  options?: { waitForConfirmation?: boolean },
 ): Promise<TransactionSignature> {
   if (!Number.isSafeInteger(lamports) || lamports <= 0) {
     throw new Error("Amount is too small");
@@ -64,11 +74,32 @@ export async function sendSolTransfer(
     }).add(transferIx);
 
     const signed = await wallet.signTransaction(tx);
-    const signature = await connection.sendRawTransaction(
-      signed.serialize(),
-      DEFAULT_SEND_OPTIONS,
-    );
+    if (!signed.signature)
+      throw new Error("The wallet did not approve this transaction.");
+    const signature = bs58.encode(signed.signature);
+    const serialized = signed.serialize();
+    // Retain the signed transaction's identity BEFORE broadcasting. An RPC may
+    // accept the payment and lose its response; that must not trigger a new transfer.
     onSubmitted?.(signature);
+    try {
+      const reported = await connection.sendRawTransaction(
+        serialized,
+        DEFAULT_SEND_OPTIONS,
+      );
+      if (reported !== signature)
+        throw new Error(
+          "The RPC returned an unexpected transaction reference.",
+        );
+    } catch (error) {
+      // Only an explicit preflight simulation rejection proves it was not sent.
+      if (
+        error instanceof SendTransactionError &&
+        /^Simulation failed\./i.test(error.message)
+      )
+        throw new SolTransferRejectedError(signature);
+      throw error;
+    }
+    if (options?.waitForConfirmation === false) return signature;
     const confirmation = await connection.confirmTransaction(
       { signature, blockhash, lastValidBlockHeight },
       "confirmed",
@@ -89,6 +120,7 @@ export async function sendSolTransfer(
     DEFAULT_SEND_OPTIONS,
   );
   onSubmitted?.(signature);
+  if (options?.waitForConfirmation === false) return signature;
   const confirmation = await connection.confirmTransaction(
     signature,
     "confirmed",

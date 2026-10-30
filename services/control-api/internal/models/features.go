@@ -166,10 +166,12 @@ const (
 )
 
 type ProviderNode struct {
-	ID                uuid.UUID      `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
-	UserID            uuid.UUID      `gorm:"type:uuid;not null" json:"user_id"`
-	Name              string         `gorm:"type:varchar(100);not null" json:"name"`
-	IPAddress         string         `gorm:"type:inet" json:"ip_address,omitempty"`
+	ID     uuid.UUID `gorm:"type:uuid;primary_key;default:uuid_generate_v4()" json:"id"`
+	UserID uuid.UUID `gorm:"type:uuid;not null" json:"user_id"`
+	Name   string    `gorm:"type:varchar(100);not null" json:"name"`
+	// An unconnected node has no observed IP yet. PostgreSQL inet accepts NULL,
+	// but rejects the empty string Gorm would otherwise include in INSERTs.
+	IPAddress         string         `gorm:"type:inet;default:null" json:"ip_address,omitempty"`
 	Country           string         `gorm:"type:varchar(2)" json:"country,omitempty"`
 	City              string         `gorm:"type:varchar(100)" json:"city,omitempty"`
 	Region            string         `gorm:"type:varchar(100)" json:"region,omitempty"`
