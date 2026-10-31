@@ -192,6 +192,8 @@ export default function CLIPage() {
         });
     }
 
+    const installScriptUrl = `${endpoints.controlApiUrl}/v1/cli/install.ps1`;
+    const oneLineInstallCmd = `powershell -NoProfile -ExecutionPolicy Bypass -Command "irm ${installScriptUrl} | iex"`;
     const checksum = formatChecksum(downloadInfo?.checksum);
     const verifyChecksumCmd = selectedPlatform === 'windows'
         ? (checksum
@@ -226,8 +228,8 @@ metrics_port = 9090`;
 
     const steps = downloadInfo
         ? [
-            { step: '1', label: 'Download binary', desc: 'Platform build above (or GitHub Release zip)' },
-            { step: '2', label: 'Get config', desc: 'Setup wizard or My nodes → Connect (preferred over register)' },
+            { step: '1', label: 'Install', desc: selectedPlatform === 'windows' ? 'One-line install above, or platform build / GitHub Release zip' : 'Platform build above (or GitHub Release zip)' },
+            { step: '2', label: 'Get config', desc: 'Setup wizard, My nodes → Connect, or `provider-node pair` (preferred over register)' },
             { step: '3', label: 'Pre-flight', desc: `${exe} doctor ${cfg}` },
             { step: '4', label: 'Start daemon', desc: `${exe} start ${cfg}` },
             { step: '5', label: 'Confirm online', desc: 'Operator console / My nodes within ~2 minutes' },
@@ -455,6 +457,26 @@ metrics_port = 9090`;
                             </a>
                         </div>
 
+                        {selectedPlatform === 'windows' && (
+                            <div>
+                                <p className="ui-note">One-line install (no manual download)</p>
+                                <CodeBlock
+                                    code={oneLineInstallCmd}
+                                    copied={copied === 'one-line-install'}
+                                    onCopy={() => copy(oneLineInstallCmd, 'one-line-install')}
+                                />
+                                <p className="ui-note">
+                                    Paste into PowerShell. It downloads the latest bundle over HTTPS,
+                                    verifies its SHA256 checksum, and installs user-locally (no admin).
+                                    Prefer to read it first?{' '}
+                                    <a href={installScriptUrl} target="_blank" rel="noopener noreferrer" className="ui-link">
+                                        View the installer script
+                                    </a>
+                                    . Afterwards run <code>provider-node pair</code> — no config files to handle by hand.
+                                </p>
+                            </div>
+                        )}
+
                         {checksum && (
                             <div>
                                 <p className="ui-note">SHA256 checksum</p>
@@ -612,6 +634,8 @@ metrics_port = 9090`;
                         Prefer <Link href="/dashboard/provider/setup" className="ui-link">Setup</Link>
                         {' '}→ download config → <code>start</code>.
                         Running <code>register</code> after the wizard creates a second orphan node.
+                        No config file? Run <code>provider-node pair</code> and approve the code{' '}
+                        <Link href="/dashboard/provider/pair" className="ui-link">here</Link> instead.
                     </p>
                     <CodeBlock
                         code={installCmd}

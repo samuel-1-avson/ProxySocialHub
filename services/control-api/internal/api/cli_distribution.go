@@ -48,6 +48,7 @@ func RegisterCLIDistributionRoutes(rg *gin.RouterGroup) {
 	// Public endpoints — provider-node self-update + dashboard downloads (no auth)
 	rg.GET("/cli/download", getCLIDownload)
 	rg.GET("/cli/downloads/latest", getLatestCLI)
+	rg.GET("/cli/install.ps1", getCLIInstallScript)
 
 	// Protected endpoints - require authentication
 	protected := rg.Group("/cli")
@@ -55,6 +56,39 @@ func RegisterCLIDistributionRoutes(rg *gin.RouterGroup) {
 		protected.GET("/downloads", listCLIDownloads)
 		protected.POST("/downloads", middleware.RequireAdmin(), uploadCLIBinary)
 	}
+}
+
+// installScriptCandidates locates the Windows one-line installer. The Docker
+// image carries it at /app/static (see Dockerfile); local dev falls back to
+// the repo scripts directory. INSTALL_SCRIPT_PATH overrides both.
+func installScriptCandidates() []string {
+	if p := strings.TrimSpace(os.Getenv("INSTALL_SCRIPT_PATH")); p != "" {
+		return []string{p}
+	}
+	return []string{
+		"/app/static/install-provider-cli.ps1",
+		"static/install-provider-cli.ps1",
+		filepath.Join("..", "..", "scripts", "install-provider-cli.ps1"),
+		filepath.Join("..", "scripts", "install-provider-cli.ps1"),
+		filepath.Join("scripts", "install-provider-cli.ps1"),
+	}
+}
+
+// getCLIInstallScript serves the Windows one-line installer as plain text so
+// users can inspect it in a browser before piping it to a shell.
+func getCLIInstallScript(c *gin.Context) {
+	for _, p := range installScriptCandidates() {
+		body, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		c.Header("Content-Type", "text/plain; charset=utf-8")
+		c.Header("Cache-Control", "public, max-age=300")
+		c.Header("X-Content-Type-Options", "nosniff")
+		c.String(http.StatusOK, string(body))
+		return
+	}
+	c.JSON(http.StatusNotFound, gin.H{"error": "Installer script not available"})
 }
 
 // CLIPlatformInfo represents download info for a platform
