@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
     Server, Wallet, TrendingUp, Activity, AlertCircle, Fingerprint,
     FileCode, ShieldCheck, ArrowRight, Plus, Network, Cpu,
-    Zap, Terminal, Coins, CheckCircle2, AlertTriangle, CircleDot
+    Zap, Terminal, Coins, CheckCircle2, AlertTriangle, CircleDot, Monitor
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import Link from 'next/link';
@@ -493,6 +493,9 @@ function NewProviderLanding({ readiness }: { readiness?: ProviderReadinessRespon
                         <Link href="/dashboard/provider/cli" className="px-8 py-4 bg-secondary hover:bg-secondary text-info border border-info/20 font-bold rounded-lg transition-all flex items-center gap-3">
                             <Terminal size={20} /> CLI Setup
                         </Link>
+                        <Link href="/dashboard/provider/cli#desktop-app" className="px-8 py-4 bg-secondary hover:bg-secondary text-success border border-success/20 font-bold rounded-lg transition-all flex items-center gap-3">
+                            <Monitor size={20} /> Desktop App
+                        </Link>
                     </div>
                 </div>
                 <div className="w-full md:w-80 space-y-4">
@@ -534,7 +537,7 @@ function NewProviderLanding({ readiness }: { readiness?: ProviderReadinessRespon
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8 pt-12 border-t border-border">
                 <StepCard num="01" title="Setup + token" desc="Run the setup wizard once to create an API token and a single node row." icon={Fingerprint} />
-                <StepCard num="02" title="Download CLI" desc="Install provider-node for your OS, then start with the downloaded provider.toml." icon={Terminal} />
+                <StepCard num="02" title="Download node software" desc="Install the desktop app (Windows, no terminal) or the provider-node CLI for your OS." icon={Terminal} />
                 <StepCard num="03" title="Go online" desc="Confirm My nodes shows online, then track earnings on Income." icon={Coins} />
             </div>
         </div>

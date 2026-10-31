@@ -206,6 +206,22 @@ export function getProviderCliReleasesUrl(): string {
     );
 }
 
+/** GitHub Releases page for the Provider desktop app installer (provider-app-v* tags). */
+export function getProviderAppReleasesUrl(): string {
+    return (
+        process.env.NEXT_PUBLIC_PROVIDER_APP_RELEASES_URL ||
+        'https://github.com/samuel-1-avson/ProxySocialHub/releases/tag/provider-app-v0.1.0'
+    );
+}
+
+/**
+ * Direct download for the desktop installer served by Control API
+ * (package_type=desktop). Windows-only for now.
+ */
+export function getProviderAppDownloadUrl(version?: string): string {
+    return getCLIDownloadUrl('windows', 'amd64', version, 'desktop');
+}
+
 /**
  * Detect current platform and architecture
  */
