@@ -70,11 +70,11 @@ pub fn panel_border(focused: bool) -> Style {
     }
 }
 
-/// Primary frame (double border) for the active section.
+/// Primary frame (rounded border) for the active section.
 pub fn retro_block<'a>(title: &'a str, focused: bool) -> Block<'a> {
     Block::default()
         .borders(Borders::ALL)
-        .border_type(BorderType::Double)
+        .border_type(BorderType::Rounded)
         .border_style(panel_border(focused))
         .title(format!(" {title} "))
         .style(Style::default().bg(SURFACE))
