@@ -30,6 +30,7 @@ RUN apk add --no-cache ca-certificates tzdata wget && \
 
 COPY --from=builder /app/server /server
 COPY migrations /app/migrations
+COPY scripts/install-provider-cli.ps1 /app/static/install-provider-cli.ps1
 
 USER appuser
 
