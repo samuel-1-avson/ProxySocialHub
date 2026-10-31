@@ -74,3 +74,30 @@ export function noticeForPairingEnd(ended: PairingEnded): Notice | null {
       };
   }
 }
+/** Where a reconnecting node stands in its gateway rotation (mirrors Rust RetryFacts). */
+export interface RetryInfo {
+  active_gateway: string;
+  gateway_index: number;
+  gateway_total: number;
+  updated_at_unix: number;
+}
+
+/** 'just now' under 5s, then '12s ago', '3m ago', '2h ago'. Pure: now passed in. */
+export function formatAgo(updatedAtUnix: number, nowMs: number): string {
+  const s = Math.max(0, Math.floor(nowMs / 1000 - updatedAtUnix));
+  if (s < 5) return 'just now';
+  if (s < 60) return s + 's ago';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + 'm ago';
+  return Math.floor(m / 60) + 'h ago';
+}
+
+/** 'Trying gw (1 of 2). The node retries automatically. Last error 12s ago: <detail>.' */
+export function formatRetrySentence(retry: RetryInfo, detail: string | null, nowMs: number): string {
+  const where = retry.gateway_total > 1
+    ? retry.active_gateway + ' (' + (retry.gateway_index + 1) + ' of ' + retry.gateway_total + ')'
+    : retry.active_gateway;
+  const base = 'Trying ' + where + '. The node retries automatically.';
+  if (!detail) return base;
+  return base + ' Last error ' + formatAgo(retry.updated_at_unix, nowMs) + ': ' + detail;
+}

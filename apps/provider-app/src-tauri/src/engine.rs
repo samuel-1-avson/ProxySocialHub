@@ -69,6 +69,11 @@ struct Inner {
     /// node that is still running is not read as a wish to share (see `remember_running_node`).
     /// In memory only: it only bridges the moment between saving the pause and the stop landing.
     pause_requested: bool,
+    /// The app itself started the running node this session. A node that was already running
+    /// (the CLI, a service) is adopted, shown, but never stopped: Pause and Quit leave it
+    /// to its owner. Set when a start is issued from stopped, cleared on failure and
+    /// whenever the node is seen stopped.
+    started_by_app: bool,
 }
 
 pub struct AppCore<N: NodeControl> {
@@ -134,6 +139,11 @@ impl<N: NodeControl> AppCore<N> {
         match self.node.status() {
             Ok(mut facts) => {
                 facts.start_failed = start_failed;
+                let mut inner = self.lock();
+                if !facts.process_running {
+                    inner.started_by_app = false;
+                }
+                facts.externally_started = facts.process_running && !inner.started_by_app;
                 derive_state(true, wanted, None, &facts)
             }
             Err(reason) => AppState::Problem { reason },
@@ -247,8 +257,11 @@ impl<N: NodeControl> AppCore<N> {
         if on {
             self.start_node();
             Ok(())
-        } else {
+        } else if self.lock().started_by_app {
             self.node_stop()
+        } else {
+            // An adopted node belongs to its owner; the wish is saved, the node untouched.
+            Ok(())
         }
     }
 
@@ -286,6 +299,7 @@ impl<N: NodeControl> AppCore<N> {
             self.lock().start_failed = None;
             return;
         }
+        self.lock().started_by_app = false;
         self.start_node_at(now);
     }
 
@@ -327,17 +341,31 @@ impl<N: NodeControl> AppCore<N> {
     }
 
     fn start_node_at(&self, now: Instant) {
+        // A node that is already running belongs to someone else (the CLI, a service). The
+        // start below is still issued -- `start --background` reports AlreadyRunning for that
+        // case -- but the node is adopted, not owned: Pause and Quit must not stop it.
+        let already_running = matches!(self.node.status(), Ok(facts) if facts.process_running);
+        if !already_running {
+            // Optimistic, so a Pause landing mid-start still stops what we started.
+            self.lock().started_by_app = true;
+        }
         let result = self.node_start();
         let mut inner = self.lock();
         inner.last_start_attempt = Some(now);
-        inner.start_failed = result.err();
+        inner.start_failed = result.as_ref().err().cloned();
+        if already_running || result.is_err() {
+            inner.started_by_app = false;
+        }
     }
 
-    /// The app is closing: stop sharing, and stop waiting on any pairing. The saved intent is
-    /// left alone, so the next launch resumes what the person had.
+    /// The app is closing: stop a node the app itself started, and stop waiting on any
+    /// pairing. A node started elsewhere (the CLI) keeps running for its owner. The saved
+    /// intent is left alone, so the next launch resumes what the person had.
     pub fn shutdown(&self) {
         self.cancel_pairing();
-        let _ = self.node_stop();
+        if self.lock().started_by_app {
+            let _ = self.node_stop();
+        }
     }
 }
 
@@ -740,10 +768,11 @@ mod tests {
     }
 
     #[test]
-    fn shutdown_stops_the_node_and_pairing_but_keeps_the_wish_to_share() {
+    fn shutdown_stops_a_node_the_app_started_and_keeps_the_wish_to_share() {
         let (c, node, d) = consented("shutdown");
+        *node.facts.lock().unwrap() = Ok(paired_facts(false, false));
+        c.set_sharing(true).unwrap(); // the app starts it
         *node.facts.lock().unwrap() = Ok(paired_facts(true, true));
-        c.set_sharing(true).unwrap();
         c.begin_pairing().unwrap();
         c.shutdown();
         assert_eq!(node.stops.load(Ordering::SeqCst), 1);
@@ -785,6 +814,38 @@ mod tests {
             1,
             "the relaunched app resumes sharing"
         );
+    }
+
+    #[test]
+    fn shutdown_leaves_a_node_started_outside_the_app_running() {
+        let (c, node, _d) = consented("shutdown-adopted");
+        *node.facts.lock().unwrap() = Ok(paired_facts(true, true));
+        c.set_sharing(true).unwrap(); // adopts the running CLI node
+        c.shutdown();
+        assert_eq!(
+            node.stops.load(Ordering::SeqCst),
+            0,
+            "quitting the app must not stop a CLI node"
+        );
+    }
+
+    #[test]
+    fn pausing_an_adopted_node_leaves_it_running_and_says_so() {
+        let (c, node, d) = consented("pause-adopted");
+        *node.facts.lock().unwrap() = Ok(paired_facts(true, true));
+        c.set_sharing(true).unwrap();
+        c.set_sharing(false).unwrap();
+        assert_eq!(node.stops.load(Ordering::SeqCst), 0);
+        assert!(
+            !settings::load(&d.0).sharing_wanted,
+            "the wish is still saved"
+        );
+        match c.state() {
+            AppState::Sharing {
+                managed_externally, ..
+            } => assert!(managed_externally, "the UI must explain who owns it"),
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]
