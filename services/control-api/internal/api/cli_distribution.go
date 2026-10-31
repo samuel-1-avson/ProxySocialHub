@@ -219,6 +219,8 @@ func uploadCLIBinary(c *gin.Context) {
 		prefix = "provider-cli"
 	} else if packageType == "bundle" {
 		prefix = "provider-bundle"
+	} else if packageType == "desktop" {
+		prefix = "provider-desktop"
 	}
 	filename := fmt.Sprintf("%s-%s-%s-%s", prefix, version, platform, arch)
 	if packageType == "bundle" {
@@ -248,10 +250,11 @@ func uploadCLIBinary(c *gin.Context) {
 		return
 	}
 
-	// If this is marked as latest, unmark previous latest
+	// If this is marked as latest, unmark previous latest of the same package
+	// type only: uploading a desktop installer must not dethrone the CLI.
 	if c.PostForm("is_latest") == "true" {
 		db.DB.Model(&models.CLIDownload{}).
-			Where("platform = ? AND arch = ?", platform, arch).
+			Where("platform = ? AND arch = ? AND package_type = ?", platform, arch, packageType).
 			Update("is_latest", false)
 	}
 
@@ -324,7 +327,7 @@ func detectArch() string {
 
 func normalizeCLIPackageType(packageType string) string {
 	switch strings.ToLower(strings.TrimSpace(packageType)) {
-	case "bundle", "wrapper":
+	case "bundle", "wrapper", "desktop":
 		return strings.ToLower(strings.TrimSpace(packageType))
 	default:
 		return "daemon"

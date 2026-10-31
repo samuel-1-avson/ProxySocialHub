@@ -10,6 +10,8 @@ import Link from 'next/link';
 import {
     getCLIDownloads,
     getCLIDownloadUrl,
+    getProviderAppDownloadUrl,
+    getProviderAppReleasesUrl,
     getProviderCliReleasesUrl,
     detectPlatform,
     type CLIDownload,
@@ -105,6 +107,7 @@ export default function CLIPage() {
     const endpoints = useMemo(() => getProviderEndpoints(), []);
     const configPath = useMemo(() => defaultProviderConfigPath(), []);
     const releasesUrl = useMemo(() => getProviderCliReleasesUrl(), []);
+    const appReleasesUrl = useMemo(() => getProviderAppReleasesUrl(), []);
     const exe = selectedPlatform === 'windows' ? 'provider-node.exe' : 'provider-node';
     const cfg = configFlag(selectedPlatform);
 
@@ -149,6 +152,19 @@ export default function CLIPage() {
     }, [data, selectedPlatform, selectedArch]);
 
     const version = data?.latest_version ?? '…';
+    // Desktop installer row (package_type=desktop), served by Control API.
+    // Prefer the Windows build; the app is Windows-only for now.
+    const desktopInfo = useMemo(() => {
+        if (!data?.downloads) return undefined;
+        const pool = Object.values(data.downloads).filter(
+            (d) => (d.package_type || '').toLowerCase() === 'desktop',
+        );
+        return (
+            pool.find((d) => (d.platform || '').toLowerCase() === 'windows') ??
+            pool[0]
+        );
+    }, [data]);
+    const desktopChecksum = formatChecksum(desktopInfo?.checksum);
     const platformConfig = PLATFORMS.find((p) => p.id === selectedPlatform) ?? PLATFORMS[0];
     const downloadInfo = resolveDownload(data?.downloads, selectedPlatform, selectedArch);
     const packageType = downloadInfo?.package_type ?? 'daemon';
@@ -246,6 +262,114 @@ metrics_port = 9090`;
                     </>
                 }
             />
+
+            <section className="ui-surface" id="desktop-app">
+                <div className="ui-section-heading">
+                    <h2>
+                        Desktop app{' '}
+                        <span className="text-muted-foreground">Windows · no terminal needed</span>
+                    </h2>
+                </div>
+                <p className="ui-note">
+                    Prefer no command line? Install the Provider app, press Connect, and approve
+                    the pairing code in your dashboard. It runs the same node as the CLI below,
+                    straight from the system tray.
+                </p>
+                {isLoading ? (
+                    <Loading label="Checking for the desktop installer…" />
+                ) : desktopInfo ? (
+                    <div className="ui-page ui-section-space">
+                        <div className="ui-row">
+                            <div className="ui-row-identity">
+                                <span className="ui-region">
+                                    <Monitor size={16} aria-hidden="true" />
+                                </span>
+                                <div>
+                                    <h3>{desktopInfo.filename}</h3>
+                                    <p>
+                                        {(desktopInfo.file_size / 1024 / 1024).toFixed(1)} MB · v{desktopInfo.version} · Windows 10/11 (64-bit)
+                                    </p>
+                                </div>
+                            </div>
+                            <a
+                                href={getProviderAppDownloadUrl(desktopInfo.version)}
+                                download={desktopInfo.filename}
+                                onClick={() => setDownloadStarted(true)}
+                                className="ui-button"
+                            >
+                                <Download size={14} aria-hidden="true" />
+                                Download for Windows
+                            </a>
+                        </div>
+                        {desktopChecksum && (
+                            <div>
+                                <p className="ui-note">SHA256 checksum</p>
+                                <div className="ui-credential-field">
+                                    <code className="break-all select-all">{desktopChecksum}</code>
+                                    <button
+                                        type="button"
+                                        onClick={() => copy(desktopChecksum, 'desktop-checksum')}
+                                        className="ui-button ghost small"
+                                        aria-label="Copy desktop installer checksum"
+                                    >
+                                        {copied === 'desktop-checksum'
+                                            ? <CheckCircle2 size={14} aria-hidden="true" />
+                                            : <Copy size={14} aria-hidden="true" />}
+                                        {copied === 'desktop-checksum' ? 'Copied' : 'Copy'}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                        <div className="ui-step-list ui-section-space">
+                            {[
+                                { step: '1', label: 'Run the installer', desc: 'Open the downloaded .exe. The preview build is unsigned, so SmartScreen asks first: choose “More info” → “Run anyway” only if you downloaded it here.' },
+                                { step: '2', label: 'Read and agree', desc: 'The first screen explains what sharing means. Nothing runs until you agree.' },
+                                { step: '3', label: 'Press Connect', desc: 'The app shows a short pairing code.' },
+                                { step: '4', label: 'Approve it here', desc: 'Open Pair device, check the code matches, and approve this computer.' },
+                                { step: '5', label: 'Sharing is on', desc: 'The app keeps your node running in the background, even after restarts if you enable it.' },
+                            ].map((s) => (
+                                <div key={s.step}>
+                                    <div className="ui-step-number">{s.step}</div>
+                                    <h3>{s.label}</h3>
+                                    <p>{s.desc}</p>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="ui-actions">
+                            <Link href="/dashboard/provider/pair" className="ui-button secondary">
+                                Pair device
+                            </Link>
+                            <a
+                                href="/docs/provider/app"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="ui-button secondary"
+                            >
+                                App guide
+                            </a>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="ui-page ui-section-space">
+                        <p className="ui-note">
+                            The in-app installer is not published on this environment yet. You can
+                            still get it from the release page:
+                        </p>
+                        <div className="ui-actions">
+                            <a
+                                href={appReleasesUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={() => setDownloadStarted(true)}
+                                className="ui-button"
+                            >
+                                <Github size={14} aria-hidden="true" />
+                                Download from GitHub Releases
+                            </a>
+                        </div>
+                    </div>
+                )}
+            </section>
 
             <section className="ui-surface">
                 <div className="ui-section-heading">
