@@ -204,6 +204,8 @@ pub async fn send_provider_node_heartbeat(
     latency_ms: i32,
     active_connections: i32,
     uptime_percent: f64,
+    total_bytes_up: u64,
+    total_bytes_down: u64,
     proof: Option<ProviderProofEnvelope>,
 ) -> Result<()> {
     let node_id = node_id.trim();
@@ -217,6 +219,8 @@ pub async fn send_provider_node_heartbeat(
         "active_connections": active_connections,
         "uptime_percent": uptime_percent,
         "provider_run_id": provider_run_id,
+        "total_bytes_up": total_bytes_up,
+        "total_bytes_down": total_bytes_down,
     });
     if let Some(proof) = proof {
         payload["proof"] = serde_json::to_value(proof)?;

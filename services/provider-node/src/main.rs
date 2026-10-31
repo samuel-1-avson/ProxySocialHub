@@ -783,9 +783,12 @@ async fn main() -> anyhow::Result<()> {
                 tracing::warn!("Failed to write PID file: {e}");
             }
 
-            // Stats collector
+            // Stats collector, seeded with the previous run's lifetime totals so
+            // dashboard counters survive restarts.
             let stats_collector = stats::Collector::new();
             stats_collector.set_connection_type(cfg.connection_type.clone());
+            let seeded = stats::Collector::load_totals(&paths::stats_file());
+            stats_collector.seed_totals(&seeded);
 
             let provider_signer = if cfg.provider_signing_key.trim().is_empty() {
                 None
