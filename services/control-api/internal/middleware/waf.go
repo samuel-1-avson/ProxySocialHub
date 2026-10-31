@@ -192,8 +192,14 @@ func detectAttack(c *gin.Context, config WAFConfig) string {
 		c.Request.URL.Path,
 	}
 
-	// Check headers
-	for _, values := range c.Request.Header {
+	// Check headers, except User-Agent: legitimate automation advertises shell
+	// names there (WindowsPowerShell, curl) and the shell-keyword attack
+	// patterns would block it. Query, path, and body coverage is unaffected,
+	// and this stack never executes header content.
+	for name, values := range c.Request.Header {
+		if strings.EqualFold(name, "User-Agent") {
+			continue
+		}
 		inputs = append(inputs, values...)
 	}
 
