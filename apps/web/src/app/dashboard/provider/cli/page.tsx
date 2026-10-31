@@ -340,7 +340,7 @@ metrics_port = 9090`;
                                 Pair device
                             </Link>
                             <a
-                                href="/docs/provider/app"
+                                href="https://docs.proxyhubb.com/docs/provider/app"
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="ui-button secondary"
