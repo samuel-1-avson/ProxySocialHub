@@ -19,18 +19,9 @@ import {
   type ProviderToken,
 } from "@/lib/api/provider";
 import {
-  buildProviderToml,
-  buildUnixSetupThisPcScript,
-  buildWindowsSetupThisPcScript,
   clearProviderApiKey,
   clearProviderSessionTokens,
-  defaultProviderConfigPath,
-  downloadProviderToml,
-  downloadSetupThisPc,
-  getOrCreateProviderSigningKey,
-  isWindowsClient,
   loadProviderApiKey,
-  sanitizeProviderEndpoints,
   saveProviderApiKey,
 } from "@/lib/provider-config";
 import { explorerHref } from "@/lib/navigation/workspace";
@@ -276,46 +267,23 @@ export function NodeConnection({
       void client.invalidateQueries({ queryKey: ["provider-tokens"] });
     },
   });
-  function config() {
-    if (!apiKey || !connection.data)
-      throw new Error(
-        "Load the node settings and create a connection token first.",
-      );
-    const info = connection.data;
-    const endpoints = sanitizeProviderEndpoints({
-      controlApiUrl: info.control_api_url,
-      gatewayTunnelAddr: info.gateway_tunnel_addr,
-      gatewayTunnelAddrs: info.gateway_tunnel_addrs ?? [],
-      useTls: info.use_tls,
-      tlsSkipVerify: info.tls_skip_verify ?? false,
-    });
-    return {
-      endpoints,
-      toml: buildProviderToml({
-        nodeId: node.id,
-        apiKey,
-        providerSigningKey: getOrCreateProviderSigningKey(node.id),
-        connectionType: info.connection_type,
-        endpoints,
-      }),
-    };
+  function installCommand() {
+    const base = (
+      connection.data?.control_api_url || "https://api.proxyhubb.com"
+    ).replace(/\/$/, "");
+    return `powershell -NoProfile -ExecutionPolicy Bypass -Command "irm ${base}/v1/cli/install.ps1 | iex"`;
   }
-  async function copySetup() {
+  function joinCommand() {
+    if (!apiKey) throw new Error("Create a connection token first.");
+    return `provider-node join --force --api-key ${apiKey} --node-id ${node.id}`;
+  }
+  async function copyText(text: string, done: string, failed: string) {
     setCopyError("");
     try {
-      const { toml, endpoints } = config();
-      await navigator.clipboard.writeText(
-        isWindowsClient()
-          ? buildWindowsSetupThisPcScript(toml, endpoints.controlApiUrl)
-          : buildUnixSetupThisPcScript(toml, endpoints.controlApiUrl),
-      );
-      setCopied("Setup script copied");
+      await navigator.clipboard.writeText(text);
+      setCopied(done);
     } catch (error) {
-      setCopyError(
-        error instanceof Error
-          ? error.message
-          : "Could not copy the setup script.",
-      );
+      setCopyError(error instanceof Error ? error.message : failed);
     }
   }
   const ready = Boolean(apiKey && connection.isSuccess);
@@ -324,8 +292,9 @@ export function NodeConnection({
       <div>
         <h2>Connect {node.name}</h2>
         <p className="ui-note">
-          Run the setup script on the machine that will supply bandwidth. It
-          installs the software, writes its configuration, and starts the node.
+          Run two commands on the machine that will supply bandwidth — no
+          files to download. The installer sets up the software, then join
+          binds this machine to this node.
         </p>
       </div>
       {connection.isLoading && (
@@ -358,29 +327,73 @@ export function NodeConnection({
       {credential.isError && <DataError error={credential.error} />}
       {apiKey && (
         <p className="ui-note">
-          Connection credentials are available in this browser session.
-          Downloaded configuration and scripts contain secrets; keep them
-          private.
+          Connection credentials are available in this browser session only.
+          The join command contains a secret; keep it private.
         </p>
       )}
-      <div className="ui-actions">
-        <button
-          className="ui-button"
-          disabled={!ready}
-          onClick={() => {
-            const { toml, endpoints } = config();
-            downloadSetupThisPc(toml, endpoints.controlApiUrl);
-          }}
-        >
-          Download setup script
-        </button>
-        <button
-          className="ui-button secondary"
-          disabled={!ready}
-          onClick={() => void copySetup()}
-        >
-          Copy setup script
-        </button>
+      <div>
+        <div>
+          <p>
+            <strong>Step 1 — install the node software</strong> (Windows
+            PowerShell, needs no token):
+          </p>
+          <pre className="ui-code">{installCommand()}</pre>
+          <div className="ui-actions">
+            <button
+              className="ui-button secondary"
+              disabled={!connection.isSuccess}
+              onClick={() =>
+                void copyText(
+                  installCommand(),
+                  "Install command copied",
+                  "Could not copy the install command.",
+                )
+              }
+            >
+              Copy install command
+            </button>
+          </div>
+        </div>
+        <div>
+          <p>
+            <strong>Step 2 — bind this machine to {node.name}</strong>{" "}
+            (needs the connection token above):
+          </p>
+          <pre className="ui-code">
+            {apiKey ? joinCommand() : "Create a connection token above first."}
+          </pre>
+          <div className="ui-actions">
+            <button
+              className="ui-button"
+              disabled={!ready}
+              title={
+                ready ? undefined : "Create a connection token above first"
+              }
+              onClick={() => {
+                try {
+                  void copyText(
+                    joinCommand(),
+                    "Join command copied — paste it in a terminal on the node machine",
+                    "Could not copy the join command.",
+                  );
+                } catch (error) {
+                  setCopyError(
+                    error instanceof Error
+                      ? error.message
+                      : "Could not copy the join command.",
+                  );
+                }
+              }}
+            >
+              Copy join command
+            </button>
+          </div>
+          <p className="ui-note">
+            Then run <code>provider-node doctor</code> and{" "}
+            <code>provider-node start</code>. This page flips online within
+            about two minutes of the first heartbeat.
+          </p>
+        </div>
       </div>
       {copied && (
         <p className="ui-note" role="status">
@@ -388,41 +401,13 @@ export function NodeConnection({
         </p>
       )}
       {copyError && <DataError error={new Error(copyError)} />}
-      <details className="ui-note">
-        <summary>Manual installation & configuration</summary>
-        <p className="mt-3">
-          The node reads its configuration from{" "}
-          {connection.data?.config_path_hint || defaultProviderConfigPath()}.
-          Downloading a file does not install or start the node.
-        </p>
-        <div className="ui-actions mt-3">
-          <button
-            className="ui-button secondary"
-            disabled={!ready}
-            title={
-              ready ? undefined : "Create a connection token above first"
-            }
-            onClick={() => {
-              setCopyError("");
-              try {
-                downloadProviderToml("provider.toml", config().toml);
-                setCopied("provider.toml downloaded");
-              } catch (error) {
-                setCopyError(
-                  error instanceof Error
-                    ? error.message
-                    : "Could not download provider.toml.",
-                );
-              }
-            }}
-          >
-            Download provider.toml
-          </button>
-          <Link className="ui-link" href="/dashboard/provider/cli">
-            Software versions & downloads →
-          </Link>
-        </div>
-      </details>
+      <p className="ui-note">
+        On Linux or macOS, install from{" "}
+        <Link className="ui-link" href="/dashboard/provider/cli">
+          Software versions & downloads
+        </Link>{" "}
+        first — the join command is the same everywhere.
+      </p>
     </section>
   );
 }
