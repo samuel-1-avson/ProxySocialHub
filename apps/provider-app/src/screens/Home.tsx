@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { formatBytes, formatDuration } from '../format';
+import { formatBytes, formatDuration, formatRetrySentence } from '../format';
 import type { Ipc } from '../ipc';
 import type { AppApi } from '../useApp';
 import type { AppState } from '../types';
@@ -64,7 +64,13 @@ export function Connecting({
     <section aria-labelledby="connecting-title">
       <h1 id="connecting-title">Connecting…</h1>
       <p aria-live="polite">Your computer is getting online with ProxyHubb. This usually takes a few seconds.</p>
-      {state.detail && <p className="muted">Last attempt: {state.detail}</p>}
+      {state.retry ? (
+        <p className="muted" aria-live="polite">
+          {formatRetrySentence(state.retry, state.detail, Date.now())}
+        </p>
+      ) : (
+        state.detail && <p className="muted">Last attempt: {state.detail}</p>
+      )}
       {/* Someone whose node cannot connect must still be able to stop it. */}
       <div className="actions">
         <button className="secondary" type="button" onClick={() => void app.act(() => ipc.setSharing(false))}>
@@ -110,6 +116,12 @@ export function Sharing({
           <dd>{state.active_connections}</dd>
         </div>
       </dl>
+      {state.managed_externally && (
+        <p className="muted">
+          This node was started outside the app (for example the CLI), so Pause here will not
+          stop it. Stop it in its own window.
+        </p>
+      )}
       <div className="actions">
         <button className="secondary" type="button" onClick={() => void app.act(() => ipc.setSharing(false))}>
           Pause sharing

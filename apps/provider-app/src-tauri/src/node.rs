@@ -15,7 +15,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
 
-use crate::state::{Metrics, NodeFacts};
+use crate::state::{Metrics, NodeFacts, RetryFacts};
 
 /// The only place the app sends a person's browser.
 const ALLOWED_LINK_PREFIX: &str = "https://proxyhubb.com/";
@@ -76,6 +76,8 @@ struct StatusJson {
 #[derive(Debug, Deserialize)]
 struct ProcessJson {
     running: bool,
+    #[serde(default)]
+    pid: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -96,6 +98,14 @@ struct RuntimeJson {
     tunnel_connected: bool,
     #[serde(default)]
     last_session_error: Option<String>,
+    #[serde(default)]
+    active_gateway: String,
+    #[serde(default)]
+    gateway_index: u32,
+    #[serde(default)]
+    gateway_total: u32,
+    #[serde(default)]
+    updated_at_unix: u64,
 }
 
 /// Turn `provider-node status --json --local` output into facts. `config_exists` answers
@@ -125,6 +135,19 @@ pub fn parse_status(
         .filter(|_| !tunnel_connected)
         .and_then(|r| r.last_session_error.clone())
         .filter(|e| !e.trim().is_empty());
+    // Retry context rides with the error: only a sidecar new enough to report the
+    // rotation (gateway_total > 0) yields it, so old output degrades to detail-only.
+    let retry = status
+        .runtime
+        .as_ref()
+        .filter(|_| !tunnel_connected)
+        .filter(|r| r.gateway_total > 0)
+        .map(|r| RetryFacts {
+            active_gateway: r.active_gateway.clone(),
+            gateway_index: r.gateway_index,
+            gateway_total: r.gateway_total,
+            updated_at_unix: r.updated_at_unix,
+        });
 
     Ok(NodeFacts {
         config_present: !status.config_path.is_empty()
@@ -132,6 +155,7 @@ pub fn parse_status(
         process_running: status.process.running,
         tunnel_connected,
         last_error,
+        node_pid: status.process.pid,
         start_failed: None,
         metrics: status.metrics.map(|m| Metrics {
             uptime_seconds: m.uptime_seconds,
@@ -139,6 +163,9 @@ pub fn parse_status(
             bytes_down: m.bytes_down,
             active_connections: m.active_connections,
         }),
+        // The engine marks adopted nodes; parsing alone cannot know who started what.
+        externally_started: false,
+        retry,
     })
 }
 
@@ -460,6 +487,35 @@ mod tests {
             r#""last_session_error": "old""#,
         );
         assert_eq!(parse_status(&up, exists).unwrap().last_error, None);
+    }
+
+    #[test]
+    fn pid_and_retry_context_parse_from_status() {
+        let down = RUNNING_AND_CONNECTED.replace(
+            r#""tunnel_connected": true"#,
+            r#""tunnel_connected": false"#,
+        );
+        let f = parse_status(&down, exists).unwrap();
+        assert_eq!(f.node_pid, Some(4242));
+        let r = f.retry.expect("retry context while disconnected");
+        assert_eq!(r.active_gateway, "g");
+        assert_eq!((r.gateway_index, r.gateway_total), (0, 1));
+        assert_eq!(r.updated_at_unix, 1);
+        // Connected nodes carry no retry context.
+        let up = parse_status(RUNNING_AND_CONNECTED, exists).unwrap();
+        assert_eq!(up.retry, None);
+        assert_eq!(up.node_pid, Some(4242));
+    }
+
+    #[test]
+    fn old_sidecar_output_without_retry_fields_degrades_gracefully() {
+        let text = r#"{"config_path":"/c/provider.toml","process":{"running":true,"pid":7,"pid_file":"/c/p.pid"},
+                        "metrics":null,"control_api":{"url":"x","reachable":false,"nodes":[]},
+                        "runtime":{"tunnel_connected":false,"last_session_error":"boom"}}"#;
+        let f = parse_status(text, exists).unwrap();
+        assert_eq!(f.node_pid, Some(7));
+        assert_eq!(f.last_error.as_deref(), Some("boom"));
+        assert_eq!(f.retry, None);
     }
 
     #[test]
