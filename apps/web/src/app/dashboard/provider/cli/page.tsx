@@ -87,6 +87,17 @@ function formatChecksum(raw: string | undefined): string {
     return withoutPrefix || trimmed;
 }
 
+/** On Windows the one-line installer is the main path; manual downloads collapse. */
+function ManualDownloadWrap({ collapsed, children }: { collapsed: boolean; children: React.ReactNode }) {
+    if (!collapsed) return <>{children}</>;
+    return (
+        <details className="ui-note">
+            <summary>Advanced: manual download</summary>
+            <div className="ui-section-space">{children}</div>
+        </details>
+    );
+}
+
 /** Shell-safe --config flag for the selected OS (PowerShell on Windows). */
 function configFlag(platform: string): string {
     if (platform === 'windows') {
@@ -434,6 +445,27 @@ metrics_port = 9090`;
                     <DataError error={error} retry={() => void refetch()} />
                 ) : downloadInfo ? (
                     <div className="ui-page ui-section-space">
+                        {selectedPlatform === 'windows' && (
+                            <div>
+                                <p className="ui-note">One-line install (recommended, no manual download)</p>
+                                <CodeBlock
+                                    code={oneLineInstallCmd}
+                                    copied={copied === 'one-line-install'}
+                                    onCopy={() => copy(oneLineInstallCmd, 'one-line-install')}
+                                />
+                                <p className="ui-note">
+                                    Paste into PowerShell. It downloads the latest bundle over HTTPS,
+                                    verifies its SHA256 checksum, and installs user-locally (no admin).
+                                    Prefer to read it first?{' '}
+                                    <a href={installScriptUrl} target="_blank" rel="noopener noreferrer" className="ui-link">
+                                        View the installer script
+                                    </a>
+                                    . Afterwards run <code>provider-node pair</code> — no config files to handle by hand.
+                                </p>
+                            </div>
+                        )}
+
+                        <ManualDownloadWrap collapsed={selectedPlatform === 'windows'}>
                         <div className="ui-row">
                             <div className="ui-row-identity">
                                 <span className="ui-region">
@@ -456,26 +488,6 @@ metrics_port = 9090`;
                                 Download
                             </a>
                         </div>
-
-                        {selectedPlatform === 'windows' && (
-                            <div>
-                                <p className="ui-note">One-line install (no manual download)</p>
-                                <CodeBlock
-                                    code={oneLineInstallCmd}
-                                    copied={copied === 'one-line-install'}
-                                    onCopy={() => copy(oneLineInstallCmd, 'one-line-install')}
-                                />
-                                <p className="ui-note">
-                                    Paste into PowerShell. It downloads the latest bundle over HTTPS,
-                                    verifies its SHA256 checksum, and installs user-locally (no admin).
-                                    Prefer to read it first?{' '}
-                                    <a href={installScriptUrl} target="_blank" rel="noopener noreferrer" className="ui-link">
-                                        View the installer script
-                                    </a>
-                                    . Afterwards run <code>provider-node pair</code> — no config files to handle by hand.
-                                </p>
-                            </div>
-                        )}
 
                         {checksum && (
                             <div>
@@ -510,6 +522,7 @@ metrics_port = 9090`;
                             {selectedPlatform === 'windows' && ' includes Launch-Provider-Console.cmd'}
                             .
                         </p>
+                        </ManualDownloadWrap>
                     </div>
                 ) : (
                     <EmptyState
