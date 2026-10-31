@@ -1,6 +1,6 @@
 [package]
 name = "proxyhubb-cli"
-version = "1.0.10"
+version = "1.0.11"
 edition = "2021"
 publish = false
 description = "ProxyHubb provider CLI (install via GitHub Releases / cargo install --git; not crates.io)"
