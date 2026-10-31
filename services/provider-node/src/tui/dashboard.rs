@@ -10,10 +10,12 @@ use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use crossterm::ExecutableCommand;
+use ratatui::backend::Backend;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Gauge, Paragraph, Row, Sparkline, Table, Wrap};
+use ratatui::Terminal;
 use std::io::stdout;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -21,6 +23,11 @@ use tokio::sync::mpsc;
 
 const SPARK_LEN: usize = 48;
 const LOG_PAGE: usize = 8;
+/// Below this size the panels cannot render usefully: show a resize card.
+const MIN_COLS: u16 = 64;
+const MIN_ROWS: u16 = 20;
+/// Below this width panels switch to their condensed layout.
+const NARROW_COLS: u16 = 100;
 /// Control API + earnings poll interval (ms).
 const REMOTE_REFRESH_MS: u64 = 10_000;
 /// Pre-flight doctor re-run interval (ms).
@@ -30,7 +37,7 @@ const HEARTBEAT_STALE_MS: u64 = 90_000;
 const FRAME_MS: u64 = 33;
 const HINT_TICKS: u64 = 75;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Tab {
     Overview = 0,
     Network = 1,
@@ -93,6 +100,11 @@ struct DashboardApp {
     hint: Option<(String, u64)>,
     spark_up: Vec<u64>,
     spark_down: Vec<u64>,
+    /// Last drawn frame geometry, so mouse clicks hit-test real panel
+    /// positions instead of hardcoded rows.
+    tab_bar: Rect,
+    body: Rect,
+    narrow: bool,
 }
 
 struct DashboardData {
@@ -134,9 +146,12 @@ impl DashboardApp {
             log_wrap: true,
             force_refresh: false,
             force_doctor: false,
-            hint: None,
+            hint: Some(("Keys 1-5 switch panels · ? shows all keys".to_string(), 0)),
             spark_up: Vec::with_capacity(SPARK_LEN),
             spark_down: Vec::with_capacity(SPARK_LEN),
+            tab_bar: Rect::default(),
+            body: Rect::default(),
+            narrow: false,
         }
     }
 
@@ -151,6 +166,71 @@ fn push_sample(buf: &mut Vec<u64>, v: u64) {
     if buf.len() > SPARK_LEN {
         buf.remove(0);
     }
+}
+
+/// 45s, 12m 30s, 1h 4m, 3d 2h — two most significant units.
+fn format_uptime(total_secs: u64) -> String {
+    const MIN: u64 = 60;
+    const HOUR: u64 = 60 * MIN;
+    const DAY: u64 = 24 * HOUR;
+    if total_secs < MIN {
+        return format!("{total_secs}s");
+    }
+    if total_secs < HOUR {
+        return format!("{}m {}s", total_secs / MIN, total_secs % MIN);
+    }
+    if total_secs < DAY {
+        return format!("{}h {}m", total_secs / HOUR, (total_secs % HOUR) / MIN);
+    }
+    format!("{}d {}h", total_secs / DAY, (total_secs % DAY) / HOUR)
+}
+
+/// 900 bps, 12.4 Kbps, 3.2 Mbps — picks the first unit that keeps 4+ digits.
+/// Input is kilobits per second, matching the metrics snapshot.
+fn format_rate(kbps: u32) -> String {
+    let bps = kbps as f64 * 1000.0;
+    for (unit, div) in [("Gbps", 1e9), ("Mbps", 1e6), ("Kbps", 1e3)] {
+        if bps >= div {
+            let v = bps / div;
+            if v >= 100.0 {
+                return format!("{v:.0} {unit}");
+            }
+            return format!("{v:.1} {unit}");
+        }
+    }
+    format!("{:.0} bps", bps)
+}
+/// Seconds-since-event as "12s ago", "3m ago", "2h ago".
+fn format_ago(secs: u64) -> String {
+    if secs < 60 {
+        format!("{secs}s ago")
+    } else if secs < 3600 {
+        format!("{}m ago", secs / 60)
+    } else {
+        format!("{}h ago", secs / 3600)
+    }
+}
+
+fn is_too_small(area: Rect) -> bool {
+    area.width < MIN_COLS || area.height < MIN_ROWS
+}
+
+fn is_narrow(area: Rect) -> bool {
+    area.width < NARROW_COLS
+}
+
+/// Tab index from an x coordinate inside the tab bar rect (mouse clicks).
+/// Tabs share the row evenly, matching the renderer's even split.
+fn tab_index_at_x(tab_bar: Rect, x: u16, tab_count: usize) -> Option<usize> {
+    if tab_count == 0 || x < tab_bar.x || x >= tab_bar.x + tab_bar.width {
+        return None;
+    }
+    let rel = (x - tab_bar.x) as usize;
+    let w = (tab_bar.width as usize) / tab_count;
+    if w == 0 {
+        return Some(0);
+    }
+    Some((rel / w).min(tab_count - 1))
 }
 
 pub async fn run(config_path: PathBuf, refresh_ms: u64) -> Result<()> {
@@ -216,7 +296,7 @@ pub async fn run(config_path: PathBuf, refresh_ms: u64) -> Result<()> {
         );
 
         app.tick = app.tick.wrapping_add(1);
-        draw_dashboard(&mut terminal, refresh_ms, &app, &data, &in_flight)?;
+        draw_dashboard(&mut terminal, refresh_ms, &mut app, &data, &in_flight)?;
 
         while event::poll(Duration::from_millis(0))? {
             let action = match event::read()? {
@@ -231,7 +311,7 @@ pub async fn run(config_path: PathBuf, refresh_ms: u64) -> Result<()> {
                 Event::Resize(_, _) => LoopAction::Continue,
                 _ => LoopAction::Continue,
             };
-            draw_dashboard(&mut terminal, refresh_ms, &app, &data, &in_flight)?;
+            draw_dashboard(&mut terminal, refresh_ms, &mut app, &data, &in_flight)?;
             if action == LoopAction::Quit {
                 disable_raw_mode()?;
                 stdout.execute(DisableMouseCapture)?;
@@ -248,32 +328,32 @@ fn handle_mouse_event(
     data: &DashboardData,
     mouse: event::MouseEvent,
 ) -> Result<LoopAction> {
-    // Tab bar is the 3rd row from top (banner 5 + alerts 0-2 + tab 3). Approximate by y.
     if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
-        let y = mouse.row;
-        // rough tab bar hit: rows 5-7 (after banner)
-        if (5..=7).contains(&y) {
-            let x = mouse.column;
-            // each tab label ~14 chars wide
-            let idx = (x / 14).min(Tab::ALL.len().saturating_sub(1) as u16) as usize;
-            if idx < Tab::ALL.len() {
+        let (x, y) = (mouse.column, mouse.row);
+        // Tab clicks hit-test the bar drawn last frame.
+        if y >= app.tab_bar.y && y < app.tab_bar.y + app.tab_bar.height {
+            if let Some(idx) = tab_index_at_x(app.tab_bar, x, Tab::ALL.len()) {
                 app.tab = Tab::ALL[idx];
                 app.node_detail = false;
                 set_hint(app, format!("Tab → {}", app.tab.label().trim()));
+                return Ok(LoopAction::Continue);
             }
         }
-        // node row click: approximate body start
-        if app.tab == Tab::Nodes && y >= 10 {
-            let row = (y - 10) as usize;
-            if row
-                < data
-                    .snapshot
-                    .as_ref()
-                    .map(|s| s.status.control_api.nodes.len())
-                    .unwrap_or(0)
-            {
-                app.node_cursor = row;
-                set_hint(app, "Node selected — Enter for detail");
+        // Node rows: body top + table border + header row.
+        if app.tab == Tab::Nodes && !app.node_detail {
+            let first_row = app.body.y + 3;
+            if y >= first_row {
+                let row = (y - first_row) as usize;
+                if row
+                    < data
+                        .snapshot
+                        .as_ref()
+                        .map(|s| s.status.control_api.nodes.len())
+                        .unwrap_or(0)
+                {
+                    app.node_cursor = row;
+                    set_hint(app, "Node selected — Enter for detail");
+                }
             }
         }
     }
@@ -293,10 +373,10 @@ fn handle_mouse_event(
     Ok(LoopAction::Continue)
 }
 
-fn draw_dashboard(
-    terminal: &mut ratatui::DefaultTerminal,
+fn draw_dashboard<B: Backend>(
+    terminal: &mut Terminal<B>,
     refresh_ms: u64,
-    app: &DashboardApp,
+    app: &mut DashboardApp,
     data: &DashboardData,
     in_flight: &RefreshInFlight,
 ) -> Result<()> {
@@ -310,20 +390,25 @@ fn draw_dashboard(
     let alert_h = if alerts.is_empty() { 0 } else { 2 };
 
     terminal.draw(|frame| {
+        let area = frame.area();
+        if is_too_small(area) {
+            render_too_small(frame, area);
+            return;
+        }
         frame.render_widget(
             Paragraph::new("").style(Style::default().bg(theme::BG)),
-            frame.area(),
+            area,
         );
-        let area = frame.area();
+        app.narrow = is_narrow(area);
         // Build constraints without a zero-height slot — a Length(0) still
         // occupies an index and used to shift tab/body/cmd when no alerts.
-        let mut constraints = vec![Constraint::Length(5)];
+        let mut constraints = vec![Constraint::Length(3)];
         if alert_h > 0 {
             constraints.push(Constraint::Length(alert_h));
         }
         constraints.extend([
             Constraint::Length(3),
-            Constraint::Min(10),
+            Constraint::Min(8),
             Constraint::Length(3),
         ]);
         let layout = Layout::default()
@@ -337,15 +422,16 @@ fn draw_dashboard(
             layout[idx],
             data.snapshot.as_ref(),
             data.local_error.as_deref(),
-            app.tick,
         );
         idx += 1;
         if alert_h > 0 {
             render_alert_strip(frame, layout[idx], &alerts, app.tick);
             idx += 1;
         }
+        app.tab_bar = layout[idx];
         render_tab_bar(frame, layout[idx], app);
         idx += 1;
+        app.body = layout[idx];
         render_body(
             frame,
             layout[idx],
@@ -363,6 +449,44 @@ fn draw_dashboard(
         }
     })?;
     Ok(())
+}
+
+/// Shown instead of broken panels when the terminal is too small to render.
+fn render_too_small(frame: &mut ratatui::Frame<'_>, area: Rect) {
+    frame.render_widget(
+        Paragraph::new("").style(Style::default().bg(theme::BG)),
+        area,
+    );
+    let msg = vec![
+        Line::from(""),
+        Line::from(Span::styled(" Terminal too small ", theme::warn_badge())),
+        Line::from(""),
+        Line::from(Span::styled(
+            format!(
+                "This dashboard needs at least {MIN_COLS}x{MIN_ROWS} — now {}x{}.",
+                area.width, area.height
+            ),
+            theme::dim(),
+        )),
+        Line::from(Span::styled(
+            "Resize the window or make the font smaller; q quits.",
+            theme::dim(),
+        )),
+    ];
+    let w = area.width.saturating_sub(4).min(62).max(20);
+    let h = 7.min(area.height);
+    let card = Rect::new(
+        area.x + area.width.saturating_sub(w) / 2,
+        area.y + area.height.saturating_sub(h) / 2,
+        w,
+        h,
+    );
+    frame.render_widget(
+        Paragraph::new(msg)
+            .alignment(Alignment::Center)
+            .block(theme::retro_block("PROXYHUB", false)),
+        card,
+    );
 }
 
 fn sync_hint(in_flight: &RefreshInFlight) -> String {
@@ -799,7 +923,10 @@ fn collect_alerts(
             if m.last_heartbeat_ago_ms > HEARTBEAT_STALE_MS {
                 alerts.push(Alert {
                     level: AlertLevel::Warn,
-                    text: format!("Heartbeat stale ({}s ago)", m.last_heartbeat_ago_ms / 1000),
+                    text: format!(
+                        "Heartbeat stale ({})",
+                        format_ago(m.last_heartbeat_ago_ms / 1000)
+                    ),
                 });
             }
         }
@@ -837,7 +964,7 @@ fn collect_alerts(
 }
 
 fn render_alert_strip(frame: &mut ratatui::Frame<'_>, area: Rect, alerts: &[Alert], tick: u64) {
-    let pulse = if tick % 16 < 8 { "▶" } else { " " };
+    let pulse = if tick % 16 < 8 { "*" } else { " " };
     let line = if alerts.len() == 1 {
         let a = &alerts[0];
         Line::from(vec![
@@ -888,7 +1015,6 @@ fn render_banner(
     area: Rect,
     snap: Option<&OperatorSnapshot>,
     err: Option<&str>,
-    tick: u64,
 ) {
     let (status_label, _) = if err.is_some() {
         ("COLLECT ERROR", theme::ALERT)
@@ -897,32 +1023,29 @@ fn render_banner(
     };
 
     let nodes_n = snap.map(|s| s.status.control_api.nodes.len()).unwrap_or(0);
-    let pulse = if tick % 20 < 10 { "●" } else { "○" };
-    let lines = vec![
-        Line::from(vec![
-            Span::styled(" PROXYHUB ", theme::value().add_modifier(Modifier::BOLD)),
-            Span::styled(format!("v{} ", env!("CARGO_PKG_VERSION")), theme::dim()),
-            Span::styled("· operator ", theme::muted()),
-        ]),
-        Line::from(vec![
-            Span::styled(format!(" {pulse} "), theme::value()),
-            Span::styled(format!(" {status_label} "), status_badge(status_label)),
-            Span::raw("  "),
-            Span::styled(chrono_hint(snap), theme::dim()),
-            Span::raw("  ·  "),
-            Span::styled(
-                if nodes_n == 0 {
-                    "nodes —".to_string()
-                } else {
-                    format!("{nodes_n} node{}", if nodes_n == 1 { "" } else { "s" })
-                },
-                theme::label(),
-            ),
-        ]),
+    let mut spans = vec![
+        Span::styled(" PROXYHUB ", theme::value().add_modifier(Modifier::BOLD)),
+        Span::styled(format!("v{} ", env!("CARGO_PKG_VERSION")), theme::dim()),
+        Span::styled("(*) ", theme::value()),
+        Span::styled(format!(" {status_label} "), status_badge(status_label)),
+        Span::raw("  "),
+        Span::styled(chrono_hint(snap), theme::dim()),
     ];
+    // On very narrow screens the node count is the first thing to go.
+    if area.width >= 80 {
+        spans.push(Span::raw("  ·  "));
+        spans.push(Span::styled(
+            if nodes_n == 0 {
+                "nodes —".to_string()
+            } else {
+                format!("{nodes_n} node{}", if nodes_n == 1 { "" } else { "s" })
+            },
+            theme::label(),
+        ));
+    }
 
     frame.render_widget(
-        Paragraph::new(lines).block(retro_block("TERMINAL", true)),
+        Paragraph::new(Line::from(spans)).block(retro_block("TERMINAL", true)),
         area,
     );
 }
@@ -930,41 +1053,41 @@ fn render_banner(
 fn chrono_hint(snap: Option<&OperatorSnapshot>) -> String {
     if let Some(s) = snap {
         if let Some(m) = &s.status.metrics {
-            return format!("uptime {:>5}s", m.uptime_seconds);
+            return format!("uptime {}", format_uptime(m.uptime_seconds));
         }
     }
     "awaiting telemetry".to_string()
 }
 
 fn render_tab_bar(frame: &mut ratatui::Frame<'_>, area: Rect, app: &DashboardApp) {
-    let mut spans = Vec::new();
-    for t in Tab::ALL {
-        let active = t == app.tab;
-        let label = format!(" {} {} ", t.key(), t.label());
-        if active {
-            spans.push(Span::styled(
-                label,
-                Style::default()
-                    .fg(theme::BG)
-                    .bg(theme::AMBER)
-                    .add_modifier(Modifier::BOLD),
-            ));
+    // Tabs share the row evenly so clicks map 1:1 (see tab_index_at_x).
+    let cells = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints(Tab::ALL.map(|_| Constraint::Ratio(1, Tab::ALL.len() as u32)))
+        .split(area);
+    for (t, cell) in Tab::ALL.iter().zip(cells.iter()) {
+        let active = *t == app.tab;
+        let label = format!("{} {}", t.key(), t.label());
+        let style = if active {
+            Style::default()
+                .fg(theme::BG)
+                .bg(theme::AMBER)
+                .add_modifier(Modifier::BOLD)
         } else {
-            spans.push(Span::styled(label, theme::dim()));
-        }
-        spans.push(Span::raw(" "));
+            theme::dim()
+        };
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(format!(" {label} "), style)))
+                .alignment(Alignment::Center)
+                .block(
+                    Block::default()
+                        .borders(Borders::BOTTOM)
+                        .border_style(theme::panel_border(active))
+                        .style(Style::default().bg(theme::SURFACE)),
+                ),
+            *cell,
+        );
     }
-    spans.push(Span::styled("? help", theme::muted()));
-
-    frame.render_widget(
-        Paragraph::new(Line::from(spans)).block(
-            Block::default()
-                .borders(Borders::BOTTOM)
-                .border_style(theme::panel_border(false))
-                .style(Style::default().bg(theme::SURFACE)),
-        ),
-        area,
-    );
 }
 
 fn render_body(
@@ -994,18 +1117,19 @@ fn render_overview(
     doctor: Option<&DoctorReport>,
     doctor_err: Option<&str>,
 ) {
+    let kpi_h = if app.narrow { 7 } else { 5 };
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3),
-            Constraint::Length(5),
+            Constraint::Length(kpi_h),
             Constraint::Min(6),
             Constraint::Length(3),
         ])
         .split(area);
 
     render_health_banner(frame, rows[0], snap, err);
-    render_kpi_row(frame, rows[1], snap);
+    render_kpi_row(frame, rows[1], snap, app.narrow);
 
     let mid = if area.width < 90 {
         Layout::default()
@@ -1018,7 +1142,7 @@ fn render_overview(
             .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
             .split(rows[2])
     };
-    render_spark_card(frame, mid[0], app, "TRAFFIC", &combined_spark(app));
+    render_spark_card(frame, mid[0], app, "Live traffic", &combined_spark(app));
     render_doctor_summary(frame, mid[1], doctor, doctor_err);
 
     render_overview_footer(frame, rows[3], snap);
@@ -1059,76 +1183,80 @@ fn render_health_banner(
         Span::styled(format!(" {detail}"), theme::dim()),
     ])];
     frame.render_widget(
-        Paragraph::new(lines).block(panel_block("STATUS", true)),
+        Paragraph::new(lines).block(panel_block("Status", true)),
         area,
     );
 }
 
-fn render_kpi_row(frame: &mut ratatui::Frame<'_>, area: Rect, snap: Option<&OperatorSnapshot>) {
-    let block = panel_block("KEY METRICS", true);
+fn render_kpi_row(
+    frame: &mut ratatui::Frame<'_>,
+    area: Rect,
+    snap: Option<&OperatorSnapshot>,
+    narrow: bool,
+) {
+    let block = panel_block("Key metrics", true);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
     let Some(s) = snap else {
-        frame.render_widget(Paragraph::new(" …").style(theme::dim()), inner);
+        frame.render_widget(
+            Paragraph::new(" Waiting for node telemetry — is the node running?")
+                .style(theme::dim()),
+            inner,
+        );
         return;
     };
 
-    let (sessions, up, down, lat, hb, today) = if let Some(m) = &s.status.metrics {
+    let today = s
+        .earnings
+        .as_ref()
+        .map(|e| format!("{:.3} SOL", e.last_7_days_sol / 7.0))
+        .unwrap_or_else(|| "—".into());
+    let (sessions, up, down, lat, hb) = if let Some(m) = &s.status.metrics {
         (
             format!("{}/{}", m.active_connections, m.total_connections),
-            format!("{} kbps", m.rate_up_kbps),
-            format!("{} kbps", m.rate_down_kbps),
+            format_rate(m.rate_up_kbps),
+            format_rate(m.rate_down_kbps),
             format!("{} ms", m.latency_ms),
-            format!("{} s", m.last_heartbeat_ago_ms / 1000),
-            s.earnings
-                .as_ref()
-                .map(|e| format!("{:.3} SOL", e.last_7_days_sol / 7.0))
-                .unwrap_or_else(|| "—".into()),
+            format_ago(m.last_heartbeat_ago_ms / 1000),
         )
     } else {
-        (
-            "—".into(),
-            "—".into(),
-            "—".into(),
-            "—".into(),
-            "—".into(),
-            s.earnings
-                .as_ref()
-                .map(|e| format!("{:.3} SOL", e.last_7_days_sol / 7.0))
-                .unwrap_or_else(|| "—".into()),
-        )
+        ("—".into(), "—".into(), "—".into(), "—".into(), "—".into())
     };
 
-    let cells = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(16),
-            Constraint::Percentage(18),
-            Constraint::Percentage(18),
-            Constraint::Percentage(14),
-            Constraint::Percentage(16),
-            Constraint::Percentage(18),
-        ])
-        .split(inner);
-
     let items = [
-        ("ACTIVE", sessions),
-        ("UPLINK", up),
-        ("DOWNLINK", down),
-        ("LATENCY", lat),
-        ("HEARTBEAT", hb),
-        ("EARN/24h", today),
+        ("Active", sessions),
+        ("Uplink", up),
+        ("Downlink", down),
+        ("Latency", lat),
+        ("Heartbeat", hb),
+        ("Earned/24h", today),
     ];
-    for (i, (k, v)) in items.iter().enumerate() {
-        let line = vec![
-            Line::from(Span::styled(*k, theme::muted())),
-            Line::from(Span::styled(
-                v.clone(),
-                theme::value().add_modifier(Modifier::BOLD),
-            )),
-        ];
-        frame.render_widget(Paragraph::new(line).alignment(Alignment::Center), cells[i]);
+    // Narrow screens stack 3+3 so values never clip.
+    let rows: Vec<&[(&str, String)]> = if narrow {
+        vec![&items[0..3], &items[3..6]]
+    } else {
+        vec![&items[..]]
+    };
+    let row_areas = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(rows.iter().map(|_| Constraint::Length(2)))
+        .split(inner);
+    for (row, row_area) in rows.iter().zip(row_areas.iter()) {
+        let cells = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(row.iter().map(|_| Constraint::Ratio(1, row.len() as u32)))
+            .split(*row_area);
+        for ((k, v), cell) in row.iter().zip(cells.iter()) {
+            let lines = vec![
+                Line::from(Span::styled(*k, theme::muted())),
+                Line::from(Span::styled(
+                    v.clone(),
+                    theme::value().add_modifier(Modifier::BOLD),
+                )),
+            ];
+            frame.render_widget(Paragraph::new(lines).alignment(Alignment::Center), *cell);
+        }
     }
 }
 
@@ -1140,7 +1268,7 @@ fn render_doctor_summary(
 ) {
     let (title, lines) = if let Some(e) = doctor_err {
         (
-            "DOCTOR  error",
+            "Doctor -- error",
             vec![Line::from(Span::styled(
                 format!("ERR │ {e}"),
                 theme::alert(),
@@ -1150,7 +1278,7 @@ fn render_doctor_summary(
         let failing: Vec<&Check> = d.checks.iter().filter(|c| !c.ok).collect();
         if failing.is_empty() {
             (
-                "DOCTOR  all clear",
+                "Doctor -- all clear",
                 vec![Line::from(Span::styled("No blocking issues", theme::ok()))],
             )
         } else {
@@ -1172,11 +1300,11 @@ fn render_doctor_summary(
                     theme::dim(),
                 )));
             }
-            ("DOCTOR  action needed", lines)
+            ("Doctor -- action needed", lines)
         }
     } else {
         (
-            "DOCTOR  …",
+            "Doctor -- working",
             vec![Line::from(Span::styled("checking…", theme::dim()))],
         )
     };
@@ -1211,7 +1339,7 @@ fn render_overview_footer(
     };
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(text, theme::dim())))
-            .block(retro_block("CONNECTION", true)),
+            .block(retro_block("Connection", true)),
         area,
     );
 }
@@ -1292,7 +1420,7 @@ fn render_gateway_info(
             vec![Line::from(Span::styled("SYNC │ …", theme::dim()))]
         };
     frame.render_widget(
-        Paragraph::new(lines).block(retro_block("GATEWAY", true)),
+        Paragraph::new(lines).block(retro_block("Gateway", true)),
         area,
     );
 }
@@ -1318,14 +1446,14 @@ fn render_throughput_graph(frame: &mut ratatui::Frame<'_>, area: Rect, app: &Das
 
     frame.render_widget(
         Sparkline::default()
-            .block(retro_block("UPLINK kbps", true))
+            .block(retro_block("Uplink", true))
             .data(&up_data)
             .style(Style::default().fg(theme::AMBER)),
         chunks[0],
     );
     frame.render_widget(
         Sparkline::default()
-            .block(retro_block("DOWNLINK kbps", true))
+            .block(retro_block("Downlink", true))
             .data(&down_data)
             .style(Style::default().fg(theme::PHOSPHOR)),
         chunks[1],
@@ -1337,7 +1465,7 @@ fn render_latency_panel(
     area: Rect,
     snap: Option<&OperatorSnapshot>,
 ) {
-    let block = retro_block("LATENCY / SESSIONS", true);
+    let block = retro_block("Latency / sessions", true);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -1427,7 +1555,7 @@ fn render_network_footer(
     };
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(text, theme::dim())))
-            .block(retro_block("TOTALS", true)),
+            .block(retro_block("Totals", true)),
         area,
     );
 }
@@ -1546,7 +1674,7 @@ fn render_earnings(
                 )),
             ];
             frame.render_widget(
-                Paragraph::new(bottom_lines).block(retro_block("DETAILS", true)),
+                Paragraph::new(bottom_lines).block(retro_block("Details", true)),
                 rows[1],
             );
             return;
@@ -1563,7 +1691,7 @@ fn render_earnings(
     ];
     frame.render_widget(
         Paragraph::new(lines)
-            .block(retro_block("REWARDS LEDGER", true))
+            .block(retro_block("Rewards ledger", true))
             .alignment(Alignment::Center),
         area,
     );
@@ -1600,81 +1728,72 @@ fn render_node_table(
     app: &DashboardApp,
     api: Option<&crate::status::ControlAPIStatus>,
 ) {
-    let rows: Vec<Row> = if let Some(api) = api {
+    // Narrow screens drop the IP column; the detail view still shows it.
+    let show_ip = area.width >= 76;
+    let mut rows: Vec<Row> = Vec::new();
+    if let Some(api) = api {
         if api.nodes.is_empty() {
             let msg = if let Some(err) = api.error.as_ref().filter(|e| !e.is_empty()) {
                 format!("API: {err}")
             } else if !api.reachable {
                 "Syncing Control API… press r".to_string()
             } else {
-                "No nodes on this account".to_string()
+                "No nodes on this account — pair this machine or register one".to_string()
             };
-            vec![Row::new(vec![
-                truncate(&msg, 40),
-                "—".to_string(),
-                "—".to_string(),
-                "—".to_string(),
-            ])
-            .style(theme::warn())]
+            let mut cells = vec![truncate(&msg, 44), "—".to_string(), "—".to_string()];
+            if show_ip {
+                cells.push("—".to_string());
+            }
+            rows.push(Row::new(cells).style(theme::warn()));
         } else {
-            api.nodes
-                .iter()
-                .enumerate()
-                .map(|(i, n)| {
-                    let proof = if n.latest_heartbeat_verified {
-                        "PROOF OK".to_string()
-                    } else if !n.latest_heartbeat_verification_error.is_empty() {
-                        "FAIL".to_string()
+            for (i, n) in api.nodes.iter().enumerate() {
+                let proof = if n.latest_heartbeat_verified {
+                    "PROOF OK".to_string()
+                } else if !n.latest_heartbeat_verification_error.is_empty() {
+                    "FAIL".to_string()
+                } else {
+                    "UNSIGNED".to_string()
+                };
+                let style = if i == app.node_cursor {
+                    Style::default()
+                        .fg(theme::BG)
+                        .bg(theme::AMBER)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    theme::value()
+                };
+                let mut cells = vec![truncate(&n.name, 18), n.status.to_ascii_uppercase(), proof];
+                if show_ip {
+                    cells.push(if n.ip_address.is_empty() {
+                        "—".to_string()
                     } else {
-                        "UNSIGNED".to_string()
-                    };
-                    let style = if i == app.node_cursor {
-                        Style::default()
-                            .fg(theme::BG)
-                            .bg(theme::AMBER)
-                            .add_modifier(Modifier::BOLD)
-                    } else {
-                        theme::value()
-                    };
-                    Row::new(vec![
-                        truncate(&n.name, 18),
-                        n.status.to_ascii_uppercase(),
-                        proof,
-                        if n.ip_address.is_empty() {
-                            "—".to_string()
-                        } else {
-                            truncate(&n.ip_address, 15)
-                        },
-                    ])
-                    .style(style)
-                })
-                .collect()
+                        truncate(&n.ip_address, 15)
+                    });
+                }
+                rows.push(Row::new(cells).style(style));
+            }
         }
     } else {
-        vec![Row::new(vec![
-            "Loading…".to_string(),
-            "—".to_string(),
-            "—".to_string(),
-            "—".to_string(),
-        ])
-        .style(theme::dim())]
-    };
+        let mut cells = vec!["Loading…".to_string(), "—".to_string(), "—".to_string()];
+        if show_ip {
+            cells.push("—".to_string());
+        }
+        rows.push(Row::new(cells).style(theme::dim()));
+    }
 
-    let table = Table::new(
-        rows,
-        [
-            Constraint::Percentage(36),
-            Constraint::Length(10),
-            Constraint::Length(10),
-            Constraint::Percentage(30),
-        ],
-    )
-    .header(
-        Row::new(vec!["NODE", "STATE", "PROOF", "IP"])
-            .style(theme::label())
-            .bottom_margin(0),
-    )
-    .block(retro_block("NODES  j/k · Enter", true));
+    let mut widths = vec![
+        Constraint::Percentage(40),
+        Constraint::Length(10),
+        Constraint::Length(10),
+    ];
+    let mut header = vec!["Node", "State", "Proof"];
+    if show_ip {
+        widths.push(Constraint::Percentage(30));
+        header.push("IP");
+    }
+    let table = Table::new(rows, widths)
+        .header(Row::new(header).style(theme::label()).bottom_margin(0))
+        .block(retro_block("Nodes  j/k · Enter", true));
 
     frame.render_widget(table, area);
 }
@@ -1687,9 +1806,9 @@ fn render_node_detail(
     side_panel: bool,
 ) {
     let title = if side_panel {
-        "DETAIL"
+        "Detail"
     } else {
-        "DETAIL  Esc back"
+        "Detail -- Esc back"
     };
     let Some(api) = api else {
         frame.render_widget(
@@ -1812,7 +1931,7 @@ fn render_logs(
                     .iter()
                     .map(|l| {
                         Line::from(Span::styled(
-                            format!("› {l}"),
+                            format!("> {l}"),
                             if is_err(l) {
                                 theme::warn()
                             } else {
@@ -1852,10 +1971,10 @@ fn render_command_bar(
     sync_hint: &str,
 ) {
     let context = match app.tab {
-        Tab::Overview => "1-5 tabs · r refresh · d doctor · ? · q",
-        Tab::Network => "1-5 tabs · r refresh · ? · q",
+        Tab::Overview => "1-5/Tab tabs · r sync · d doctor · ? help · q quit",
+        Tab::Network => "1-5/Tab tabs · r sync · ? help · q quit",
         Tab::Nodes => "j/k select · Enter detail · Esc · r · q",
-        Tab::Earnings => "1-5 tabs · r refresh · ? · q",
+        Tab::Earnings => "1-5/Tab tabs · r sync · ? help · q quit",
         Tab::Logs => "j/k scroll · e errors · a all · w wrap · q",
     };
     let mut spans = vec![
@@ -1872,7 +1991,7 @@ fn render_command_bar(
     }
     spans.push(Span::raw("  "));
     spans.push(Span::styled(
-        if app.tick % 24 < 12 { "▮" } else { "▯" },
+        if app.tick % 24 < 12 { "_" } else { " " },
         theme::value(),
     ));
     frame.render_widget(
@@ -1900,7 +2019,7 @@ fn render_help_overlay(frame: &mut ratatui::Frame<'_>, area: Rect) {
             theme::dim(),
         )),
         Line::from(Span::styled(
-            "  j/k / wheel         scroll logs / nodes",
+            "  j/k / wheel         scroll logs / nodes (g/G top/end)",
             theme::dim(),
         )),
         Line::from(Span::styled(
@@ -2051,5 +2170,142 @@ fn truncate(s: &str, max: usize) -> String {
             "{}…",
             s.chars().take(max.saturating_sub(1)).collect::<String>()
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::backend::TestBackend;
+
+    fn empty_data() -> DashboardData {
+        DashboardData {
+            snapshot: None,
+            local_error: None,
+            remote_error: None,
+            doctor: None,
+            doctor_error: None,
+        }
+    }
+
+    fn idle_flight() -> RefreshInFlight {
+        RefreshInFlight {
+            local: false,
+            remote: false,
+            doctor: false,
+        }
+    }
+
+    fn draw_text(cols: u16, rows: u16, tab: Tab) -> String {
+        let backend = TestBackend::new(cols, rows);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        let mut app = DashboardApp::new();
+        app.tab = tab;
+        draw_dashboard(&mut terminal, 1000, &mut app, &empty_data(), &idle_flight())
+            .expect("draw succeeds");
+        let mut out = String::new();
+        for y in 0..rows {
+            for x in 0..cols {
+                out.push_str(terminal.backend().buffer()[(x, y)].symbol());
+            }
+            out.push('\n');
+        }
+        out
+    }
+
+    #[test]
+    fn format_uptime_humanizes() {
+        assert_eq!(format_uptime(45), "45s");
+        assert_eq!(format_uptime(150), "2m 30s");
+        assert_eq!(format_uptime(3900), "1h 5m");
+        assert_eq!(format_uptime(200000), "2d 7h");
+    }
+
+    #[test]
+    fn format_rate_scales_units() {
+        assert_eq!(format_rate(0), "0 bps");
+        assert_eq!(format_rate(12), "12.0 Kbps");
+        assert_eq!(format_rate(3200), "3.2 Mbps");
+        assert_eq!(format_rate(1500000), "1.5 Gbps");
+    }
+
+    #[test]
+    fn format_ago_humanizes() {
+        assert_eq!(format_ago(12), "12s ago");
+        assert_eq!(format_ago(180), "3m ago");
+        assert_eq!(format_ago(7200), "2h ago");
+    }
+
+    #[test]
+    fn size_classes_split_correctly() {
+        assert!(is_too_small(Rect::new(0, 0, 50, 15)));
+        assert!(!is_too_small(Rect::new(0, 0, 120, 30)));
+        assert!(is_narrow(Rect::new(0, 0, 80, 24)));
+        assert!(!is_narrow(Rect::new(0, 0, 120, 30)));
+    }
+
+    #[test]
+    fn tab_hit_testing_matches_even_split() {
+        let bar = Rect::new(0, 5, 100, 3);
+        assert_eq!(tab_index_at_x(bar, 0, 5), Some(0));
+        assert_eq!(tab_index_at_x(bar, 19, 5), Some(0));
+        assert_eq!(tab_index_at_x(bar, 20, 5), Some(1));
+        assert_eq!(tab_index_at_x(bar, 99, 5), Some(4));
+        assert_eq!(tab_index_at_x(bar, 100, 5), None);
+        assert_eq!(tab_index_at_x(bar, 50, 0), None);
+    }
+
+    #[test]
+    fn every_tab_renders_wide() {
+        for tab in Tab::ALL {
+            let text = draw_text(120, 30, tab);
+            assert!(
+                text.contains(tab.label().trim()),
+                "wide {tab:?} shows its label"
+            );
+            assert!(text.contains("PROXYHUB"), "wide {tab:?} shows banner");
+        }
+    }
+
+    #[test]
+    fn every_tab_renders_narrow() {
+        for tab in Tab::ALL {
+            let text = draw_text(80, 24, tab);
+            assert!(
+                text.contains(tab.label().trim()),
+                "narrow {tab:?} shows its label"
+            );
+            assert!(
+                !text.contains("Terminal too small"),
+                "80x24 must use condensed layout, not the fallback"
+            );
+        }
+    }
+
+    #[test]
+    fn tiny_terminal_shows_resize_card() {
+        let text = draw_text(50, 15, Tab::Overview);
+        assert!(text.contains("Terminal too small"));
+        assert!(text.contains("50x15") || text.contains("50"));
+    }
+
+    #[test]
+    fn mouse_uses_drawn_geometry() {
+        // After a draw, the app must remember real rects (not defaults), so
+        // clicks hit-test what is actually on screen.
+        let backend = TestBackend::new(120, 30);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        let mut app = DashboardApp::new();
+        draw_dashboard(&mut terminal, 1000, &mut app, &empty_data(), &idle_flight())
+            .expect("draw succeeds");
+        assert!(app.tab_bar.width > 0, "tab bar rect captured");
+        assert!(app.body.height > 0, "body rect captured");
+        assert!(!app.narrow, "120 cols is not narrow");
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        draw_dashboard(&mut terminal, 1000, &mut app, &empty_data(), &idle_flight())
+            .expect("draw succeeds");
+        assert!(app.narrow, "80 cols is narrow");
     }
 }
