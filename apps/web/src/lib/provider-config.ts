@@ -494,8 +494,12 @@ export function downloadTextFile(filename: string, contents: string, mime = 'tex
     const a = document.createElement('a');
     a.href = url;
     a.download = filename;
+    // Attached: Firefox ignores clicks on detached anchors. Revoked async: a
+    // synchronous revoke can cancel the download before the browser starts it.
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 export function downloadProviderToml(filename: string, contents: string) {
