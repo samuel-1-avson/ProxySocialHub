@@ -869,7 +869,7 @@ async fn main() -> anyhow::Result<()> {
                     provider_run_id
                 ));
 
-                match tunnel::mux::run_mux_lanes(
+                let session_ok = match tunnel::mux::run_mux_lanes(
                     loop_cfg,
                     stats_collector.clone(),
                     provider_signer.clone(),
@@ -880,6 +880,7 @@ async fn main() -> anyhow::Result<()> {
                 {
                     Ok(()) => {
                         info!(addr = %addr, "Gateway session ended cleanly");
+                        true
                     }
                     Err(e) => {
                         tracing::warn!(addr = %addr, error = %e, "Gateway session lost");
@@ -917,15 +918,23 @@ async fn main() -> anyhow::Result<()> {
                             eprintln!("Then: provider-node stop && provider-node start");
                             return Err(e);
                         }
+                        false
                     }
-                }
+                };
 
-                gw_idx += 1;
+                gw_idx = next_gateway_index(gw_idx, gw_count, session_ok);
                 tokio::time::sleep(reconnect_interval).await;
-                info!(
-                    next_gateway = %gateway_list[gw_idx % gw_count],
-                    "Rotating to next gateway..."
-                );
+                if session_ok {
+                    info!(
+                        next_gateway = %gateway_list[gw_idx],
+                        "Session ended; retrying primary gateway..."
+                    );
+                } else {
+                    info!(
+                        next_gateway = %gateway_list[gw_idx],
+                        "Rotating to next gateway..."
+                    );
+                }
             }
         }
 
@@ -1152,6 +1161,17 @@ fn init_logging(debug: bool) {
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))
     };
     tracing_subscriber::fmt().with_env_filter(filter).init();
+}
+
+/// Next gateway after a session: a healthy session re-earns the primary on the next
+/// cycle, so one flaky night does not pin the node to a fallback; only a failed
+/// session advances the failover rotation.
+fn next_gateway_index(current: usize, total: usize, session_succeeded: bool) -> usize {
+    if total == 0 || session_succeeded {
+        0
+    } else {
+        (current + 1) % total
+    }
 }
 
 /// True when reconnecting cannot succeed until the operator replaces api_key.
@@ -1504,5 +1524,35 @@ mod pair_config_tests {
             after.provider_signing_key, before,
             "the hotkey must survive --force"
         );
+    }
+}
+#[cfg(test)]
+mod gateway_tests {
+    use super::*;
+
+    #[test]
+    fn a_healthy_session_re_earns_the_primary() {
+        assert_eq!(next_gateway_index(0, 2, true), 0);
+        assert_eq!(next_gateway_index(1, 2, true), 0);
+        assert_eq!(next_gateway_index(3, 4, true), 0);
+    }
+
+    #[test]
+    fn a_failed_session_advances_and_wraps_the_rotation() {
+        assert_eq!(next_gateway_index(0, 2, false), 1);
+        assert_eq!(next_gateway_index(1, 2, false), 0);
+        assert_eq!(next_gateway_index(2, 3, false), 0);
+    }
+
+    #[test]
+    fn a_single_gateway_never_moves() {
+        assert_eq!(next_gateway_index(0, 1, true), 0);
+        assert_eq!(next_gateway_index(0, 1, false), 0);
+    }
+
+    #[test]
+    fn an_empty_list_is_safe() {
+        assert_eq!(next_gateway_index(0, 0, true), 0);
+        assert_eq!(next_gateway_index(5, 0, false), 0);
     }
 }
