@@ -44,7 +44,7 @@ try {
     [Net.ServicePointManager]::SecurityProtocol = $tls
 } catch { }
 
-# Identifies these requests in server logs/WAF (default PowerShell UA is blocked).
+# Identifies installer traffic in server logs (distinct from interactive use).
 $script:UserAgent = 'ProxyHubb-CLI-Installer'
 
 function Get-LatestBundle {
