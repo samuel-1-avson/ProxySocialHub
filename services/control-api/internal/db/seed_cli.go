@@ -80,14 +80,17 @@ func SeedCLIDownloads() {
 			packageType = "desktop"
 		}
 
-		fullPath := filepath.Join(versionDir, ent.Name())
-		checksum, size, err := fileSHA256(fullPath)
+		checksum, size, err := fileSHA256(filepath.Join(versionDir, ent.Name()))
 		if err != nil {
 			log.Printf("CLI seed: skip %s: %v", ent.Name(), err)
 			continue
 		}
 
-		if err := upsertCLIDownload(fileVersion, platform, arch, packageType, ent.Name(), fullPath, size, checksum); err != nil {
+		// The file lives in the scanned CLI_DIST_VERSION directory, which is not
+		// necessarily the version parsed from the filename (e.g. a desktop
+		// installer riding along with a CLI dist). Record the real path.
+		relPath := filepath.ToSlash(filepath.Join(version, ent.Name()))
+		if err := upsertCLIDownload(fileVersion, platform, arch, packageType, ent.Name(), relPath, size, checksum); err != nil {
 			log.Printf("CLI seed: failed %s: %v", ent.Name(), err)
 			continue
 		}
@@ -111,7 +114,7 @@ func cliArtifactPreference(filename string) int {
 	}
 }
 
-func upsertCLIDownload(version, platform, arch, packageType, filename, filePath string, size int64, checksum string) error {
+func upsertCLIDownload(version, platform, arch, packageType, filename, relPath string, size int64, checksum string) error {
 	var existing models.CLIDownload
 	err := DB.Where("platform = ? AND arch = ? AND version = ? AND package_type = ?", platform, arch, version, packageType).First(&existing).Error
 
@@ -121,7 +124,7 @@ func upsertCLIDownload(version, platform, arch, packageType, filename, filePath 
 		Arch:        arch,
 		PackageType: packageType,
 		Filename:    filename,
-		FilePath:    filepath.ToSlash(filepath.Join(version, filename)),
+		FilePath:    relPath,
 		FileSize:    size,
 		Checksum:    checksum,
 		IsActive:    true,
