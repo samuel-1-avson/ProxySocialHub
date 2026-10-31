@@ -318,6 +318,8 @@ impl HeartbeatManager {
             msg.latency_ms,
             msg.active_connections,
             100.0,
+            msg.bandwidth_usage.bytes_up,
+            msg.bandwidth_usage.bytes_down,
             msg.proof.clone(),
         )
         .await
@@ -334,6 +336,8 @@ impl HeartbeatManager {
                     msg.latency_ms,
                     msg.active_connections,
                     100.0,
+                    msg.bandwidth_usage.bytes_up,
+                    msg.bandwidth_usage.bytes_down,
                     msg.proof.clone(),
                 )
                 .await
@@ -357,6 +361,8 @@ impl HeartbeatManager {
                         msg.latency_ms,
                         msg.active_connections,
                         100.0,
+                        msg.bandwidth_usage.bytes_up,
+                        msg.bandwidth_usage.bytes_down,
                         msg.proof.clone(),
                     )
                     .await
@@ -375,6 +381,11 @@ impl HeartbeatManager {
         }
 
         self.last_api_heartbeat = Some(Instant::now());
+        // Checkpoint lifetime totals with every successful API heartbeat so a
+        // crash loses at most one interval of counters.
+        if let Err(e) = self.stats.save_totals(&crate::paths::stats_file()) {
+            tracing::warn!("Failed to persist stats totals: {e}");
+        }
     }
 
     async fn ensure_provider_lease(&mut self) -> anyhow::Result<String> {

@@ -45,6 +45,20 @@ import {
   countryName,
 } from "@/components/workspace/Patterns";
 
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.min(
+    units.length - 1,
+    Math.floor(Math.log(bytes) / Math.log(1024)),
+  );
+  return `${(bytes / Math.pow(1024, i)).toFixed(2)} ${units[i]}`;
+}
+
+function servedTotal(node: NodeRegistration): number {
+  return (node.total_bytes_up ?? 0) + (node.total_bytes_down ?? 0);
+}
+
 export function useSellerNodes() {
   const { user } = useAuth();
   return useQuery({
@@ -454,12 +468,54 @@ export function SellerNodeDetail({ nodeId }: { nodeId: string }) {
             }
           />
           <NodeVerification nodeId={nodeId} />
+          <NodeTraffic node={node} />
           <NodeConnection key={node.id} node={node} />
           <NodeDiagnostics nodeId={node.id} />
           <NodeSettings key={`settings-${node.id}`} node={node} />
         </>
       )}
     </div>
+  );
+}
+
+function NodeTraffic({ node }: { node: NodeRegistration }) {
+  const up = node.total_bytes_up ?? 0;
+  const down = node.total_bytes_down ?? 0;
+  const lastSeen =
+    node.last_seen_at && Number.isFinite(Date.parse(node.last_seen_at))
+      ? new Date(node.last_seen_at).toLocaleString()
+      : "Not reported";
+  return (
+    <section>
+      <div className="ui-section-heading">
+        <h2>Live traffic</h2>
+      </div>
+      <p className="ui-note">
+        Self-reported by the node software on every heartbeat. Settlement stays
+        on metered session usage.
+      </p>
+      <dl className="ui-detail-list">
+        <div>
+          <dt>Data served</dt>
+          <dd>
+            {formatBytes(up + down)} ({formatBytes(up)} up ·{" "}
+            {formatBytes(down)} down)
+          </dd>
+        </div>
+        <div>
+          <dt>Active connections</dt>
+          <dd>{node.active_connections ?? 0}</dd>
+        </div>
+        <div>
+          <dt>Sessions served</dt>
+          <dd>{node.total_sessions_served ?? 0}</dd>
+        </div>
+        <div>
+          <dt>Last report</dt>
+          <dd>{lastSeen}</dd>
+        </div>
+      </dl>
+    </section>
   );
 }
 
@@ -709,6 +765,7 @@ export function SellerNodes() {
                 <th>Service state</th>
                 <th>Heartbeat signature</th>
                 <th>Reported latency</th>
+                <th>Data served</th>
                 <th></th>
               </tr>
             </thead>
@@ -736,6 +793,7 @@ export function SellerNodes() {
                       ? `${amount(node.latency_ms)} ms`
                       : "Not measured"}
                   </td>
+                  <td>{formatBytes(servedTotal(node))}</td>
                   <td>
                     <Link
                       className="ui-button secondary small"
