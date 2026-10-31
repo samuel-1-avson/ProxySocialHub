@@ -554,6 +554,8 @@ func nodeHeartbeat(c *gin.Context) {
 		ActiveConnections int                  `json:"active_connections"`
 		UptimePercent     float64              `json:"uptime_percent"`
 		ProviderRunID     string               `json:"provider_run_id"`
+		TotalBytesUp      uint64               `json:"total_bytes_up"`
+		TotalBytesDown    uint64               `json:"total_bytes_down"`
 		Proof             models.ProviderProof `json:"proof"`
 	}
 	_ = c.ShouldBindJSON(&req)
@@ -612,6 +614,19 @@ func nodeHeartbeat(c *gin.Context) {
 	}
 	if req.UptimePercent > 0 {
 		updates["uptime_percent"] = req.UptimePercent
+	}
+	// Live connection count. Zero is a real reading (idle node), and every
+	// shipped node reports it, so store it unconditionally.
+	updates["active_connections"] = req.ActiveConnections
+	// Self-reported lifetime traffic (unsigned telemetry, like provider_run_id;
+	// settlement metering stays on the session-intent path). GREATEST keeps the
+	// totals monotonic across node restarts, state wipes, and old clients that
+	// do not send these fields yet.
+	if req.TotalBytesUp > 0 {
+		updates["total_bytes_up"] = gorm.Expr("GREATEST(COALESCE(total_bytes_up, 0), ?)", req.TotalBytesUp)
+	}
+	if req.TotalBytesDown > 0 {
+		updates["total_bytes_down"] = gorm.Expr("GREATEST(COALESCE(total_bytes_down, 0), ?)", req.TotalBytesDown)
 	}
 	if strings.TrimSpace(req.ProviderRunID) != "" {
 		logging.Info().

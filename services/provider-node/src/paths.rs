@@ -88,6 +88,11 @@ pub fn runtime_state_file() -> PathBuf {
     state_dir().join("runtime.json")
 }
 
+/// Cumulative traffic counters, seeded at startup and saved with each API heartbeat.
+pub fn stats_file() -> PathBuf {
+    state_dir().join("stats.json")
+}
+
 /// Ensure `~/.proxyhubb` and `logs/` exist.
 pub fn ensure_state_dirs() -> std::io::Result<()> {
     std::fs::create_dir_all(state_dir().join("logs"))
