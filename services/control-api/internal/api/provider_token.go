@@ -212,6 +212,25 @@ func createProviderToken(c *gin.Context) {
 		}
 		var pn models.ProviderNode
 		if err := db.DB.Where("id = ? AND user_id = ?", parsed, userID).First(&pn).Error; err != nil {
+			// Diagnostic only: distinguish a deleted node, a wrong account,
+			// and a genuinely unknown id. The response stays a plain 404.
+			detail := "unknown id"
+			var diag models.ProviderNode
+			if derr := db.DB.Unscoped().Where("id = ?", parsed).First(&diag).Error; derr == nil {
+				switch {
+				case diag.DeletedAt.Valid:
+					detail = "node is deleted"
+				case diag.UserID != userID:
+					detail = "node belongs to a different account"
+				default:
+					detail = "lookup mismatch"
+				}
+			}
+			logging.Warn().
+				Str("node_id", parsed.String()).
+				Str("user_id", userID.String()).
+				Str("detail", detail).
+				Msg("createProviderToken: node lookup miss")
 			c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
 			return
 		}
