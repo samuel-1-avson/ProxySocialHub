@@ -382,7 +382,22 @@ export function NodeConnection({
           <button
             className="ui-button secondary"
             disabled={!ready}
-            onClick={() => downloadProviderToml("provider.toml", config().toml)}
+            title={
+              ready ? undefined : "Create a connection token above first"
+            }
+            onClick={() => {
+              setCopyError("");
+              try {
+                downloadProviderToml("provider.toml", config().toml);
+                setCopied("provider.toml downloaded");
+              } catch (error) {
+                setCopyError(
+                  error instanceof Error
+                    ? error.message
+                    : "Could not download provider.toml.",
+                );
+              }
+            }}
           >
             Download provider.toml
           </button>
