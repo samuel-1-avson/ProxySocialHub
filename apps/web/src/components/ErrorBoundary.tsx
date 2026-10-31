@@ -34,10 +34,8 @@ export class ErrorBoundary extends Component<Props, State> {
     componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
         this.setState({ errorInfo });
 
-        // Log to console in development
-        if (process.env.NODE_ENV === 'development') {
-            console.error('ErrorBoundary caught:', error, errorInfo);
-        }
+        // Always log: production crashes are otherwise undiagnosable.
+        console.error('ErrorBoundary caught:', error, errorInfo);
 
         // TODO: Send to error tracking service (Sentry, etc.)
     }
@@ -84,7 +82,7 @@ export class ErrorBoundary extends Component<Props, State> {
                                 <p className="text-sm text-muted-foreground mb-4">
                                     This section failed to load. Try refreshing or come back later.
                                 </p>
-                                {process.env.NODE_ENV === 'development' && this.state.error && (
+                                {this.state.error && (
                                     <pre className="text-xs bg-secondary p-2 rounded-sm overflow-auto max-h-32 mb-4 font-mono">
                                         {this.state.error.message}
                                     </pre>

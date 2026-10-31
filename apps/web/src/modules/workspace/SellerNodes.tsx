@@ -70,6 +70,7 @@ export function useSellerNodes() {
 }
 
 export function SellerNodeSetup() {
+  const { user } = useAuth();
   const client = useQueryClient();
   const [name, setName] = useState("");
   const [country, setCountry] = useState("");
@@ -79,13 +80,29 @@ export function SellerNodeSetup() {
   const registration = useMutation({
     retry: false,
     mutationFn: async () => {
-      const node =
-        registered ??
-        (await createNode({
+      let node = registered;
+      if (node) {
+        // The cached registration may have been removed (nodes list, another
+        // tab) since it was created. Revalidate before requesting its token
+        // so a retry cannot 404 forever against a deleted node.
+        const fresh = await client.fetchQuery({
+          queryKey: ["provider-nodes", user?.id],
+          queryFn: getMyNodes,
+          staleTime: 0,
+        });
+        if (!fresh.nodes.some((item) => item.id === node!.id)) {
+          setRegistered(null);
+          throw new Error(
+            `Node ${node.name} was removed before its connection token was created. Register it again below.`,
+          );
+        }
+      } else {
+        node = await createNode({
           name: name.trim(),
           country: country.trim().toUpperCase() || undefined,
           city: city.trim() || undefined,
-        }));
+        });
+      }
       setRegistered(node);
       void client.invalidateQueries({ queryKey: ["provider-nodes"] });
       const credential = await createProviderToken({
