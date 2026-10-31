@@ -395,6 +395,11 @@ export interface NodeRegistration {
     uptime_percent: number;
     latency_ms?: number;
     active_connections: number;
+    /** Self-reported lifetime traffic, updated by each node heartbeat. */
+    total_bytes_up: number;
+    total_bytes_down: number;
+    total_sessions_served: number;
+    last_seen_at?: string;
     latest_heartbeat_verified?: boolean;
     latest_heartbeat_signer?: string;
     latest_heartbeat_verification_error?: string;

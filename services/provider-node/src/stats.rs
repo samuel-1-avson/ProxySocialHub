@@ -35,6 +35,22 @@ struct RateState {
     last_heartbeat: Instant,
 }
 
+/// Cumulative counters persisted across restarts (state dir `stats.json`).
+///
+/// The in-memory counters reset every launch; seeding from this file keeps the
+/// lifetime totals reported to the dashboard monotonic.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PersistedTotals {
+    #[serde(default)]
+    pub bytes_up: u64,
+    #[serde(default)]
+    pub bytes_down: u64,
+    #[serde(default)]
+    pub total_connections: u64,
+    #[serde(default)]
+    pub failed_connections: u64,
+}
+
 /// Point-in-time statistics snapshot (JSON-serializable).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Snapshot {
@@ -144,6 +160,51 @@ impl Collector {
         *state = t;
     }
 
+    /// Seed cumulative counters from a previous run. Never moves a counter
+    /// backwards, so a stale or hand-edited file cannot shrink live totals.
+    pub fn seed_totals(&self, t: &PersistedTotals) {
+        self.inner.bytes_up.fetch_max(t.bytes_up, Ordering::Relaxed);
+        self.inner
+            .bytes_down
+            .fetch_max(t.bytes_down, Ordering::Relaxed);
+        self.inner
+            .total_connections
+            .fetch_max(t.total_connections, Ordering::Relaxed);
+        self.inner
+            .failed_connections
+            .fetch_max(t.failed_connections, Ordering::Relaxed);
+    }
+
+    /// Current cumulative counters for persistence or reporting.
+    pub fn persisted_totals(&self) -> PersistedTotals {
+        PersistedTotals {
+            bytes_up: self.bytes_up(),
+            bytes_down: self.bytes_down(),
+            total_connections: self.inner.total_connections.load(Ordering::Relaxed),
+            failed_connections: self.inner.failed_connections.load(Ordering::Relaxed),
+        }
+    }
+
+    /// Load totals from disk. Any failure (missing file, corrupt JSON) yields
+    /// zeros so a fresh node starts clean instead of crashing.
+    pub fn load_totals(path: &std::path::Path) -> PersistedTotals {
+        std::fs::read_to_string(path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
+    }
+
+    /// Persist totals to disk, creating the parent directory as needed.
+    pub fn save_totals(&self, path: &std::path::Path) -> std::io::Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let totals = self.persisted_totals();
+        let body = serde_json::to_string_pretty(&totals)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        std::fs::write(path, body)
+    }
+
     /// Compute current bandwidth rates in Kbps.
     pub fn compute_rate(&self) -> (u32, u32) {
         let mut state = self.inner.rate_state.lock().unwrap();
@@ -234,5 +295,75 @@ pub async fn serve_metrics(collector: Collector, port: u16) {
         // Read (and discard) the request so the socket closes cleanly
         let mut buf = [0u8; 1024];
         let _ = stream.read(&mut buf).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_path(name: &str) -> std::path::PathBuf {
+        let mut dir = std::env::temp_dir();
+        dir.push(format!(
+            "proxyhubb-stats-test-{}-{}",
+            std::process::id(),
+            name
+        ));
+        dir.push("stats.json");
+        dir
+    }
+
+    #[test]
+    fn totals_round_trip_through_disk() {
+        let path = temp_path("roundtrip");
+        let _ = std::fs::remove_file(&path);
+        let c = Collector::new();
+        c.record_bytes_up(12345);
+        c.record_bytes_down(67890);
+        c.record_connection_opened();
+        c.record_connection_failed();
+        c.save_totals(&path).expect("save works");
+
+        let loaded = Collector::load_totals(&path);
+        assert_eq!(loaded.bytes_up, 12345);
+        assert_eq!(loaded.bytes_down, 67890);
+        assert_eq!(loaded.total_connections, 1);
+        assert_eq!(loaded.failed_connections, 1);
+
+        // A fresh collector seeded from disk continues where the old one left off.
+        let c2 = Collector::new();
+        c2.seed_totals(&loaded);
+        c2.record_bytes_up(5);
+        assert_eq!(c2.bytes_up(), 12350);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn missing_or_corrupt_file_yields_zeros() {
+        let missing = temp_path("missing");
+        let _ = std::fs::remove_file(&missing);
+        let loaded = Collector::load_totals(&missing);
+        assert_eq!(loaded.bytes_up, 0);
+
+        let corrupt = temp_path("corrupt");
+        let _ = std::fs::create_dir_all(corrupt.parent().unwrap());
+        std::fs::write(&corrupt, "{not json").unwrap();
+        let loaded = Collector::load_totals(&corrupt);
+        assert_eq!(loaded.bytes_down, 0);
+        let _ = std::fs::remove_file(&corrupt);
+    }
+
+    #[test]
+    fn seeding_never_moves_counters_backwards() {
+        let c = Collector::new();
+        c.record_bytes_up(100);
+        c.seed_totals(&PersistedTotals {
+            bytes_up: 50,
+            bytes_down: 7,
+            total_connections: 0,
+            failed_connections: 0,
+        });
+        assert_eq!(c.bytes_up(), 100);
+        assert_eq!(c.bytes_down(), 7);
     }
 }
