@@ -75,7 +75,7 @@ type CLIDownload struct {
 	Version     string    `gorm:"type:varchar(20);not null" json:"version"`
 	Platform    string    `gorm:"type:varchar(20);not null" json:"platform"`                   // windows, macos, linux
 	Arch        string    `gorm:"type:varchar(20);not null" json:"arch"`                       // amd64, arm64
-	PackageType string    `gorm:"type:varchar(20);default:'daemon';index" json:"package_type"` // daemon, wrapper, bundle
+	PackageType string    `gorm:"type:varchar(20);default:'daemon';index" json:"package_type"` // daemon, wrapper, bundle, desktop
 	Filename    string    `gorm:"type:varchar(255);not null" json:"filename"`
 	FilePath    string    `gorm:"type:varchar(500);not null" json:"-"` // Internal path, not exposed
 	FileSize    int64     `json:"file_size"`
