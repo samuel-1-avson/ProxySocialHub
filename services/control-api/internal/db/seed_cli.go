@@ -16,7 +16,7 @@ import (
 )
 
 // Version accepts semver (1.0.0) and CI tags (ci-12345, sha-abc1234).
-var cliArtifactPattern = regexp.MustCompile(`^provider-(node|cli|bundle)-([A-Za-z0-9][\w.-]*)-([a-z]+)-([a-z0-9]+)(?:\.exe|\.zip|\.tar\.gz)?$`)
+var cliArtifactPattern = regexp.MustCompile(`^provider-(node|cli|bundle|desktop)-([A-Za-z0-9][\w.-]*)-([a-z]+)-([a-z0-9]+)(?:\.exe|\.zip|\.tar\.gz)?$`)
 
 // SeedCLIDownloads indexes binaries under CLI_DIST_PATH (default /app/cli-dist or repo cli-dist).
 func SeedCLIDownloads() {
@@ -76,6 +76,8 @@ func SeedCLIDownloads() {
 			packageType = "wrapper"
 		case "bundle":
 			packageType = "bundle"
+		case "desktop":
+			packageType = "desktop"
 		}
 
 		fullPath := filepath.Join(versionDir, ent.Name())
