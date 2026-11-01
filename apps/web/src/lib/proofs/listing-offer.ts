@@ -170,6 +170,47 @@ export async function signListingOfferProof(
     };
 }
 
+/** Which credential signs the listing proof, or 'none' when the UI must offer key recovery. */
+export type ListingSignerKind = 'local-secret' | 'wallet' | 'dev' | 'none';
+
+export interface ListingSignerInput {
+    /** A browser-stored provider secret exists for this node. */
+    hasSecret: boolean;
+    /** Provider hotkey derived from that secret ('' when unknown). */
+    deviceHotkey: string;
+    /** Hotkey the node registered ('' when the node never reported one). */
+    nodeHotkey: string;
+    walletConnected: boolean;
+    walletCanSign: boolean;
+    walletHotkey: string;
+    devServerSigning: boolean;
+}
+
+/**
+ * Pick the listing-proof signer. A browser secret matching the node hotkey wins, then a
+ * connected wallet matching it, then dev server signing. 'none' means the caller must
+ * show key recovery (CLI-configured nodes keep their secret in provider.toml, outside
+ * this browser) or throw when the policy requires proof.
+ */
+export function resolveListingSigner(input: ListingSignerInput): ListingSignerKind {
+    const nodeHotkey = input.nodeHotkey.trim();
+    if (input.hasSecret && (!nodeHotkey || input.deviceHotkey === nodeHotkey)) {
+        return 'local-secret';
+    }
+    if (
+        input.walletConnected &&
+        input.walletCanSign &&
+        input.walletHotkey !== '' &&
+        (!nodeHotkey || input.walletHotkey === nodeHotkey)
+    ) {
+        return 'wallet';
+    }
+    if (input.devServerSigning) {
+        return 'dev';
+    }
+    return 'none';
+}
+
 /** Sign with the same Ed25519 seed written into provider.toml (no wallet popup). */
 export async function signListingOfferWithSecret(
     form: CreateListingRequest,

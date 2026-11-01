@@ -13,11 +13,12 @@ import {
   signListingOfferDev,
   type CreateListingRequest,
 } from "@/lib/api/marketplace";
-import { loadProviderSigningKey } from "@/lib/provider-config";
+import { loadProviderSigningKey, saveProviderSigningKey } from "@/lib/provider-config";
 import {
   canonicalListingFields,
   publicKeyFromProviderSecret,
   raceTimeout,
+  resolveListingSigner,
   signListingOfferProof,
   signListingOfferWithSecret,
 } from "@/lib/proofs/listing-offer";
@@ -63,10 +64,36 @@ export function ListingEditor() {
   const [concurrency, setConcurrency] = useState("10");
   const [review, setReview] = useState<CreateListingRequest | null>(null);
   const [progress, setProgress] = useState("");
+  const [importKey, setImportKey] = useState("");
+  const [importError, setImportError] = useState("");
+  const [importDone, setImportDone] = useState("");
   const selectedId =
     nodeId || (nodes.data?.nodes.length === 1 ? nodes.data.nodes[0].id : "");
   const selectedNode = nodes.data?.nodes.find((node) => node.id === selectedId);
   const region = country || selectedNode?.country || "";
+  const nodeHotkey = selectedNode?.hotkey?.trim() ?? "";
+  const walletHotkey =
+    wallet.connected && wallet.publicKey ? wallet.publicKey.toBase58() : "";
+  const localSecret = selectedId ? loadProviderSigningKey(selectedId) : null;
+  const deviceHotkeyQuery = useQuery({
+    queryKey: ["device-hotkey", selectedId],
+    queryFn: () => publicKeyFromProviderSecret(localSecret ?? ""),
+    enabled: Boolean(localSecret),
+    staleTime: Infinity,
+    retry: false,
+  });
+  const deviceHotkey = deviceHotkeyQuery.data ?? "";
+  const devicePending = deviceHotkeyQuery.isPending;
+  const needsProof = Boolean(policy.data?.required || nodeHotkey);
+  const signerKind = resolveListingSigner({
+    hasSecret: Boolean(localSecret),
+    deviceHotkey,
+    nodeHotkey,
+    walletConnected: wallet.connected,
+    walletCanSign: Boolean(wallet.signMessage),
+    walletHotkey,
+    devServerSigning: policy.data?.dev_server_signing ?? false,
+  });
   const suggestion = useQuery({
     queryKey: ["listing-price-suggestion", region, type],
     queryFn: () => getSuggestedListingPrice(region, type),
@@ -110,15 +137,21 @@ export function ListingEditor() {
         isp: canon.isp,
       };
       const required = policy.data.required;
-      const nodeHotkey = selectedNode.hotkey?.trim() ?? "";
       const secret = loadProviderSigningKey(selectedNode.id);
-      const deviceHotkey = secret
+      const freshDeviceHotkey = secret
         ? await publicKeyFromProviderSecret(secret)
         : "";
-      const walletHotkey =
-        wallet.connected && wallet.publicKey ? wallet.publicKey.toBase58() : "";
       if (required || nodeHotkey) {
-        if (secret && (!nodeHotkey || deviceHotkey === nodeHotkey)) {
+        const signer = resolveListingSigner({
+          hasSecret: Boolean(secret),
+          deviceHotkey: freshDeviceHotkey,
+          nodeHotkey,
+          walletConnected: wallet.connected,
+          walletCanSign: Boolean(wallet.signMessage),
+          walletHotkey,
+          devServerSigning: policy.data.dev_server_signing ?? false,
+        });
+        if (signer === "local-secret" && secret) {
           setProgress("Signing with this node’s local provider key…");
           payload.proof = await signListingOfferWithSecret(
             payload,
@@ -126,12 +159,7 @@ export function ListingEditor() {
             selectedNode.gateway_node_id,
             secret,
           );
-        } else if (
-          wallet.connected &&
-          wallet.signMessage &&
-          walletHotkey &&
-          (!nodeHotkey || walletHotkey === nodeHotkey)
-        ) {
+        } else if (signer === "wallet" && wallet.signMessage) {
           setProgress("Approve the offer signature in your wallet…");
           payload.proof = await raceTimeout(
             signListingOfferProof(
@@ -144,12 +172,12 @@ export function ListingEditor() {
             60_000,
             "Wallet did not respond. Unlock it and review the offer again.",
           );
-        } else if (policy.data.dev_server_signing) {
+        } else if (signer === "dev") {
           setProgress("Requesting the configured development signature…");
           payload.proof = (await signListingOfferDev(payload)).proof;
         } else if (required)
           throw new Error(
-            "This offer needs its node’s signing key. Use the browser that configured the node, or connect the wallet matching its provider hotkey.",
+            "This offer needs its node’s signing key. Use the browser that configured the node, or connect the wallet matching its provider hotkey, or import the key below.",
           );
       }
       setProgress("Submitting your offer…");
@@ -163,9 +191,41 @@ export function ListingEditor() {
     },
     onSettled: () => setProgress(""),
   });
+  async function importSigningKey() {
+    setImportError("");
+    setImportDone("");
+    const pasted = importKey.trim();
+    if (!pasted || !selectedNode) return;
+    let derived = "";
+    try {
+      derived = await publicKeyFromProviderSecret(pasted);
+    } catch {
+      setImportError(
+        "That key could not be read. Paste the full provider_signing_key value from provider.toml.",
+      );
+      return;
+    }
+    if (nodeHotkey && derived !== nodeHotkey) {
+      setImportError(
+        `That key belongs to ${derived.slice(0, 4)}...${derived.slice(-4)}, not this node.`,
+      );
+      return;
+    }
+    saveProviderSigningKey(pasted, selectedNode.id);
+    setImportKey("");
+    setImportDone(
+      `Saved. This browser can now sign offers for ${derived.slice(0, 4)}...${derived.slice(-4)}. Publish when ready.`,
+    );
+    void client.invalidateQueries({ queryKey: ["device-hotkey", selectedNode.id] });
+    publish.reset();
+  }
+
   function prepare() {
     if (!valid) return;
     publish.reset();
+    setImportKey("");
+    setImportError("");
+    setImportDone("");
     setReview({
       title: title.trim(),
       description: description.trim(),
@@ -253,6 +313,64 @@ export function ListingEditor() {
             The server decides whether this offer is active or needs review.
             Node health and offer publication remain separate.
           </p>
+          {policy.isSuccess && needsProof && signerKind !== "none" && !devicePending && (
+            <p className="ui-note">
+              Offer signature:{" "}
+              {signerKind === "local-secret"
+                ? "this browser&apos;s stored node key."
+                : signerKind === "wallet"
+                  ? "your connected wallet. You will approve it there."
+                  : "the configured development signature."}
+            </p>
+          )}
+          {policy.isSuccess && needsProof && signerKind === "none" && !devicePending && (
+            <section className="ui-attention" aria-label="Node signing key needed">
+              <h3>This browser doesn&apos;t have this node&apos;s signing key</h3>
+              <p className="ui-note">
+                This node was configured outside this browser, so its key was never saved
+                here. Paste the <code>provider_signing_key</code> value from your{
+                } <code>provider.toml</code> to sign offers in this browser. The key stays
+                in this browser&apos;s local storage, exactly as if the node had been
+                configured here. Never share it.
+              </p>
+              {nodeHotkey && (
+                <p className="ui-note">
+                  Node hotkey: <code>{nodeHotkey}</code>
+                </p>
+              )}
+              <label className="ui-field">
+                Node signing key
+                <input
+                  className="ui-input"
+                  type="password"
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={importKey}
+                  onChange={(e) => setImportKey(e.target.value)}
+                  placeholder="Paste provider_signing_key from provider.toml"
+                />
+              </label>
+              {importError && (
+                <p className="ui-note" role="alert">
+                  {importError}
+                </p>
+              )}
+              {importDone && (
+                <p className="ui-note" role="status">
+                  {importDone}
+                </p>
+              )}
+              <div className="ui-actions">
+                <button
+                  className="ui-button secondary"
+                  disabled={!importKey.trim() || publish.isPending}
+                  onClick={() => void importSigningKey()}
+                >
+                  Save key in this browser
+                </button>
+              </div>
+            </section>
+          )}
           {publish.isError && (
             <>
               <DataError error={publish.error} />
@@ -276,7 +394,11 @@ export function ListingEditor() {
             </button>
             <button
               className="ui-button"
-              disabled={publish.isPending || !policy.isSuccess}
+              disabled={
+                publish.isPending ||
+                !policy.isSuccess ||
+                (needsProof && signerKind === "none" && !devicePending)
+              }
               onClick={() => publish.mutate()}
             >
               {publish.isPending ? "Submitting…" : "Publish offer"}
