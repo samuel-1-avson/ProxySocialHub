@@ -762,6 +762,79 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* Vertical stack with even spacing for headings, notes and blocks. */
+.ui-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.ui-command-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.ui-command-steps > li {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+/* Command box with a copy icon pinned to its end. */
+.ui-code-block {
+  position: relative;
+  min-width: 0;
+}
+.ui-code-block .ui-code {
+  margin: 0;
+  padding-right: 60px;
+  min-height: 52px;
+}
+.ui-code-copy {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid color-mix(in srgb, var(--code-foreground) 18%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--code-foreground) 6%, var(--code-background));
+  color: var(--code-foreground);
+  cursor: pointer;
+  transition:
+    color var(--dur-fast),
+    border-color var(--dur-fast),
+    background-color var(--dur-fast);
+}
+.ui-code-copy:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.ui-code-copy:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.ui-code-copy:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.ui-code-feedback,
+.ui-code-error {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.ui-code-feedback {
+  color: var(--success);
+}
+.ui-code-error {
+  color: var(--error);
+}
 .ui-step-list {
   counter-reset: step;
   display: grid;

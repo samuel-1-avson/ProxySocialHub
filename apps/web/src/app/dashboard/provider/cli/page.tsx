@@ -446,7 +446,7 @@ metrics_port = 9090`;
                 ) : downloadInfo ? (
                     <div className="ui-page ui-section-space">
                         {selectedPlatform === 'windows' && (
-                            <div>
+                            <div className="ui-stack">
                                 <p className="ui-note">One-line install (recommended, no manual download)</p>
                                 <CodeBlock
                                     code={oneLineInstallCmd}
@@ -460,7 +460,12 @@ metrics_port = 9090`;
                                     <a href={installScriptUrl} target="_blank" rel="noopener noreferrer" className="ui-link">
                                         View the installer script
                                     </a>
-                                    . Afterwards run <code>provider-node pair</code> — no config files to handle by hand.
+                                    .
+                                </p>
+                                <p className="ui-note">
+                                    <strong>When it finishes, close PowerShell and open a new window.</strong>{' '}
+                                    The new window can find the <code>provider-node</code> command. Then run{' '}
+                                    <code>provider-node pair</code>; there are no config files to handle by hand.
                                 </p>
                             </div>
                         )}
@@ -783,15 +788,16 @@ function CodeBlock({
     onCopy: () => void;
 }) {
     return (
-        <div className="relative">
-            <pre className="ui-code pr-16">{code}</pre>
+        <div className="ui-code-block">
+            <pre className="ui-code">{code}</pre>
             <button
                 type="button"
                 onClick={onCopy}
-                className="ui-button ghost small absolute top-3 right-3"
+                className="ui-code-copy"
+                aria-label={copied ? 'Command copied' : 'Copy command'}
+                title={copied ? 'Copied' : 'Copy'}
             >
-                {copied ? <CheckCircle2 size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
-                {copied ? 'Copied' : 'Copy'}
+                {copied ? <CheckCircle2 size={15} aria-hidden="true" /> : <Copy size={15} aria-hidden="true" />}
             </button>
         </div>
     );

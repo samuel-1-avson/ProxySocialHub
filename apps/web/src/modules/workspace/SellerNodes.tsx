@@ -26,6 +26,7 @@ import {
 } from "@/lib/provider-config";
 import { explorerHref } from "@/lib/navigation/workspace";
 import { Modal } from "@/components/patterns/Modal";
+import { CommandBlock } from "@/components/workspace/CommandBlock";
 import {
   PageHeading,
   Loading,
@@ -248,8 +249,6 @@ export function NodeConnection({
       initialToken ??
       loadProviderApiKey(node.id, { allowLegacyFallback: false }),
   );
-  const [copied, setCopied] = useState("");
-  const [copyError, setCopyError] = useState("");
   const connection = useQuery({
     queryKey: ["node-connect", user?.id, node.id],
     queryFn: () => getNodeConnectInfo(node.id),
@@ -273,28 +272,18 @@ export function NodeConnection({
     ).replace(/\/$/, "");
     return `powershell -NoProfile -ExecutionPolicy Bypass -Command "irm ${base}/v1/cli/install.ps1 | iex"`;
   }
-  function joinCommand() {
-    if (!apiKey) throw new Error("Create a connection token first.");
-    return `provider-node join --force --api-key ${apiKey} --node-id ${node.id}`;
-  }
-  async function copyText(text: string, done: string, failed: string) {
-    setCopyError("");
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(done);
-    } catch (error) {
-      setCopyError(error instanceof Error ? error.message : failed);
-    }
-  }
+  const joinCommand = apiKey
+    ? `provider-node join --force --api-key ${apiKey} --node-id ${node.id}`
+    : "Create a connection token above first.";
   const ready = Boolean(apiKey && connection.isSuccess);
   return (
     <section className="ui-surface ui-page">
-      <div>
+      <div className="ui-stack">
         <h2>Connect {node.name}</h2>
         <p className="ui-note">
-          Run two commands on the machine that will supply bandwidth — no
-          files to download. The installer sets up the software, then join
-          binds this machine to this node.
+          Run two commands on the machine that will supply bandwidth. There
+          are no files to download. The installer sets up the software, then
+          join links this machine to this node.
         </p>
       </div>
       {connection.isLoading && (
@@ -331,82 +320,54 @@ export function NodeConnection({
           The join command contains a secret; keep it private.
         </p>
       )}
-      <div>
-        <div>
+      <ol className="ui-command-steps">
+        <li>
           <p>
-            <strong>Step 1 — install the node software</strong> (Windows
-            PowerShell, needs no token):
+            <strong>Step 1: install the node software</strong> (Windows
+            PowerShell, no token needed)
           </p>
-          <pre className="ui-code">{installCommand()}</pre>
-          <div className="ui-actions">
-            <button
-              className="ui-button secondary"
-              disabled={!connection.isSuccess}
-              onClick={() =>
-                void copyText(
-                  installCommand(),
-                  "Install command copied",
-                  "Could not copy the install command.",
-                )
-              }
-            >
-              Copy install command
-            </button>
-          </div>
-        </div>
-        <div>
+          <CommandBlock
+            label="install command"
+            command={installCommand()}
+            disabled={!connection.isSuccess}
+            copiedMessage="Install command copied. Paste it into PowerShell."
+          />
+        </li>
+        <li>
           <p>
-            <strong>Step 2 — bind this machine to {node.name}</strong>{" "}
-            (needs the connection token above):
+            <strong>Step 2: open a new PowerShell window</strong>
           </p>
-          <pre className="ui-code">
-            {apiKey ? joinCommand() : "Create a connection token above first."}
-          </pre>
-          <div className="ui-actions">
-            <button
-              className="ui-button"
-              disabled={!ready}
-              title={
-                ready ? undefined : "Create a connection token above first"
-              }
-              onClick={() => {
-                try {
-                  void copyText(
-                    joinCommand(),
-                    "Join command copied — paste it in a terminal on the node machine",
-                    "Could not copy the join command.",
-                  );
-                } catch (error) {
-                  setCopyError(
-                    error instanceof Error
-                      ? error.message
-                      : "Could not copy the join command.",
-                  );
-                }
-              }}
-            >
-              Copy join command
-            </button>
-          </div>
+          <p className="ui-note">
+            When the install finishes, close PowerShell and open it again.
+            The new window can find the <code>provider-node</code> command;
+            the old one cannot.
+          </p>
+        </li>
+        <li>
+          <p>
+            <strong>Step 3: link this machine to {node.name}</strong> (uses
+            the connection token above)
+          </p>
+          <CommandBlock
+            label="join command"
+            command={joinCommand}
+            disabled={!ready}
+            copiedMessage="Join command copied. Paste it into the new PowerShell window."
+          />
           <p className="ui-note">
             Then run <code>provider-node doctor</code> and{" "}
-            <code>provider-node start</code>. This page flips online within
-            about two minutes of the first heartbeat.
+            <code>provider-node start</code>. This page shows the node online
+            about two minutes after its first heartbeat.
           </p>
-        </div>
-      </div>
-      {copied && (
-        <p className="ui-note" role="status">
-          {copied}
-        </p>
-      )}
-      {copyError && <DataError error={new Error(copyError)} />}
+        </li>
+      </ol>
       <p className="ui-note">
         On Linux or macOS, install from{" "}
         <Link className="ui-link" href="/dashboard/provider/cli">
           Software versions & downloads
         </Link>{" "}
-        first — the join command is the same everywhere.
+        first, then open a new terminal. The join command is the same
+        everywhere.
       </p>
     </section>
   );
@@ -845,8 +806,6 @@ export function SellerNodeCredentials() {
     nodeId: string;
   } | null>(null);
   const [revoke, setRevoke] = useState<ProviderToken | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [copyError, setCopyError] = useState("");
   const create = useMutation({
     retry: false,
     mutationFn: async () => {
@@ -861,7 +820,6 @@ export function SellerNodeCredentials() {
     onSuccess: (result) => {
       saveProviderApiKey(result.token, nodeId);
       setCreated({ token: result.token, nodeId });
-      setCopied(false);
       setName("");
       void client.invalidateQueries({ queryKey: ["provider-tokens"] });
     },
@@ -1004,10 +962,7 @@ export function SellerNodeCredentials() {
       <Modal
         open={Boolean(created)}
         onOpenChange={(open) => {
-          if (!open) {
-            setCreated(null);
-            setCopyError("");
-          }
+          if (!open) setCreated(null);
         }}
         title="Connection token created"
         description="The server returns the raw token only once."
@@ -1018,29 +973,11 @@ export function SellerNodeCredentials() {
               This browser session can use it to prepare the selected node’s
               setup script. Keep the token private.
             </p>
-            <code className="ui-code" style={{ overflowWrap: "anywhere" }}>
-              {created.token}
-            </code>
-            <button
-              className="ui-button secondary"
-              onClick={() => {
-                void navigator.clipboard
-                  .writeText(created.token)
-                  .then(() => setCopied(true))
-                  .catch(() =>
-                    setCopyError(
-                      "Clipboard access failed. Select and copy the token above.",
-                    ),
-                  );
-              }}
-            >
-              {copied ? "Token copied" : "Copy token"}
-            </button>
-            {copyError && (
-              <p role="alert" className="ui-note">
-                {copyError}
-              </p>
-            )}
+            <CommandBlock
+              label="token"
+              command={created.token}
+              copiedMessage="Token copied."
+            />
             <Link
               className="ui-button"
               href={`/provider/nodes/${created.nodeId}`}
