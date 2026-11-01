@@ -1,483 +1,568 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  ArrowLeft,
+  ArrowUpRight,
+  Inbox,
+  Plus,
+  Search,
+  Send,
+} from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import {
-    getConversations,
-    getMessages,
-    sendMessage,
-    startConversation,
-    type Conversation,
-    type Message,
+  getConversations,
+  getMessages,
+  sendMessage,
+  startConversation,
+  type Conversation,
+  type Message,
 } from "@/lib/social-api";
-import { getFriends, type Friendship } from "@/lib/friends-api";
-import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { getPublicProfile } from "@/lib/api/profile";
+import { getFriends } from "@/lib/friends-api";
 import { useRealtime, WS_MESSAGE_TYPES } from "@/lib/websocket";
-import { ROUTES } from "@/lib/navigation/routes";
+import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { Modal } from "@/components/patterns/Modal";
 import {
-    PageHeading,
-    Loading,
-    EmptyState,
-    DataError,
+  PageHeading,
+  Loading,
+  DataError,
+  EmptyState,
 } from "@/components/workspace/Patterns";
-import { Send, Loader2 } from "lucide-react";
 
-function MessagesContent() {
-    const { user } = useAuth();
-    const { subscribe, isConnected } = useRealtime();
-    const [conversations, setConversations] = useState<Conversation[]>([]);
-    const [selectedConv, setSelectedConv] = useState<Conversation | null>(null);
-    const [messages, setMessages] = useState<Message[]>([]);
-    const [newMessage, setNewMessage] = useState("");
-    const [loading, setLoading] = useState(true);
-    const [loadError, setLoadError] = useState<unknown>();
-    const [messageError, setMessageError] = useState<{ conversationId: string; error: unknown }>();
-    const [reload, setReload] = useState(0);
-    const [sending, setSending] = useState(false);
-    const [sendError, setSendError] = useState("");
-    const [searchQuery, setSearchQuery] = useState("");
-    const [composing, setComposing] = useState(false);
-    const [friends, setFriends] = useState<Friendship[]>([]);
-    const [friendsLoading, setFriendsLoading] = useState(false);
-    const [composeError, setComposeError] = useState("");
-    const [startingId, setStartingId] = useState<string | null>(null);
-    const messagesEndRef = useRef<HTMLDivElement>(null);
-    const selectedConvRef = useRef<Conversation | null>(null);
-
-    useEffect(() => {
-        selectedConvRef.current = selectedConv;
-    }, [selectedConv]);
-
-    useEffect(() => {
-        async function fetchConversations() {
-            setLoading(true);
-            setLoadError(undefined);
-            try {
-                const data = await getConversations();
-                setConversations(data.conversations || []);
-                if (data.conversations?.length > 0 && !selectedConv) {
-                    setSelectedConv(data.conversations[0]);
-                }
-            } catch (err) {
-                setLoadError(err);
-            } finally {
-                setLoading(false);
-            }
-        }
-        fetchConversations();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [reload]);
-
-    useEffect(() => {
-        let current = true;
-        async function fetchMessages() {
-            if (!selectedConv) return;
-            try {
-                const data = await getMessages(selectedConv.id);
-                if (!current) return;
-                setMessageError(undefined);
-                setMessages(data.messages || []);
-                setTimeout(() => {
-                    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-                }, 100);
-            } catch (err) {
-                if (current && selectedConv) setMessageError({ conversationId: selectedConv.id, error: err });
-            }
-        }
-        fetchMessages();
-        return () => { current = false; };
-    }, [selectedConv]);
-
-    useEffect(() => {
-        return subscribe(WS_MESSAGE_TYPES.NEW_MESSAGE, (msg) => {
-            const payload = msg?.data as {
-                conversation_id?: string;
-                message?: Message;
-            } | undefined;
-            if (!payload?.message || !payload.conversation_id) return;
-
-            const active = selectedConvRef.current;
-            if (active && payload.conversation_id === active.id) {
-                setMessages((prev) => {
-                    if (prev.some((m) => m.id === payload.message!.id)) return prev;
-                    return [...prev, payload.message!];
-                });
-                setTimeout(() => {
-                    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-                }, 50);
-            }
-
-            setConversations((prev) => {
-                const idx = prev.findIndex((c) => c.id === payload.conversation_id);
-                if (idx < 0) return prev;
-                const next = [...prev];
-                const [conv] = next.splice(idx, 1);
-                next.unshift({
-                    ...conv,
-                    last_message_at: payload.message!.created_at || conv.last_message_at,
-                    last_message: payload.message,
-                });
-                return next;
-            });
-        });
-    }, [subscribe]);
-
-    const openCompose = async () => {
-        setComposing(true);
-        setComposeError("");
-        setFriendsLoading(true);
-        try {
-            const data = await getFriends();
-            setFriends(data.friends || []);
-        } catch (err) {
-            console.error(err);
-            setComposeError("Could not load friends. You can still message sellers from the marketplace.");
-        } finally {
-            setFriendsLoading(false);
-        }
-    };
-
-    const handleStartWithFriend = async (friendUserId: string) => {
-        if (!friendUserId || startingId) return;
-        setStartingId(friendUserId);
-        setComposeError("");
-        try {
-            const conv = await startConversation(friendUserId, "Hi there!");
-            const data = await getConversations();
-            const list = data.conversations || [];
-            setConversations(list);
-            const match = list.find((c) => c.id === conv.id) || conv;
-            setSelectedConv(match);
-            setComposing(false);
-        } catch (err) {
-            console.error(err);
-            setComposeError(err instanceof Error ? err.message : "Failed to start conversation");
-        } finally {
-            setStartingId(null);
-        }
-    };
-
-    const handleSend = async () => {
-        if (!selectedConv || !newMessage.trim()) return;
-
-        setSending(true);
-        setSendError("");
-        try {
-            const message = await sendMessage(selectedConv.id, newMessage.trim());
-            setMessages([...messages, message]);
-            setNewMessage("");
-            messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-        } catch (err) {
-            console.error(err);
-            setSendError(err instanceof Error ? err.message : "Failed to send message");
-        } finally {
-            setSending(false);
-        }
-    };
-
-    const handleKeyPress = (e: React.KeyboardEvent) => {
-        if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            handleSend();
-        }
-    };
-
-    const filteredConversations = useMemo(() => {
-        const q = searchQuery.trim().toLowerCase();
-        if (!q) return conversations;
-        return conversations.filter((conv) => {
-            const name = (
-                conv.other_participant?.display_name ||
-                conv.other_participant?.username ||
-                conv.other_participant_name ||
-                ""
-            ).toLowerCase();
-            const preview = (conv.last_message?.content || "").toLowerCase();
-            return name.includes(q) || preview.includes(q);
-        });
-    }, [conversations, searchQuery]);
-
-    return (
-        <div className="ui-page min-w-0">
-            <PageHeading
-                eyebrow="Community"
-                title="Messages"
-                description="Message friends and sellers. Conversations stay on this account."
-                actions={
-                    <button type="button" onClick={() => void openCompose()} className="ui-button">
-                        New message
-                    </button>
-                }
-            />
-
-            <p className="ui-note">
-                {isConnected ? "Realtime connected." : "Realtime reconnecting."}
-            </p>
-
-            {composing ? (
-                <section className="ui-surface min-w-0" aria-label="New message">
-                    <div className="ui-section-heading">
-                        <h2>New message</h2>
-                        <button
-                            type="button"
-                            onClick={() => setComposing(false)}
-                            className="ui-button ghost small"
-                            aria-label="Close"
-                        >
-                            Close
-                        </button>
-                    </div>
-                    {composeError ? (
-                        <p className="text-sm text-foreground mb-3" role="alert">
-                            {composeError}
-                        </p>
-                    ) : null}
-                    {friendsLoading ? (
-                        <Loading label="Loading friends…" />
-                    ) : friends.length === 0 ? (
-                        <EmptyState
-                            title="No friends yet"
-                            description="Add connections, or message a seller from a listing."
-                            href={ROUTES.communityFriends}
-                            action="Open friends"
-                        />
-                    ) : (
-                        <ul className="space-y-1">
-                            {friends.map((f) => {
-                                const friend = f.friend;
-                                const id = friend?.id || f.friend_id;
-                                const label = friend?.display_name || friend?.username || id.slice(0, 8);
-                                return (
-                                    <li key={f.id}>
-                                        <button
-                                            type="button"
-                                            disabled={!!startingId}
-                                            onClick={() => void handleStartWithFriend(id)}
-                                            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-[8px] text-left min-w-0 disabled:opacity-50 hover:bg-secondary"
-                                        >
-                                            <span className="ui-region">
-                                                {(label[0] || "?").toUpperCase()}
-                                            </span>
-                                            <div className="flex-1 min-w-0">
-                                                <div className="text-sm font-medium truncate">{label}</div>
-                                                {friend?.username ? (
-                                                    <div className="text-sm text-muted-foreground truncate">
-                                                        @{friend.username}
-                                                    </div>
-                                                ) : null}
-                                            </div>
-                                            {startingId === id ? (
-                                                <Loader2 size={14} className="animate-spin" aria-hidden="true" />
-                                            ) : null}
-                                        </button>
-                                    </li>
-                                );
-                            })}
-                        </ul>
-                    )}
-                    {friends.length === 0 && !friendsLoading ? (
-                        <Link href={ROUTES.marketplace} className="ui-link text-sm mt-3 inline-block">
-                            Browse marketplace
-                        </Link>
-                    ) : null}
-                </section>
-            ) : null}
-
-            <div className="flex flex-col lg:flex-row gap-4 min-w-0">
-                <section className="ui-surface w-full lg:max-w-xs min-w-0 lg:shrink-0">
-                    <label className="ui-field">
-                        Search conversations
-                        <input
-                            type="text"
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            placeholder="Search conversations…"
-                            className="ui-input w-full"
-                        />
-                    </label>
-
-                    <div className="mt-4 max-h-[28rem] overflow-y-auto min-w-0">
-                        {loading ? (
-                            <Loading label="Loading conversations…" />
-                        ) : loadError ? (
-                            <DataError error={loadError} retry={() => setReload(value => value + 1)} />
-                        ) : filteredConversations.length === 0 ? (
-                            <div className="py-6 space-y-3">
-                                <p className="text-sm text-muted-foreground">No conversations</p>
-                                <p className="ui-note">
-                                    Message a friend or inquire on a marketplace listing.
-                                </p>
-                                <div className="flex flex-col gap-2">
-                                    <button
-                                        type="button"
-                                        onClick={() => void openCompose()}
-                                        className="ui-button w-full"
-                                    >
-                                        Message a friend
-                                    </button>
-                                    <Link href={ROUTES.marketplace} className="ui-button secondary w-full">
-                                        Browse marketplace
-                                    </Link>
-                                </div>
-                            </div>
-                        ) : (
-                            filteredConversations.map((conv) => (
-                                <button
-                                    key={conv.id}
-                                    type="button"
-                                    className={`w-full p-3 flex items-center gap-3 text-left min-w-0 border-b border-border ${
-                                        selectedConv?.id === conv.id ? "bg-secondary" : ""
-                                    }`}
-                                    onClick={() => setSelectedConv(conv)}
-                                >
-                                    <span className="ui-region overflow-hidden">
-                                        {conv.other_participant?.avatar_url ? (
-                                            // eslint-disable-next-line @next/next/no-img-element
-                                            <img
-                                                src={conv.other_participant.avatar_url}
-                                                alt=""
-                                                className="w-full h-full object-cover"
-                                            />
-                                        ) : (
-                                            (
-                                                conv.other_participant?.display_name?.[0] ||
-                                                conv.other_participant?.username?.[0] ||
-                                                "?"
-                                            ).toUpperCase()
-                                        )}
-                                    </span>
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-center justify-between gap-2 mb-1">
-                                            <span className="text-sm font-medium truncate">
-                                                {conv.other_participant?.username ? `@${conv.other_participant.username}` : conv.other_participant?.display_name || conv.other_participant_name || 'Unknown participant'}
-                                            </span>
-                                            <span className="text-sm text-muted-foreground shrink-0">
-                                                {conv.last_message_at && !Number.isNaN(Date.parse(conv.last_message_at)) ? new Date(conv.last_message_at).toLocaleDateString([], {
-                                                    month: "short",
-                                                    day: "numeric",
-                                                }) : 'Time not reported'}
-                                            </span>
-                                        </div>
-                                        <p className="text-sm text-muted-foreground truncate">
-                                            {conv.last_message?.content || "No messages yet"}
-                                        </p>
-                                    </div>
-                                    {conv.unread_count && conv.unread_count > 0 ? (
-                                        <span className="ui-status good">Unread</span>
-                                    ) : null}
-                                </button>
-                            ))
-                        )}
-                    </div>
-                </section>
-
-                <section className="ui-surface flex-1 min-w-0 flex flex-col">
-                    {selectedConv ? (
-                        <>
-                            {messageError?.conversationId === selectedConv.id && <DataError error={messageError.error} />}
-                            <div className="pb-4 border-b border-border min-w-0">
-                                <h2 className="text-[18px] font-semibold leading-tight">
-                                    {selectedConv.other_participant?.display_name ||
-                                        selectedConv.other_participant?.username || selectedConv.other_participant_name || 'Unknown participant'}
-                                </h2>
-                                {(selectedConv.other_participant?.username || selectedConv.other_participant?.id) ? <Link
-                                    href={`/profile/${
-                                        selectedConv.other_participant?.username ||
-                                        selectedConv.other_participant?.id
-                                    }`}
-                                    className="ui-link text-sm"
-                                >
-                                    View profile
-                                </Link> : <p className="ui-note">Profile unavailable</p>}
-                            </div>
-
-                            <div className="flex-1 overflow-y-auto py-4 space-y-4 min-h-[16rem] min-w-0">
-                                {messages.filter(msg => msg.conversation_id === selectedConv.id).map((msg) => (
-                                    <div
-                                        key={msg.id}
-                                        className={`flex ${msg.sender_id === user?.id ? "justify-end" : "justify-start"}`}
-                                    >
-                                        <div
-                                            className={`max-w-full sm:max-w-[70%] p-4 rounded-[8px] min-w-0 ${
-                                                msg.sender_id === user?.id
-                                                    ? "bg-secondary text-foreground"
-                                                    : "bg-card border border-border text-foreground"
-                                            }`}
-                                        >
-                                            <p className="text-sm leading-relaxed break-words">{msg.content}</p>
-                                            <span className="text-sm text-muted-foreground mt-2 block">
-                                                {new Date(msg.created_at).toLocaleTimeString([], {
-                                                    hour: "2-digit",
-                                                    minute: "2-digit",
-                                                })}
-                                            </span>
-                                        </div>
-                                    </div>
-                                ))}
-                                <div ref={messagesEndRef} />
-                            </div>
-
-                            <form
-                                className="pt-4 border-t border-border min-w-0"
-                                onSubmit={(e) => {
-                                    e.preventDefault();
-                                    void handleSend();
-                                }}
-                            >
-                                <label className="ui-field">
-                                    Message
-                                    <textarea
-                                        value={newMessage}
-                                        onChange={(e) => setNewMessage(e.target.value)}
-                                        onKeyDown={handleKeyPress}
-                                        placeholder="Write a message…"
-                                        rows={3}
-                                        className="ui-input w-full"
-                                        disabled={sending}
-                                    />
-                                </label>
-                                {sendError ? (
-                                    <p className="text-sm mt-2" role="alert">
-                                        {sendError}
-                                    </p>
-                                ) : null}
-                                <button
-                                    type="submit"
-                                    disabled={sending || !newMessage.trim()}
-                                    className="ui-button mt-3 w-full sm:w-auto"
-                                >
-                                    {sending ? (
-                                        <Loader2 size={16} className="animate-spin" aria-hidden="true" />
-                                    ) : (
-                                        <Send size={16} aria-hidden="true" />
-                                    )}
-                                    Send
-                                </button>
-                            </form>
-                        </>
-                    ) : (
-                        <div className="flex-1 flex flex-col items-center justify-center gap-4 py-8 text-center">
-                            <p className="text-sm text-muted-foreground">Select a conversation</p>
-                            <button
-                                type="button"
-                                onClick={() => void openCompose()}
-                                className="ui-button"
-                            >
-                                Start a message
-                            </button>
-                        </div>
-                    )}
-                </section>
-            </div>
-        </div>
-    );
+function displayDate(value: string | undefined, time = false) {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isFinite(date.getTime())
+    ? time
+      ? date.toLocaleTimeString(undefined, {
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : date.toLocaleDateString(undefined, { month: "short", day: "numeric" })
+    : "";
 }
-
-export default function MessagesPage() {
-    return (
-        <ProtectedRoute>
-            <MessagesContent />
-        </ProtectedRoute>
+function name(conversation: Conversation) {
+  return (
+    conversation.other_participant?.display_name ||
+    conversation.other_participant?.username ||
+    "Community member"
+  );
+}
+function MessagesContent() {
+  const { user } = useAuth();
+  const router = useRouter();
+  const params = useSearchParams();
+  const selectedId = params.get("conversation");
+  const [search, setSearch] = useState("");
+  const initialRecipient =
+    params.get("recipient") || params.get("user") || undefined;
+  const [composing, setComposing] = useState(!!initialRecipient);
+  const { subscribe, isConnected } = useRealtime();
+  const client = useQueryClient();
+  const key = ["inbox", "conversations", user?.id];
+  const query = useQuery({
+    queryKey: key,
+    queryFn: getConversations,
+    refetchInterval: isConnected ? false : 15_000,
+  });
+  const conversations = query.data?.conversations ?? [];
+  const selected = conversations.find(
+    (conversation) => conversation.id === selectedId,
+  );
+  const filtered = conversations.filter((conversation) =>
+    (name(conversation) + " " + (conversation.last_message?.content || ""))
+      .toLowerCase()
+      .includes(search.toLowerCase().trim()),
+  );
+  function select(id: string | null) {
+    router.replace(
+      id ? "/messages?conversation=" + encodeURIComponent(id) : "/messages",
+      { scroll: false },
     );
+  }
+  useEffect(
+    () =>
+      subscribe(WS_MESSAGE_TYPES.NEW_MESSAGE, (event) => {
+        const payload = event.data as
+          | { conversation_id?: string; message?: Message }
+          | undefined;
+        if (!payload?.conversation_id || !payload.message?.id) return;
+        const message = payload.message;
+        client.setQueryData<{ messages: Message[] }>(
+          ["inbox", "messages", user?.id, payload.conversation_id],
+          (previous) =>
+            previous
+              ? {
+                  messages: previous.messages.some(
+                    (item) => item.id === message.id,
+                  )
+                    ? previous.messages
+                    : [...previous.messages, message],
+                }
+              : previous,
+        );
+        void client.invalidateQueries({
+          queryKey: ["inbox", "conversations", user?.id],
+        });
+      }),
+    [client, subscribe, user?.id],
+  );
+  return (
+    <div className="ui-page inbox-page">
+      <PageHeading
+        eyebrow="Community / Private conversations"
+        title="Inbox"
+        description="Keep conversations with providers and community members in one place."
+        actions={
+          <button
+            type="button"
+            className="ui-button"
+            onClick={() => setComposing(true)}
+          >
+            <Plus size={16} />
+            New message
+          </button>
+        }
+      />
+      <div
+        className={
+          "inbox-layout ui-surface " + (selectedId ? "has-conversation" : "")
+        }
+      >
+        <aside className="inbox-list" aria-label="Conversations">
+          <label className="inbox-search">
+            <Search size={17} aria-hidden="true" />
+            <span className="sr-only">Search conversations</span>
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search conversations…"
+            />
+          </label>
+          <p className="inbox-connection" role="status">
+            <span className={isConnected ? "connected" : ""} />
+            {isConnected
+              ? "Live updates connected"
+              : "Checking for new messages periodically"}
+          </p>
+          <div className="inbox-conversations">
+            {query.isPending ? (
+              <Loading label="Loading conversations…" />
+            ) : query.isError ? (
+              <DataError
+                title="Conversations are unavailable"
+                error={query.error}
+                retry={() => void query.refetch()}
+              />
+            ) : filtered.length === 0 ? (
+              <div className="inbox-list-empty">
+                <Inbox size={25} aria-hidden="true" />
+                <strong>
+                  {search ? "No matching conversations" : "Your inbox is ready"}
+                </strong>
+                <p>
+                  {search
+                    ? "Try another name or phrase."
+                    : "Start a message or contact a provider from a listing."}
+                </p>
+              </div>
+            ) : (
+              filtered.map((conversation) => (
+                <button
+                  type="button"
+                  key={conversation.id}
+                  className={
+                    "inbox-conversation " +
+                    (selectedId === conversation.id ? "active" : "")
+                  }
+                  aria-current={
+                    selectedId === conversation.id ? "true" : undefined
+                  }
+                  onClick={() => select(conversation.id)}
+                >
+                  <span className="inbox-avatar">
+                    {name(conversation).slice(0, 1).toUpperCase()}
+                  </span>
+                  <span className="inbox-conversation-copy">
+                    <strong>{name(conversation)}</strong>
+                    <span>
+                      {conversation.last_message?.content || "No messages yet"}
+                    </span>
+                  </span>
+                  <span className="inbox-conversation-meta">
+                    <time>{displayDate(conversation.last_message_at)}</time>
+                    {(conversation.unread_count ?? 0) > 0 && (
+                      <span
+                        className="inbox-unread"
+                        aria-label={
+                          conversation.unread_count + " unread messages"
+                        }
+                      >
+                        {conversation.unread_count}
+                      </span>
+                    )}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        </aside>
+        <section className="inbox-thread">
+          {selected ? (
+            <ConversationThread
+              key={selected.id}
+              conversation={selected}
+              onBack={() => select(null)}
+            />
+          ) : selectedId && query.isSuccess ? (
+            <EmptyState
+              title="This conversation is unavailable"
+              description="Return to your inbox to choose an available conversation."
+            />
+          ) : (
+            <div className="inbox-welcome">
+              <span>
+                <Inbox size={32} aria-hidden="true" />
+              </span>
+              <h2>A clear line of communication.</h2>
+              <p>
+                Select a conversation to read your messages, or start a new one.
+              </p>
+              <button
+                type="button"
+                className="ui-button secondary"
+                onClick={() => setComposing(true)}
+              >
+                <Plus size={15} />
+                Start a message
+              </button>
+            </div>
+          )}
+        </section>
+      </div>
+      <Modal
+        open={composing}
+        onOpenChange={(open) => {
+          setComposing(open);
+          if (!open && initialRecipient) select(selectedId);
+        }}
+        title="New message"
+        description="Choose a connection and write the first message."
+      >
+        <NewConversation
+          initialRecipient={initialRecipient}
+          onStarted={(conversation) => {
+            client.setQueryData<{ conversations: Conversation[] }>(
+              key,
+              (previous) => ({
+                conversations: [
+                  conversation,
+                  ...(previous?.conversations ?? []).filter(
+                    (item) => item.id !== conversation.id,
+                  ),
+                ],
+              }),
+            );
+            setComposing(false);
+            select(conversation.id);
+          }}
+        />
+      </Modal>
+    </div>
+  );
+}
+function ConversationThread({
+  conversation,
+  onBack,
+}: {
+  conversation: Conversation;
+  onBack: () => void;
+}) {
+  const { user } = useAuth();
+  const client = useQueryClient();
+  const [draft, setDraft] = useState("");
+  const end = useRef<HTMLDivElement>(null);
+  const key = ["inbox", "messages", user?.id, conversation.id];
+  const query = useQuery({
+    queryKey: key,
+    queryFn: () => getMessages(conversation.id),
+  });
+  const send = useMutation({
+    retry: false,
+    mutationFn: ({ id, content }: { id: string; content: string }) =>
+      sendMessage(id, content),
+    onSuccess: (message) => {
+      client.setQueryData<{ messages: Message[] }>(key, (previous) => ({
+        messages: [
+          ...(previous?.messages ?? []).filter(
+            (item) => item.id !== message.id,
+          ),
+          message,
+        ],
+      }));
+      setDraft("");
+      void client.invalidateQueries({
+        queryKey: ["inbox", "conversations", user?.id],
+      });
+    },
+  });
+  const count = query.data?.messages.length ?? 0;
+  useEffect(() => {
+    end.current?.scrollIntoView({ block: "nearest" });
+  }, [count]);
+  function submit(event?: React.FormEvent) {
+    event?.preventDefault();
+    if (!draft.trim() || send.isPending) return;
+    send.mutate({ id: conversation.id, content: draft.trim() });
+  }
+  const profile =
+    conversation.other_participant?.username ||
+    conversation.other_participant?.id;
+  return (
+    <>
+      <header className="inbox-thread-header">
+        <button
+          className="inbox-back credential-icon-button"
+          type="button"
+          onClick={onBack}
+          aria-label="Back to conversations"
+        >
+          <ArrowLeft size={18} />
+        </button>
+        <span className="inbox-avatar">
+          {name(conversation).slice(0, 1).toUpperCase()}
+        </span>
+        <div>
+          <h2>{name(conversation)}</h2>
+          {profile && (
+            <Link
+              className="ui-link"
+              href={"/profile/" + encodeURIComponent(profile)}
+            >
+              View profile <ArrowUpRight size={12} />
+            </Link>
+          )}
+        </div>
+      </header>
+      <div
+        className="inbox-message-list"
+        role="log"
+        aria-label={"Messages with " + name(conversation)}
+        aria-live="polite"
+      >
+        {query.isPending ? (
+          <Loading label="Loading messages…" />
+        ) : query.isError ? (
+          <DataError
+            title="Messages could not be loaded"
+            error={query.error}
+            retry={() => void query.refetch()}
+          />
+        ) : count === 0 ? (
+          <p className="inbox-empty-thread">
+            No messages yet. Write the first message below.
+          </p>
+        ) : (
+          query.data?.messages.map((message) => (
+            <article
+              key={message.id}
+              className={
+                "inbox-message " +
+                (message.sender_id === user?.id ? "sent" : "received")
+              }
+            >
+              <p>
+                {message.is_deleted
+                  ? "This message was deleted."
+                  : message.content}
+              </p>
+              <time dateTime={message.created_at}>
+                {message.sender_id === user?.id ? "You · " : ""}
+                {displayDate(message.created_at, true)}
+                {message.edited_at ? " · Edited" : ""}
+              </time>
+            </article>
+          ))
+        )}
+        <div ref={end} />
+      </div>
+      <form className="inbox-compose" onSubmit={submit}>
+        {send.isError && (
+          <DataError title="Your message was not sent" error={send.error} />
+        )}
+        <div>
+          <label className="sr-only" htmlFor="message-draft">
+            Write a message
+          </label>
+          <textarea
+            id="message-draft"
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            rows={2}
+            placeholder="Write a message…"
+            disabled={send.isPending}
+            onKeyDown={(event) => {
+              if (
+                event.key === "Enter" &&
+                !event.shiftKey &&
+                !event.nativeEvent.isComposing
+              ) {
+                event.preventDefault();
+                submit();
+              }
+            }}
+          />
+          <button
+            type="submit"
+            className="ui-button"
+            disabled={!draft.trim() || send.isPending}
+            aria-label={"Send message to " + name(conversation)}
+          >
+            <Send size={17} />
+            {send.isPending ? "Sending…" : "Send"}
+          </button>
+        </div>
+        <p>Enter to send · Shift + Enter for a new line</p>
+      </form>
+    </>
+  );
+}
+function NewConversation({
+  onStarted,
+  initialRecipient,
+}: {
+  onStarted: (conversation: Conversation) => void;
+  initialRecipient?: string;
+}) {
+  const { user } = useAuth();
+  const friends = useQuery({
+    queryKey: ["inbox", "friends", user?.id],
+    queryFn: getFriends,
+    enabled: !initialRecipient,
+  });
+  const [recipient, setRecipient] = useState(initialRecipient || "");
+  const recipientProfile = useQuery({
+    queryKey: ["inbox", "recipient", initialRecipient],
+    queryFn: () => getPublicProfile(initialRecipient!),
+    enabled: !!initialRecipient,
+  });
+  const [content, setContent] = useState("");
+  const start = useMutation({
+    retry: false,
+    mutationFn: () => startConversation(recipient, content.trim()),
+    onSuccess: onStarted,
+  });
+  return (
+    <form
+      className="ui-page"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (recipient && content.trim() && !start.isPending) start.mutate();
+      }}
+    >
+      {!initialRecipient && friends.isPending && (
+        <Loading label="Loading connections…" />
+      )}
+      {!initialRecipient && friends.isError && (
+        <DataError
+          title="Connections could not be loaded"
+          error={friends.error}
+          retry={() => void friends.refetch()}
+        />
+      )}
+      {!initialRecipient &&
+      friends.isSuccess &&
+      !friends.data.friends.length ? (
+        <EmptyState
+          title="Connect with someone first"
+          description="You can contact a provider from a marketplace listing or add a community connection."
+          href="/marketplace"
+          action="Browse marketplace"
+        />
+      ) : (
+        <>
+          {initialRecipient ? (
+            <label className="ui-field">
+              Recipient
+              <input
+                className="ui-input"
+                value={
+                  recipientProfile.data?.display_name ||
+                  recipientProfile.data?.username ||
+                  initialRecipient
+                }
+                readOnly
+              />
+              {recipientProfile.isError && (
+                <span className="ui-note">
+                  This recipient could not be verified. Try again from their
+                  profile.
+                </span>
+              )}
+            </label>
+          ) : (
+            <label className="ui-field">
+              Recipient
+              <select
+                className="ui-select"
+                required
+                value={recipient}
+                onChange={(event) => setRecipient(event.target.value)}
+              >
+                <option value="">Choose a connection</option>
+                {friends.data?.friends.map((friend) => (
+                  <option key={friend.id} value={friend.friend_id}>
+                    {friend.friend?.display_name ||
+                      friend.friend?.username ||
+                      friend.friend_id}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <label className="ui-field">
+            First message
+            <textarea
+              className="ui-input"
+              value={content}
+              onChange={(event) => setContent(event.target.value)}
+              rows={5}
+              required
+              placeholder="Introduce yourself or explain how they can help."
+            />
+          </label>
+          {start.isError && (
+            <DataError
+              title="Conversation could not be started"
+              error={start.error}
+            />
+          )}
+          <button
+            type="submit"
+            className="ui-button"
+            disabled={
+              !recipient ||
+              !content.trim() ||
+              start.isPending ||
+              (!!initialRecipient && !recipientProfile.isSuccess)
+            }
+          >
+            <Send size={15} />
+            {start.isPending ? "Starting…" : "Start conversation"}
+          </button>
+        </>
+      )}
+    </form>
+  );
+}
+export default function MessagesPage() {
+  return (
+    <ProtectedRoute>
+      <MessagesContent />
+    </ProtectedRoute>
+  );
 }

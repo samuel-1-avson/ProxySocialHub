@@ -42,7 +42,7 @@ export interface GeoStats {
     request_count: number;
     bytes_used: number;
     success_rate: number;
-    country_flag?: any;
+    country_flag?: string;
 }
 
 export interface DestinationStats {

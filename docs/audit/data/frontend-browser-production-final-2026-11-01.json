@@ -1,0 +1,104 @@
+{
+  "date": "2026-11-01",
+  "next": "16.4.3",
+  "api_data": "controlled fixtures",
+  "real_transfers": false,
+  "stats": {
+    "startTime": "2026-11-01T14:30:46.570Z",
+    "duration": 14365.016000000001,
+    "expected": 4,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "runner_errors": [],
+  "cases": [
+    {
+      "file": "frontend-completion.spec.ts",
+      "title": "remaining frontend acceptance / draft documentation has working contents, consistent themes, and a narrow reading layout",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 2242,
+          "retry": 0,
+          "accessibility": [
+            {
+              "name": "accessibility",
+              "violations": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "file": "frontend-controls.spec.ts",
+      "title": "the public header fits 320px and keeps sign-in reachable from its keyboard menu",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 990,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "frontend-route-review.spec.ts",
+      "title": "route-family release review / public reading and authentication routes fit a 360px light viewport",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 3360,
+          "retry": 0,
+          "routes_reviewed": [
+            "/",
+            "/login",
+            "/register",
+            "/help",
+            "/help/contact",
+            "/help/guidelines",
+            "/privacy",
+            "/privacy/extension",
+            "/terms",
+            "/help/community/archive/feed",
+            "/help/community/archive/beta",
+            "/whitepaper",
+            "/explorer/about/protocol"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "frontend-route-review.spec.ts",
+      "title": "route-family release review / light-theme treasury and wallet lookup meet automated WCAG checks",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 3372,
+          "retry": 0,
+          "accessibility": [
+            {
+              "name": "-treasury-accessibility",
+              "violations": 0
+            },
+            {
+              "name": "-explorer-wallets-accessibility",
+              "violations": 0
+            },
+            {
+              "name": "-whitepaper-accessibility",
+              "violations": 0
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

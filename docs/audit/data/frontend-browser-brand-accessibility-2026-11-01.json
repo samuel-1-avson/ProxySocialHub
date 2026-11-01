@@ -1,0 +1,96 @@
+{
+  "date": "2026-11-01",
+  "next": "16.4.3",
+  "api_data": "controlled fixtures",
+  "real_transfers": false,
+  "stats": {
+    "startTime": "2026-11-01T14:56:24.633Z",
+    "duration": 29399.559,
+    "expected": 4,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "runner_errors": [],
+  "cases": [
+    {
+      "file": "explorer.spec.ts",
+      "title": "explorer / overview loads with mocked APIs",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 2354,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "frontend-controls.spec.ts",
+      "title": "the public header fits 320px and keeps sign-in reachable from its keyboard menu",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 1156,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "frontend-route-review.spec.ts",
+      "title": "route-family release review / public reading and authentication routes fit a 360px light viewport",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 3551,
+          "retry": 0,
+          "routes_reviewed": [
+            "/",
+            "/login",
+            "/register",
+            "/help",
+            "/help/contact",
+            "/help/guidelines",
+            "/privacy",
+            "/privacy/extension",
+            "/terms",
+            "/help/community/archive/feed",
+            "/help/community/archive/beta",
+            "/whitepaper",
+            "/explorer/about/protocol"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "frontend-route-review.spec.ts",
+      "title": "route-family release review / public record details and disabled feeds have usable narrow recovery",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 18963,
+          "retry": 0,
+          "routes_reviewed": [
+            "/explorer/blocks/123",
+            "/explorer/transactions/unavailable-hash",
+            "/explorer/wallets/5J7sQx1LQx32fY6k3i8rXQ9rC3Z1V3aNQ3fxh7c7c4yD",
+            "/explorer/contracts/unavailable-contract",
+            "/explorer/nodes/unavailable-node",
+            "/explorer/nodes/compare?ids=node-a,node-b",
+            "/explorer/leaderboard",
+            "/explorer/sessions",
+            "/explorer/earnings",
+            "/providers/unavailable-provider"
+          ]
+        }
+      ]
+    }
+  ]
+}

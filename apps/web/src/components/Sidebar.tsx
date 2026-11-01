@@ -1,10 +1,11 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowUpRight, CircleHelp, Globe2, Settings } from "lucide-react";
+import { Activity, ArrowUpRight, CircleHelp, Globe2, MessageSquareText, Settings, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
+import { BrandLockup } from "@/components/BrandLockup";
 import {
   WORKSPACE_DESTINATIONS,
   explorerHref,
@@ -16,17 +17,10 @@ export function Sidebar() {
   const { mode } = useWorkspace();
   return (
     <aside className="workspace-sidebar" aria-label="Workspace navigation">
-      <Link
+      <BrandLockup
         className="workspace-brand"
-        href={
-          isAuthenticated ? (mode === "seller" ? "/provider" : "/app") : "/"
-        }
-      >
-        <span className="workspace-mark" aria-hidden="true">
-          ph
-        </span>
-        ProxyHubb
-      </Link>
+        href={isAuthenticated ? (mode === "seller" ? "/provider" : "/app") : "/"}
+      />
       <WorkspaceSwitcher />
       <p className="workspace-nav-label">Workspace</p>
       <nav className="workspace-primary" aria-label="Primary">
@@ -47,6 +41,21 @@ export function Sidebar() {
           </Link>
         ))}
       </nav>
+      <p className="workspace-nav-label">Community & network</p>
+      <nav className="workspace-primary workspace-discovery" aria-label="Community and network">
+        <Link href="/community/forum" className={pathname.startsWith("/community/forum") ? "active" : ""} aria-current={pathname.startsWith("/community/forum") ? "page" : undefined}>
+          <MessageSquareText size={18} strokeWidth={1.6} aria-hidden="true" />
+          Forum
+        </Link>
+        <Link href="/community/feed" className={pathname === "/community/feed" ? "active" : ""} aria-current={pathname === "/community/feed" ? "page" : undefined}>
+          <Activity size={18} strokeWidth={1.6} aria-hidden="true" />
+          Activity feed
+        </Link>
+        <Link href="/governance" className={pathname.startsWith("/governance") ? "active" : ""} aria-current={pathname.startsWith("/governance") ? "page" : undefined}>
+          <ShieldCheck size={18} strokeWidth={1.6} aria-hidden="true" />
+          Governance
+        </Link>
+      </nav>
       <nav className="workspace-secondary" aria-label="Workspace utilities">
         <a href={explorerHref()}>
           <Globe2 size={18} aria-hidden="true" />
@@ -62,9 +71,9 @@ export function Sidebar() {
           Settings
         </Link>
         <p className="workspace-rail-note">
-          Four focused destinations.
+          Workspace navigation stays focused.
           <br />
-          Public evidence lives in Explorer.
+          Public records live in Explorer.
         </p>
       </nav>
     </aside>

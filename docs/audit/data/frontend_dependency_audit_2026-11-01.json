@@ -1,0 +1,762 @@
+{
+  "date": "2026-11-01",
+  "scope": "production dependencies, after npm audit fix without --force",
+  "metadata": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 2,
+      "moderate": 27,
+      "high": 19,
+      "critical": 0,
+      "total": 48
+    },
+    "dependencies": {
+      "prod": 1107,
+      "dev": 297,
+      "optional": 109,
+      "peer": 170,
+      "peerOptional": 0,
+      "total": 1630
+    }
+  },
+  "advisories": [
+    {
+      "package": "@coinbase/cdp-sdk",
+      "severity": "high",
+      "direct": false,
+      "range": ">=1.0.0",
+      "fix_available": true,
+      "via": [
+        "@solana/web3.js",
+        "abitype",
+        "zod"
+      ]
+    },
+    {
+      "package": "@coral-xyz/borsh",
+      "severity": "moderate",
+      "direct": false,
+      "range": "*",
+      "fix_available": {
+        "name": "@project-serum/anchor",
+        "version": "0.5.0",
+        "isSemVerMajor": true
+      },
+      "via": [
+        "@solana/web3.js"
+      ]
+    },
+    {
+      "package": "@gemini-wallet/core",
+      "severity": "moderate",
+      "direct": false,
+      "range": "*",
+      "fix_available": {
+        "name": "wagmi",
+        "version": "3.7.9",
+        "isSemVerMajor": true
+      },
+      "via": [
+        "@metamask/rpc-errors"
+      ]
+    },
+    {
+      "package": "@metamask/rpc-errors",
+      "severity": "moderate",
+      "direct": false,
+      "range": ">=6.3.1",
+      "fix_available": {
+        "name": "wagmi",
+        "version": "3.7.9",
+        "isSemVerMajor": true
+      },
+      "via": [
+        "@metamask/utils"
+      ]
+    },
+    {
+      "package": "@metamask/sdk",
+      "severity": "moderate",
+      "direct": false,
+      "range": "*",
+      "fix_available": {
+        "name": "wagmi",
+        "version": "3.7.9",
+        "isSemVerMajor": true
+      },
+      "via": [
+        "@metamask/sdk-communication-layer",
+        "uuid"
+      ]
+    },
+    {
+      "package": "@metamask/sdk-communication-layer",
+      "severity": "moderate",
+      "direct": false,
+      "range": "*",
+      "fix_available": {
+        "name": "wagmi",
+        "version": "3.7.9",
+        "isSemVerMajor": true
+      },
+      "via": [
+        "uuid"
+      ]
+    },
+    {
+      "package": "@metamask/utils",
+      "severity": "moderate",
+      "direct": false,
+      "range": "8.4.0 - 12.0.0",
+      "fix_available": {
+        "name": "wagmi",
+        "version": "3.7.9",
+        "isSemVerMajor": true
+      },
+      "via": [
+        "uuid"
+      ]
+    },
+    {
+      "package": "@project-serum/anchor",
+      "severity": "high",
+      "direct": true,
+      "range": "*",
+      "fix_available": {
+        "name": "@project-serum/anchor",
+        "version": "0.5.0",
+        "isSemVerMajor": true
+      },
+      "via": [
+        "@coral-xyz/borsh",
+        "@solana/web3.js",
+        "toml"
+      ]
+    },
+    {
+      "package": "@rainbow-me/rainbowkit",
+      "severity": "moderate",
+      "direct": true,
+      "range": ">=0.1.1",
+      "fix_available": {
+        "name": "@rainbow-me/rainbowkit",
+        "version": "0.1.0",
+        "isSemVerMajor": true
+      },
+      "via": [
+        "@vanilla-extract/css",
+        "wagmi"
+      ]
+    },
+    {
+      "package": "@reown/appkit",
+      "severity": "high",
+      "direct": false,
+      "range": "*",
+      "fix_available": {
+        "name": "wagmi",
+        "version": "3.7.9",
+        "isSemVerMajor": true
+      },
+      "via": [
+        "@reown/appkit-controllers",
+        "@reown/appkit-pay",
+        "@reown/appkit-scaffold-ui",
+        "@reown/appkit-ui",
+        "@reown/appkit-utils",
+        "@reown/appkit-wallet",
+        "@walletconnect/universal-provider"
+      ]
+    },
+    {
+      "package": "@reown/appkit-controllers",
+      "severity": "high",
+      "direct": false,
+      "range": "*",
+      "fix_available": {
+        "name": "wagmi",
+        "version": "3.7.9",
+        "isSemVerMajor": true
+      },
+      "via": [
+        "@reown/appkit-wallet",
+        "@walletconnect/universal-provider"
+      ]
+    },
+    {
+      "package": "@reown/appkit-pay",
+      "severity": "high",
+      "direct": false,
+      "range": "*",
+      "fix_available": {
+        "name": "wagmi",
+        "version": "3.7.9",
+        "isSemVerMajor": true
+      },
+      "via": [
+        "@reown/appkit-controllers",
+        "@reown/appkit-ui",
+        "@reown/appkit-utils"
+      ]
+    },
+    {
+      "package": "@reown/appkit-scaffold-ui",
+      "severity": "high",
+      "direct": false,
+      "range": "*",
+      "fix_available": {
+        "name": "wagmi",
+        "version": "3.7.9",
+        "isSemVerMajor": true
+      },
+      "via": [
+        "@reown/appkit-controllers",
+        "@reown/appkit-ui",
+        "@reown/appkit-utils",
+        "@reown/appkit-wallet"
+      ]
+    },
+    {
+      "package": "@reown/appkit-ui",
+      "severity": "high",
+      "direct": false,
+      "range": ">=1.7.1-449657bc8f95adcfd295a2e883c4bcd439045044.0",
+      "fix_available": {
+        "name": "wagmi",
+        "version": "3.7.9",
+        "isSemVerMajor": true
+      },
+      "via": [
+        "@reown/appkit-controllers",
+        "@reown/appkit-wallet"
+      ]
+    },
+    {
+      "package": "@reown/appkit-utils",
+      "severity": "high",
+      "direct": false,
+      "range": "*",
+      "fix_available": {
+        "name": "wagmi",
+        "version": "3.7.9",
+        "isSemVerMajor": true
+      },
+      "via": [
+        "@reown/appkit-controllers",
+        "@reown/appkit-wallet",
+        "@walletconnect/universal-provider"
+      ]
+    },
+    {
+      "package": "@reown/appkit-wallet",
+      "severity": "high",
+      "direct": false,
+      "range": "*",
+      "fix_available": {
+        "name": "wagmi",
+        "version": "3.7.9",
+        "isSemVerMajor": true
+      },
+      "via": [
+        "zod"
+      ]
+    },
+    {
+      "package": "@solana-mobile/mobile-wallet-adapter-protocol-web3js",
+      "severity": "moderate",
+      "direct": false,
+      "range": "*",
+      "fix_available": false,
+      "via": [
+        "@solana/web3.js"
+      ]
+    },
+    {
+      "package": "@solana-mobile/wallet-adapter-mobile",
+      "severity": "moderate",
+      "direct": false,
+      "range": "*",
+      "fix_available": false,
+      "via": [
+        "@solana-mobile/mobile-wallet-adapter-protocol-web3js",
+        "@solana/wallet-adapter-base",
+        "@solana/web3.js"
+      ]
+    },
+    {
+      "package": "@solana/wallet-adapter-base",
+      "severity": "moderate",
+      "direct": true,
+      "range": "*",
+      "fix_available": false,
+      "via": [
+        "@solana/web3.js"
+      ]
+    },
+    {
+      "package": "@solana/wallet-adapter-base-ui",
+      "severity": "moderate",
+      "direct": false,
+      "range": "*",
+      "fix_available": false,
+      "via": [
+        "@solana/wallet-adapter-react",
+        "@solana/web3.js"
+      ]
+    },
+    {
+      "package": "@solana/wallet-adapter-phantom",
+      "severity": "moderate",
+      "direct": true,
+      "range": "*",
+      "fix_available": false,
+      "via": [
+        "@solana/wallet-adapter-base",
+        "@solana/web3.js"
+      ]
+    },
+    {
+      "package": "@solana/wallet-adapter-react",
+      "severity": "moderate",
+      "direct": true,
+      "range": "*",
+      "fix_available": false,
+      "via": [
+        "@solana-mobile/wallet-adapter-mobile",
+        "@solana/wallet-adapter-base",
+        "@solana/wallet-standard-wallet-adapter-react",
+        "@solana/web3.js"
+      ]
+    },
+    {
+      "package": "@solana/wallet-adapter-react-ui",
+      "severity": "moderate",
+      "direct": true,
+      "range": "*",
+      "fix_available": false,
+      "via": [
+        "@solana/wallet-adapter-base",
+        "@solana/wallet-adapter-base-ui",
+        "@solana/wallet-adapter-react",
+        "@solana/web3.js"
+      ]
+    },
+    {
+      "package": "@solana/wallet-adapter-solflare",
+      "severity": "moderate",
+      "direct": true,
+      "range": "*",
+      "fix_available": {
+        "name": "@solana/wallet-adapter-solflare",
+        "version": "0.6.3",
+        "isSemVerMajor": true
+      },
+      "via": [
+        "@solana/wallet-adapter-base",
+        "@solana/web3.js",
+        "@solflare-wallet/sdk"
+      ]
+    },
+    {
+      "package": "@solana/wallet-standard-wallet-adapter-base",
+      "severity": "moderate",
+      "direct": false,
+      "range": "*",
+      "fix_available": false,
+      "via": [
+        "@solana/wallet-adapter-base",
+        "@solana/web3.js"
+      ]
+    },
+    {
+      "package": "@solana/wallet-standard-wallet-adapter-react",
+      "severity": "moderate",
+      "direct": false,
+      "range": "*",
+      "fix_available": false,
+      "via": [
+        "@solana/wallet-adapter-base",
+        "@solana/wallet-standard-wallet-adapter-base"
+      ]
+    },
+    {
+      "package": "@solana/web3.js",
+      "severity": "moderate",
+      "direct": true,
+      "range": "<=0.0.0-pr-29130 || 0.0.4 - 1.99.0",
+      "fix_available": false,
+      "via": [
+        "jayson"
+      ]
+    },
+    {
+      "package": "@solflare-wallet/sdk",
+      "severity": "moderate",
+      "direct": false,
+      "range": "*",
+      "fix_available": {
+        "name": "@solana/wallet-adapter-solflare",
+        "version": "0.6.3",
+        "isSemVerMajor": true
+      },
+      "via": [
+        "uuid"
+      ]
+    },
+    {
+      "package": "@vanilla-extract/css",
+      "severity": "low",
+      "direct": false,
+      "range": "<=0.0.0-vite-plugin-new-20240116010153 || 1.4.0 - 1.21.2",
+      "fix_available": {
+        "name": "@rainbow-me/rainbowkit",
+        "version": "0.1.0",
+        "isSemVerMajor": true
+      },
+      "via": [
+        "deepmerge"
+      ]
+    },
+    {
+      "package": "@wagmi/connectors",
+      "severity": "moderate",
+      "direct": false,
+      "range": "<=0.0.0-wc-links-20240926225814 || 4.0.0-alpha.0 - 4.0.0-rc.3 || 4.0.1 - 7.2.1",
+      "fix_available": {
+        "name": "wagmi",
+        "version": "3.7.9",
+        "isSemVerMajor": true
+      },
+      "via": [
+        "@gemini-wallet/core",
+        "@metamask/sdk",
+        "@walletconnect/ethereum-provider"
+      ]
+    },
+    {
+      "package": "@walletconnect/core",
+      "severity": "moderate",
+      "direct": false,
+      "range": "2.18.1-canary-exp-1 - 2.18.1-rc-1 || 2.19.0-canary-ak-1 - 2.21.9",
+      "fix_available": {
+        "name": "wagmi",
+        "version": "3.7.9",
+        "isSemVerMajor": true
+      },
+      "via": [
+        "@walletconnect/utils"
+      ]
+    },
+    {
+      "package": "@walletconnect/ethereum-provider",
+      "severity": "high",
+      "direct": false,
+      "range": "0.0.0-canary-rollup.0 || 2.17.1-canary-0 - 2.17.1-canary-appkit.0 || 2.17.4-canary-ak-1 - 2.17.4-canary-ak-4 || 2.18.0-canary-ak-1 - 2.18.0-rc-1 || 2.18.1-canary-exp-1 - 2.18.1-rc-1 || >=2.19.0-canary-ak-1",
+      "fix_available": {
+        "name": "wagmi",
+        "version": "3.7.9",
+        "isSemVerMajor": true
+      },
+      "via": [
+        "@reown/appkit",
+        "@walletconnect/sign-client",
+        "@walletconnect/universal-provider",
+        "@walletconnect/utils"
+      ]
+    },
+    {
+      "package": "@walletconnect/sign-client",
+      "severity": "moderate",
+      "direct": false,
+      "range": "2.18.1-canary-exp-1 - 2.18.1-rc-1 || 2.19.0-canary-ak-1 - 2.21.9",
+      "fix_available": {
+        "name": "wagmi",
+        "version": "3.7.9",
+        "isSemVerMajor": true
+      },
+      "via": [
+        "@walletconnect/core",
+        "@walletconnect/utils"
+      ]
+    },
+    {
+      "package": "@walletconnect/universal-provider",
+      "severity": "moderate",
+      "direct": false,
+      "range": "2.18.1-canary-exp-1 - 2.18.1-rc-1 || 2.19.0-canary-ak-1 - 2.21.9",
+      "fix_available": {
+        "name": "wagmi",
+        "version": "3.7.9",
+        "isSemVerMajor": true
+      },
+      "via": [
+        "@walletconnect/sign-client",
+        "@walletconnect/utils"
+      ]
+    },
+    {
+      "package": "@walletconnect/utils",
+      "severity": "high",
+      "direct": false,
+      "range": "1.2.3-1.3.0-rc.0.0 - 2.17.5-rc-1 || 2.18.0-canary-ell-1 - 2.21.9",
+      "fix_available": {
+        "name": "wagmi",
+        "version": "3.7.9",
+        "isSemVerMajor": true
+      },
+      "via": [
+        "query-string",
+        "viem"
+      ]
+    },
+    {
+      "package": "abitype",
+      "severity": "high",
+      "direct": false,
+      "range": "<=0.0.0-main-20230430000127 || 0.7.0-canary.20230307T162852 - 1.0.9",
+      "fix_available": {
+        "name": "wagmi",
+        "version": "3.7.9",
+        "isSemVerMajor": true
+      },
+      "via": [
+        "zod"
+      ]
+    },
+    {
+      "package": "decode-uri-component",
+      "severity": "high",
+      "direct": false,
+      "range": "<=0.5.0",
+      "fix_available": {
+        "name": "wagmi",
+        "version": "3.7.9",
+        "isSemVerMajor": true
+      },
+      "via": [
+        {
+          "title": "decode-uri-component: Denial of service via exponential decoding of malformed percent-encoded input",
+          "url": "https://github.com/advisories/GHSA-vcc3-ghjq-m6fr",
+          "range": "<=0.4.2"
+        },
+        {
+          "title": "decode-uri-component vulnerable to denial of service via quadratic replacement of percent-encoded runs",
+          "url": "https://github.com/advisories/GHSA-qr28-fpjm-wq7f",
+          "range": "<=0.5.0"
+        }
+      ]
+    },
+    {
+      "package": "deepmerge",
+      "severity": "low",
+      "direct": false,
+      "range": ">=4.2.0",
+      "fix_available": {
+        "name": "@rainbow-me/rainbowkit",
+        "version": "0.1.0",
+        "isSemVerMajor": true
+      },
+      "via": [
+        {
+          "title": "deepmerge mergeObject() allows prototype poisoning of returned objects",
+          "url": "https://github.com/advisories/GHSA-gcqx-w48m-w2h4",
+          "range": ">=4.2.0 <=4.3.1"
+        }
+      ]
+    },
+    {
+      "package": "image-size",
+      "severity": "high",
+      "direct": false,
+      "range": "0.6.3 - 2.0.2",
+      "fix_available": true,
+      "via": [
+        {
+          "title": "image-size: JXL and HEIF parsers allow denial of service through infinite loops",
+          "url": "https://github.com/advisories/GHSA-5p2g-fcmc-qvqq",
+          "range": ">=1.2.0 <=2.0.2"
+        },
+        {
+          "title": "image-size: ICNS parser allows denial of service through an infinite loop",
+          "url": "https://github.com/advisories/GHSA-w3rx-r6r6-pgpr",
+          "range": ">=0.6.3 <=2.0.2"
+        }
+      ]
+    },
+    {
+      "package": "jayson",
+      "severity": "moderate",
+      "direct": false,
+      "range": "2.0.6 - 4.3.0",
+      "fix_available": false,
+      "via": [
+        "stream-json",
+        "uuid"
+      ]
+    },
+    {
+      "package": "query-string",
+      "severity": "high",
+      "direct": false,
+      "range": "5.0.0 - 9.4.1",
+      "fix_available": {
+        "name": "wagmi",
+        "version": "3.7.9",
+        "isSemVerMajor": true
+      },
+      "via": [
+        "decode-uri-component"
+      ]
+    },
+    {
+      "package": "stream-json",
+      "severity": "moderate",
+      "direct": false,
+      "range": "<=3.5.0",
+      "fix_available": false,
+      "via": [
+        {
+          "title": "stream-json: pick/ignore/filter/replace filters are O(depth\u00b2) on nested input \u2014 small crafted JSON blocks the event loop for seconds\u2192minutes (DoS)",
+          "url": "https://github.com/advisories/GHSA-528h-pc64-c93x",
+          "range": "<=3.4.0"
+        },
+        {
+          "title": "stream-json: JSONC parser and verifier re-scan the whole accumulated comment on every input chunk",
+          "url": "https://github.com/advisories/GHSA-hqr4-qq8f-hg3x",
+          "range": "<=3.5.0"
+        },
+        {
+          "title": "stream-json has a prototype pollution issue: Assembler writes this.current[this.key] on plain objects",
+          "url": "https://github.com/advisories/GHSA-mjw6-4jj6-33hc",
+          "range": "<3.6.0"
+        }
+      ]
+    },
+    {
+      "package": "toml",
+      "severity": "high",
+      "direct": false,
+      "range": "<=5.0.0",
+      "fix_available": {
+        "name": "@project-serum/anchor",
+        "version": "0.5.0",
+        "isSemVerMajor": true
+      },
+      "via": [
+        {
+          "title": "toml-node: Uncontrolled Recursion",
+          "url": "https://github.com/advisories/GHSA-82x6-q7mm-w9cf",
+          "range": "<4.2.0"
+        },
+        {
+          "title": "toml-node: Prototype Pollution Leads to `Object.prototype` Corruption via `__proto__` Key-Path Desynchronization",
+          "url": "https://github.com/advisories/GHSA-v5mp-jgw5-2x6j",
+          "range": "<4.1.2"
+        },
+        {
+          "title": "toml-node: Quadratic-complexity DoS via many array-of-tables headers in toml.parse()",
+          "url": "https://github.com/advisories/GHSA-4qx8-w7c3-pj3p",
+          "range": "<=5.0.0"
+        },
+        {
+          "title": "toml-node: Quadratic-complexity DoS via long dotted keys or table paths in toml.parse()",
+          "url": "https://github.com/advisories/GHSA-9j65-hcg3-gc64",
+          "range": "<=5.0.0"
+        },
+        {
+          "title": "toml-node: Uncontrolled resource consumption (CPU DoS) via unbounded-length integer literals in toml.parse()",
+          "url": "https://github.com/advisories/GHSA-9qmh-m7c6-f92p",
+          "range": "<=5.0.0"
+        }
+      ]
+    },
+    {
+      "package": "uuid",
+      "severity": "moderate",
+      "direct": false,
+      "range": "<11.1.1",
+      "fix_available": {
+        "name": "wagmi",
+        "version": "3.7.9",
+        "isSemVerMajor": true
+      },
+      "via": [
+        {
+          "title": "uuid: Missing buffer bounds check in v3/v5/v6 when buf is provided",
+          "url": "https://github.com/advisories/GHSA-w5hq-g745-h8pq",
+          "range": "<11.1.1"
+        }
+      ]
+    },
+    {
+      "package": "viem",
+      "severity": "high",
+      "direct": false,
+      "range": "<=0.0.0-wagmiv2-20230628182101 || 0.1.10 - 2.49.3",
+      "fix_available": {
+        "name": "wagmi",
+        "version": "3.7.9",
+        "isSemVerMajor": true
+      },
+      "via": [
+        "abitype",
+        "ws"
+      ]
+    },
+    {
+      "package": "wagmi",
+      "severity": "moderate",
+      "direct": true,
+      "range": "<=0.0.0-wc-links-20240926225814 || 2.0.0-alpha.0 - 2.0.0-rc.3 || 2.0.1 - 3.5.0",
+      "fix_available": {
+        "name": "wagmi",
+        "version": "3.7.9",
+        "isSemVerMajor": true
+      },
+      "via": [
+        "@wagmi/connectors"
+      ]
+    },
+    {
+      "package": "ws",
+      "severity": "high",
+      "direct": false,
+      "range": "8.0.0 - 8.20.1",
+      "fix_available": {
+        "name": "wagmi",
+        "version": "3.7.9",
+        "isSemVerMajor": true
+      },
+      "via": [
+        {
+          "title": "ws: Uninitialized memory disclosure",
+          "url": "https://github.com/advisories/GHSA-58qx-3vcg-4xpx",
+          "range": ">=8.0.0 <8.20.1"
+        },
+        {
+          "title": "ws: Memory exhaustion DoS from tiny fragments and data chunks",
+          "url": "https://github.com/advisories/GHSA-96hv-2xvq-fx4p",
+          "range": ">=8.0.0 <8.21.0"
+        }
+      ]
+    },
+    {
+      "package": "zod",
+      "severity": "high",
+      "direct": true,
+      "range": "<4.6.6",
+      "fix_available": {
+        "name": "zod",
+        "version": "4.6.7",
+        "isSemVerMajor": true
+      },
+      "via": [
+        {
+          "title": "Zod can exhaust memory while validating oversized constrained collections",
+          "url": "https://github.com/advisories/GHSA-mrhx-c7xc-m3w5",
+          "range": "<4.6.6"
+        }
+      ]
+    }
+  ]
+}

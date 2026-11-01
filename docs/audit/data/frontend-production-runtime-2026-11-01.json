@@ -1,0 +1,16 @@
+{
+  "checked_at": "2026-11-01T18:51:16.2850255Z",
+  "revision": "10dd9ed3fb63ebfdb85cc5cb30854647506792d2",
+  "image": "sha256:47128aa1e9be884bf749dbad15bf88c87eb9a8d3f181d0db727f8ce8f1443215",
+  "image_ref": "proxyhubb-production/web:10dd9ed3fb63ebfdb85cc5cb30854647506792d2",
+  "container": "22c9b55498cfe21e4844369ffaa56c4e9ec1c96867e79c4e6189f18ba021886f",
+  "created": "2026-11-01T18:50:25.893346876Z",
+  "health": "healthy",
+  "restart_count": 0,
+  "build_id": "wSvGQP0DJD2p9zXRoOiGk",
+  "other_application_container_count": 14,
+  "other_application_containers_changed": [],
+  "rollback_image": "sha256:ed7418c97a51e9b0934b3737af5d4e2b0807856b6f8309c13a9f179c90665e56",
+  "network": "devnet",
+  "cloud_build_id": "684b8813-5bb2-4d45-8b4d-9c0e3aecc653"
+}

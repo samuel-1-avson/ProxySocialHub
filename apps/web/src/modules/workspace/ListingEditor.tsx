@@ -198,7 +198,7 @@ export function ListingEditor() {
         ← Listings
       </Link>
       <PageHeading
-        eyebrow="Seller workspace"
+        eyebrow="Provider workspace"
         title={review ? "Review your offer" : "Create a listing"}
         description="Describe the capacity you can supply, set its price, and review publication requirements."
       />

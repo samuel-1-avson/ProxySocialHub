@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { Clock3, Layers, ListChecks, Plus } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { useWallet } from "@solana/wallet-adapter-react";
@@ -34,6 +35,7 @@ import {
   DataError,
   EmptyState,
   Status,
+  Stat,
   amount,
   countryName,
 } from "@/components/workspace/Patterns";
@@ -79,16 +81,58 @@ export function SellerListings() {
   return (
     <div className="ui-page">
       <PageHeading
-        eyebrow="Seller workspace"
+        eyebrow="Provider workspace"
         title="Listings"
         description="Manage pricing, capacity, publication, and catalog context in one place."
         actions={
           <Link className="ui-button" href="/provider/listings/new">
+            <Plus size={16} aria-hidden="true" />
             Create listing
           </Link>
         }
       />
-      <nav className="ui-tabs" aria-label="Seller listing views">
+      <section className="ui-stats" aria-label="Listing summary">
+        <Stat
+          icon={<ListChecks size={18} />}
+          label="Active on this page"
+          value={
+            query.isSuccess
+              ? query.data.listings.filter(
+                  (listing) => listing.status === "active",
+                ).length
+              : "—"
+          }
+          detail="Offers currently published"
+        />
+        <Stat
+          icon={<Clock3 size={18} />}
+          label="Awaiting review"
+          value={
+            query.isSuccess
+              ? query.data.listings.filter(
+                  (listing) => listing.status === "pending_review",
+                ).length
+              : "—"
+          }
+          detail="Offers on this page pending approval"
+        />
+        <Stat
+          icon={<Layers size={18} />}
+          label="Reported capacity"
+          value={
+            query.isSuccess
+              ? amount(
+                  query.data.listings.reduce(
+                    (total, listing) => total + listing.available_bandwidth_gb,
+                    0,
+                  ),
+                ) + " GB"
+              : "—"
+          }
+          detail="Across offers shown on this page"
+        />
+      </section>
+      <nav className="ui-tabs" aria-label="Provider listing views">
         <Link className="active" aria-current="page" href="/provider/listings">
           Offers
         </Link>
@@ -121,77 +165,82 @@ export function SellerListings() {
           action="Create a listing"
         />
       )}
-      {query.data?.listings.map((listing) => (
-        <section className="ui-listing" key={listing.id}>
-          <div>
-            <h2>{displayListingTitle(listing)}</h2>
-            <CatalogProductBadge product={listing.catalog_product} />
-            <p className="ui-note">
-              {countryName(listing.country)} · {listing.proxy_type} ·{" "}
-              {listing.protocol}
-            </p>
-            <div className="ui-listing-meta">
-              <Status
-                tone={
-                  listing.status === "active"
-                    ? "good"
-                    : listing.status === "pending_review"
-                      ? "warning"
-                      : "neutral"
-                }
-              >
-                {listing.status.replace(/_/g, " ")}
-              </Status>
-              <span>
-                {amount(listing.available_bandwidth_gb)} GB reported capacity
-              </span>
-              <span>{amount(listing.orders_count, 0)} orders</span>
-            </div>
-            <div className="ui-actions mt-4">
-              <button
-                className="ui-button secondary small"
-                onClick={() => setEditing(listing)}
-              >
-                Edit offer
-              </button>
-              {["active", "paused"].includes(listing.status) && (
-                <button
-                  className="ui-button secondary small"
-                  disabled={status.isPending}
-                  onClick={() =>
-                    status.mutate({
-                      id: listing.id,
-                      state: listing.status === "active" ? "paused" : "active",
-                    })
+      <div className="provider-listing-grid">
+        {query.data?.listings.map((listing) => (
+          <section className="provider-offer-card" key={listing.id}>
+            <div>
+              <h2>{displayListingTitle(listing)}</h2>
+              <CatalogProductBadge product={listing.catalog_product} />
+              <p className="ui-note">
+                {countryName(listing.country)} · {listing.proxy_type} ·{" "}
+                {listing.protocol}
+              </p>
+              <div className="ui-listing-meta">
+                <Status
+                  tone={
+                    listing.status === "active"
+                      ? "good"
+                      : listing.status === "pending_review"
+                        ? "warning"
+                        : "neutral"
                   }
                 >
-                  {listing.status === "active" ? "Pause offer" : "Resume offer"}
+                  {listing.status.replace(/_/g, " ")}
+                </Status>
+                <span>
+                  {amount(listing.available_bandwidth_gb)} GB reported capacity
+                </span>
+                <span>{amount(listing.orders_count, 0)} orders</span>
+              </div>
+              <div className="ui-actions mt-4">
+                <button
+                  className="ui-button secondary small"
+                  onClick={() => setEditing(listing)}
+                >
+                  Edit offer
                 </button>
-              )}
-              <button
-                className="ui-button ghost small"
-                onClick={() => {
-                  remove.reset();
-                  setRemoving(listing);
-                }}
-              >
-                Remove…
-              </button>
+                {["active", "paused"].includes(listing.status) && (
+                  <button
+                    className="ui-button secondary small"
+                    disabled={status.isPending}
+                    onClick={() =>
+                      status.mutate({
+                        id: listing.id,
+                        state:
+                          listing.status === "active" ? "paused" : "active",
+                      })
+                    }
+                  >
+                    {listing.status === "active"
+                      ? "Pause offer"
+                      : "Resume offer"}
+                  </button>
+                )}
+                <button
+                  className="ui-button ghost small"
+                  onClick={() => {
+                    remove.reset();
+                    setRemoving(listing);
+                  }}
+                >
+                  Remove…
+                </button>
+              </div>
             </div>
-          </div>
-          <div className="ui-listing-price">
-            <strong>${amount(listing.price_per_gb, 4)}</strong>
-            <span className="ui-note"> / GB</span>
-            <p>{amount(listing.min_purchase_gb)} GB minimum</p>
-            <Link
-              className="ui-button secondary small"
-              href={`/marketplace/${encodeURIComponent(listing.id)}`}
-            >
-              Preview listing →
-            </Link>
-          </div>
-        </section>
-      ))}
+            <div className="ui-listing-price">
+              <strong>${amount(listing.price_per_gb, 4)}</strong>
+              <span className="ui-note"> / GB</span>
+              <p>{amount(listing.min_purchase_gb)} GB minimum</p>
+              <Link
+                className="ui-button secondary small"
+                href={`/marketplace/${encodeURIComponent(listing.id)}`}
+              >
+                Preview listing →
+              </Link>
+            </div>
+          </section>
+        ))}
+      </div>
       {(query.data?.total ?? 0) > 20 && (
         <nav className="ui-pagination" aria-label="Listing pagination">
           {page > 1 ? (

@@ -110,9 +110,10 @@ test.describe('marketplace catalog browse + buy', () => {
         await expect(detailsDialog).toContainText(newCatalogTitle);
         await detailsDialog.getByRole('button', { name: /buy bandwidth/i }).click();
         await expect(page.getByTestId('buy-listing-modal')).toBeVisible({ timeout: 15_000 });
-        await expect(page.getByTestId('buy-listing-modal').getByRole('heading', { name: /review purchase/i })).toBeVisible();
+        await expect(page.getByTestId('buy-listing-modal').getByRole('heading', { name: /buy with sol/i })).toBeVisible();
         await page.getByTestId('buy-listing-start-connection').click();
         await expect(page.getByTestId('buy-listing-modal-success')).toBeVisible({ timeout: 20_000 });
-        await expect(page.getByText(mockProxyCredentials.endpoint)).toBeVisible();
+        await page.getByTestId('marketplace-order-credentials').getByText('Use in another app or device').click();
+        await expect(page.getByTestId('marketplace-order-credentials').getByText(mockProxyCredentials.endpoint.split(':')[0], { exact: true })).toBeVisible();
     });
 });

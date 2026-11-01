@@ -1,0 +1,165 @@
+{
+  "checkedAt": "2026-11-01T18:52:11.726Z",
+  "revision": "10dd9ed3fb63ebfdb85cc5cb30854647506792d2",
+  "buildId": "wSvGQP0DJD2p9zXRoOiGk",
+  "results": [
+    {
+      "route": "/",
+      "width": 390,
+      "theme": "dark",
+      "status": 200,
+      "buildMatches": true,
+      "headerSelects": 0,
+      "toggleWidth": 40,
+      "toggleHeight": 40,
+      "overflow": 0,
+      "pageErrors": [],
+      "assetFailures": [],
+      "violations": []
+    },
+    {
+      "route": "/marketplace",
+      "width": 390,
+      "theme": "dark",
+      "status": 200,
+      "buildMatches": true,
+      "headerSelects": 0,
+      "toggleWidth": 40,
+      "toggleHeight": 40,
+      "overflow": 0,
+      "pageErrors": [],
+      "assetFailures": [],
+      "violations": []
+    },
+    {
+      "route": "/",
+      "width": 390,
+      "theme": "light",
+      "status": 200,
+      "buildMatches": true,
+      "headerSelects": 0,
+      "toggleWidth": 40,
+      "toggleHeight": 40,
+      "overflow": 0,
+      "pageErrors": [],
+      "assetFailures": [],
+      "violations": []
+    },
+    {
+      "route": "/marketplace",
+      "width": 390,
+      "theme": "light",
+      "status": 200,
+      "buildMatches": true,
+      "headerSelects": 0,
+      "toggleWidth": 40,
+      "toggleHeight": 40,
+      "overflow": 0,
+      "pageErrors": [],
+      "assetFailures": [],
+      "violations": []
+    },
+    {
+      "route": "/",
+      "width": 1440,
+      "theme": "dark",
+      "status": 200,
+      "buildMatches": true,
+      "headerSelects": 0,
+      "toggleWidth": 40,
+      "toggleHeight": 40,
+      "overflow": 0,
+      "pageErrors": [],
+      "assetFailures": [],
+      "violations": []
+    },
+    {
+      "route": "/marketplace",
+      "width": 1440,
+      "theme": "dark",
+      "status": 200,
+      "buildMatches": true,
+      "headerSelects": 0,
+      "toggleWidth": 40,
+      "toggleHeight": 40,
+      "overflow": 0,
+      "pageErrors": [],
+      "assetFailures": [],
+      "violations": []
+    },
+    {
+      "route": "/",
+      "width": 1440,
+      "theme": "light",
+      "status": 200,
+      "buildMatches": true,
+      "headerSelects": 0,
+      "toggleWidth": 40,
+      "toggleHeight": 40,
+      "overflow": 0,
+      "pageErrors": [],
+      "assetFailures": [],
+      "violations": []
+    },
+    {
+      "route": "/marketplace",
+      "width": 1440,
+      "theme": "light",
+      "status": 200,
+      "buildMatches": true,
+      "headerSelects": 0,
+      "toggleWidth": 40,
+      "toggleHeight": 40,
+      "overflow": 0,
+      "pageErrors": [],
+      "assetFailures": [],
+      "violations": []
+    }
+  ],
+  "mobile320": {
+    "noHeaderDropdown": true,
+    "themeSwitches": true,
+    "choicePersistsAfterReload": true,
+    "systemChoiceInAccountMenu": true,
+    "noOverflow": true
+  },
+  "http": [
+    {
+      "url": "https://proxyhubb.com/v1/listings?limit=1",
+      "status": 200,
+      "location": null,
+      "passed": true
+    },
+    {
+      "url": "https://proxyhubb.com/v1/system/config/public",
+      "status": 200,
+      "location": null,
+      "passed": true
+    },
+    {
+      "url": "https://api.proxyhubb.com/health",
+      "status": 200,
+      "location": null,
+      "passed": true
+    },
+    {
+      "url": "https://proxyhubb.com/explorer",
+      "status": 307,
+      "location": "https://explorer.proxyhubb.com/",
+      "passed": true
+    },
+    {
+      "url": "https://www.proxyhubb.com",
+      "status": 301,
+      "location": "https://proxyhubb.com/",
+      "passed": true
+    },
+    {
+      "url": "https://app.proxyhubb.com",
+      "status": 301,
+      "location": "https://proxyhubb.com/",
+      "passed": true
+    }
+  ],
+  "failures": 0
+}

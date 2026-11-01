@@ -14,7 +14,7 @@ import { SolflareWalletAdapter } from '@solana/wallet-adapter-solflare';
 import { clusterApiUrl, Keypair, PublicKey, Transaction, VersionedTransaction } from '@solana/web3.js';
 
 // Import default styles
-import '@solana/wallet-adapter-react-ui/styles.css';
+import '@/styles/wallet-adapter.css';
 import { WalletAuthSync } from '@/components/WalletAuthSync';
 import {
     WALLET_SESSION_RESET_EVENT,
