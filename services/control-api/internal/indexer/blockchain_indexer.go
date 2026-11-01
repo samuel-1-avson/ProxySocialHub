@@ -225,6 +225,13 @@ func (bi *BlockchainIndexer) indexNewSlots() error {
 
 	for slot := startSlot; slot <= endSlot; slot++ {
 		if err := bi.indexSlot(slot); err != nil {
+			if isIndexerRPCQuotaError(err) {
+				// Abort the batch: the watermark stays at the last
+				// indexed slot and the loop-level 60s backoff engages.
+				// Without this the indexer fires the full batch into
+				// a throttled endpoint every poll and burns the quota.
+				return err
+			}
 			logging.Error(err).Uint64("slot", slot).Msg("[BlockchainIndexer] Failed to index slot")
 			continue
 		}
@@ -726,5 +733,5 @@ func isIndexerRPCQuotaError(err error) bool {
 		return false
 	}
 	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "max usage reached") || strings.Contains(msg, "32429") || strings.Contains(msg, "429")
+	return strings.Contains(msg, "max usage reached") || strings.Contains(msg, "too many requests") || strings.Contains(msg, "32429") || strings.Contains(msg, "429")
 }
