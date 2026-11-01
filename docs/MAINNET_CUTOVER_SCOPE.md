@@ -152,7 +152,11 @@ The new preflight must check live state and fail closed:
 - Audit surface is 60+ instructions (not the 4-instruction web IDL): larger
   audit scope, cost, and schedule than the escrow-only picture.
 - Single free-tier price source and public RPC today: both already showed
-  limits on devnet.
+  limits on devnet. Live 2026-11-01: control-api's own BlockchainIndexer
+  emits ~90 `getBlock` 429s/min, exhausting the Helius key quota ("max usage
+  reached") and throttling the public fallbacks. Deposit verification and
+  any preflight share the same starved quota until the indexer is fixed or
+  moved to a dedicated endpoint/key.
 - Two unauthenticated admin POSTs (geoip backfill, map-links aggregate)
   stay registered under `staging`; remove or auth-gate them before mainnet.
 - No CI (billing): every cutover change still goes through the manual gate
