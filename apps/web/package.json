@@ -18,6 +18,7 @@
     "test:e2e:buyer": "playwright test e2e/buyer-journey.spec.ts e2e/workspace.spec.ts e2e/marketplace-browse-buy.spec.ts e2e/marketplace-order-credentials.spec.ts --project=chromium --workers=1",
     "test:e2e:seller": "playwright test e2e/seller-workflows.spec.ts e2e/workspace.spec.ts --project=chromium --workers=1",
     "test:listing-display": "node scripts/listing-display-contract.mjs",
+    "test:listing-signer": "node --test scripts/listing-signer.test.mjs",
     "test:order-status": "node scripts/order-status-contract.mjs",
     "test:wallet-session": "node scripts/wallet-session-contract.mjs",
     "test:explorer-redirects": "node --test scripts/explorer-redirects.test.mjs",
