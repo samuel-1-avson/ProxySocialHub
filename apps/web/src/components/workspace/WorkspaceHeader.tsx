@@ -48,6 +48,9 @@ export function WorkspaceHeader() {
       : "Your account");
   const destinations = [
     ...WORKSPACE_DESTINATIONS[mode],
+    { label: "Community forum", href: "/community/forum" },
+    { label: "Activity feed", href: "/community/feed" },
+    { label: "Governance", href: "/governance" },
     { label: "Settings", href: "/app/settings" },
     { label: "Wallet", href: "/app/wallet" },
     { label: "Inbox", href: "/messages" },
@@ -59,8 +62,8 @@ export function WorkspaceHeader() {
   return (
     <>
       <header className="workspace-header">
-        <Link className="workspace-mobile-brand" href="/app">
-          <span className="workspace-mark">ph</span>
+        <Link className="workspace-mobile-brand" href={mode === "seller" ? "/provider" : "/app"}>
+          <span className="workspace-mark" aria-hidden="true">PH</span>
           <span>ProxyHubb</span>
         </Link>
         <button

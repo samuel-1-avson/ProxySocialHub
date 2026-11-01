@@ -113,13 +113,13 @@ export async function getCategoryThreads(
 
 export async function getThread(id: string): Promise<{ thread: ForumThread; posts: ForumPost[] }> {
     const res = await publicApiFetch(`${API_BASE}/v1/forum/threads/${id}`);
-    if (!res.ok) throw new Error("Thread not found");
+    if (!res.ok) throw new Error(res.status === 404 ? "Discussion not found" : "Discussion service is unavailable. Try again in a moment.");
     return res.json();
 }
 
 export async function getThreadBySlug(slug: string): Promise<{ thread: ForumThread; posts: ForumPost[] }> {
     const res = await publicApiFetch(`${API_BASE}/v1/forum/threads/slug/${slug}`);
-    if (!res.ok) throw new Error("Thread not found");
+    if (!res.ok) throw new Error(res.status === 404 ? "Discussion not found" : "Discussion service is unavailable. Try again in a moment.");
     return res.json();
 }
 

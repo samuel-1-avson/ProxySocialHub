@@ -1,6 +1,12 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { AlertCircle, ArrowRight, Loader2 } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowRight,
+  Inbox,
+  Loader2,
+  RefreshCw,
+} from "lucide-react";
 
 export function PageHeading({
   title,
@@ -30,32 +36,50 @@ export function Loading({
   label?: string;
 }) {
   return (
-    <div className="ui-loading" role="status">
-      <Loader2 size={18} className="animate-spin" aria-hidden="true" />
-      {label}
+    <div className="ui-loading-panel" role="status" aria-live="polite">
+      <div className="ui-loading-label">
+        <Loader2 size={17} className="animate-spin" aria-hidden="true" />
+        {label}
+      </div>
+      <div className="ui-loading-skeleton" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </div>
     </div>
   );
 }
 export function DataError({
   error,
   retry,
+  title = "This data is unavailable",
 }: {
   error: unknown;
   retry?: () => void;
+  title?: string;
 }) {
+  const message = error instanceof Error ? error.message : "";
+  const generic =
+    !message ||
+    /^(request failed|failed to fetch|network error)$/i.test(message);
   return (
     <div className="ui-error" role="alert">
       <strong className="ui-inline-icon">
         <AlertCircle size={17} aria-hidden="true" />
-        This data is unavailable
+        {title}
       </strong>
       <p>
-        {error instanceof Error
-          ? error.message
-          : "We could not load this section. Other parts of your workspace are still available."}
+        {generic
+          ? "We couldn’t load this section. Try again in a moment; your other workspace tools are still available."
+          : message}
       </p>
       {retry && (
-        <button className="ui-button small secondary" onClick={retry}>
+        <button
+          type="button"
+          className="ui-button small secondary"
+          onClick={retry}
+        >
+          <RefreshCw size={13} aria-hidden="true" />
           Try again
         </button>
       )}
@@ -67,14 +91,19 @@ export function EmptyState({
   description,
   href,
   action,
+  icon,
 }: {
   title: string;
   description: string;
   href?: string;
   action?: string;
+  icon?: ReactNode;
 }) {
   return (
     <section className="ui-empty">
+      <span className="ui-empty-icon" aria-hidden="true">
+        {icon ?? <Inbox size={24} />}
+      </span>
       <h2>{title}</h2>
       <p>{description}</p>
       {href && (
@@ -99,14 +128,23 @@ export function Stat({
   label,
   value,
   detail,
+  icon,
 }: {
   label: string;
   value: ReactNode;
   detail: string;
+  icon?: ReactNode;
 }) {
   return (
-    <div>
-      <div className="ui-stat-label">{label}</div>
+    <div className="ui-stat-card">
+      <div className="ui-stat-top">
+        <div className="ui-stat-label">{label}</div>
+        {icon && (
+          <span className="ui-stat-icon" aria-hidden="true">
+            {icon}
+          </span>
+        )}
+      </div>
       <div className="ui-stat-value">{value}</div>
       <div className="ui-stat-detail">{detail}</div>
     </div>

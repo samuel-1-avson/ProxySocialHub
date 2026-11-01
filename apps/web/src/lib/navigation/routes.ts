@@ -247,8 +247,8 @@ export const PRIMARY_AUTH_NAV = [
 
 export const FOOTER_PLATFORM_LINKS = [
     { href: ROUTES.marketplace, label: "Marketplace" },
-    { href: ROUTES.communityForum, label: "Forum" },
-    { href: `${ROUTES.register}?role=provider`, label: "Become a Seller" },
+    { href: "/community/forum", label: "Community forum" },
+    { href: `${ROUTES.register}?role=provider`, label: "Become a provider" },
 ];
 
 export const FOOTER_SUPPORT_LINKS = [

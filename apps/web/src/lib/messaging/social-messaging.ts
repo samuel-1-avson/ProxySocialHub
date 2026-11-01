@@ -76,7 +76,9 @@ export async function sendMessageNormalized(
 export async function startConversationNormalized(recipientId: string, message: string): Promise<Conversation> {
     const started = await postStartConversation(recipientId, message);
     const conversationId = started.conversation_id || started.id;
-    const rows = await fetchConversations();
+    // The first message is already accepted. A failed preview refresh must not
+    // turn that successful write into a retryable send failure.
+    const rows = await fetchConversations().catch(() => [] as ConversationWithPreview[]);
     const match = rows.find((row) => row.id === conversationId);
     if (match) return mapApiConversation(match);
     return {

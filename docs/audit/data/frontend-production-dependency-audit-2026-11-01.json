@@ -1,0 +1,224 @@
+{
+  "auditReportVersion": 2,
+  "vulnerabilities": {
+    "@solana/wallet-adapter-base": {
+      "name": "@solana/wallet-adapter-base",
+      "severity": "moderate",
+      "isDirect": true,
+      "via": [
+        "@solana/web3.js"
+      ],
+      "effects": [
+        "@solana/wallet-adapter-phantom",
+        "@solana/wallet-adapter-react",
+        "@solana/wallet-adapter-react-ui",
+        "@solana/wallet-adapter-solflare"
+      ],
+      "range": ">=0.9.28",
+      "nodes": [
+        "node_modules/@solana/wallet-adapter-base"
+      ],
+      "fixAvailable": true
+    },
+    "@solana/wallet-adapter-base-ui": {
+      "name": "@solana/wallet-adapter-base-ui",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        "@solana/wallet-adapter-react",
+        "@solana/web3.js"
+      ],
+      "effects": [
+        "@solana/wallet-adapter-react-ui"
+      ],
+      "range": ">=0.1.7",
+      "nodes": [
+        "node_modules/@solana/wallet-adapter-base-ui"
+      ],
+      "fixAvailable": true
+    },
+    "@solana/wallet-adapter-phantom": {
+      "name": "@solana/wallet-adapter-phantom",
+      "severity": "moderate",
+      "isDirect": true,
+      "via": [
+        "@solana/wallet-adapter-base",
+        "@solana/web3.js"
+      ],
+      "effects": [],
+      "range": ">=0.9.30",
+      "nodes": [
+        "node_modules/@solana/wallet-adapter-phantom"
+      ],
+      "fixAvailable": true
+    },
+    "@solana/wallet-adapter-react": {
+      "name": "@solana/wallet-adapter-react",
+      "severity": "moderate",
+      "isDirect": true,
+      "via": [
+        "@solana/wallet-adapter-base",
+        "@solana/web3.js"
+      ],
+      "effects": [
+        "@solana/wallet-adapter-base-ui",
+        "@solana/wallet-adapter-react-ui"
+      ],
+      "range": ">=0.15.40",
+      "nodes": [
+        "node_modules/@solana/wallet-adapter-react"
+      ],
+      "fixAvailable": true
+    },
+    "@solana/wallet-adapter-react-ui": {
+      "name": "@solana/wallet-adapter-react-ui",
+      "severity": "moderate",
+      "isDirect": true,
+      "via": [
+        "@solana/wallet-adapter-base",
+        "@solana/wallet-adapter-base-ui",
+        "@solana/wallet-adapter-react",
+        "@solana/web3.js"
+      ],
+      "effects": [],
+      "range": ">=0.9.40",
+      "nodes": [
+        "node_modules/@solana/wallet-adapter-react-ui"
+      ],
+      "fixAvailable": true
+    },
+    "@solana/wallet-adapter-solflare": {
+      "name": "@solana/wallet-adapter-solflare",
+      "severity": "moderate",
+      "isDirect": true,
+      "via": [
+        "@solana/wallet-adapter-base",
+        "@solana/web3.js"
+      ],
+      "effects": [],
+      "range": ">=0.6.34",
+      "nodes": [
+        "node_modules/@solana/wallet-adapter-solflare"
+      ],
+      "fixAvailable": true
+    },
+    "@solana/web3.js": {
+      "name": "@solana/web3.js",
+      "severity": "moderate",
+      "isDirect": true,
+      "via": [
+        "jayson"
+      ],
+      "effects": [
+        "@solana/wallet-adapter-base",
+        "@solana/wallet-adapter-base-ui",
+        "@solana/wallet-adapter-phantom",
+        "@solana/wallet-adapter-react",
+        "@solana/wallet-adapter-react-ui",
+        "@solana/wallet-adapter-solflare"
+      ],
+      "range": "1.99.0-beta.0 - 1.99.0",
+      "nodes": [
+        "node_modules/@solana/web3.js"
+      ],
+      "fixAvailable": true
+    },
+    "jayson": {
+      "name": "jayson",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        "stream-json"
+      ],
+      "effects": [
+        "@solana/web3.js"
+      ],
+      "range": "4.2.0 - 4.3.0",
+      "nodes": [
+        "node_modules/jayson"
+      ],
+      "fixAvailable": true
+    },
+    "stream-json": {
+      "name": "stream-json",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1164823,
+          "name": "stream-json",
+          "dependency": "stream-json",
+          "title": "stream-json: pick/ignore/filter/replace filters are O(depth²) on nested input — small crafted JSON blocks the event loop for seconds→minutes (DoS)",
+          "url": "https://github.com/advisories/GHSA-528h-pc64-c93x",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-407"
+          ],
+          "cvss": {
+            "score": 6.2,
+            "vectorString": "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+          },
+          "range": "<=3.4.0"
+        },
+        {
+          "source": 1241262,
+          "name": "stream-json",
+          "dependency": "stream-json",
+          "title": "stream-json: JSONC parser and verifier re-scan the whole accumulated comment on every input chunk",
+          "url": "https://github.com/advisories/GHSA-hqr4-qq8f-hg3x",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-407"
+          ],
+          "cvss": {
+            "score": 6.2,
+            "vectorString": "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+          },
+          "range": "<=3.5.0"
+        },
+        {
+          "source": 1241263,
+          "name": "stream-json",
+          "dependency": "stream-json",
+          "title": "stream-json has a prototype pollution issue: Assembler writes this.current[this.key] on plain objects",
+          "url": "https://github.com/advisories/GHSA-mjw6-4jj6-33hc",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-1321"
+          ],
+          "cvss": {
+            "score": 5.1,
+            "vectorString": "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:L"
+          },
+          "range": "<3.6.0"
+        }
+      ],
+      "effects": [
+        "jayson"
+      ],
+      "range": "<=3.5.0",
+      "nodes": [
+        "node_modules/stream-json"
+      ],
+      "fixAvailable": true
+    }
+  },
+  "metadata": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 9,
+      "high": 0,
+      "critical": 0,
+      "total": 9
+    },
+    "dependencies": {
+      "prod": 688,
+      "dev": 330,
+      "optional": 111,
+      "peer": 171,
+      "peerOptional": 0,
+      "total": 1247
+    }
+  }
+}

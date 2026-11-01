@@ -8,7 +8,7 @@ import {
   marketplaceKeys,
   type Order,
 } from "@/lib/api/marketplace";
-import { BuyListingModal } from "@/components/BuyListingModal";
+import { LazyBuyListingModal as BuyListingModal } from "@/components/marketplace/LazyBuyListingModal";
 import { Modal } from "@/components/patterns/Modal";
 import { DataError } from "@/components/workspace/Patterns";
 

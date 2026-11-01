@@ -277,7 +277,7 @@ export function ProviderSetupGuide() {
                             </div>
                             <div className="space-y-2">
                                 <div className="text-xs text-muted-foreground">
-                                    Copy this token now. You won't be able to see it again:
+                                    Copy this token now. You won&#39;t be able to see it again:
                                 </div>
                                 <div className="flex items-center gap-2">
                                     <div className="flex-1 bg-secondary border border-border rounded-lg px-3 py-2 font-mono text-xs text-foreground truncate">

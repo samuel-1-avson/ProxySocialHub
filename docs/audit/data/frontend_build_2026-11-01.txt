@@ -1,0 +1,166 @@
+
+> web@0.1.0 build
+> next build
+
+▲ Next.js 16.4.3 (Turbopack)
+NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID is not set. WalletConnect-backed EVM wallets will be unavailable in the web app, but Solana wallet login still works.
+✓ Running next.config.ts took 257ms
+- Experiments (use with caution):
+  · optimizePackageImports
+
+⚠ The "middleware" file convention is deprecated. Please use "proxy" instead.
+
+  To migrate automatically, run:
+  npx @next/codemod@canary middleware-to-proxy .
+
+  Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+  Creating an optimized production build ...
+✓ Compiled successfully in 13.0s
+  Running TypeScript ...
+  Finished TypeScript in 27.4s ...
+  Collecting page data using 15 workers ...
+  Generating static pages using 15 workers (0/111) ...
+  Generating static pages using 15 workers (27/111) 
+  Generating static pages using 15 workers (55/111) 
+  Generating static pages using 15 workers (83/111) 
+✓ Generating static pages using 15 workers (111/111) in 2.8s
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ƒ /403
+├ ƒ /api/health
+├ ƒ /api/proxy/test
+├ ƒ /api/sessions/stream
+├ ○ /app
+├ ○ /app/activity
+├ ƒ /app/activity/orders/[id]
+├ ○ /app/connections
+├ ƒ /app/connections/[id]
+├ ƒ /app/connections/sessions/[id]
+├ ○ /app/settings
+├ ○ /app/wallet
+├ ○ /community/beta
+├ ○ /community/feed
+├ ○ /community/forum
+├ ƒ /community/forum/category/[slug]
+├ ○ /community/forum/my-posts
+├ ○ /community/forum/new
+├ ○ /community/forum/popular
+├ ○ /community/forum/recent
+├ ƒ /community/forum/thread/[id]
+├ ○ /community/forum/unanswered
+├ ○ /community/friends
+├ ○ /community/messages
+├ ○ /community/referrals
+├ ○ /contact
+├ ○ /dashboard
+├ ○ /dashboard/admin
+├ ○ /dashboard/agents
+├ ○ /dashboard/analytics
+├ ○ /dashboard/become-provider
+├ ○ /dashboard/feed
+├ ○ /dashboard/messages
+├ ○ /dashboard/monitoring
+├ ƒ /dashboard/orders/[id]
+├ ○ /dashboard/profile
+├ ○ /dashboard/provider
+├ ○ /dashboard/provider/analytics
+├ ○ /dashboard/provider/circle
+├ ○ /dashboard/provider/cli
+├ ○ /dashboard/provider/earnings
+├ ○ /dashboard/provider/health
+├ ○ /dashboard/provider/nodes
+├ ○ /dashboard/provider/pair
+├ ○ /dashboard/provider/relationships
+├ ○ /dashboard/provider/services
+├ ○ /dashboard/provider/setup
+├ ○ /dashboard/provider/tokens
+├ ○ /dashboard/proxy
+├ ○ /dashboard/security
+├ ○ /dashboard/sessions
+├ ○ /dashboard/settings/account
+├ ○ /dashboard/settings/api-keys
+├ ○ /dashboard/settings/devices
+├ ○ /dashboard/settings/identity
+├ ○ /dashboard/settings/notifications
+├ ○ /dashboard/settings/security
+├ ○ /dashboard/subscriptions
+├ ○ /dashboard/trustless
+├ ○ /dashboard/usage
+├ ○ /dashboard/wallet
+├ ○ /dashboard/wallet/callback
+├ ○ /depin
+├ ○ /explorer
+├ ○ /explorer/about/protocol
+├ ○ /explorer/analytics
+├ ○ /explorer/blocks
+├ ƒ /explorer/blocks/[number]
+├ ○ /explorer/contracts
+├ ƒ /explorer/contracts/[address]
+├ ○ /explorer/earnings
+├ ○ /explorer/health
+├ ○ /explorer/leaderboard
+├ ○ /explorer/map
+├ ○ /explorer/nodes
+├ ƒ /explorer/nodes/[id]
+├ ○ /explorer/nodes/compare
+├ ○ /explorer/search
+├ ○ /explorer/sessions
+├ ○ /explorer/transactions
+├ ƒ /explorer/transactions/[hash]
+├ ○ /explorer/wallets
+├ ƒ /explorer/wallets/[address]
+├ ○ /governance
+├ ƒ /governance/[id]
+├ ○ /governance/create
+├ ○ /guidelines
+├ ○ /help
+├ ƒ /help/community/archive/[section]
+├ ○ /help/contact
+├ ƒ /help/forum
+├ ƒ /help/forum/category/[slug]
+├ ○ /help/forum/new
+├ ƒ /help/forum/thread/[id]
+├ ○ /help/guidelines
+├ ○ /leaderboards
+├ ○ /login
+├ ○ /marketplace
+├ ƒ /marketplace/[id]
+├ ○ /marketplace/create
+├ ƒ /marketplace/manage
+├ ○ /marketplace/manage/products
+├ ○ /marketplace/map
+├ ○ /marketplace/orders
+├ ƒ /marketplace/orders/[id]
+├ ○ /marketplace/saved
+├ ○ /messages
+├ ○ /network
+├ ○ /onboarding
+├ ○ /privacy
+├ ○ /privacy/extension
+├ ○ /profile
+├ ƒ /profile/[username]
+├ ○ /provider
+├ ○ /provider/earnings
+├ ○ /provider/listings
+├ ○ /provider/listings/new
+├ ○ /provider/nodes
+├ ƒ /provider/nodes/[id]
+├ ○ /provider/nodes/credentials
+├ ○ /provider/nodes/new
+├ ƒ /providers/[id]
+├ ○ /register
+├ ƒ /settings
+├ ○ /settings/notifications
+├ ○ /terms
+├ ○ /treasury
+└ ○ /whitepaper
+
+
+ƒ Proxy (Middleware)
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
