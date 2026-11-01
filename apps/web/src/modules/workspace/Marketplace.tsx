@@ -348,16 +348,16 @@ export function Marketplace() {
                         ) : (
                           <span>Not measured</span>
                         )}
+                        <small>
+                          {listing.avg_latency_ms > 0
+                            ? ["gateway", "explorer"].includes(
+                                listing.sla_source || "",
+                              )
+                              ? "Measured"
+                              : "Reported"
+                            : "No measurement"}
+                        </small>
                       </dd>
-                      <small>
-                        {listing.avg_latency_ms > 0
-                          ? ["gateway", "explorer"].includes(
-                              listing.sla_source || "",
-                            )
-                            ? "Measured"
-                            : "Reported"
-                          : "No measurement"}
-                      </small>
                     </div>
                     <div>
                       <dt>Minimum</dt>
