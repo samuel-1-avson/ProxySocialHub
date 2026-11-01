@@ -109,8 +109,8 @@ export default function RegisterPage() {
             </p>
             <p className="auth-legal">
               By connecting your wallet, you agree to the{" "}
-              <Link href={ROUTES.terms}>Terms of Service</Link> and{" "}
-              <Link href={ROUTES.privacy}>Privacy Policy</Link>.
+              <Link className="underline underline-offset-4" href={ROUTES.terms}>Terms of Service</Link> and{" "}
+              <Link className="underline underline-offset-4" href={ROUTES.privacy}>Privacy Policy</Link>.
             </p>
           </div>
         </section>

@@ -37,7 +37,7 @@ test.describe("marketplace map buy-from-map", () => {
     const modal = page.getByTestId("buy-listing-modal");
     await expect(modal).toBeVisible({ timeout: 15000 });
     await expect(
-      modal.getByRole("heading", { name: /review purchase/i }),
+      modal.getByRole("heading", { name: /buy with sol/i }),
     ).toBeVisible();
     // The title is both the dialog description and the listing card heading.
     await expect(
