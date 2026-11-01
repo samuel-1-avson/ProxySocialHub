@@ -35,6 +35,10 @@ function formatApiErrorMessage(error: Record<string, unknown>): string {
     if (typeof error.detail === 'string' && error.detail.trim() && !base.includes(error.detail)) {
         return `${base}: ${error.detail}`;
     }
+    // Proof and validation failures put the reason in `details`.
+    if (typeof error.details === 'string' && error.details.trim() && !base.includes(error.details)) {
+        return `${base}: ${error.details}`;
+    }
     if (error.limit_type != null && typeof error.remaining === 'number') {
         const window = String(error.limit_type);
         return `${base}. About ${error.remaining.toFixed(2)} SOL left on your ${window} limit`;

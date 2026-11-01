@@ -44,6 +44,7 @@ import {
   amount,
   countryName,
 } from "@/components/workspace/Patterns";
+import { listingProtocolLabel } from "@/lib/listing-protocols";
 
 export function Marketplace() {
   const params = useSearchParams();
@@ -323,7 +324,7 @@ export function Marketplace() {
                   </div>
                   <div className="offer-type-line">
                     <span>{listing.proxy_type}</span>
-                    <span>{listing.protocol || "Protocol not specified"}</span>
+                    <span>{listing.protocol ? listingProtocolLabel(listing.protocol) : "Protocol not specified"}</span>
                   </div>
                   <dl className="offer-specs">
                     <div>

@@ -41,6 +41,7 @@ import {
 } from "@/components/workspace/Patterns";
 import { useSellerNodes } from "./SellerNodes";
 import { NodeKeyImport, useListingSigner } from "./NodeKeyImport";
+import { listingProtocolLabel } from "@/lib/listing-protocols";
 
 export function SellerListings() {
   const { user } = useAuth();
@@ -173,7 +174,7 @@ export function SellerListings() {
               <CatalogProductBadge product={listing.catalog_product} />
               <p className="ui-note">
                 {countryName(listing.country)} · {listing.proxy_type} ·{" "}
-                {listing.protocol}
+                {listingProtocolLabel(listing.protocol)}
               </p>
               <div className="ui-listing-meta">
                 <Status
@@ -406,6 +407,9 @@ function EditOffer({
           devServerSigning,
         });
         const form: CreateListingRequest = {
+          // The dev signer resolves the node from this; without it a seller
+          // with several nodes gets a signature for the wrong one.
+          provider_node_id: listing.provider_node_id,
           title: title.trim(),
           description: description.trim(),
           proxy_type: listing.proxy_type,

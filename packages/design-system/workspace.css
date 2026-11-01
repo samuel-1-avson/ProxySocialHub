@@ -527,6 +527,61 @@ select option:disabled {
   font-size: 11px;
   color: var(--muted-foreground);
 }
+/* A group of checkboxes inside a form grid (for example listing protocols). */
+fieldset.ui-choice-group {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.ui-choice-group legend {
+  padding: 0;
+  margin-bottom: 7px;
+}
+.ui-choice-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ui-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--input);
+  border-radius: 7px;
+  background-color: var(--card);
+  font-size: 14px;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast),
+    background-color var(--dur-fast);
+}
+.ui-choice:hover {
+  border-color: var(--border-strong);
+}
+.ui-choice:has(input:checked) {
+  border-color: color-mix(in srgb, var(--accent) 70%, var(--input));
+  background-color: color-mix(in srgb, var(--accent) 14%, var(--card));
+}
+.ui-choice:has(input:focus-visible) {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 28%, transparent);
+}
+.ui-choice input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.ui-problem-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  list-style: disc;
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
 .ui-muted {
   color: var(--muted-foreground);
 }

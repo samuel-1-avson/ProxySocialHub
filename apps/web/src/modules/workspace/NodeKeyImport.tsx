@@ -149,6 +149,14 @@ export function NodeKeyImport({
           spellCheck={false}
           value={importKey}
           onChange={(e) => setImportKey(e.target.value)}
+          onKeyDown={(e) => {
+            // This panel can sit inside the edit form; Enter saves the key,
+            // not the offer.
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (importKey.trim() && !busy) void importSigningKey();
+            }
+          }}
           placeholder="Paste provider_signing_key from provider.toml"
         />
       </label>
@@ -164,6 +172,7 @@ export function NodeKeyImport({
       )}
       <div className="ui-actions">
         <button
+          type="button"
           className="ui-button secondary"
           disabled={!importKey.trim() || busy}
           onClick={() => void importSigningKey()}

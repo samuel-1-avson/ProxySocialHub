@@ -4,6 +4,7 @@
 
 import bs58 from 'bs58';
 import type { CreateListingRequest, ProviderProofEnvelope } from '@/lib/api/marketplace';
+import { canonicalListingProtocols } from '@/lib/listing-protocols';
 
 export const LISTING_OFFER_MESSAGE_TYPE = 'PROXYHUB_LISTING_OFFER';
 export const PROVIDER_PROOF_VERSION = 'v1';
@@ -69,7 +70,7 @@ export function canonicalListingFields(form: CreateListingRequest): {
     return {
         rotationType: form.rotation_type?.trim() || 'static',
         maxConcurrency: form.max_concurrency && form.max_concurrency > 0 ? form.max_concurrency : 5,
-        protocol: (form.protocol || 'http').trim().toLowerCase(),
+        protocol: canonicalListingProtocols(form.protocol),
         minPurchaseGb: form.min_purchase_gb ?? 0,
         description: form.description ?? '',
         country: form.country ?? '',
