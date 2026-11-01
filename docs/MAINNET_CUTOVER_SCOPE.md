@@ -12,10 +12,13 @@ the work, cost drivers, risks, and decisions required before real SOL moves.
   (`initializeEscrow`, `initializeEscrowMultisig`, `settleEscrow`,
   `refundEscrow`). Clients + IDL (`apps/web/src/lib/idl/proxyhub.json`) are in
   the repo.
-- **`programs/proxyhub` source is not in this repo and never was** (no git
-  history). Only `gateway-bond` and `reputation` have Anchor source. The
-  devnet escrow binary cannot be rebuilt, diffed, or independently audited
-  from this repo.
+- Escrow program source lives at `services/solana-programs/proxyhub/`
+  (~4,900-line `lib.rs`, 60+ instructions: escrow, multisig oracle, jury
+  disputes, staking, provider/gateway registry, listing commitments, session
+  escrow, governance, KYC attestations, ZK batches, channels).
+  `declare_id!` matches the devnet program `AZGh...QLfvu`, with security-fix
+  history (replay paths, payout math, signer binding). The web
+  `proxyhub.json` IDL is a 4-instruction client subset, not the full surface.
 - Hot payouts already sign via GCP KMS (`USE_GCP_KMS_HOT=true`, no file
   keypair). Oracle/hot/cold split and vault PDA model exist in config.
 - `APP_ENV` is unset in production, so BC-08 custody checks log warnings
@@ -33,15 +36,17 @@ the work, cost drivers, risks, and decisions required before real SOL moves.
 
 ## Workstreams
 
-### 1. Escrow program: source, audit, verifiable build, deploy
-- Recover the `proxyhub` program source (other team?) or rewrite from the IDL
-  as a clean-room implementation. No mainnet without source in-repo.
-- External audit of the program + settlement-adjacent Go
-  (`internal/solana`: escrow_init, settlement, watcher, velocity, multisig).
-- Verifiable build (`anchor build --verifiable`) pinned to the audited commit.
+### 1. Escrow program: verifiable build, audit, mainnet deploy
+- Confirm the devnet binary matches source: `anchor build --verifiable` at
+  the deployed commit and compare against the on-chain program hash.
+  Any drift must be explained before mainnet.
+- External audit of the full program surface (60+ instructions, not just the
+  4-instruction web IDL subset) + settlement-adjacent Go (`internal/solana`:
+  escrow_init, settlement, watcher, velocity, multisig).
+- Verifiable build pinned to the audited commit.
 - Fresh mainnet keypair; upgrade authority to a multisig from day one (never
   a single hot key). Initialize `program_state`, `deposit_vault` PDAs;
-  verify executable + owner on-chain. Publish IDL Hiero + checksums.
+  verify executable + owner on-chain. Publish full IDL + checksums.
 
 ### 2. Treasury and custody ceremony
 - Generate oracle / hot / cold keys (KMS HSM for oracle + hot; cold offline).
@@ -110,14 +115,14 @@ The new preflight must check live state and fail closed:
 
 ## Decisions needed from the user
 
-1. Escrow source: recover from the other team, or authorize a clean-room
-   rewrite from the IDL (+ who reviews it)?
+1. Program audit: firm, budget, timeline (audits take weeks and have
+   queues)? Scope is the full 60+ instruction surface, not the 4-instruction
+   web IDL subset.
 2. Treasury: opening floats, multisig members/threshold, cold-storage medium?
-3. Audit: firm, budget, timeline (audits typically take weeks and have queues)?
-4. RPC provider + budget; oracle sources + paid keys?
-5. Balances: confirm zero-reset (and order/dispute history: archive or fresh)?
-6. Launch shape: invite-only mainnet beta vs open? Target date?
-7. Fees, KYC/tax thresholds, refund policy?
+3. RPC provider + budget; oracle sources + paid keys?
+4. Balances: confirm zero-reset (and order/dispute history: archive or fresh)?
+5. Launch shape: invite-only mainnet beta vs open? Target date?
+6. Fees, KYC/tax thresholds, refund policy?
 
 ## Cost drivers (rough, confirm with vendors)
 
@@ -131,8 +136,10 @@ The new preflight must check live state and fail closed:
 
 ## Risks
 
-- Missing program source: the devnet binary's behavior is trusted, not
-  verified. Highest risk; workstream 1 retires it.
+- Devnet binary vs source drift is unverified: confirm via verifiable
+  build against the on-chain program hash before trusting either.
+- Audit surface is 60+ instructions (not the 4-instruction web IDL): larger
+  audit scope, cost, and schedule than the escrow-only picture.
 - Single free-tier price source and public RPC today: both already showed
   limits on devnet.
 - Custody checks currently warn-only (`APP_ENV` unset).
