@@ -3,6 +3,7 @@ import { Keypair, Transaction, SystemInstruction } from "@solana/web3.js";
 import bs58 from "bs58";
 import { verifyAsync } from "@noble/ed25519";
 import { seedSignedAuth } from "./fixtures/signed-auth";
+import { setHeaderTheme } from "./fixtures/theme";
 
 const base = process.env.TEST_BASE_URL || "http://localhost:4011";
 const expect = baseExpect.configure({ timeout: 30_000 });
@@ -456,9 +457,7 @@ test.describe("automatic wallet transfers", () => {
     for (const theme of ["light", "dark"]) {
       await page.setViewportSize({ width: 1440, height: 1100 });
       await page.goto(`${base}/app/wallet?tab=funds`);
-      await page
-        .getByRole("combobox", { name: "Color theme", exact: true })
-        .selectOption(theme);
+      await setHeaderTheme(page, theme);
       await page.getByLabel("Deposit amount (SOL)").fill("0.1");
       await expect(
         page.getByRole("button", { name: "Review deposit", exact: true }),

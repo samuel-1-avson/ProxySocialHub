@@ -1,5 +1,6 @@
 import { expect as playwrightExpect, test, type Page } from "@playwright/test";
 import { seedSignedAuth } from "./fixtures/signed-auth";
+import { setHeaderTheme } from "./fixtures/theme";
 
 const base = process.env.TEST_BASE_URL || "http://localhost:4011";
 const expect = playwrightExpect.configure({ timeout: 30_000 });
@@ -60,16 +61,12 @@ test.describe("buyer and seller workspaces", () => {
       content:
         "nextjs-portal, .tsqd-parent-container { display: none !important; }",
     });
-    await page
-      .getByRole("combobox", { name: "Color theme" })
-      .selectOption("dark");
+    await setHeaderTheme(page, "dark");
     await page.screenshot({
       path: testInfo.outputPath("buyer-workspace-dark.png"),
       fullPage: true,
     });
-    await page
-      .getByRole("combobox", { name: "Color theme" })
-      .selectOption("light");
+    await setHeaderTheme(page, "light");
     await page.screenshot({
       path: testInfo.outputPath("buyer-workspace.png"),
       fullPage: true,
@@ -102,18 +99,18 @@ test.describe("buyer and seller workspaces", () => {
   });
   test("persists explicit light and dark themes and supports a 320px workspace", async ({
     page,
-  }) => {
+  }, testInfo) => {
     await stubWorkspace(page);
     await seedSignedAuth(page, base, "buyer");
     await page.goto(`${base}/app`, { waitUntil: "domcontentloaded" });
-    await page
-      .getByRole("combobox", { name: "Color theme" })
-      .selectOption("dark");
+    const header = page.getByRole("banner");
+    await expect(header.getByRole("combobox")).toHaveCount(0);
+    await setHeaderTheme(page, "dark");
     await expect(page.locator("html")).toHaveClass(/dark/);
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(
-      page.getByRole("combobox", { name: "Color theme" }),
-    ).toHaveValue("dark");
+      header.getByRole("button", { name: "Switch to light theme" }),
+    ).toBeVisible();
     await page.setViewportSize({ width: 320, height: 740 });
     const mobile = page.getByRole("navigation", { name: "Mobile primary" });
     await expect(mobile.getByRole("link")).toHaveText([
@@ -128,6 +125,9 @@ test.describe("buyer and seller workspaces", () => {
         () => document.documentElement.scrollWidth <= window.innerWidth,
       ),
     ).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath("workspace-header-mobile.png") });
+    await setHeaderTheme(page, "light");
+    await expect(page.locator("html")).toHaveClass(/light/);
     await page.getByRole("button", { name: "Account menu" }).click();
     const dialog = page.getByRole("dialog");
     await expect(
@@ -136,17 +136,14 @@ test.describe("buyer and seller workspaces", () => {
     await expect(
       dialog.getByRole("combobox", { name: "Workspace", exact: true }),
     ).toHaveValue("buyer");
-    await page.keyboard.press("Escape");
-    await page
-      .getByRole("combobox", { name: "Color theme" })
-      .selectOption("light");
-    await expect(page.locator("html")).toHaveClass(/light/);
-    await page
+    await dialog
       .getByRole("combobox", { name: "Color theme" })
       .selectOption("system");
     await expect(
-      page.getByRole("combobox", { name: "Color theme" }),
+      dialog.getByRole("combobox", { name: "Color theme" }),
     ).toHaveValue("system");
+    await page.keyboard.press("Escape");
+    await expect(header.getByRole("combobox")).toHaveCount(0);
   });
   test("keeps seller access protected and offers onboarding to buyers", async ({
     page,
