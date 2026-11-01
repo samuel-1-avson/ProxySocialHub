@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import {
   Dialog,
   DialogContent,
@@ -53,9 +53,26 @@ export function Modal({
   contentClassName,
   testId,
 }: ModalProps) {
+  const returnFocus = useRef<HTMLElement | null>(null);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
+        onOpenAutoFocus={() => {
+          // Programmatically opened dialogs have no Radix Trigger to restore.
+          returnFocus.current =
+            document.activeElement instanceof HTMLElement
+              ? document.activeElement
+              : null;
+        }}
+        onCloseAutoFocus={(event) => {
+          const target = returnFocus.current?.isConnected
+            ? returnFocus.current
+            : document.getElementById("main-content");
+          if (target) {
+            event.preventDefault();
+            target.focus({ preventScroll: true });
+          }
+        }}
         data-testid={testId}
         hideCloseButton={hideCloseButton}
         {...(!description ? { "aria-describedby": undefined } : {})}
@@ -63,7 +80,9 @@ export function Modal({
       >
         <DialogHeader className="border-b border-border px-6 py-4 text-left">
           <DialogTitle>{title}</DialogTitle>
-          {description ? <DialogDescription>{description}</DialogDescription> : null}
+          {description ? (
+            <DialogDescription>{description}</DialogDescription>
+          ) : null}
         </DialogHeader>
         <div className={cn("px-6 py-5", contentClassName)}>{children}</div>
         {footer ? (

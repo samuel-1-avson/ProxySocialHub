@@ -1,6 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
+import Image from "next/image";
+import { useTheme } from "next-themes";
+import {
+  Bell,
+  Gift,
+  History,
+  Monitor,
+  Moon,
+  ShieldCheck,
+  SlidersHorizontal,
+  Sun,
+  UserRound,
+} from "lucide-react";
 import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
 import { useSearchParams } from "next/navigation";
@@ -17,22 +30,26 @@ import {
   updateNotificationPreferences,
   type NotificationPreference,
 } from "@/lib/notifications-api";
-import { ThemeSelect } from "@/components/workspace/ThemeSelect";
 import { Modal } from "@/components/patterns/Modal";
-import ReferralPage from "@/app/community/referrals/page";
+import ReferralPage from "@/components/settings/ReferralsPanel";
 import {
   PageHeading,
   Loading,
   DataError,
   Status,
+  EmptyState,
   shortDate,
 } from "@/components/workspace/Patterns";
 
 export function AccountSettings() {
   const params = useSearchParams();
-  const tab = ["preferences", "security", "devices", "history", "referrals"].includes(
-    params.get("tab") ?? "",
-  )
+  const tab = [
+    "preferences",
+    "security",
+    "devices",
+    "history",
+    "referrals",
+  ].includes(params.get("tab") ?? "")
     ? params.get("tab")!
     : "profile";
   return (
@@ -47,41 +64,50 @@ export function AccountSettings() {
           </Link>
         }
       />
-      <nav className="ui-tabs" aria-label="Settings views">
-        {[
-          ["profile", "Profile"],
-          ["preferences", "Preferences"],
-          ["security", "Security"],
-          ["devices", "Devices"],
-          ["history", "Security activity"],
-          ["referrals", "Referrals"],
-        ].map(([key, label]) => (
-          <Link
-            key={key}
-            href={
-              key === "profile" ? "/app/settings" : `/app/settings?tab=${key}`
-            }
-            className={tab === key ? "active" : ""}
-            aria-current={tab === key ? "page" : undefined}
-          >
-            {label}
-          </Link>
-        ))}
-      </nav>
-      {tab === "profile" ? (
-        <ProfileSettings />
-      ) : tab === "preferences" ? (
-        <Preferences />
-      ) : tab === "security" ? (
-        <Authentication />
-      ) : tab === "devices" ? (
-        <Devices />
-      ) : tab === "referrals" ? (
-        <ReferralPage />
-      ) : (
-        <SecurityActivity />
-      )}
-      <details className="ui-note">
+      <div className="settings-layout">
+        <nav className="settings-nav" aria-label="Settings views">
+          {[
+            { key: "profile", label: "Profile", icon: UserRound },
+            {
+              key: "preferences",
+              label: "Preferences",
+              icon: SlidersHorizontal,
+            },
+            { key: "security", label: "Security", icon: ShieldCheck },
+            { key: "devices", label: "Devices", icon: Monitor },
+            { key: "history", label: "Security activity", icon: History },
+            { key: "referrals", label: "Referrals", icon: Gift },
+          ].map(({ key, label, icon: Icon }) => (
+            <Link
+              key={key}
+              href={
+                key === "profile" ? "/app/settings" : `/app/settings?tab=${key}`
+              }
+              className={tab === key ? "active" : ""}
+              aria-current={tab === key ? "page" : undefined}
+            >
+              <Icon size={17} aria-hidden="true" />
+              {label}
+            </Link>
+          ))}
+        </nav>
+        <div className="settings-content">
+          {tab === "profile" ? (
+            <ProfileSettings />
+          ) : tab === "preferences" ? (
+            <Preferences />
+          ) : tab === "security" ? (
+            <Authentication />
+          ) : tab === "devices" ? (
+            <Devices />
+          ) : tab === "referrals" ? (
+            <ReferralPage />
+          ) : (
+            <SecurityActivity />
+          )}
+        </div>
+      </div>
+      <details className="workflow-advanced ui-note">
         <summary>Advanced account tools</summary>
         <div className="ui-actions mt-3">
           <Link className="ui-link" href="/dashboard/settings/account">
@@ -180,7 +206,38 @@ function ProfileForm({ profile }: { profile: UserPublicProfile }) {
         if (draft.username.trim()) save.mutate();
       }}
     >
-      <h2>Public profile</h2>
+      <div className="settings-section-heading">
+        <UserRound size={20} aria-hidden="true" />
+        <div>
+          <h2>Public profile</h2>
+          <p>Choose how you appear to buyers, providers, and the community.</p>
+        </div>
+      </div>
+      <div className="profile-preview">
+        <span className="profile-preview-avatar">
+          {draft.avatar_url ? (
+            <Image
+              src={draft.avatar_url}
+              width={64}
+              height={64}
+              unoptimized
+              alt="Your profile photo"
+            />
+          ) : (
+            (draft.display_name || draft.username || "P")
+              .slice(0, 2)
+              .toUpperCase()
+          )}
+        </span>
+        <div>
+          <strong>
+            {draft.display_name || draft.username || "Your public profile"}
+          </strong>
+          <p>
+            {draft.username ? "@" + draft.username : "Choose a username below"}
+          </p>
+        </div>
+      </div>
       <fieldset className="ui-form-grid" disabled={save.isPending}>
         {[
           ["display_name", "Display name"],
@@ -256,8 +313,14 @@ function Preferences() {
   return (
     <>
       <section className="ui-surface">
-        <h2 className="mb-4">Appearance</h2>
-        <ThemeSelect />
+        <div className="settings-section-heading">
+          <SlidersHorizontal size={20} aria-hidden="true" />
+          <div>
+            <h2>Appearance</h2>
+            <p>Make the workspace comfortable on this device.</p>
+          </div>
+        </div>
+        <AppearanceChoices />
         <p className="ui-note mt-3">
           System follows this device’s appearance. Your explicit light or dark
           choice is saved in this browser.
@@ -297,7 +360,13 @@ function NotificationForm({
         save.mutate();
       }}
     >
-      <h2>Notifications</h2>
+      <div className="settings-section-heading">
+        <Bell size={20} aria-hidden="true" />
+        <div>
+          <h2>Notifications</h2>
+          <p>Choose which activity reaches you and through which channels.</p>
+        </div>
+      </div>
       <div
         className="ui-table-wrap"
         role="region"
@@ -686,9 +755,15 @@ function Devices() {
     },
   });
   return (
-    <section className="ui-page">
+    <section className="ui-surface ui-page">
       <div className="ui-section-heading">
-        <h2>Signed-in devices</h2>
+        <div className="settings-section-heading">
+          <Monitor size={20} aria-hidden="true" />
+          <div>
+            <h2>Signed-in devices</h2>
+            <p>Review browser sessions with access to your account.</p>
+          </div>
+        </div>
         <button
           className="ui-button secondary"
           onClick={() => setSelected("all")}
@@ -807,8 +882,9 @@ function SecurityActivity() {
   });
   return (
     <>
-      <section>
+      <section className="ui-surface">
         <h2 className="mb-4">Security alerts</h2>
+        {alerts.isLoading && <Loading label="Loading security alerts…" />}
         {alerts.isError && (
           <DataError error={alerts.error} retry={() => void alerts.refetch()} />
         )}
@@ -832,10 +908,14 @@ function SecurityActivity() {
           </div>
         ))}
         {alerts.isSuccess && !alerts.data.anomalies.length && (
-          <p className="ui-note">No security alerts were returned.</p>
+          <EmptyState
+            title="No alerts reported."
+            description="Security alerts returned by your account will appear here for review."
+            icon={<ShieldCheck size={24} />}
+          />
         )}
       </section>
-      <section>
+      <section className="ui-surface">
         <h2 className="mb-4">Recent sign-in activity</h2>
         {logs.isLoading && <Loading label="Loading security activity…" />}
         {logs.isError && (
@@ -858,7 +938,11 @@ function SecurityActivity() {
           ))}
         {logs.isSuccess &&
           !logs.data.logs.some((log) => log.event_type.startsWith("auth.")) && (
-            <p className="ui-note">No sign-in events were returned.</p>
+            <EmptyState
+              title="No sign-in events reported."
+              description="Recent authentication activity will appear when it is available from the account service."
+              icon={<History size={24} />}
+            />
           )}
       </section>
       <Modal
@@ -896,5 +980,41 @@ function SecurityActivity() {
         </form>
       </Modal>
     </>
+  );
+}
+
+const subscribeToAppearance = () => () => {};
+function AppearanceChoices() {
+  const { theme, setTheme } = useTheme();
+  const mounted = useSyncExternalStore(
+    subscribeToAppearance,
+    () => true,
+    () => false,
+  );
+  return (
+    <div className="appearance-choices">
+      {[
+        { value: "light", label: "Light", icon: Sun },
+        { value: "dark", label: "Dark", icon: Moon },
+        { value: "system", label: "System", icon: Monitor },
+      ].map(({ value, label, icon: Icon }) => (
+        <button
+          type="button"
+          key={value}
+          aria-pressed={mounted && theme === value}
+          onClick={() => setTheme(value)}
+        >
+          <span className={"appearance-preview " + value} aria-hidden="true">
+            <i />
+            <i />
+            <i />
+          </span>
+          <span>
+            <Icon size={15} aria-hidden="true" />
+            {label}
+          </span>
+        </button>
+      ))}
+    </div>
   );
 }

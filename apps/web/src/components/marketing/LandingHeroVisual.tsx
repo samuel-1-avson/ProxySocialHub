@@ -1,89 +1,68 @@
-/**
- * Global network topology — Quiet Infrastructure.
- * Server component: no JS. Abstract world mesh with edge routing.
- */
+import { ArrowDownRight, ArrowUpRight, Globe2 } from "lucide-react";
+
+const nodes = [
+  { x: 99, y: 160, label: "BUYER", detail: "request" },
+  { x: 270, y: 73, label: "EDGE", detail: "gateway" },
+  { x: 438, y: 160, label: "SUPPLY", detail: "provider" },
+];
+
 export function LandingHeroVisual() {
   return (
-    <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_30%,rgba(52,211,153,0.08),transparent_60%)]" />
-      <div className="absolute inset-0 opacity-[0.25] [background-image:linear-gradient(to_right,var(--border)_1px,transparent_1px),linear-gradient(to_bottom,var(--border)_1px,transparent_1px)] [background-size:56px_56px] [mask-image:radial-gradient(ellipse_at_center,black_30%,transparent_70%)]" />
+    <figure className="landing-topology">
+      <div className="landing-topology-heading">
+        <div>
+          <p className="landing-visual-kicker">NETWORK / REQUEST PATH</p>
+          <h2>One clear route through.</h2>
+        </div>
+        <span className="landing-topology-icon" aria-hidden="true"><Globe2 size={19} /></span>
+      </div>
 
       <svg
-        className="absolute inset-x-0 bottom-0 top-20 mx-auto h-[min(75vh,680px)] w-full max-w-6xl opacity-70"
-        viewBox="0 0 1000 460"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
+        className="landing-topology-map"
+        viewBox="0 0 540 250"
+        role="img"
+        aria-label="Illustration of a buyer request passing through an edge gateway to a provider node"
       >
         <defs>
-          <linearGradient id="ph-edge" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="var(--primary)" stopOpacity="0" />
-            <stop offset="50%" stopColor="var(--primary)" stopOpacity="0.9" />
-            <stop offset="100%" stopColor="var(--primary)" stopOpacity="0" />
+          <linearGradient id="path-signal" x1="0" x2="1" y1="0" y2="0">
+            <stop offset="0" stopColor="var(--primary)" stopOpacity="0.22" />
+            <stop offset="0.5" stopColor="var(--primary)" />
+            <stop offset="1" stopColor="var(--primary)" stopOpacity="0.22" />
           </linearGradient>
-          <filter id="ph-glow" x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur stdDeviation="3" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
+          <pattern id="topology-grid" width="24" height="24" patternUnits="userSpaceOnUse">
+            <path d="M24 0H0V24" fill="none" stroke="var(--border)" strokeWidth="0.55" opacity="0.72" />
+          </pattern>
+          <filter id="node-halo" x="-80%" y="-80%" width="260%" height="260%">
+            <feGaussianBlur stdDeviation="7" />
           </filter>
         </defs>
-
-        {/* World mesh arcs */}
-        <g stroke="var(--border-strong)" strokeWidth="0.75" opacity="0.5">
-          <ellipse cx="500" cy="230" rx="420" ry="180" />
-          <ellipse cx="500" cy="230" rx="420" ry="120" />
-          <ellipse cx="500" cy="230" rx="420" ry="60" />
-          <ellipse cx="500" cy="230" rx="180" ry="180" />
-          <ellipse cx="500" cy="230" rx="120" ry="180" />
-          <ellipse cx="500" cy="230" rx="60" ry="180" />
-        </g>
-
-        {/* Node clusters */}
-        {[
-          { cx: 180, cy: 180, r: 4, label: "EU" },
-          { cx: 320, cy: 120, r: 4, label: "NA-E" },
-          { cx: 680, cy: 140, r: 4, label: "APAC" },
-          { cx: 820, cy: 220, r: 4, label: "SA" },
-          { cx: 500, cy: 90, r: 5, label: "EDGE" },
-          { cx: 240, cy: 320, r: 4, label: "AF" },
-          { cx: 760, cy: 340, r: 4, label: "OC" },
-        ].map((n) => (
-          <g key={n.label}>
-            <circle cx={n.cx} cy={n.cy} r={n.r + 8} fill="var(--primary)" opacity="0.15" filter="url(#ph-glow)" />
-            <circle cx={n.cx} cy={n.cy} r={n.r} fill="var(--primary)" />
-            <text
-              x={n.cx}
-              y={n.cy + 24}
-              textAnchor="middle"
-              fill="var(--muted-foreground)"
-              style={{ fontSize: 10, fontFamily: "ui-monospace, monospace" }}
-            >
-              {n.label}
-            </text>
+        <rect width="540" height="250" rx="12" fill="url(#topology-grid)" opacity="0.8" />
+        <path d="M99 160 C158 160 189 91 270 91 C352 91 378 160 438 160" fill="none" stroke="url(#path-signal)" strokeWidth="2" strokeDasharray="3 7" />
+        <path d="M99 160 C158 160 189 91 270 91 C352 91 378 160 438 160" fill="none" stroke="var(--border-strong)" strokeWidth="1" opacity="0.7" />
+        <path d="M270 91V202M99 160V208M438 160V208" stroke="var(--border-strong)" strokeWidth="1" strokeDasharray="2 5" opacity="0.65" />
+        {nodes.map((node, index) => (
+          <g key={node.label}>
+            <circle cx={node.x} cy={node.y} r="13" fill="var(--primary)" opacity="0.2" filter="url(#node-halo)" />
+            <circle cx={node.x} cy={node.y} r="6" fill="var(--primary)" />
+            <circle cx={node.x} cy={node.y} r="14" fill="none" stroke="var(--primary)" strokeOpacity="0.58" />
+            <rect x={node.x - 57} y="208" width="114" height="29" rx="6" fill="var(--card)" stroke="var(--border)" />
+            <text x={node.x} y="220" textAnchor="middle" className="landing-svg-label">{node.label}</text>
+            <text x={node.x} y="231" textAnchor="middle" className="landing-svg-detail">{node.detail}</text>
+            {index < nodes.length - 1 && (
+              <circle className="landing-flow-dot" cx={index === 0 ? 183 : 356} cy={index === 0 ? 139 : 139} r="3" fill="var(--primary)" />
+            )}
           </g>
         ))}
-
-        {/* Active routes */}
-        <g stroke="url(#ph-edge)" strokeWidth="1.5" strokeLinecap="round">
-          <path d="M180 180 Q 340 120 500 90" />
-          <path d="M320 120 Q 410 105 500 90" />
-          <path d="M680 140 Q 590 115 500 90" />
-          <path d="M820 220 Q 660 155 500 90" />
-          <path d="M240 320 Q 370 205 500 90" />
-          <path d="M760 340 Q 630 215 500 90" />
-        </g>
-
-        {/* Buyer session */}
-        <rect x="80" y="200" width="120" height="60" rx="6" fill="var(--card)" stroke="var(--border-strong)" strokeWidth="1.5" />
-        <text x="140" y="226" textAnchor="middle" fill="var(--muted-foreground)" style={{ fontSize: 10, fontFamily: "ui-monospace, monospace" }}>
-          BUYER
-        </text>
-        <text x="140" y="246" textAnchor="middle" fill="var(--foreground)" style={{ fontSize: 12, fontFamily: "ui-monospace, monospace", fontWeight: 600 }}>
-          session
-        </text>
-        <path d="M200 230 H 460" stroke="url(#ph-edge)" strokeWidth="2" strokeDasharray="4 6" />
+        <text x="270" y="47" textAnchor="middle" className="landing-svg-detail">ILLUSTRATIVE FLOW</text>
       </svg>
-    </div>
+
+      <figcaption className="landing-topology-caption">
+        <span>Buyer request</span>
+        <ArrowUpRight size={14} aria-hidden="true" />
+        <span>Edge gateway</span>
+        <ArrowDownRight size={14} aria-hidden="true" />
+        <span>Provider capacity</span>
+      </figcaption>
+    </figure>
   );
 }

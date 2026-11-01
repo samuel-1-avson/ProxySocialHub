@@ -8,7 +8,7 @@ export default function MessagesLayout({
     children: React.ReactNode;
 }) {
     return (
-        <AppShell showDesktopActions={false} showBreadcrumbs={false} contentClassName="animate-in fade-in duration-500">
+        <AppShell withWallet={false} showDesktopActions={false} showBreadcrumbs={false} contentClassName="animate-in fade-in duration-500">
             {children}
         </AppShell>
     );

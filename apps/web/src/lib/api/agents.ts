@@ -36,16 +36,16 @@ export interface AgentInstance {
  * List available agents in the marketplace
  */
 export async function getMarketAgents() {
-    const data = await publicApiGet<MarketAgent[]>('/v1/agents');
-    return Array.isArray(data) ? data : (data as any).agents || [];
+    const data = await publicApiGet<MarketAgent[] | { agents?: MarketAgent[] }>('/v1/agents');
+    return Array.isArray(data) ? data : data.agents || [];
 }
 
 /**
  * List user's rented agent instances
  */
 export async function getMyAgents() {
-    const data = await apiGet<AgentInstance[]>('/v1/agents/instances');
-    return Array.isArray(data) ? data : (data as any).instances || [];
+    const data = await apiGet<AgentInstance[] | { instances?: AgentInstance[] }>('/v1/agents/instances');
+    return Array.isArray(data) ? data : data.instances || [];
 }
 
 /**
@@ -59,6 +59,6 @@ export async function rentAgent(agentId: string) {
  * Execute a job on an agent instance.
  * Backend queues the job then fails until Docker runtime is implemented — not for production UX.
  */
-export async function executeAgentJob(instanceId: string, payload: any) {
+export async function executeAgentJob(instanceId: string, payload: unknown) {
     return apiPost<{ job_id: string }>(`/v1/agents/instances/${instanceId}/execute`, { payload });
 }

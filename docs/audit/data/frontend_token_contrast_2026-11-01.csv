@@ -1,0 +1,13 @@
+theme,pair,foreground,background,contrast_ratio,target,result
+light,Body text,#1d291f,#f2f5ef,13.74,4.5,pass
+light,Secondary text,#5f6d60,#fbfcf8,5.3,4.5,pass
+light,Action text,#f7f9ee,#45653c,6.21,4.5,pass
+light,Error text,#a5453d,#f2f5ef,5.42,4.5,pass
+light,Focus ring,#60803e,#f2f5ef,4.1,3,pass
+light,Input border,#879684,#fbfcf8,3.03,3,pass
+dark,Body text,#edf3e9,#101612,16.24,4.5,pass
+dark,Secondary text,#a4b1a3,#171f19,7.54,4.5,pass
+dark,Action text,#182213,#c5ef70,12.49,4.5,pass
+dark,Error text,#ffb4a9,#101612,10.78,4.5,pass
+dark,Focus ring,#c5ef70,#101612,13.93,3,pass
+dark,Input border,#627260,#171f19,3.29,3,pass
