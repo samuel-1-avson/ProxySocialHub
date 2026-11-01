@@ -42,11 +42,11 @@ func TestParseProgramDataAuthority(t *testing.T) {
 		authority = sol.PublicKey{1, 2, 3}
 	}
 
-	some := make([]byte, 48)
+	some := make([]byte, 45)
 	binary.LittleEndian.PutUint32(some[0:4], 3)
 	binary.LittleEndian.PutUint64(some[4:12], 12345)
-	binary.LittleEndian.PutUint32(some[12:16], 1)
-	copy(some[16:48], authority.Bytes())
+	some[12] = 1
+	copy(some[13:45], authority.Bytes())
 
 	present, got, err := parseProgramDataAuthority(some)
 	if err != nil {
@@ -59,9 +59,9 @@ func TestParseProgramDataAuthority(t *testing.T) {
 		t.Fatalf("got %s, want %s", got, authority)
 	}
 
-	none := make([]byte, 16)
+	none := make([]byte, 13)
 	binary.LittleEndian.PutUint32(none[0:4], 3)
-	binary.LittleEndian.PutUint32(none[12:16], 0)
+	none[12] = 0
 	present, _, err = parseProgramDataAuthority(none)
 	if err != nil {
 		t.Fatalf("None authority: %v", err)
@@ -70,17 +70,17 @@ func TestParseProgramDataAuthority(t *testing.T) {
 		t.Fatal("expected authority absent")
 	}
 
-	if _, _, err := parseProgramDataAuthority(some[:15]); err == nil {
+	if _, _, err := parseProgramDataAuthority(some[:12]); err == nil {
 		t.Fatal("short data must fail")
 	}
-	bad := make([]byte, 48)
+	bad := make([]byte, 45)
 	binary.LittleEndian.PutUint32(bad[0:4], 2)
 	if _, _, err := parseProgramDataAuthority(bad); err == nil {
 		t.Fatal("wrong discriminant must fail")
 	}
-	tagged := make([]byte, 48)
+	tagged := make([]byte, 45)
 	binary.LittleEndian.PutUint32(tagged[0:4], 3)
-	binary.LittleEndian.PutUint32(tagged[12:16], 7)
+	tagged[12] = 7
 	if _, _, err := parseProgramDataAuthority(tagged); err == nil {
 		t.Fatal("bad option tag must fail")
 	}

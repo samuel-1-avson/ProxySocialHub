@@ -589,22 +589,23 @@ func parseProgramAccount(data []byte) (sol.PublicKey, error) {
 }
 
 // parseProgramDataAuthority extracts the upgrade authority from a ProgramData
-// account: u32(3) + u64 slot + COption<Pubkey> (u32 tag + 32 bytes when Some).
+// account: u32(3) + u64 slot + Option<Pubkey> (u8 tag + 32 bytes when Some;
+// bincode encodes Option with a single-byte tag, not u32).
 func parseProgramDataAuthority(data []byte) (bool, sol.PublicKey, error) {
-	if len(data) < 16 {
+	if len(data) < 13 {
 		return false, sol.PublicKey{}, fmt.Errorf("short data (%d bytes)", len(data))
 	}
 	if binary.LittleEndian.Uint32(data[0:4]) != 3 {
 		return false, sol.PublicKey{}, fmt.Errorf("discriminant %d is not ProgramData(3)", binary.LittleEndian.Uint32(data[0:4]))
 	}
-	switch tag := binary.LittleEndian.Uint32(data[12:16]); tag {
+	switch tag := data[12]; tag {
 	case 0:
 		return false, sol.PublicKey{}, nil
 	case 1:
-		if len(data) < 48 {
+		if len(data) < 45 {
 			return false, sol.PublicKey{}, fmt.Errorf("short authority (%d bytes)", len(data))
 		}
-		return true, sol.PublicKeyFromBytes(data[16:48]), nil
+		return true, sol.PublicKeyFromBytes(data[13:45]), nil
 	default:
 		return false, sol.PublicKey{}, fmt.Errorf("bad authority tag %d", tag)
 	}
