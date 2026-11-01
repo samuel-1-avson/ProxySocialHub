@@ -3,6 +3,17 @@
 
 use serde::Serialize;
 
+/// Where a reconnecting node stands in its gateway rotation, so the UI can say
+/// "retrying" with the gateway and the error age instead of a bare failure.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct RetryFacts {
+    pub active_gateway: String,
+    pub gateway_index: u32,
+    pub gateway_total: u32,
+    /// `runtime.json` write time; the UI turns it into an age ("12s ago").
+    pub updated_at_unix: u64,
+}
+
 /// Facts about the local node, gathered by the driver from `provider-node status --json`
 /// and the files next to it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -16,6 +27,13 @@ pub struct NodeFacts {
     /// Set when the app tried to start the node and that failed.
     pub start_failed: Option<String>,
     pub metrics: Option<Metrics>,
+    /// PID from `status --json`, when the node reports one.
+    pub node_pid: Option<u32>,
+    /// The running node was started outside the app (the CLI, a service). Set by the
+    /// engine, which knows what it started itself; never parsed from status output.
+    pub externally_started: bool,
+    /// Present while the node runs without a tunnel and reports retry context.
+    pub retry: Option<RetryFacts>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
@@ -49,12 +67,15 @@ pub enum AppState {
     /// The node is starting or reconnecting.
     Connecting {
         detail: Option<String>,
+        retry: Option<RetryFacts>,
     },
     Sharing {
         uptime_seconds: u64,
         bytes_up: u64,
         bytes_down: u64,
         active_connections: i32,
+        /// The node was started outside the app. Pause and Quit leave it running.
+        managed_externally: bool,
     },
     Paused,
     Problem {
@@ -92,10 +113,12 @@ pub fn derive_state(
                 bytes_up: m.bytes_up,
                 bytes_down: m.bytes_down,
                 active_connections: m.active_connections,
+                managed_externally: facts.externally_started,
             };
         }
         return AppState::Connecting {
             detail: facts.last_error.clone(),
+            retry: facts.retry.clone(),
         };
     }
     // Not running.
@@ -105,7 +128,10 @@ pub fn derive_state(
                 reason: reason.clone(),
             },
             // The app is about to start it (or just did).
-            None => AppState::Connecting { detail: None },
+            None => AppState::Connecting {
+                detail: None,
+                retry: None,
+            },
         };
     }
     AppState::Paused
@@ -203,7 +229,8 @@ mod tests {
                 uptime_seconds: 90,
                 bytes_up: 1,
                 bytes_down: 2,
-                active_connections: 3
+                active_connections: 3,
+                managed_externally: false,
             }
         );
     }
@@ -216,7 +243,8 @@ mod tests {
                 uptime_seconds: 0,
                 bytes_up: 0,
                 bytes_down: 0,
-                active_connections: 0
+                active_connections: 0,
+                managed_externally: false,
             }
         );
     }
@@ -226,13 +254,17 @@ mod tests {
         let mut facts = running(false);
         assert_eq!(
             derive_state(true, true, None, &facts),
-            AppState::Connecting { detail: None }
+            AppState::Connecting {
+                detail: None,
+                retry: None,
+            }
         );
         facts.last_error = Some("gateway unreachable".into());
         assert_eq!(
             derive_state(true, true, None, &facts),
             AppState::Connecting {
-                detail: Some("gateway unreachable".into())
+                detail: Some("gateway unreachable".into()),
+                retry: None,
             }
         );
     }
@@ -246,7 +278,10 @@ mod tests {
     fn wanted_but_not_running_is_connecting_until_a_start_fails() {
         assert_eq!(
             derive_state(true, true, None, &paired()),
-            AppState::Connecting { detail: None }
+            AppState::Connecting {
+                detail: None,
+                retry: None,
+            }
         );
         let mut facts = paired();
         facts.start_failed = Some("could not start the node".into());
@@ -272,11 +307,15 @@ mod tests {
             bytes_up: 0,
             bytes_down: 0,
             active_connections: 0,
+            managed_externally: false,
         };
         assert_eq!(tooltip_for(&sharing), "ProxyHubb Provider: sharing");
         assert_eq!(tooltip_for(&AppState::Paused), "ProxyHubb Provider: paused");
         assert_eq!(
-            tooltip_for(&AppState::Connecting { detail: None }),
+            tooltip_for(&AppState::Connecting {
+                detail: None,
+                retry: None,
+            }),
             "ProxyHubb Provider: connecting"
         );
         assert_eq!(
@@ -286,6 +325,37 @@ mod tests {
         // Not-set-up states share one phrase, and none of them claims the node is sharing.
         for s in [AppState::NeedsConsent, AppState::NeedsPairing] {
             assert_eq!(tooltip_for(&s), "ProxyHubb Provider: not set up yet");
+        }
+    }
+
+    #[test]
+    fn retry_context_is_carried_into_connecting_for_the_ui() {
+        let mut facts = running(false);
+        facts.retry = Some(RetryFacts {
+            active_gateway: "gw:3128".into(),
+            gateway_index: 0,
+            gateway_total: 2,
+            updated_at_unix: 1700000000,
+        });
+        match derive_state(true, true, None, &facts) {
+            AppState::Connecting { retry, .. } => {
+                let r = retry.expect("retry context present");
+                assert_eq!(r.active_gateway, "gw:3128");
+                assert_eq!((r.gateway_index, r.gateway_total), (0, 2));
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_externally_started_node_is_flagged_on_sharing() {
+        let mut facts = running(true);
+        facts.externally_started = true;
+        match derive_state(true, true, None, &facts) {
+            AppState::Sharing {
+                managed_externally, ..
+            } => assert!(managed_externally),
+            other => panic!("{other:?}"),
         }
     }
 
