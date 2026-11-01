@@ -239,6 +239,11 @@ func getDisputeJury(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Jury not found"})
 		return
 	}
+	scrubCounterpartyTaxID(jury.Buyer)
+	scrubCounterpartyTaxID(jury.Seller)
+	scrubCounterpartyTaxID(jury.Juror1)
+	scrubCounterpartyTaxID(jury.Juror2)
+	scrubCounterpartyTaxID(jury.Juror3)
 
 	c.JSON(http.StatusOK, jury)
 }

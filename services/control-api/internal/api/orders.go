@@ -524,6 +524,8 @@ func createOrder(c *gin.Context) {
 
 	// Reload order with relations
 	db.DB.Preload("Buyer", counterpartyColumns).Preload("Seller", counterpartyColumns).Preload("Listing").First(&order, "id = ?", order.ID)
+	scrubCounterpartyTaxID(order.Buyer)
+	scrubCounterpartyTaxID(order.Seller)
 
 	// Notify seller via WebSocket
 	BroadcastToUser(listing.SellerID.String(), ws.MsgTypeNewOrder, gin.H{
@@ -771,6 +773,27 @@ func publicSellerColumns(q *gorm.DB) *gorm.DB {
 	return q.Select("id", "display_name", "username", "avatar_url", "location", "avg_rating", "reviews_count", "total_bandwidth_sold", "verified", "is_online", "last_seen_at")
 }
 
+// scrubCounterpartyTaxID clears tax data that User.AfterFind refills from the vault
+// even for projected queries. Call after every counterparty preload: order parties
+// keep identity and contact basics, never tax details.
+func scrubCounterpartyTaxID(u *models.User) {
+	if u == nil {
+		return
+	}
+	u.TaxID = nil
+}
+
+// scrubPublicSeller clears contact and tax data that User.AfterFind refills from the
+// vault even for projected queries. Call after every public seller preload:
+// storefronts keep display fields only.
+func scrubPublicSeller(u *models.User) {
+	if u == nil {
+		return
+	}
+	u.Email = ""
+	u.TaxID = nil
+}
+
 // getMyOrders returns the current user's purchases
 func getMyOrders(c *gin.Context) {
 	setAuthorityHeaders(c, authorityModeDBAuthoritative, "none", "source_of_truth")
@@ -807,6 +830,9 @@ func getMyOrders(c *gin.Context) {
 		Find(&orders).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch orders"})
 		return
+	}
+	for i := range orders {
+		scrubCounterpartyTaxID(orders[i].Seller)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -855,6 +881,8 @@ func getOrder(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
 		return
 	}
+	scrubCounterpartyTaxID(order.Buyer)
+	scrubCounterpartyTaxID(order.Seller)
 
 	c.JSON(http.StatusOK, order)
 }
@@ -895,6 +923,9 @@ func getMySales(c *gin.Context) {
 		Find(&orders).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch sales"})
 		return
+	}
+	for i := range orders {
+		scrubCounterpartyTaxID(orders[i].Buyer)
 	}
 
 	c.JSON(http.StatusOK, gin.H{

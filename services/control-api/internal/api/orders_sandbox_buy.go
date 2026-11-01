@@ -56,6 +56,8 @@ func finalizeSandboxBuy(c *gin.Context, order *models.Order, buyerID uuid.UUID) 
 		"Sandbox buy activated order without on-chain escrow", true)
 
 	db.DB.Preload("Buyer", counterpartyColumns).Preload("Seller", counterpartyColumns).Preload("Listing").First(order, "id = ?", order.ID)
+	scrubCounterpartyTaxID(order.Buyer)
+	scrubCounterpartyTaxID(order.Seller)
 
 	c.JSON(http.StatusCreated, gin.H{
 		"order":             order,
