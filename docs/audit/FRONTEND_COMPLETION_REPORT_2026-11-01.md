@@ -2,7 +2,11 @@
 
 **Review date:** 1 November 2026  
 **Scope:** Remaining interface implementation, shared visual system, page-family acceptance, and production-readiness evidence.  
-**Release position:** Interface implementation is complete. Production clearance remains conditional on the repository and live-service gates recorded below.
+**Release position:** The redesigned frontend has been deployed to the existing devnet production site. The release report records the merged source, current checks, rollback image, and remaining live-acceptance boundaries.
+
+## Deployment update
+
+The redesign was integrated with the current production frontend before release, keeping the newer checkout, managed-wallet, provider, and browser-extension flows. The older local acceptance figures below describe the original redesign pass. For the final production source revision, build status, live checks, dependency audit, and current lint baseline, see the [production deployment report](./FRONTEND_PRODUCTION_DEPLOYMENT_2026-11-01.md).
 
 ## Coverage and evidence
 
@@ -99,18 +103,20 @@ All three runs report **zero cumulative layout shift**. The control API was unav
 
 The repeatable [public accessibility audit](../../apps/web/scripts/frontend-accessibility-audit.mjs) accepts TEST_BASE_URL and checks the complete document in both themes with controlled unavailable API responses. Run it from apps/web against a serving frontend.
 
-## Production release gates
+## Remaining production acceptance gates
+
+The results below describe the additional acceptance still required after the devnet frontend deployment. Current image identity and live smoke-test results are in the [production deployment report](./FRONTEND_PRODUCTION_DEPLOYMENT_2026-11-01.md); older local checks in this report are historical evidence from the original redesign pass.
 
 | Gate | Evidence and required action |
 |---|---|
-| Repository lint | Clear the recorded 78-error/80-warning baseline, including hook lifecycle/ref rules and explicit SDK types. The active map, wallet-boundary, inquiry, follow, and friend controls were corrected during this pass. Keep the page-family checks clean while doing this. |
-| Dependency advisories | Safe fixes reduced production audit findings from 63 to 48: 19 high, 27 moderate, 2 low, no critical findings in the recorded audit. Remaining findings are concentrated in wallet/SDK dependency trees. Review compatible upgrades and migration tests; do not apply an unchecked forced major upgrade or downgrade. |
-| Live API | The local control API at `localhost:18080/health` refused connections. Validate the target deployment’s API health, auth, inventory, messaging, and operational sources with its actual configuration. |
+| Repository lint | Full lint on the final merged source reports 141 errors and 116 warnings. The changed-file comparison against predeployment `main` found no newly introduced errors; finish the existing lint backlog while keeping active page and control checks clean. |
+| Dependency advisories | The final production dependency audit reports zero critical or high and nine moderate wallet/SDK advisories. Review compatible upgrades and migration tests; do not apply an unchecked forced major upgrade or downgrade. |
+| Live API | The deployed API health, public listings, and public config endpoints passed. Authenticated messaging, provider health, account operations, and complete live inventory workflows remain unverified. |
 | Funded acceptance | Complete the funded purchase → verified traffic → accepted earnings run in the intended test network, retaining receipts and signatures. Fixture tests do not certify this. |
 | Optional EVM wallets | If enabled for release, supply the selected chain, a browser-safe RPC URL, and WalletConnect project ID, then exercise that configured flow. They are disabled when configuration is incomplete. |
-| Release performance/accessibility | Use the attached local production measurements as lab evidence. Repeat checks against the intended deployed services and complete manual assistive-technology acceptance. |
+| Release performance/accessibility | The deployment report records 16 live page checks and eight zero-violation axe scans across landing/marketplace, mobile/desktop, and both themes. Repeat performance checks with representative live data and complete keyboard, screen-reader, and 200% zoom acceptance. |
 
-There is no additional unimplemented page family in the redesign backlog. The items above are explicit release hardening and environment acceptance gates; this report does not authorize or claim a production deployment.
+There is no additional unimplemented page family in the redesign backlog. The interface is deployed to the existing devnet production site. The items above remain release-hardening and business-flow acceptance gates; the deployment does not certify funded transactions or mainnet readiness.
 
 ## Preview evidence
 

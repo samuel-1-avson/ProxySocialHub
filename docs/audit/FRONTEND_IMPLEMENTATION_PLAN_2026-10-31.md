@@ -15,7 +15,7 @@ The remaining interface implementation is complete across the page families desc
 | 2. Explorer and public records | P1 | Maps, nodes, comparisons, blocks, transactions, wallets, contracts, analytics, health, earnings and rankings | Implemented; readable records, exact chart tables and recoverable data states |
 | 3. Community, governance and accounts | P1 | Forum collections/composer/thread, inbox, profiles, friends, account/referral/API-key controls, governance and treasury | Implemented; drafts, pending states, dialog focus and independent source errors |
 | 4. Public help and special routes | P2 | Public reading pages, architecture draft, protocol overview, onboarding and recovery | Implemented; legacy onboarding/archive destinations retain canonical redirects |
-| 5. Production acceptance | P0 release gate | Build, types, route policies, browser workflows, accessibility, performance, live services and dependency security | Build/types/routes/contracts and staged browser checks pass; local accessibility/performance evidence is recorded; live-service and repository/security clearance remains conditional |
+| 5. Production acceptance | P0 release gate | Build, types, route policies, browser workflows, accessibility, performance, live services and dependency security | Deployed to the existing devnet site. Final merged-source checks, public acceptance results, rollback details, and remaining gates are recorded in the [production deployment report](./FRONTEND_PRODUCTION_DEPLOYMENT_2026-11-01.md). |
 
 The installed and declared Next.js versions are now aligned at **16.4.3**. Local wallet presentation uses the bundled project fonts; its previous Google Fonts import is removed. Automatic write retries are disabled by default so ambiguous responses do not silently repeat non-idempotent operations.
 
@@ -133,11 +133,11 @@ This order covers the release conditions that cannot be cleared by restyling pag
 | P0 | Run funded network acceptance | Purchase once, retain the submitted signature, verify client traffic, and reconcile accepted provider earnings. Exercise cancellation/recovery without a duplicate transfer. |
 | P1 | Validate the deployed frontend | Repeat mobile performance and accessibility checks against the target services; perform keyboard and screen-reader acceptance, 200% zoom, and real wallet-extension flows. |
 
-The completion report distinguishes implemented UI, controlled-fixture acceptance, local production measurements, and these unresolved release conditions. Production clearance requires all P0 items; no deployment is implied by this plan.
+The completion report distinguishes implemented UI, controlled-fixture acceptance, local production measurements, and these unresolved release conditions. The frontend is deployed on the existing devnet production site. Deployment does not clear these P0 business-flow and repository-hardening items or establish mainnet readiness.
 
 ## Release gates
 
-The redesign is ready to merge when:
+The redesign merge checklist was completed for the deployed release. The remaining production acceptance work is:
 
 - Phases 1–4 have a completed route acceptance record for every page family.
 - The production API environment is available and all key loading/error/empty/data-present states are verified.

@@ -1,31 +1,60 @@
-# Frontend production release — 1 November 2026
+# ProxyHubb frontend production deployment
 
-Status: release candidate validated locally; Linux image build and production verification pending.
+**Status:** deployed and live-checked 1 November 2026
+**Target:** [https://proxyhubb.com](https://proxyhubb.com)
+**Environment:** existing GCE `proxyhubb-testnet`, `us-central1-a`, project `gen-lang-client-0022105784` (Solana devnet)
 
-The release applies the frontend redesign to current `main` (`b5f47bfb501896884cab41917cbe66b12c900a6c`), preserving its newer checkout guards, managed-wallet support, provider pairing/signing, extension connection, and dedicated Explorer host. The original redesign and its 84 staged browser checks are historical evidence; the combined release is being checked separately.
+## Release identity
 
-Target: https://proxyhubb.com on GCE `proxyhubb-testnet`, `us-central1-a`, project `gen-lang-client-0022105784`. Roll only the `web` Compose service. Retain existing runtime secrets and the Solana devnet configuration. No database migrations or backend rollout.
+| Item | Value |
+|---|---|
+| Source revision | `cd3f943fb51d29244cadfdf2d9e9921f09113a4a` |
+| Release branch | `codex/frontend-production-20261101` |
+| Image | `proxyhubb-production/web:cd3f943fb51d29244cadfdf2d9e9921f09113a4a` |
+| Image digest | `sha256:35c1d4e540001ab6bef460d3ede24c2adeaaed309a6be915f05d687970b7e57e` |
+| GCP Cloud Build | `f7d34810-4337-4da5-ae99-d5d7cb98fe41` — **SUCCESS** |
+| Next.js build ID | `J8UU1C173J6IaeiWCdrcJ` |
+| Build artifact | `gs://gen-lang-client-0022105784_cloudbuild/proxyhubb/releases/cd3f943fb51d29244cadfdf2d9e9921f09113a4a/web-image.tar` |
+| Production web container | Healthy; restart count 0 |
 
-## Release checks
+The rollout replaced only the `web` Compose service. The API and all 14 other `proxyhubb-*` application containers were unchanged. The release retains the current devnet configuration, runtime secrets, and feature flags. No migrations, transactions, or messages were submitted.
 
-- Clean dependency installation, TypeScript, and optimized Next.js 16.4.3 production build passed.
-- Route validation passed: 94 registry entries, 39 navigation keys, 104 policies, 11 dynamic prefixes, and middleware guard coverage.
-- 31 contract tests passed, including listing signatures, wallet transfers, framework/native compatibility, and dedicated Explorer redirects.
-- Production dependency audit: zero critical, zero high, nine moderate advisories.
-- Full lint remains red (141 errors, 116 warnings); baseline comparison against current main is recorded separately.
-- Browser regressions, Linux image build, and live checks: pending.
+## Production verification
 
-GitHub Actions is currently blocked before runner startup, as documented in `docs/MANUAL_CI_GATE.md`. Use GCP Cloud Build for the Linux image, then the repository's web-only archive rollout with automatic health-check rollback.
+The deployed page responses served the expected build ID and static assets. The live Playwright run checked 16 page combinations: `/`, `/marketplace`, `/login`, and `/help`, at 390px and 1440px in dark and light themes. All returned HTTP 200, had no horizontal overflow, uncaught page errors, or failed Next.js assets. The redesigned home heading was present in each run.
 
-## Rollback baseline
+Automated axe WCAG 2.1 A/AA checks covered the landing page and populated marketplace at both widths in both themes: **8 scans, 0 violations**. The focused populated-marketplace accessibility Playwright suite also passed **2/2 tests** on this source revision. Protected `/app/connections` and `/provider` routes redirected to sign-in as expected.
 
-Before rollout, the web container was healthy, serving HTTP 200. The API health endpoint returned `{"status":"ok"}`.
+| Live endpoint | Result |
+|---|---|
+| `/v1/listings?limit=1` | 200 |
+| `/v1/system/config/public` | 200 |
+| `https://api.proxyhubb.com/health` | 200; `{"status":"ok"}` |
+| `/explorer` | 307 to `https://explorer.proxyhubb.com/` |
+| `https://www.proxyhubb.com` | 301 to the apex domain |
+| `https://app.proxyhubb.com` | 301 to the apex domain |
 
-- Image: `sha256:b4c876dc8cf34fc754f033df29474acbfe3634311472b6993abdf9dbe24d1d10`
-- Reference: `proxyhubb-production/web:2bcae024098485ee389eee621053f1e59f32faac`
-- Previous source: `2bcae024098485ee389eee621053f1e59f32faac`
-- Previous build ID: `pRp72SXn-V0iEh80oflcB`
+Machine-readable live results and production screenshots are attached: [live route and accessibility results](./data/frontend-production-live-checks-2026-11-01.json), [mobile landing page](./previews/2026-11-01/production-landing-mobile.png), and [desktop landing page](./previews/2026-11-01/production-landing-desktop.png).
 
-The rollout script retains this image and restores it if container or public health checks fail. Public feature flags observed before release were disabled; they remain disabled. The independent Explorer service is an existing separate deployment.
+## Build and code checks
 
-Deployment does not constitute mainnet certification. Funded payments, Google OAuth, authenticated account operations, and provider device pairing require their existing live acceptance process; no real transactions or messages are part of the deployment smoke checks.
+- GCP's optimized Linux image build completed successfully. The deployed pages confirmed the exact Next.js build ID and loaded their static assets.
+- TypeScript passed on the final source revision. Route policy validation passed with 94 registry entries, 39 navigation keys, 104 policies, 11 dynamic prefixes, and middleware guard coverage.
+- The integration run passed 31 contract cases and 32 distinct browser-regression cases. A two-case populated-inventory accessibility suite then passed on the final source revision after fixing definition-list semantics and the mobile search control's accessible name.
+- `npm audit --omit=dev` reports zero critical and zero high advisories, with nine moderate wallet/SDK dependency advisories. See [dependency audit evidence](./data/frontend-production-dependency-audit-2026-11-01.json).
+- Full repository lint remains red at 141 errors and 116 warnings. The changed-file comparison against the predeployment `main` baseline found no newly introduced errors (143 baseline errors across the compared changed files). Full lint cleanup remains open.
+- GitHub Actions could not start a runner because of the repository's billing limit; the successful GCP Cloud Build supplied the production image instead. See [`MANUAL_CI_GATE.md`](../../MANUAL_CI_GATE.md).
+
+## Rollback and operational scope
+
+The rollout retained the previous healthy web image for immediate rollback:
+
+`sha256:0fcbcb0dff6a785c8f9c97761a7e51e34198ff78758fbd2d2e47dd7c17a8be9e`
+
+The web-only rollout checked container health and public HTTP health after replacement. The deployment receipt records the image digest, source revision, health, restart count, unchanged application container set, and rollback image. The baseline image before this redesign also remains available as `sha256:b4c876dc8cf34fc754f033df29474acbfe3634311472b6993abdf9dbe24d1d10`.
+
+## Remaining acceptance work
+
+The frontend release is live, but a deployment does not certify every business-critical flow. This verification did **not** sign into a real customer/provider account, exercise Google OAuth or a wallet extension, run provider-device pairing, send messages, or submit a funded purchase. The public API health, listing, and config reads passed, but authenticated messaging and the funded purchase → traffic → provider-earnings path still require the existing acceptance procedure on the intended network. The site remains configured for devnet; this deployment does not claim mainnet readiness.
+
+The full lint backlog and nine moderate dependency advisories also remain open. Resolve SDK advisories through reviewed upgrades and regression coverage; do not force a downgrade. Perform keyboard/screen-reader and 200% zoom acceptance as part of the remaining human review.
