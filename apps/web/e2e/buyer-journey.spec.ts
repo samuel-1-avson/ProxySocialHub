@@ -1,5 +1,6 @@
 import { expect as baseExpect, test, type Page } from "@playwright/test";
 import { seedSignedAuth } from "./fixtures/signed-auth";
+import { setHeaderTheme } from "./fixtures/theme";
 
 const base = process.env.TEST_BASE_URL || "http://localhost:4011";
 const expect = baseExpect.configure({ timeout: 30_000 });
@@ -112,10 +113,7 @@ test.describe("buyer journey and recovery", () => {
     await expect(
       page.getByRole("button", { name: "Review deposit", exact: true }),
     ).toBeDisabled();
-    await page
-      .getByRole("banner")
-      .getByRole("combobox", { name: "Color theme" })
-      .selectOption("light");
+    await setHeaderTheme(page, "light");
     await capture(page, info.outputPath("buyer-wallet.png"));
   });
   for (const width of [1440, 320]) {
@@ -146,7 +144,7 @@ test.describe("buyer journey and recovery", () => {
       await page.getByRole("button", { name: "Refresh balances", exact: true }).click();
       await expect(paymentWallet.getByText("16 SOL", { exact: true })).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-      await page.getByRole("banner").getByRole("combobox", { name: "Color theme" }).selectOption(width === 320 ? "light" : "dark");
+      await setHeaderTheme(page, width === 320 ? "light" : "dark");
       await capture(page, info.outputPath(`wallet-linked-${width}.png`));
     });
   }
@@ -252,10 +250,7 @@ test.describe("buyer journey and recovery", () => {
     await expect(
       page.getByText(/does not prove the current browser is routing/),
     ).toBeVisible();
-    await page
-      .getByRole("banner")
-      .getByRole("combobox", { name: "Color theme" })
-      .selectOption("dark");
+    await setHeaderTheme(page, "dark");
     await capture(page, info.outputPath("buyer-session.png"));
     await page.getByRole("button", { name: "End session…" }).click();
     await page
@@ -330,10 +325,7 @@ test.describe("buyer journey and recovery", () => {
     expect(
       requests.filter((r) => r.path === "/v1/passes/prepare-purchase"),
     ).toHaveLength(0);
-    await page
-      .getByRole("banner")
-      .getByRole("combobox", { name: "Color theme" })
-      .selectOption("light");
+    await setHeaderTheme(page, "light");
     await capture(page, info.outputPath("buyer-billing.png"));
   });
   test("restores a submitted account deposit after reload and only verifies its original signature", async ({
@@ -445,10 +437,7 @@ test.describe("buyer journey and recovery", () => {
       business_in_app: true,
       digest_hour: 14,
     });
-    await page
-      .getByRole("banner")
-      .getByRole("combobox", { name: "Color theme" })
-      .selectOption("light");
+    await setHeaderTheme(page, "light");
     await capture(page, info.outputPath("buyer-settings.png"));
     await page.setViewportSize({ width: 320, height: 740 });
     expect(

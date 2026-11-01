@@ -251,6 +251,16 @@
   font-size: 12px;
   max-width: 95px;
 }
+.workspace-account-preferences {
+  margin-top: 16px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border);
+}
+.workspace-account-preferences .workspace-theme {
+  justify-content: space-between;
+  color: var(--foreground);
+  font-size: 13px;
+}
 .workspace-wallet-link,
 .workspace-inbox-link {
   display: inline-flex;
@@ -847,9 +857,6 @@
   .workspace-search-trigger kbd {
     display: none;
   }
-  .workspace-theme > span {
-    display: none;
-  }
 }
 @media (max-width: 900px) {
   .ui-columns {
@@ -911,11 +918,6 @@
   }
   .workspace-header-actions {
     gap: 8px;
-  }
-  .workspace-theme select {
-    font-size: 11px;
-    padding: 5px 6px;
-    max-width: 74px;
   }
   .workspace-account-button {
     min-width: 30px;

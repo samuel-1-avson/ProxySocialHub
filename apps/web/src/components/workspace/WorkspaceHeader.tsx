@@ -23,6 +23,7 @@ import {
 import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
 import { Modal } from "@/components/patterns/Modal";
 import { BrandLockup } from "@/components/BrandLockup";
+import { ModeToggle } from "@/components/ModeToggle";
 import { ThemeSelect } from "./ThemeSelect";
 export function WorkspaceHeader() {
   const { user, logout } = useAuth();
@@ -78,7 +79,7 @@ export function WorkspaceHeader() {
           <kbd aria-hidden="true">Ctrl / ⌘ K</kbd>
         </button>
         <div className="workspace-header-actions">
-          <ThemeSelect />
+          <ModeToggle />
           <Link href="/app/wallet" className="workspace-wallet-link">
             <Wallet size={16} aria-hidden="true" />
             Wallet
@@ -141,6 +142,9 @@ export function WorkspaceHeader() {
         }
       >
         <WorkspaceSwitcher onSwitch={() => setAccountOpen(false)} />
+        <div className="workspace-account-preferences">
+          <ThemeSelect />
+        </div>
         <div className="workspace-menu-list mt-5">
           <Link href="/app/settings" onClick={() => setAccountOpen(false)}>
             <Settings size={17} />
