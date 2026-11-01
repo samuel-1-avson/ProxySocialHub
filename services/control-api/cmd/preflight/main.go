@@ -479,7 +479,7 @@ func parseProgramAccount(data []byte) (sol.PublicKey, error) {
 	if binary.LittleEndian.Uint32(data[0:4]) != 2 {
 		return sol.PublicKey{}, fmt.Errorf("discriminant %d is not Program(2)", binary.LittleEndian.Uint32(data[0:4]))
 	}
-	return sol.PublicKeyFromBytes(data[4:36])
+	return sol.PublicKeyFromBytes(data[4:36]), nil
 }
 
 // parseProgramDataAuthority extracts the upgrade authority from a ProgramData
@@ -498,11 +498,7 @@ func parseProgramDataAuthority(data []byte) (bool, sol.PublicKey, error) {
 		if len(data) < 48 {
 			return false, sol.PublicKey{}, fmt.Errorf("short authority (%d bytes)", len(data))
 		}
-		pk, err := sol.PublicKeyFromBytes(data[16:48])
-		if err != nil {
-			return false, sol.PublicKey{}, err
-		}
-		return true, pk, nil
+		return true, sol.PublicKeyFromBytes(data[16:48]), nil
 	default:
 		return false, sol.PublicKey{}, fmt.Errorf("bad authority tag %d", tag)
 	}
