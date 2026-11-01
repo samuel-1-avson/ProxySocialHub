@@ -18,7 +18,7 @@ import (
 func TestJuryParticipant(t *testing.T) {
 	buyer, seller, juror := uuid.New(), uuid.New(), uuid.New()
 	stranger := uuid.New()
-	jury := models.DisputeJury{BuyerID: buyer, SellerID: seller, Juror1ID: juror}
+	jury := models.DisputeJury{BuyerID: buyer, SellerID: seller, Juror1ID: juror, Juror2ID: uuid.New(), Juror3ID: uuid.New()}
 	for _, id := range []uuid.UUID{buyer, seller, juror} {
 		if !juryParticipant(&jury, id) {
 			t.Fatalf("%s must be a jury participant", id)
@@ -38,15 +38,15 @@ func TestDisputeJuryAccess(t *testing.T) {
 
 	buyer := testutil.CreateTestUserID(t, "buyer")
 	seller := testutil.CreateTestUserID(t, "provider")
-	juror := testutil.CreateTestUserID(t, "juror")
-	stranger := testutil.CreateTestUserID(t, "stranger")
+	juror := testutil.CreateTestUserID(t, "buyer")
+	stranger := testutil.CreateTestUserID(t, "buyer")
 	jury := models.DisputeJury{
 		DisputeID:      uuid.New(),
 		BuyerID:        buyer,
 		SellerID:       seller,
 		Juror1ID:       juror,
-		Juror2ID:       testutil.CreateTestUserID(t, "juror"),
-		Juror3ID:       testutil.CreateTestUserID(t, "juror"),
+		Juror2ID:       testutil.CreateTestUserID(t, "buyer"),
+		Juror3ID:       testutil.CreateTestUserID(t, "buyer"),
 		DisputeReason:  "not delivered",
 		DisputedAmount: 3,
 	}
