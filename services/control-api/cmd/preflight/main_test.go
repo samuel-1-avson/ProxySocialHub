@@ -182,6 +182,15 @@ func TestResolveProgramIDNilClient(t *testing.T) {
 	}
 }
 
+func TestScrubEndpoint(t *testing.T) {
+	if got := scrubEndpoint("https://devnet.helius-rpc.com/?api-key=secret"); got != "https://devnet.helius-rpc.com/?<redacted>" {
+		t.Fatalf("got %q", got)
+	}
+	if got := scrubEndpoint("https://api.devnet.solana.com"); got != "https://api.devnet.solana.com" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestShortKey(t *testing.T) {
 	if got := shortKey("ABCDEFGH12345678"); got != "ABCDEFGH…5678" {
 		t.Fatalf("got %q", got)

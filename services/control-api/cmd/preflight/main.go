@@ -167,11 +167,13 @@ func runAll(ctx context.Context) []Result {
 		slot, err := c.GetSlot(sctx, rpc.CommitmentFinalized)
 		scancel()
 		if err != nil {
-			rpcNotes = append(rpcNotes, fmt.Sprintf("%s ERR %v", ep, err))
+			// Scrub credentials: endpoint URLs may carry ?api-key= secrets.
+			errStr := strings.ReplaceAll(err.Error(), ep, scrubEndpoint(ep))
+			rpcNotes = append(rpcNotes, fmt.Sprintf("%s ERR %v", scrubEndpoint(ep), errStr))
 			continue
 		}
 		good = append(good, healthy{client: c, ep: ep, slot: slot})
-		rpcNotes = append(rpcNotes, fmt.Sprintf("%s slot=%d %dms", ep, slot, time.Since(start).Milliseconds()))
+		rpcNotes = append(rpcNotes, fmt.Sprintf("%s slot=%d %dms", scrubEndpoint(ep), slot, time.Since(start).Milliseconds()))
 	}
 	if len(good) == 0 {
 		fail("rpc_reachable", "no RPC endpoint served a slot: %s", strings.Join(rpcNotes, "; "))
@@ -201,9 +203,10 @@ func runAll(ctx context.Context) []Result {
 	if wsEndpoint == "" {
 		warn("ws_live", "no WS endpoint derived; deposit watcher falls back to polling")
 	} else if err := checkWSSlot(ctx, wsEndpoint); err != nil {
-		warn("ws_live", "%s: %v (watcher falls back to polling)", wsEndpoint, err)
+		errStr := strings.ReplaceAll(err.Error(), wsEndpoint, scrubEndpoint(wsEndpoint))
+		warn("ws_live", "%s: %v (watcher falls back to polling)", scrubEndpoint(wsEndpoint), errStr)
 	} else {
-		pass("ws_live", "%s delivered a live slot notification", wsEndpoint)
+		pass("ws_live", "%s delivered a live slot notification", scrubEndpoint(wsEndpoint))
 	}
 
 	// --- program_live: program executable + upgrade authority on-chain. ---
@@ -850,6 +853,14 @@ func parseFloatEnv(name string) (float64, bool) {
 
 func lamportsToSOL(lamports uint64) float64 {
 	return float64(lamports) / lamportsPerSOL
+}
+
+// scrubEndpoint redacts query strings (often ?api-key= secrets) from display.
+func scrubEndpoint(ep string) string {
+	if i := strings.Index(ep, "?"); i >= 0 {
+		return ep[:i] + "?<redacted>"
+	}
+	return ep
 }
 
 func shortKey(s string) string {
