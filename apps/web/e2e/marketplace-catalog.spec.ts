@@ -8,6 +8,7 @@ import {
     supplyListingTitle,
 } from './fixtures/marketplace-catalog';
 import {
+    e2eOrderId,
     enableE2EMockBuy,
     mockProxyCredentials,
     stubPurchaseApis,
@@ -105,10 +106,11 @@ test.describe('marketplace catalog browse + buy', () => {
         await expect(page.getByText(newCatalogTitle).first()).toBeVisible({ timeout: 15_000 });
         await expect(page.getByTestId('catalog-product-badge').first()).toBeVisible();
 
-        await page.getByTestId('buy-listing-inject').first().click();
+        await page.getByRole('button', { name: 'View details', exact: true }).first().click();
+        await page.getByRole('button', { name: /^Buy bandwidth/ }).click();
         await expect(page.getByTestId('buy-listing-modal')).toBeVisible({ timeout: 15_000 });
         await page.getByTestId('buy-listing-start-connection').click();
-        await expect(page.getByTestId('buy-listing-modal-success')).toBeVisible({ timeout: 20_000 });
-        await expect(page.getByText(mockProxyCredentials.endpoint)).toBeVisible();
+        await expect(page).toHaveURL(new RegExp('/app/connections/' + e2eOrderId + '$'), { timeout: 30_000 });
+        await expect(page.getByText(mockProxyCredentials.endpoint, { exact: true })).toBeVisible();
     });
 });

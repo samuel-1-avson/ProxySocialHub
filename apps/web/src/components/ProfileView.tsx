@@ -1,615 +1,510 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
-import { useAuth } from "@/lib/auth";
-import { getProfile, followUser, unfollowUser, blockUser, getUserReviews, type UserPublicProfile, type Review } from "@/lib/api/profile";
-import { getUserBadges, type UserBadge } from "@/lib/api/badges";
-import { accountTierLabel, identityStatusLabel } from "@/lib/account-tier";
-import { getListings, type Listing } from "@/lib/api/marketplace";
-import { socialProfileUrl } from "@/lib/utils";
-
+import { useRouter } from "next/navigation";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-    Star,
-    MapPin,
-    ShieldCheck,
-    UserCheck,
-    MessageCircle,
-    Edit3,
-    Heart,
-    Users,
-    Activity,
-    ExternalLink,
-    Calendar,
-    ChevronRight,
-    ArrowRight,
-    Loader2,
-    Twitter,
-    Github,
-    Linkedin,
-    MoreVertical,
-    Ban,
-    Briefcase,
-    Hexagon,
-    Target,
-    Fingerprint,
-    Cpu,
-    Globe,
-    Terminal,
-    Zap,
-    History,
-    Key,
-    Award,
+  ArrowLeft,
+  ArrowUpRight,
+  Ban,
+  CalendarDays,
+  Globe,
+  MapPin,
+  MessageSquare,
+  Settings2,
+  ShieldCheck,
+  Star,
+  Users,
 } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
-import { GlassCard } from "@/components/ui/glass-card";
+import { useAuth } from "@/lib/auth";
+import {
+  getProfile,
+  getUserReviews,
+  followUser,
+  unfollowUser,
+  blockUser,
+  type UserPublicProfile,
+} from "@/lib/api/profile";
+import { getUserBadges } from "@/lib/api/badges";
+import { getListings } from "@/lib/api/marketplace";
+import { accountTierLabel, identityStatusLabel } from "@/lib/account-tier";
+import { displayListingTitle } from "@/lib/listing-display";
+import { Modal } from "@/components/patterns/Modal";
+import {
+  DataError,
+  EmptyState,
+  Loading,
+  Stat,
+  Status,
+  amount,
+  shortDate,
+} from "@/components/workspace/Patterns";
 
-interface ProfileViewProps {
-    username?: string;
+function externalLink(value: unknown) {
+  if (typeof value !== "string") return null;
+  try {
+    const url = new URL(value);
+    return ["https:", "http:"].includes(url.protocol) ? url.toString() : null;
+  } catch {
+    return null;
+  }
 }
-
-export function ProfileView({ username: propUsername }: ProfileViewProps) {
-    const params = useParams();
-    const router = useRouter();
-    const { user: currentUser, isAuthenticated } = useAuth();
-
-    const targetUsername = propUsername ?? (params?.username as string) ?? "me";
-
-    const [profile, setProfile] = useState<UserPublicProfile | null>(null);
-    const [reviews, setReviews] = useState<Review[]>([]);
-    const [badges, setBadges] = useState<UserBadge[]>([]);
-    const [listings, setListings] = useState<Listing[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState("");
-    const [isFollowing, setIsFollowing] = useState(false);
-    const [activeTab, setActiveTab] = useState<"listings" | "reviews">("reviews");
-    const [followLoading, setFollowLoading] = useState(false);
-    const [showMenu, setShowMenu] = useState(false);
-
-    const isOwnProfile =
-        targetUsername === "me" ||
-        (currentUser && (targetUsername === currentUser.id || targetUsername === currentUser.username));
-
-    useEffect(() => {
-        async function fetchData() {
-            setLoading(true);
-            setError("");
-            try {
-                const identifier = isOwnProfile ? "me" : targetUsername;
-                const userData = await getProfile(identifier);
-                setProfile(userData);
-                setIsFollowing(userData.is_following || false);
-
-                try {
-                    const reviewsData = await getUserReviews(userData.id);
-                    setReviews(reviewsData.reviews || []);
-                } catch {
-                    setReviews([]);
-                }
-
-                try {
-                    const listingData = await getListings({ seller_id: userData.id, limit: 8, sort_by: 'newest' });
-                    setListings(listingData.listings || []);
-                } catch {
-                    setListings([]);
-                }
-
-                try {
-                    const badgeData = await getUserBadges(userData.id);
-                    setBadges(badgeData.badges || []);
-                } catch {
-                    setBadges([]);
-                }
-            } catch (err) {
-                console.error("Profile fetch error:", err);
-                setError(err instanceof Error ? err.message : "Failed to load profile");
-            } finally {
-                setLoading(false);
+export function ProfileView({ username = "me" }: { username?: string }) {
+  const { user, isAuthenticated, isLoading } = useAuth();
+  const router = useRouter();
+  const client = useQueryClient();
+  const own =
+    username === "me" ||
+    (!!user && [user.id, user.username].includes(username));
+  const identifier = own ? "me" : username;
+  const key = ["public-profile", identifier, user?.id];
+  const query = useQuery({
+    queryKey: key,
+    queryFn: () => getProfile(identifier),
+    enabled: !own || isAuthenticated,
+  });
+  const profile = query.data;
+  const [tab, setTab] = useState<"reviews" | "listings">("reviews");
+  const [blockOpen, setBlockOpen] = useState(false);
+  const reviews = useQuery({
+    queryKey: ["profile-reviews", profile?.id],
+    queryFn: () => getUserReviews(profile!.id),
+    enabled: !!profile,
+  });
+  const listings = useQuery({
+    queryKey: ["profile-listings", profile?.id],
+    queryFn: () =>
+      getListings({ seller_id: profile!.id, limit: 8, sort_by: "newest" }),
+    enabled: !!profile,
+  });
+  const badges = useQuery({
+    queryKey: ["profile-badges", profile?.id],
+    queryFn: () => getUserBadges(profile!.id),
+    enabled: !!profile,
+  });
+  const follow = useMutation({
+    retry: false,
+    mutationFn: async () => {
+      if (!profile) return;
+      if (profile.is_following) await unfollowUser(profile.id);
+      else await followUser(profile.id);
+    },
+    onSuccess: () => {
+      client.setQueryData<UserPublicProfile>(key, (previous) =>
+        previous
+          ? {
+              ...previous,
+              is_following: !previous.is_following,
+              followers_count: Math.max(
+                0,
+                (previous.followers_count ?? 0) +
+                  (previous.is_following ? -1 : 1),
+              ),
             }
-        }
-        fetchData();
-    }, [targetUsername, isOwnProfile, isAuthenticated]);
-
-    const handleFollow = async () => {
-        if (!profile || !isAuthenticated) return;
-        setFollowLoading(true);
-        try {
-            if (isFollowing) {
-                await unfollowUser(profile.id);
-                setIsFollowing(false);
-                setProfile(p => p ? { ...p, followers_count: p.followers_count - 1 } : null);
-            } else {
-                await followUser(profile.id);
-                setIsFollowing(true);
-                setProfile(p => p ? { ...p, followers_count: p.followers_count + 1 } : null);
-            }
-        } catch {
-            // Revert
-        } finally {
-            setFollowLoading(false);
-        }
-    };
-
-    const handleBlock = async () => {
-        if (!profile || !isAuthenticated) return;
-        if (!confirm("Block this user? They will be removed from your follows.")) return;
-        try {
-            await blockUser(profile.id);
-            router.push('/');
-        } catch (err) {
-            alert("Could not block this user.");
-        }
-    }
-
-    if (loading) {
-        return (
-            <div className="flex flex-col items-center justify-center py-60 gap-8">
-                <div className="relative">
-                    <motion.div
-                        animate={{ rotate: 360 }}
-                        transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                        className="w-20 h-20 border-t-2 border-primary rounded-full"
-                    />
-                    <div className="absolute inset-0 flex items-center justify-center">
-                        <Fingerprint className="text-primary/40" size={32} />
-                    </div>
-                </div>
-                <p className="font-black text-[10px] uppercase tracking-[0.6em] text-muted-foreground animate-pulse">Loading profile...</p>
-            </div>
-        );
-    }
-
-    if (error || !profile) {
-        return (
-            <div className="max-w-xl mx-auto py-40 text-center space-y-10">
-                <div className="w-24 h-24 rounded-[2rem] bg-rose-500/10 border border-rose-500/20 flex items-center justify-center mx-auto text-rose-500 shadow-2xl">
-                    <Zap size={40} className="animate-pulse" />
-                </div>
-                <div className="space-y-4">
-                    <h2 className="text-4xl font-black uppercase tracking-tighter text-foreground">Profile not found</h2>
-                    <p className="text-[11px] font-black uppercase text-muted-foreground tracking-widest leading-relaxed">
-                        {error || "No account with this username."}
-                    </p>
-                </div>
-                <Link href="/marketplace" className="inline-flex items-center gap-4 px-10 py-5 bg-white text-black font-black text-[11px] uppercase tracking-widest rounded-2xl hover:bg-white/90 transition-all active:scale-95 shadow-2xl">
-                    Browse marketplace
-                </Link>
-            </div>
-        );
-    }
-
-    const containerVariants = {
-        hidden: { opacity: 0 },
-        show: { opacity: 1, transition: { staggerChildren: 0.1 } }
-    };
-
-    const itemVariants = {
-        hidden: { opacity: 0, y: 20 },
-        show: { opacity: 1, y: 0 }
-    };
-
+          : previous,
+      );
+    },
+  });
+  const block = useMutation({
+    retry: false,
+    mutationFn: () => blockUser(profile!.id),
+    onSuccess: () => {
+      setBlockOpen(false);
+      void client.invalidateQueries({ queryKey: ["public-profile"] });
+      router.push("/marketplace");
+    },
+  });
+  if (own && !isLoading && !isAuthenticated)
     return (
-        <motion.div
-            variants={containerVariants}
-            initial="hidden"
-            animate="show"
-            className="max-w-6xl mx-auto space-y-12 pb-40 font-mono"
-        >
-            {/* Immersive Tactical Header */}
-            <motion.div variants={itemVariants} className="group relative">
-                <div className="absolute -inset-4 bg-primary/5 blur-[100px] opacity-20 pointer-events-none" />
-                <GlassCard className="!p-0 border-border bg-card overflow-hidden rounded-[3rem] shadow-2xl relative">
-                    {/* Cover Area with Mesh Grid and Geo Pulse */}
-                    <div className="h-64 bg-zinc-900 dark:bg-black/60 relative overflow-hidden">
-                        {/* Dynamic SVG Mesh Grid */}
-                        <svg className="absolute inset-0 w-full h-full opacity-[0.15]" xmlns="http://www.w3.org/2000/svg">
-                            <defs>
-                                <pattern id="meshGrid" width="40" height="40" patternUnits="userSpaceOnUse">
-                                    <path d="M 40 0 L 0 0 0 40" fill="none" stroke="white" strokeWidth="0.5" />
-                                </pattern>
-                                <radialGradient id="meshGlow" cx="50%" cy="50%" r="50%">
-                                    <stop offset="0%" stopColor="rgba(16,185,129,0.2)" />
-                                    <stop offset="100%" stopColor="transparent" />
-                                </radialGradient>
-                            </defs>
-                            <rect width="100%" height="100%" fill="url(#meshGrid)" />
-                            <motion.circle
-                                cx="20%" cy="30%" r="150" fill="url(#meshGlow)"
-                                animate={{ opacity: [0.1, 0.3, 0.1], scale: [1, 1.2, 1] }}
-                                transition={{ duration: 8, repeat: Infinity }}
-                            />
-                        </svg>
-                        
-                        <div className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-black via-black/60 to-transparent" />
-
-                        {/* Top Protocol Status - Tactically Enhanced */}
-                        <div className="absolute top-10 inset-x-12 flex justify-between items-start pointer-events-none">
-                            <div className="space-y-2">
-                                <div className="text-[9px] font-black uppercase tracking-[0.4em] text-white/70">Location</div>
-                                <div className="text-[11px] font-bold tracking-widest text-emerald-400 flex items-center gap-2">
-                                    <MapPin size={12} /> {profile.location || "Not listed"}
-                                </div>
-                            </div>
-                            <div className="text-right space-y-2">
-                                <div className="text-[9px] font-black uppercase tracking-[0.4em] text-white/70">Account tier</div>
-                                <div className="space-y-1">
-                                    <div className="text-[11px] font-bold tracking-widest text-emerald-400 flex items-center gap-2 justify-end">
-                                        {accountTierLabel(profile.trust_tier)}
-                                    </div>
-                                    <div className="text-[9px] font-black tracking-[0.2em] text-white/80 uppercase">
-                                        Identity:{" "}
-                                        <span className={profile.verified ? "text-emerald-400 inline-flex items-center gap-1" : "text-white/50"}>
-                                            {identityStatusLabel(profile.verified)}
-                                            {profile.verified ? <ShieldCheck size={12} /> : null}
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="px-12 pb-12 relative flex flex-col md:flex-row gap-12 items-end -mt-16">
-                        {/* Avatar HUD */}
-                        <div className="relative group/avatar">
-                            <motion.div 
-                                animate={{ opacity: [0.1, 0.3, 0.1], scale: [0.95, 1.05, 0.95] }}
-                                transition={{ duration: 4, repeat: Infinity }}
-                                className="absolute -inset-4 bg-emerald-500/20 rounded-[3rem] blur-2xl" 
-                            />
-                            <div className="w-48 h-48 rounded-[2.5rem] bg-black border-[6px] border-border p-1.5 relative z-10 shadow-2xl overflow-hidden shadow-black/80 transition-transform duration-500 group-hover/avatar:scale-105">
-                                {profile.avatar_url ? (
-                                    <img src={profile.avatar_url} alt="" className="w-full h-full object-cover rounded-[2rem]" />
-                                ) : (
-                                    <div className="w-full h-full bg-gradient-to-br from-white/10 to-white/5 rounded-[2rem] flex items-center justify-center text-6xl font-black text-white italic tracking-tighter shadow-inner">
-                                        {(profile.display_name?.[0] || profile.username?.[0] || "?").toUpperCase()}
-                                    </div>
-                                )}
-                                {profile.is_online ? (
-                                <div className="absolute bottom-6 right-6 w-7 h-7 rounded-xl bg-emerald-500 border-4 border-black shadow-[0_0_20px_rgba(16,185,129,0.8)] flex items-center justify-center">
-                                    <Activity size={12} className="text-black" />
-                                </div>
-                                ) : (
-                                <div className="absolute bottom-6 right-6 w-7 h-7 rounded-xl bg-zinc-600 border-4 border-black flex items-center justify-center">
-                                    <Activity size={12} className="text-black/70" />
-                                </div>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Identity & Social Hub */}
-                        <div className="flex-1 space-y-6 pb-2">
-                            <div className="space-y-4">
-                                <div className="flex items-center gap-6">
-                                    <h1 className="text-6xl font-black uppercase tracking-tighter text-foreground drop-shadow-2xl">
-                                        {profile.display_name || profile.username}
-                                    </h1>
-                                    {profile.verified && (
-                                        <motion.div 
-                                            animate={{ boxShadow: ["0 0 10px rgba(16,185,129,0)", "0 0 25px rgba(16,185,129,0.4)", "0 0 10px rgba(16,185,129,0)"] }}
-                                            transition={{ duration: 3, repeat: Infinity }}
-                                            className="p-3 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400"
-                                        >
-                                            <ShieldCheck size={24} />
-                                        </motion.div>
-                                    )}
-                                </div>
-                                <div className="flex flex-wrap items-center gap-6">
-                                    <div className="text-sm font-black text-emerald-400 tracking-[0.2em] uppercase bg-emerald-500/5 px-4 py-1.5 rounded-full border border-emerald-500/10">
-                                        @{profile.username}
-                                    </div>
-                                    <div className="h-5 w-px bg-border" />
-                                    {profile.professional_title && (
-                                        <div className="flex items-center gap-2 text-[11px] font-black text-foreground uppercase tracking-widest">
-                                            <Briefcase size={12} className="text-purple-400" /> {profile.professional_title}
-                                            {profile.experience_years > 0 && (
-                                                <span className="text-muted-foreground lowercase ml-1">({profile.experience_years}y exp)</span>
-                                            )}
-                                        </div>
-                                    )}
-                                    <div className="h-5 w-px bg-border invisible md:visible" />
-                                    <div className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em] flex items-center gap-2">
-                                        Node joined {new Date(profile.created_at).toLocaleDateString([], { month: 'short', year: 'numeric' })}
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Social Links Cockpit */}
-                            {profile.social_links && (
-                                <div className="flex items-center gap-3">
-                                    {Object.entries(profile.social_links).map(([platform, handle]) => {
-                                        const href = socialProfileUrl(platform, handle);
-                                        if (!href) return null;
-                                        const Icon = platform === 'twitter' || platform === 'x' ? Twitter : platform === 'github' ? Github : Linkedin;
-                                        return (
-                                            <motion.a
-                                                key={platform}
-                                                whileHover={{ y: -2, scale: 1.1 }}
-                                                href={href}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="p-3 rounded-xl bg-muted border border-border text-muted-foreground hover:text-primary hover:border-primary/20 transition-all shadow-xl"
-                                            >
-                                                <Icon size={16} />
-                                            </motion.a>
-                                        );
-                                    })}
-                                </div>
-                            )}
-                            {profile.website && socialProfileUrl("website", profile.website) && (
-                                <a
-                                    href={socialProfileUrl("website", profile.website)!}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-muted-foreground hover:text-primary"
-                                >
-                                    <ExternalLink size={12} /> Website
-                                </a>
-                            )}
-                        </div>
-
-                        {/* Actions Control Unit */}
-                        <div className="flex gap-4 pb-4">
-                            {isOwnProfile ? (
-                                <Link
-                                    href="/dashboard/settings/identity"
-                                    className="px-10 py-5 rounded-2xl bg-white text-black font-black text-[11px] uppercase tracking-widest flex items-center gap-3 shadow-2xl hover:scale-105 transition-all active:scale-95"
-                                >
-                                    <Edit3 size={18} /> Edit profile
-                                </Link>
-                            ) : (
-                                <div className="flex gap-4 items-center">
-                                    <button
-                                        onClick={handleFollow}
-                                        className={`px-10 py-5 rounded-2xl font-black text-[11px] uppercase tracking-widest flex items-center gap-3 transition-all active:scale-95 shadow-2xl ${isFollowing
-                                                ? 'bg-muted border border-border text-muted-foreground hover:bg-surface-hover'
-                                                : 'bg-primary text-primary-foreground hover:shadow-primary/30'
-                                            }`}
-                                    >
-                                        {isFollowing ? <UserCheck size={18} /> : <Users size={18} />}
-                                        {isFollowing ? 'Following' : 'Follow'}
-                                    </button>
-                                    <Link
-                                        href={`/messages?to=${profile.id}`}
-                                        className="p-5 rounded-2xl bg-muted border border-border text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-all shadow-xl"
-                                    >
-                                        <MessageCircle size={20} />
-                                    </Link>
-                                    <button
-                                        onClick={handleBlock}
-                                        className="p-5 rounded-2xl bg-muted border border-border text-rose-500/40 hover:text-rose-500 hover:bg-rose-500/10 transition-all shadow-xl"
-                                    >
-                                        <Ban size={20} />
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </GlassCard>
-            </motion.div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
-                {/* Left Unit: Bio & Stats HUD */}
-                <div className="lg:col-span-4 space-y-12">
-                    <motion.div variants={itemVariants} className="space-y-6">
-                        <div className="flex items-center gap-3 px-6">
-                            <div className="h-px bg-border flex-1" />
-                            <div className="text-[9px] font-black uppercase text-muted-foreground tracking-[0.4em]">Bio</div>
-                            <div className="h-px bg-border flex-1" />
-                        </div>
-                        <GlassCard className="border-border bg-card rounded-[2rem] relative group p-8">
-                            <div className="absolute top-0 right-0 p-6 opacity-[0.03] group-hover:opacity-[0.1] transition-opacity duration-700">
-                                <Terminal size={80} />
-                            </div>
-                            <div className="space-y-6 relative z-10">
-                                <p className="text-sm font-black text-foreground leading-relaxed italic">
-                                    "{profile.bio || "No bio yet."}"
-                                </p>
-                                {profile.primary_specialization && (
-                                    <div className="pt-6 border-t border-border flex items-center gap-4">
-                                        <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400">
-                                            <Fingerprint size={14} />
-                                        </div>
-                                        <div className="space-y-1">
-                                            <div className="text-[8px] font-black uppercase tracking-[0.2em] text-muted-foreground">Specialization</div>
-                                            <div className="text-[11px] font-black uppercase tracking-widest text-foreground">{profile.primary_specialization}</div>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        </GlassCard>
-                    </motion.div>
-
-                    {/* Stats Matrix */}
-                    <motion.div variants={itemVariants} className="grid grid-cols-2 gap-6">
-                        {[
-                            { label: 'Followers', value: profile.followers_count || 0, icon: Users, color: 'text-primary' },
-                            { label: 'Following', value: profile.following_count || 0, icon: Hexagon, color: 'text-muted-foreground' },
-                            { label: 'Rating', value: profile.reviews_count > 0 ? profile.avg_rating.toFixed(1) : '—', icon: Star, color: 'text-yellow-500' },
-                            { label: 'Reviews', value: profile.reviews_count || 0, icon: ShieldCheck, color: 'text-emerald-500' }
-                        ].map((stat, i) => (
-                            <GlassCard key={i} className="!p-6 border-border bg-card rounded-[2rem] hover:scale-105 transition-transform">
-                                <stat.icon className={`${stat.color} mb-3`} size={18} />
-                                <div className="text-2xl font-black text-foreground tracking-tighter">{stat.value}</div>
-                                <div className="text-[8px] font-black uppercase text-muted-foreground tracking-widest mt-1">{stat.label}</div>
-                            </GlassCard>
-                        ))}
-                    </motion.div>
-
-                    {badges.length > 0 && (
-                        <motion.div variants={itemVariants} className="space-y-4">
-                            <div className="flex items-center gap-3 px-2">
-                                <Award size={14} className="text-primary" />
-                                <div className="text-[9px] font-black uppercase text-muted-foreground tracking-[0.4em]">Badges</div>
-                                <div className="h-px bg-border flex-1" />
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                                {badges.map((ub) => (
-                                    <span
-                                        key={ub.badge_id}
-                                        title={ub.badge?.description || ub.badge?.name}
-                                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-primary/10 border border-primary/20 text-[10px] font-black uppercase tracking-widest text-primary"
-                                    >
-                                        <Award size={12} />
-                                        {ub.badge?.name || "Badge"}
-                                    </span>
-                                ))}
-                            </div>
-                        </motion.div>
-                    )}
-
-                    {/* Capability Map */}
-                    {((profile.skills && profile.skills.length > 0) || (profile.languages && profile.languages.length > 0)) && (
-                        <motion.div variants={itemVariants} className="space-y-8">
-                            <div className="flex items-center gap-3 px-6">
-                                <div className="text-[9px] font-black uppercase text-muted-foreground tracking-[0.4em]">Capacity Matrix</div>
-                                <div className="h-px bg-border flex-1" />
-                            </div>
-                            
-                            {profile.languages && profile.languages.length > 0 && (
-                                <div className="space-y-4">
-                                    <div className="text-[8px] font-black uppercase tracking-widest text-emerald-500/40 px-6">Protocol Languages</div>
-                                    <div className="flex flex-wrap gap-2 px-1">
-                                        {profile.languages.map(lang => (
-                                            <span key={lang} className="px-4 py-2 rounded-xl bg-muted border border-border text-[9px] font-black uppercase tracking-widest text-muted-foreground">
-                                                {lang}
-                                            </span>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            {profile.skills && profile.skills.length > 0 && (
-                                <div className="space-y-4">
-                                    <div className="text-[8px] font-black uppercase tracking-widest text-purple-500/40 px-6">Specialized Modules</div>
-                                    <div className="flex flex-wrap gap-2 px-1">
-                                        {profile.skills.map(skill => (
-                                            <span key={skill} className="px-5 py-2.5 rounded-xl bg-emerald-500/5 border border-emerald-500/10 text-[9px] font-black uppercase tracking-widest text-emerald-400/60 hover:text-emerald-400 hover:border-emerald-500/40 transition-all cursor-default">
-                                                {skill}
-                                            </span>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-                        </motion.div>
-                    )}
-                </div>
-
-                {/* Right Unit: Activity & Trust Ledger */}
-                <div className="lg:col-span-8 space-y-12">
-                    <motion.div variants={itemVariants} className="flex gap-8 border-b border-border">
-                        {[
-                            { id: 'reviews', label: 'Reviews', count: reviews.length, icon: Heart },
-                            ...(profile?.role === 'provider' || profile?.role === 'both' || listings.length > 0
-                                ? [{ id: 'listings', label: 'Listings', count: listings.length, icon: Activity }]
-                                : []),
-                        ].map((tab) => (
-                            <button
-                                key={tab.id}
-                                onClick={() => setActiveTab(tab.id as any)}
-                                className={`relative flex items-center gap-3 px-8 py-5 text-[10px] font-black uppercase tracking-[0.3em] transition-all ${activeTab === tab.id ? "text-primary" : "text-muted-foreground hover:text-foreground"
-                                    }`}
-                            >
-                                <tab.icon size={14} />
-                                {tab.label}
-                                <span className={`ml-2 px-2 py-0.5 rounded-md text-[8px] border font-black ${activeTab === tab.id ? "bg-primary/20 border-primary/20" : "bg-muted border-border"
-                                    }`}>
-                                    {tab.count}
-                                </span>
-                                {activeTab === tab.id && (
-                                    <motion.div layoutId="profile-tab" className="absolute bottom-0 inset-x-0 h-1 bg-primary rounded-full shadow-[0_0_20px_rgba(16,185,129,0.5)]" />
-                                )}
-                            </button>
-                        ))}
-                    </motion.div>
-
-                    <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
-                        {activeTab === "reviews" && (
-                            <div className="space-y-6">
-                                {reviews.length === 0 ? (
-                                    <div className="py-40 text-center border-2 border-dashed border-border rounded-[3rem] bg-muted">
-                                        <div className="relative w-20 h-20 mx-auto mb-8">
-                                            <div className="absolute inset-0 rounded-full border border-border animate-ping opacity-20" />
-                                            <div className="absolute inset-0 flex items-center justify-center">
-                                                <Star size={32} className="text-muted-foreground" />
-                                            </div>
-                                        </div>
-                                        <h4 className="text-xl font-black uppercase tracking-tighter text-foreground">No reviews yet</h4>
-                                        <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.4em] mt-4">Reviews from completed orders will show here.</p>
-                                    </div>
-                                ) : (
-                                    <div className="space-y-6">
-                                        {reviews.map((review) => (
-                                            <GlassCard key={review.id} className="group !p-8 border-border bg-card rounded-[2.5rem] hover:bg-surface-hover transition-all">
-                                                <div className="flex items-start justify-between gap-6 mb-8">
-                                                    <div className="flex items-center gap-5">
-                                                        <div className="w-12 h-12 rounded-2xl bg-muted border border-border flex items-center justify-center text-xs font-black text-primary overflow-hidden">
-                                                            {review.reviewer?.avatar_url ? (
-                                                                <img src={review.reviewer.avatar_url} alt="" className="w-full h-full object-cover opacity-50" />
-                                                            ) : (
-                                                                (review.reviewer?.username?.[0] || "A").toUpperCase()
-                                                            )}
-                                                        </div>
-                                                        <div className="space-y-1">
-                                                            <div className="text-[11px] font-black text-foreground uppercase tracking-wider">
-                                                                @{review.reviewer?.username || "Anonymous"}
-                                                            </div>
-                                                            <div className="flex gap-1">
-                                                                {Array.from({ length: 5 }).map((_, i) => (
-                                                                    <Star key={i} size={10} className={i < review.rating ? "fill-primary text-primary" : "text-muted-foreground"} />
-                                                                ))}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                    <div className="text-right">
-                                                        <div className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">{new Date(review.created_at).toLocaleDateString()}</div>
-                                                    </div>
-                                                </div>
-                                                <div className="relative pl-6">
-                                                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary/20 rounded-full" />
-                                                    <p className="text-sm font-black text-foreground leading-relaxed italic">
-                                                        "{review.content}"
-                                                    </p>
-                                                </div>
-                                            </GlassCard>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        )}
-
-                        {activeTab === "listings" && (
-                            <div className="space-y-4">
-                                {listings.length === 0 ? (
-                                    <div className="py-24 text-center border-2 border-dashed border-border rounded-[3rem] bg-muted">
-                                        <h4 className="text-xl font-black uppercase tracking-tighter text-foreground">No listings</h4>
-                                        <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.4em] mt-4">This seller has no public listings yet.</p>
-                                    </div>
-                                ) : (
-                                    listings.map((listing) => (
-                                        <Link key={listing.id} href={`/marketplace/${listing.id}`} className="block">
-                                            <GlassCard className="!p-6 border-border bg-card rounded-[1.5rem] flex items-center justify-between hover:bg-surface-hover transition-all">
-                                                <div className="space-y-1">
-                                                    <div className="text-lg font-black uppercase tracking-tight text-foreground">
-                                                        {listing.title}
-                                                    </div>
-                                                    <div className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                                                        {[listing.country, listing.city, listing.status].filter(Boolean).join(" · ")}
-                                                    </div>
-                                                </div>
-                                                <ArrowRight size={20} className="text-muted-foreground" />
-                                            </GlassCard>
-                                        </Link>
-                                    ))
-                                )}
-                                <Link href={`/marketplace?seller_id=${profile?.id}`} className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-primary">
-                                    View all on marketplace <ArrowRight size={14} />
-                                </Link>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </div>
-        </motion.div>
+      <EmptyState
+        title="Sign in to view your profile"
+        description="Your account profile and editing tools are available after signing in."
+        href="/login?next=%2Fprofile"
+        action="Sign in"
+      />
     );
+  if (isLoading || query.isPending) return <Loading label="Loading profile…" />;
+  if (query.isError || !profile)
+    return (
+      <div className="ui-page">
+        <Link className="ui-link" href="/marketplace">
+          ← Back to marketplace
+        </Link>
+        <h1 className="text-3xl font-semibold tracking-tight">Profile unavailable</h1>
+        <DataError
+          title="This profile is unavailable"
+          error={query.error}
+          retry={() => void query.refetch()}
+        />
+      </div>
+    );
+  const name = profile.display_name || profile.username;
+  const website = externalLink(profile.website);
+  const hasRating =
+    profile.reviews_count > 0 && Number.isFinite(profile.avg_rating);
+  return (
+    <div className="ui-page public-profile">
+      <Link href="/marketplace" className="ui-button ghost self-start">
+        <ArrowLeft size={15} />
+        Marketplace
+      </Link>
+      <section className="profile-identity ui-surface">
+        <div className="profile-cover" aria-hidden="true">
+          {profile.cover_image_url && (
+            <Image
+              src={profile.cover_image_url}
+              fill
+              sizes="100vw"
+              alt=""
+              unoptimized
+            />
+          )}
+        </div>
+        <div className="profile-identity-content">
+          <div className="profile-avatar">
+            {profile.avatar_url ? (
+              <Image
+                src={profile.avatar_url}
+                width={112}
+                height={112}
+                alt=""
+                unoptimized
+              />
+            ) : (
+              name.slice(0, 1).toUpperCase()
+            )}
+          </div>
+          <div className="profile-name">
+            <p className="ui-eyebrow">
+              {profile.business_name || profile.role} / Community profile
+            </p>
+            <h1>{name}</h1>
+            <p>
+              @{profile.username}
+              {profile.professional_title
+                ? " · " + profile.professional_title
+                : ""}
+            </p>
+          </div>
+          <div className="profile-actions">
+            {own ? (
+              <Link className="ui-button" href="/app/settings">
+                <Settings2 size={15} />
+                Edit profile
+              </Link>
+            ) : isAuthenticated ? (
+              <>
+                <button
+                  className="ui-button"
+                  type="button"
+                  disabled={follow.isPending}
+                  aria-pressed={!!profile.is_following}
+                  onClick={() => follow.mutate()}
+                >
+                  <Users size={15} />
+                  {follow.isPending
+                    ? "Updating…"
+                    : profile.is_following
+                      ? "Following"
+                      : "Follow"}
+                </button>
+                <Link
+                  className="ui-button secondary"
+                  href={"/messages?recipient=" + encodeURIComponent(profile.id)}
+                >
+                  <MessageSquare size={15} />
+                  Message
+                </Link>
+              </>
+            ) : (
+              <Link
+                className="ui-button"
+                href={
+                  "/login?next=" +
+                  encodeURIComponent("/profile/" + profile.username)
+                }
+              >
+                Sign in to connect
+              </Link>
+            )}
+          </div>
+        </div>
+        <div className="profile-meta">
+          <span>
+            <ShieldCheck size={15} />
+            Identity: {identityStatusLabel(profile.verified)}
+          </span>
+          <span>Account tier: {accountTierLabel(profile.trust_tier)}</span>
+          {profile.location && (
+            <span>
+              <MapPin size={15} />
+              {profile.location}
+            </span>
+          )}
+          <span>
+            <CalendarDays size={15} />
+            Joined {shortDate(profile.created_at)}
+          </span>
+          {website && (
+            <a href={website} target="_blank" rel="noopener noreferrer">
+              <Globe size={15} />
+              Website
+              <ArrowUpRight size={12} />
+            </a>
+          )}
+        </div>
+      </section>
+      {follow.isError && (
+        <DataError title="Follow status was not updated" error={follow.error} />
+      )}
+      <div className="ui-stats">
+        <Stat
+          label="Followers"
+          value={amount(profile.followers_count, 0)}
+          detail="Community members following this account"
+          icon={<Users size={18} />}
+        />
+        <Stat
+          label="Following"
+          value={amount(profile.following_count, 0)}
+          detail="Accounts followed by this member"
+          icon={<Users size={18} />}
+        />
+        <Stat
+          label="Review rating"
+          value={
+            hasRating ? amount(profile.avg_rating, 1) + " / 5" : "No reviews"
+          }
+          detail={
+            hasRating
+              ? amount(profile.reviews_count, 0) + " published reviews"
+              : "A rating has not been established"
+          }
+          icon={<Star size={18} />}
+        />
+      </div>
+      <div className="profile-body">
+        <aside className="profile-about ui-surface">
+          <p className="ui-eyebrow">About this member</p>
+          <h2>{profile.professional_title || "A member of the network"}</h2>
+          <p>{profile.bio || "This member has not added a bio yet."}</p>
+          {profile.total_bandwidth_sold != null && (
+            <dl>
+              <div>
+                <dt>Bandwidth sold</dt>
+                <dd>{amount(profile.total_bandwidth_sold)} GB</dd>
+              </div>
+            </dl>
+          )}
+          {profile.experience_years > 0 && (
+            <p>{profile.experience_years} years of experience</p>
+          )}
+          {!!profile.languages?.length && (
+            <p>Languages · {profile.languages.join(", ")}</p>
+          )}
+          {!!profile.skills?.length && (
+            <div className="profile-tags">
+              {profile.skills.map((skill) => (
+                <span className="ui-tag" key={skill}>
+                  {skill}
+                </span>
+              ))}
+            </div>
+          )}
+          {Object.entries(profile.social_links ?? {}).flatMap(
+            ([label, value]) => {
+              const url = externalLink(value);
+              return url
+                ? [
+                    <a
+                      className="ui-link profile-social"
+                      key={label}
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {label}
+                      <ArrowUpRight size={12} />
+                    </a>,
+                  ]
+                : [];
+            },
+          )}
+          <div className="profile-badges">
+            <h3>Earned badges</h3>
+            {badges.isPending ? (
+              <p className="ui-subtle">Loading badges…</p>
+            ) : badges.isError ? (
+              <p className="ui-subtle">Badges are unavailable.</p>
+            ) : !badges.data.badges.length ? (
+              <p className="ui-subtle">No earned badges reported.</p>
+            ) : (
+              badges.data.badges.map((badge) => (
+                <span
+                  className="ui-tag"
+                  key={badge.badge_id}
+                  title={badge.badge?.description}
+                >
+                  {badge.badge?.name || "Earned badge"}
+                </span>
+              ))
+            )}
+          </div>
+          {!own && isAuthenticated && (
+            <button
+              className="profile-block"
+              type="button"
+              onClick={() => setBlockOpen(true)}
+            >
+              <Ban size={14} />
+              Block member
+            </button>
+          )}
+        </aside>
+        <section className="profile-content">
+          <nav className="ui-tabs" aria-label="Profile content">
+            <button
+              type="button"
+              aria-pressed={tab === "reviews"}
+              className={tab === "reviews" ? "active" : ""}
+              onClick={() => setTab("reviews")}
+            >
+              Reviews
+            </button>
+            <button
+              type="button"
+              aria-pressed={tab === "listings"}
+              className={tab === "listings" ? "active" : ""}
+              onClick={() => setTab("listings")}
+            >
+              Offers
+            </button>
+          </nav>
+          {tab === "reviews" ? (
+            reviews.isPending ? (
+              <Loading label="Loading reviews…" />
+            ) : reviews.isError ? (
+              <DataError
+                title="Reviews are unavailable"
+                error={reviews.error}
+                retry={() => void reviews.refetch()}
+              />
+            ) : !reviews.data.reviews.length ? (
+              <EmptyState
+                title="No reviews yet"
+                description="Published reviews will appear here when available."
+              />
+            ) : (
+              <div className="profile-review-list">
+                {reviews.data.reviews.map((review) => (
+                  <article
+                    className="ui-surface profile-review"
+                    key={review.id}
+                  >
+                    <header>
+                      <div>
+                        <strong>
+                          {review.reviewer?.display_name ||
+                            review.reviewer?.username ||
+                            "Community member"}
+                        </strong>
+                        <span>{shortDate(review.created_at)}</span>
+                      </div>
+                      <span className="profile-rating">
+                        <Star size={14} />
+                        {amount(review.rating, 1)} / 5
+                      </span>
+                    </header>
+                    {review.verified_purchase && (
+                      <Status tone="good">Verified purchase</Status>
+                    )}
+                    <h3>{review.title}</h3>
+                    <p>{review.content}</p>
+                    {review.seller_response && (
+                      <blockquote>
+                        <strong>Provider response</strong>
+                        <p>{review.seller_response}</p>
+                      </blockquote>
+                    )}
+                  </article>
+                ))}
+              </div>
+            )
+          ) : listings.isPending ? (
+            <Loading label="Loading offers…" />
+          ) : listings.isError ? (
+            <DataError
+              title="Offers are unavailable"
+              error={listings.error}
+              retry={() => void listings.refetch()}
+            />
+          ) : !listings.data.listings.length ? (
+            <EmptyState
+              title="No published offers"
+              description="This member has no offers in the current result set."
+            />
+          ) : (
+            <div className="profile-offers">
+              {listings.data.listings.map((listing) => (
+                <Link
+                  className="ui-surface profile-offer"
+                  key={listing.id}
+                  href={"/marketplace/" + listing.id}
+                >
+                  <div>
+                    <Status
+                      tone={listing.status === "active" ? "good" : "neutral"}
+                    >
+                      {listing.status}
+                    </Status>
+                    <span className="ui-subtle">
+                      {listing.country || "Location not specified"}
+                    </span>
+                  </div>
+                  <h3>{displayListingTitle(listing)}</h3>
+                  <p>
+                    {listing.proxy_type} · {listing.protocol}
+                  </p>
+                  <div>
+                    <strong>
+                      {"$" + amount(listing.price_per_gb, 4)}
+                      <small> / GB</small>
+                    </strong>
+                    <span>
+                      {amount(listing.available_bandwidth_gb)} GB available
+                    </span>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
+      <Modal
+        open={blockOpen}
+        onOpenChange={setBlockOpen}
+        title={"Block " + name + "?"}
+        description="This member will be removed from your follows. Review the account before confirming."
+        footer={
+          <button
+            type="button"
+            className="ui-button danger"
+            disabled={block.isPending}
+            onClick={() => block.mutate()}
+          >
+            {block.isPending ? "Blocking…" : "Block member"}
+          </button>
+        }
+      >
+        {block.isError && (
+          <DataError title="The member was not blocked" error={block.error} />
+        )}
+        <p className="ui-note">
+          @{profile.username} · {profile.id}
+        </p>
+      </Modal>
+    </div>
+  );
 }

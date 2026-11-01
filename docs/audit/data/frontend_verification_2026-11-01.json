@@ -1,0 +1,846 @@
+{
+  "date": "2026-11-01",
+  "runtime": {
+    "installed_next": "16.4.3",
+    "declared_next": "16.4.3",
+    "native_swc": "16.4.3",
+    "react": "19.2.3",
+    "dependency_alignment": "complete",
+    "build_id": "9zSuB3MRgVsi2ve6izmM2"
+  },
+  "coverage": {
+    "page_modules": 126,
+    "direct_redirects_in_inventory": 35,
+    "family_sweep_uris": [
+      "/",
+      "/app/settings?tab=referrals",
+      "/community/friends",
+      "/dashboard/agents",
+      "/dashboard/analytics",
+      "/dashboard/monitoring",
+      "/dashboard/provider/analytics",
+      "/dashboard/provider/circle",
+      "/dashboard/provider/cli",
+      "/dashboard/provider/health",
+      "/dashboard/provider/pair",
+      "/dashboard/provider/relationships",
+      "/dashboard/provider/services",
+      "/dashboard/proxy",
+      "/dashboard/settings/account",
+      "/dashboard/settings/api-keys",
+      "/dashboard/trustless",
+      "/explorer/about/protocol",
+      "/explorer/blocks/123",
+      "/explorer/contracts/unavailable-contract",
+      "/explorer/earnings",
+      "/explorer/leaderboard",
+      "/explorer/nodes/compare?ids=node-a,node-b",
+      "/explorer/nodes/unavailable-node",
+      "/explorer/sessions",
+      "/explorer/transactions/unavailable-hash",
+      "/explorer/wallets",
+      "/explorer/wallets/5J7sQx1LQx32fY6k3i8rXQ9rC3Z1V3aNQ3fxh7c7c4yD",
+      "/help",
+      "/help/community/archive/beta",
+      "/help/community/archive/feed",
+      "/help/contact",
+      "/help/guidelines",
+      "/login",
+      "/marketplace/manage/products",
+      "/privacy",
+      "/privacy/extension",
+      "/providers/unavailable-provider",
+      "/register",
+      "/terms",
+      "/treasury",
+      "/whitepaper"
+    ],
+    "independent_manual_review_of_every_page": false
+  },
+  "checks": {
+    "typecheck": "pass; final npm run typecheck and production build TypeScript checks",
+    "production_build": "pass",
+    "static_pages_generated": 111,
+    "route_validation": {
+      "status": "pass",
+      "static_registry": 92,
+      "navigation_keys": 38,
+      "policies": 102,
+      "dynamic_prefixes": 11
+    },
+    "contracts": {
+      "provider_config": "pass",
+      "sol_precision_tests": 3,
+      "submitted_signature_transfer_tests": 4,
+      "listing_display": "pass",
+      "order_status": "pass",
+      "wallet_session": "pass"
+    },
+    "lockfile_consistency": "pass; npm ci dry run reported no changes",
+    "page_and_layout_lint": {
+      "files": 160,
+      "errors": 0,
+      "warnings": 0
+    },
+    "workspace_module_lint": {
+      "files": 15,
+      "errors": 0,
+      "warnings": 0
+    },
+    "full_app_lint": {
+      "errors": 78,
+      "warnings": 80,
+      "files_with_findings": 60
+    },
+    "lint_baseline_comparison": {
+      "ref": "HEAD",
+      "method": "rule + source statement + first message line; same installed configuration",
+      "matching_errors": 78,
+      "unmatched_errors": 0
+    },
+    "additional_shared_controls_and_audit_script_lint": {
+      "errors": 0,
+      "warnings": 0
+    },
+    "sampled_token_contrast": {
+      "pairs": 12,
+      "passing": 12
+    },
+    "whitespace": "pass",
+    "production_build_log": "frontend_build_2026-11-01.txt"
+  },
+  "browser": {
+    "browser": "Chromium",
+    "api_data": "controlled fixtures",
+    "real_transfers": false,
+    "real_messages_or_posts": false,
+    "distinct_latest_passing": 84,
+    "distinct_optimized_build_checks_passing": 29,
+    "latest_failures": 0,
+    "suites": {
+      "buyer-journey.spec.ts": 8,
+      "explorer.spec.ts": 11,
+      "frontend-completion.spec.ts": 10,
+      "frontend-controls.spec.ts": 4,
+      "frontend-details.spec.ts": 7,
+      "frontend-message-recovery.spec.ts": 2,
+      "frontend-route-review.spec.ts": 4,
+      "governance-ui.spec.ts": 2,
+      "marketplace-browse-buy.spec.ts": 6,
+      "marketplace-catalog.spec.ts": 3,
+      "marketplace-listing-buy.spec.ts": 4,
+      "marketplace-map-buy.spec.ts": 3,
+      "marketplace-moderation.spec.ts": 2,
+      "marketplace-order-credentials.spec.ts": 2,
+      "seller-workflows.spec.ts": 8,
+      "social/forum.spec.ts": 2,
+      "wallet-no-web-wallet-popup.spec.ts": 1,
+      "workspace.spec.ts": 5
+    },
+    "execution": "staged runs; original sweep failures retained in reports; affected cases corrected and rerun; production checks use signed test JWTs with production signing mocks disabled",
+    "runs": [
+      {
+        "file": "frontend-browser-final-2026-11-01.json",
+        "stats": {
+          "startTime": "2026-11-01T13:38:07.735Z",
+          "duration": 1804568.5699999998,
+          "expected": 73,
+          "skipped": 0,
+          "unexpected": 6,
+          "flaky": 0
+        }
+      },
+      {
+        "file": "frontend-browser-purchase-rerun-2026-11-01.json",
+        "stats": {
+          "startTime": "2026-11-01T14:11:02.350Z",
+          "duration": 219253.35799999998,
+          "expected": 9,
+          "skipped": 0,
+          "unexpected": 1,
+          "flaky": 0
+        }
+      },
+      {
+        "file": "frontend-browser-catalog-rerun-2026-11-01.json",
+        "stats": {
+          "startTime": "2026-11-01T14:14:57.123Z",
+          "duration": 20540.229,
+          "expected": 1,
+          "skipped": 0,
+          "unexpected": 0,
+          "flaky": 0
+        }
+      },
+      {
+        "file": "frontend-browser-production-2026-11-01.json",
+        "stats": {
+          "startTime": "2026-11-01T14:20:36.589Z",
+          "duration": 202065.64,
+          "expected": 24,
+          "skipped": 0,
+          "unexpected": 2,
+          "flaky": 0
+        }
+      },
+      {
+        "file": "frontend-browser-production-final-2026-11-01.json",
+        "stats": {
+          "startTime": "2026-11-01T14:30:46.570Z",
+          "duration": 14365.016000000001,
+          "expected": 4,
+          "skipped": 0,
+          "unexpected": 0,
+          "flaky": 0
+        }
+      },
+      {
+        "file": "frontend-browser-accessibility-fixes-2026-11-01.json",
+        "stats": {
+          "startTime": "2026-11-01T14:43:30.907Z",
+          "duration": 13002.378,
+          "expected": 3,
+          "skipped": 0,
+          "unexpected": 0,
+          "flaky": 0
+        }
+      },
+      {
+        "file": "frontend-browser-brand-accessibility-2026-11-01.json",
+        "stats": {
+          "startTime": "2026-11-01T14:56:24.633Z",
+          "duration": 29399.559,
+          "expected": 4,
+          "skipped": 0,
+          "unexpected": 0,
+          "flaky": 0
+        }
+      }
+    ],
+    "latest_case_outcomes": [
+      {
+        "file": "buyer-journey.spec.ts",
+        "title": "buyer journey and recovery / distinguishes account funds from wallet and escrow; prevents funding on another network",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "buyer-journey.spec.ts",
+        "title": "buyer journey and recovery / checks original order escrow without creating an order and preserves funded cancellation errors",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "buyer-journey.spec.ts",
+        "title": "buyer journey and recovery / unwraps live session counters and does not claim termination after an API failure",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "buyer-journey.spec.ts",
+        "title": "buyer journey and recovery / reports unknown security status on failure instead of claiming two-factor authentication is off",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "buyer-journey.spec.ts",
+        "title": "buyer journey and recovery / verifies a retained Access Pass payment without preparing or sending another payment",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "buyer-journey.spec.ts",
+        "title": "buyer journey and recovery / restores a submitted account deposit after reload and only verifies its original signature",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "buyer-journey.spec.ts",
+        "title": "buyer journey and recovery / updates profile and preserves notification preferences in the new settings utility",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "buyer-journey.spec.ts",
+        "title": "buyer journey and recovery / generates the authenticator QR locally and keeps setup open after an invalid code",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "explorer.spec.ts",
+        "title": "explorer / overview loads with mocked APIs",
+        "status": "passed",
+        "report": "frontend-browser-brand-accessibility-2026-11-01.json"
+      },
+      {
+        "file": "explorer.spec.ts",
+        "title": "explorer / node map shows listings layer toggle and marketplace map data",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "explorer.spec.ts",
+        "title": "explorer / map stays 2D-only with no satellite or 3D controls",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "explorer.spec.ts",
+        "title": "explorer / nodes grid accepts q search query param",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "explorer.spec.ts",
+        "title": "explorer / node map shows WS connected with mocked websocket",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "explorer.spec.ts",
+        "title": "explorer / unified 2D map shows last updated timestamp and region distribution",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "explorer.spec.ts",
+        "title": "explorer / validators-only filter requests marketplace map with validator=true",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "explorer.spec.ts",
+        "title": "explorer / layout trust badge reflects verified decentralization status",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "explorer.spec.ts",
+        "title": "explorer / overview shows full decentralization gate banner when metrics are gated",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "explorer.spec.ts",
+        "title": "explorer / node compare page renders side-by-side metrics for two nodes",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "explorer.spec.ts",
+        "title": "explorer search flow / search page links node browse to filtered nodes grid",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "frontend-completion.spec.ts",
+        "title": "remaining frontend acceptance / discussion editor validates, preserves rejected content, and opens the canonical result",
+        "status": "passed",
+        "report": "frontend-browser-production-2026-11-01.json"
+      },
+      {
+        "file": "frontend-completion.spec.ts",
+        "title": "remaining frontend acceptance / discussion replies, votes, reports and keyboard dialogs expose failures",
+        "status": "passed",
+        "report": "frontend-browser-production-2026-11-01.json"
+      },
+      {
+        "file": "frontend-completion.spec.ts",
+        "title": "remaining frontend acceptance / inbox failure recovers without pretending there are no conversations",
+        "status": "passed",
+        "report": "frontend-browser-production-2026-11-01.json"
+      },
+      {
+        "file": "frontend-completion.spec.ts",
+        "title": "remaining frontend acceptance / message send preserves drafts and conversation switching stays scoped",
+        "status": "passed",
+        "report": "frontend-browser-production-2026-11-01.json"
+      },
+      {
+        "file": "frontend-completion.spec.ts",
+        "title": "remaining frontend acceptance / public profile keeps review failure distinct from no reviews",
+        "status": "passed",
+        "report": "frontend-browser-production-2026-11-01.json"
+      },
+      {
+        "file": "frontend-completion.spec.ts",
+        "title": "remaining frontend acceptance / treasury distinguishes missing balances and preserves true zero values",
+        "status": "passed",
+        "report": "frontend-browser-production-2026-11-01.json"
+      },
+      {
+        "file": "frontend-completion.spec.ts",
+        "title": "remaining frontend acceptance / analytics applies custom dates and provides exact accessible measurements",
+        "status": "passed",
+        "report": "frontend-browser-production-2026-11-01.json"
+      },
+      {
+        "file": "frontend-completion.spec.ts",
+        "title": "remaining frontend acceptance / health transport failures do not claim an outage or a healthy event log",
+        "status": "passed",
+        "report": "frontend-browser-production-2026-11-01.json"
+      },
+      {
+        "file": "frontend-completion.spec.ts",
+        "title": "remaining frontend acceptance / wallet lookup validates and public records recover from failures",
+        "status": "passed",
+        "report": "frontend-browser-production-2026-11-01.json"
+      },
+      {
+        "file": "frontend-completion.spec.ts",
+        "title": "remaining frontend acceptance / draft documentation has working contents, consistent themes, and a narrow reading layout",
+        "status": "passed",
+        "report": "frontend-browser-production-final-2026-11-01.json"
+      },
+      {
+        "file": "frontend-details.spec.ts",
+        "title": "frontend details and public content / listing evidence stays honest, share failure is visible, and questions can recover",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "frontend-details.spec.ts",
+        "title": "frontend details and public content / governance filters actual proposals and keeps readiness separate",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "frontend-details.spec.ts",
+        "title": "frontend details and public content / forum shows recent discussions, reports search failure, and retries",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "frontend-details.spec.ts",
+        "title": "frontend details and public content / appearance controls persist the theme and expose selection",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "frontend-details.spec.ts",
+        "title": "frontend details and public content / support and policy pages provide titles, contents links, and a mobile reading layout",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "frontend-details.spec.ts",
+        "title": "frontend details and public content / Explorer preserves zero measurements and reports unavailable health",
+        "status": "passed",
+        "report": "frontend-browser-accessibility-fixes-2026-11-01.json"
+      },
+      {
+        "file": "frontend-details.spec.ts",
+        "title": "frontend details and public content / forum category pagination requests the next page and preserves a useful empty state",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "frontend-message-recovery.spec.ts",
+        "title": "an accepted first message survives a failed inbox preview refresh without a second send",
+        "status": "passed",
+        "report": "frontend-browser-production-2026-11-01.json"
+      },
+      {
+        "file": "frontend-message-recovery.spec.ts",
+        "title": "stored light and dark themes hydrate without rebuilding the page",
+        "status": "passed",
+        "report": "frontend-browser-production-2026-11-01.json"
+      },
+      {
+        "file": "frontend-route-review.spec.ts",
+        "title": "route-family release review / public reading and authentication routes fit a 360px light viewport",
+        "status": "passed",
+        "report": "frontend-browser-brand-accessibility-2026-11-01.json"
+      },
+      {
+        "file": "frontend-route-review.spec.ts",
+        "title": "route-family release review / operator and account utilities recover in a 390px viewport",
+        "status": "passed",
+        "report": "frontend-browser-production-2026-11-01.json"
+      },
+      {
+        "file": "frontend-route-review.spec.ts",
+        "title": "route-family release review / public record details and disabled feeds have usable narrow recovery",
+        "status": "passed",
+        "report": "frontend-browser-brand-accessibility-2026-11-01.json"
+      },
+      {
+        "file": "frontend-route-review.spec.ts",
+        "title": "route-family release review / light-theme treasury and wallet lookup meet automated WCAG checks",
+        "status": "passed",
+        "report": "frontend-browser-production-final-2026-11-01.json"
+      },
+      {
+        "file": "governance-ui.spec.ts",
+        "title": "governance interface / proposal loading failures can recover without being called a missing proposal",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "governance-ui.spec.ts",
+        "title": "governance interface / proposal fields are labelled and reject an invalid voting duration before submission",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "marketplace-browse-buy.spec.ts",
+        "title": "focused marketplace purchase / reviews an offer before requesting escrow funding",
+        "status": "passed",
+        "report": "frontend-browser-purchase-rerun-2026-11-01.json"
+      },
+      {
+        "file": "marketplace-browse-buy.spec.ts",
+        "title": "focused marketplace purchase / completes mocked escrow flow and opens the real order credentials screen",
+        "status": "passed",
+        "report": "frontend-browser-purchase-rerun-2026-11-01.json"
+      },
+      {
+        "file": "marketplace-browse-buy.spec.ts",
+        "title": "focused marketplace purchase / retries an existing order after a failed payment confirmation without creating another",
+        "status": "passed",
+        "report": "frontend-browser-purchase-rerun-2026-11-01.json"
+      },
+      {
+        "file": "marketplace-browse-buy.spec.ts",
+        "title": "focused marketplace purchase / requests catalog products and keeps the useful product badge",
+        "status": "passed",
+        "report": "frontend-browser-purchase-rerun-2026-11-01.json"
+      },
+      {
+        "file": "marketplace-browse-buy.spec.ts",
+        "title": "focused marketplace purchase / applies a country filter to the inventory request and URL",
+        "status": "passed",
+        "report": "frontend-browser-purchase-rerun-2026-11-01.json"
+      },
+      {
+        "file": "marketplace-browse-buy.spec.ts",
+        "title": "focused marketplace purchase / limits comparisons to three offers and lets buyers remove a selection",
+        "status": "passed",
+        "report": "frontend-browser-purchase-rerun-2026-11-01.json"
+      },
+      {
+        "file": "marketplace-catalog.spec.ts",
+        "title": "marketplace catalog manage / provider can open catalog manage and create a product",
+        "status": "passed",
+        "report": "frontend-browser-purchase-rerun-2026-11-01.json"
+      },
+      {
+        "file": "marketplace-catalog.spec.ts",
+        "title": "marketplace catalog manage / provider links a listing via select (no raw listing-id UX)",
+        "status": "passed",
+        "report": "frontend-browser-purchase-rerun-2026-11-01.json"
+      },
+      {
+        "file": "marketplace-catalog.spec.ts",
+        "title": "marketplace catalog browse + buy / browse card prefers linked catalog product title then mocked buy works",
+        "status": "passed",
+        "report": "frontend-browser-catalog-rerun-2026-11-01.json"
+      },
+      {
+        "file": "marketplace-listing-buy.spec.ts",
+        "title": "marketplace listing detail buy / opens buy modal from listing detail page",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "marketplace-listing-buy.spec.ts",
+        "title": "marketplace listing detail buy / completes mocked purchase from listing detail",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "marketplace-listing-buy.spec.ts",
+        "title": "marketplace listing detail buy / does not invent a purchase minimum when listing terms are missing",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "marketplace-listing-buy.spec.ts",
+        "title": "marketplace listing detail buy / honors a published zero minimum while preventing a zero-bandwidth order",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "marketplace-map-buy.spec.ts",
+        "title": "marketplace map buy-from-map / opens buy modal from map pin detail",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "marketplace-map-buy.spec.ts",
+        "title": "marketplace map buy-from-map / requires actual listing terms before opening checkout and supports retry",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "marketplace-map-buy.spec.ts",
+        "title": "marketplace map buy-from-map / completes mocked purchase from map and shows proxy credentials",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "marketplace-moderation.spec.ts",
+        "title": "marketplace admin moderation / shows pending listing and approves from queue",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "marketplace-moderation.spec.ts",
+        "title": "marketplace admin moderation / shows pending forum report and resolves from queue",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "marketplace-order-credentials.spec.ts",
+        "title": "marketplace order credentials page / shows proxy credentials for an active order",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "marketplace-order-credentials.spec.ts",
+        "title": "marketplace order credentials page / Connect with ProxyHubb pairs and turns on a mocked extension",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "seller-workflows.spec.ts",
+        "title": "seller workflow migration / recovers token creation without duplicating a node, then downloads node-bound configuration",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "seller-workflows.spec.ts",
+        "title": "seller workflow migration / opening a node does not create credentials or reuse another node’s legacy token",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "seller-workflows.spec.ts",
+        "title": "seller workflow migration / reviews before publishing, preserves canonical offer fields, and respects pending review",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "seller-workflows.spec.ts",
+        "title": "seller workflow migration / blocks publishing when publication policy cannot be loaded",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "seller-workflows.spec.ts",
+        "title": "seller workflow migration / edits and pauses an offer within the canonical seller workspace",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "seller-workflows.spec.ts",
+        "title": "seller workflow migration / revokes credentials only after the in-app review and clears stale connection tokens",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "seller-workflows.spec.ts",
+        "title": "seller workflow migration / retries a payout with the same idempotency key and saves exact threshold amounts",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "seller-workflows.spec.ts",
+        "title": "seller workflow migration / keeps long node details usable at 320px and preserves legacy setup redirects",
+        "status": "passed",
+        "report": "frontend-browser-final-2026-11-01.json"
+      },
+      {
+        "file": "social/forum.spec.ts",
+        "title": "canonical forum navigation / legacy collection links retain their filter and page",
+        "status": "passed",
+        "report": "frontend-browser-production-2026-11-01.json"
+      },
+      {
+        "file": "social/forum.spec.ts",
+        "title": "canonical forum navigation / legacy category links preserve the category and pagination",
+        "status": "passed",
+        "report": "frontend-browser-production-2026-11-01.json"
+      },
+      {
+        "file": "workspace.spec.ts",
+        "title": "buyer and seller workspaces / switches between four focused destinations using existing account capability",
+        "status": "passed",
+        "report": "frontend-browser-production-2026-11-01.json"
+      },
+      {
+        "file": "workspace.spec.ts",
+        "title": "buyer and seller workspaces / persists explicit light and dark themes and supports a 320px workspace",
+        "status": "passed",
+        "report": "frontend-browser-production-2026-11-01.json"
+      },
+      {
+        "file": "workspace.spec.ts",
+        "title": "buyer and seller workspaces / keeps seller access protected and offers onboarding to buyers",
+        "status": "passed",
+        "report": "frontend-browser-production-2026-11-01.json"
+      },
+      {
+        "file": "workspace.spec.ts",
+        "title": "buyer and seller workspaces / requires sign in on new private workspace routes",
+        "status": "passed",
+        "report": "frontend-browser-production-2026-11-01.json"
+      },
+      {
+        "file": "workspace.spec.ts",
+        "title": "buyer and seller workspaces / distinguishes zero usage from missing measurements on a narrow screen",
+        "status": "passed",
+        "report": "frontend-browser-production-2026-11-01.json"
+      },
+      {
+        "file": "wallet-no-web-wallet-popup.spec.ts",
+        "title": "wallet auto-reconnect / does not open a web wallet when no wallet extension is installed",
+        "status": "passed",
+        "report": "frontend-browser-purchase-rerun-2026-11-01.json"
+      },
+      {
+        "file": "frontend-controls.spec.ts",
+        "title": "a listing inquiry preserves a rejected draft, confirms acceptance, and returns keyboard focus",
+        "status": "passed",
+        "report": "frontend-browser-production-2026-11-01.json"
+      },
+      {
+        "file": "frontend-controls.spec.ts",
+        "title": "friend suggestions show a recoverable status failure before offering a request",
+        "status": "passed",
+        "report": "frontend-browser-production-2026-11-01.json"
+      },
+      {
+        "file": "frontend-controls.spec.ts",
+        "title": "a failed circle source is not presented as an empty pool collection",
+        "status": "passed",
+        "report": "frontend-browser-production-2026-11-01.json"
+      },
+      {
+        "file": "frontend-controls.spec.ts",
+        "title": "the public header fits 320px and keeps sign-in reachable from its keyboard menu",
+        "status": "passed",
+        "report": "frontend-browser-brand-accessibility-2026-11-01.json"
+      }
+    ]
+  },
+  "accessibility": {
+    "attached_main_and_tablet_scans": 13,
+    "attached_violations": 0,
+    "inquiry_dialog_assertion": "pass",
+    "full_document_theme_scans": 6,
+    "full_document_violations": 0,
+    "full_document_horizontal_overflow": 0,
+    "formal_assistive_technology_certification": false
+  },
+  "performance": {
+    "method": "single local mobile Lighthouse 13.6.0 runs on the optimized build; default simulated throttling",
+    "service_state": "control API unavailable; landing and unavailable-data views; repeat with deployed, data-present services",
+    "best_practices_limit": "96 reflects failed API resources and the caught auth refresh error; no result is presented as live-service clearance",
+    "pages": [
+      {
+        "page": "landing",
+        "url": "http://127.0.0.1:4027/",
+        "fetch_time": "2026-11-01T15:02:23.064Z",
+        "scores": {
+          "performance": 97,
+          "accessibility": 100,
+          "best-practices": 96,
+          "seo": 100
+        },
+        "metrics": {
+          "largest-contentful-paint": {
+            "value": 1060.648,
+            "display": "1.1 s"
+          },
+          "total-blocking-time": {
+            "value": 207,
+            "display": "210 ms"
+          },
+          "cumulative-layout-shift": {
+            "value": 0,
+            "display": "0"
+          }
+        },
+        "report_json": "lighthouse/landing-2026-11-01.report.json",
+        "report_html": "lighthouse/landing-2026-11-01.report.html",
+        "form_factor": "mobile",
+        "throttling_method": "simulate"
+      },
+      {
+        "page": "marketplace",
+        "url": "http://127.0.0.1:4027/marketplace",
+        "fetch_time": "2026-11-01T15:02:42.999Z",
+        "scores": {
+          "performance": 94,
+          "accessibility": 100,
+          "best-practices": 96,
+          "seo": 100
+        },
+        "metrics": {
+          "largest-contentful-paint": {
+            "value": 1062.24,
+            "display": "1.1 s"
+          },
+          "total-blocking-time": {
+            "value": 293.49999999999955,
+            "display": "290 ms"
+          },
+          "cumulative-layout-shift": {
+            "value": 0,
+            "display": "0"
+          }
+        },
+        "report_json": "lighthouse/marketplace-2026-11-01.report.json",
+        "report_html": "lighthouse/marketplace-2026-11-01.report.html",
+        "form_factor": "mobile",
+        "throttling_method": "simulate"
+      },
+      {
+        "page": "explorer",
+        "url": "http://127.0.0.1:4027/explorer",
+        "fetch_time": "2026-11-01T15:03:04.030Z",
+        "scores": {
+          "performance": 89,
+          "accessibility": 100,
+          "best-practices": 96,
+          "seo": 100
+        },
+        "metrics": {
+          "largest-contentful-paint": {
+            "value": 1211.0339999999999,
+            "display": "1.2 s"
+          },
+          "total-blocking-time": {
+            "value": 446.99999999999955,
+            "display": "450 ms"
+          },
+          "cumulative-layout-shift": {
+            "value": 0,
+            "display": "0"
+          }
+        },
+        "report_json": "lighthouse/explorer-2026-11-01.report.json",
+        "report_html": "lighthouse/explorer-2026-11-01.report.html",
+        "form_factor": "mobile",
+        "throttling_method": "simulate"
+      }
+    ]
+  },
+  "production_dependency_audit": {
+    "total": 48,
+    "high": 19,
+    "moderate": 27,
+    "low": 2,
+    "critical": 0,
+    "safe_fix_initial_total": 63
+  },
+  "remaining_release_gates": [
+    "full repository lint baseline",
+    "wallet/SDK advisory review and compatible migrations",
+    "configured live API acceptance",
+    "funded purchase, traffic and accepted earnings acceptance",
+    "optional EVM configuration if enabled",
+    "deployed performance, cross-browser and manual assistive-technology acceptance"
+  ]
+}

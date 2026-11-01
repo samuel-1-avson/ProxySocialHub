@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 
 export default function GovernanceLayout({
@@ -7,8 +8,9 @@ export default function GovernanceLayout({
 }: {
     children: React.ReactNode;
 }) {
-    return (
-        <AppShell showDesktopActions={false} showBreadcrumbs={false} contentClassName="animate-in fade-in duration-500">
+    const path = usePathname();
+  return (
+        <AppShell withWallet={path !== "/governance"} showDesktopActions={false} showBreadcrumbs={false} contentClassName="animate-in fade-in duration-500">
             {children}
         </AppShell>
     );

@@ -1,0 +1,57 @@
+[
+  {
+    "route": "http://127.0.0.1:4027/explorer",
+    "fetch_time": "2026-11-01T14:32:40.739Z",
+    "scores": {
+      "performance": 0.86,
+      "accessibility": 0.94,
+      "best-practices": 0.96,
+      "seo": 1
+    },
+    "metrics": {
+      "largest-contentful-paint": 1210.276,
+      "total-blocking-time": 544.4999999999995,
+      "cumulative-layout-shift": 0
+    },
+    "accessibility_findings": [
+      "color-contrast",
+      "heading-order",
+      "label-content-name-mismatch"
+    ]
+  },
+  {
+    "route": "http://127.0.0.1:4027/",
+    "fetch_time": "2026-11-01T14:31:59.480Z",
+    "scores": {
+      "performance": 0.93,
+      "accessibility": 0.98,
+      "best-practices": 0.96,
+      "seo": 1
+    },
+    "metrics": {
+      "largest-contentful-paint": 1064.263,
+      "total-blocking-time": 334,
+      "cumulative-layout-shift": 0
+    },
+    "accessibility_findings": [
+      "skip-link",
+      "label-content-name-mismatch"
+    ]
+  },
+  {
+    "route": "http://127.0.0.1:4027/marketplace",
+    "fetch_time": "2026-11-01T14:32:20.077Z",
+    "scores": {
+      "performance": 0.94,
+      "accessibility": 1,
+      "best-practices": 0.96,
+      "seo": 1
+    },
+    "metrics": {
+      "largest-contentful-paint": 1060.189,
+      "total-blocking-time": 278.4999999999998,
+      "cumulative-layout-shift": 0
+    },
+    "accessibility_findings": []
+  }
+]

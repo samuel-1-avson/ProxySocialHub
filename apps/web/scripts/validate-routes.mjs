@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 
 const projectRoot = process.cwd();
@@ -23,13 +23,46 @@ for (const [, routeName] of dynamicRouteMatches) {
 const missingPages = [];
 let validatedCount = 0;
 
+function resolveAppPage(routePath) {
+    const segments = routePath === "/" ? [] : routePath.slice(1).split("/");
+    const pending = [{ directory: appDir, index: 0 }];
+
+    while (pending.length > 0) {
+        const current = pending.shift();
+        if (!current) continue;
+
+        if (current.index === segments.length) {
+            const page = path.join(current.directory, "page.tsx");
+            if (existsSync(page)) return page;
+            continue;
+        }
+
+        const staticDirectory = path.join(current.directory, segments[current.index]);
+        if (existsSync(staticDirectory) && statSync(staticDirectory).isDirectory()) {
+            pending.push({ directory: staticDirectory, index: current.index + 1 });
+        }
+
+        const dynamicDirectories = readdirSync(current.directory, { withFileTypes: true })
+            .filter((entry) => entry.isDirectory() && /^\[[^\]]+\]$/.test(entry.name));
+        for (const entry of dynamicDirectories) {
+            pending.push({ directory: path.join(current.directory, entry.name), index: current.index + 1 });
+        }
+
+        const catchAllDirectories = readdirSync(current.directory, { withFileTypes: true })
+            .filter((entry) => entry.isDirectory() && /^\[\.\.\.[^\]]+\]$/.test(entry.name));
+        for (const entry of catchAllDirectories) {
+            pending.push({ directory: path.join(current.directory, entry.name), index: segments.length });
+        }
+    }
+
+    return path.join(appDir, ...segments, "page.tsx");
+}
+
 for (const [, routeName, routePath] of routeMatches) {
     if (!routePath.startsWith("/") || routePath.includes("?") || routePath.includes("#")) continue;
 
     const normalizedRoute = routePath.replace(/\/$/, "") || "/";
-    const pagePath = normalizedRoute === "/"
-        ? path.join(appDir, "page.tsx")
-        : path.join(appDir, ...normalizedRoute.slice(1).split("/"), "page.tsx");
+    const pagePath = resolveAppPage(normalizedRoute);
 
     validatedCount += 1;
 

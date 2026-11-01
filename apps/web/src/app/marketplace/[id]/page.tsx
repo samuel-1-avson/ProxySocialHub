@@ -1,342 +1,379 @@
 "use client";
 
-import { useEffect, useState, Suspense } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import { useQueryClient } from '@tanstack/react-query';
+import { Suspense, useEffect, useState } from "react";
+import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-    getListing,
-    saveListing,
-    unsaveListing,
-    marketplaceKeys,
-    Listing,
-} from '@/lib/api/marketplace';
-import { BuyListingModal } from '@/components/BuyListingModal';
-import { ListingSocialPanel } from '@/components/marketplace/ListingSocialPanel';
-import { ListingQASection } from '@/components/marketplace/ListingQASection';
-import { useAuth } from '@/lib/auth';
-import { useToast } from '@/stores';
-import { getErrorMessage } from '@/lib/utils';
-import { Loader2, Star, Shield, Signal, Activity, Globe, ShoppingCart, Share2, Heart, ArrowLeft } from 'lucide-react';
-import Link from 'next/link';
-import { trackListingViewOnce } from '@/lib/analytics/marketplace-funnel';
-import { CatalogProductBadge } from '@/components/marketplace/CatalogProductBadge';
+  ArrowLeft,
+  ArrowRight,
+  Bookmark,
+  Check,
+  Gauge,
+  Globe2,
+  Layers,
+  Share2,
+  ShieldCheck,
+  ShoppingCart,
+  Star,
+} from "lucide-react";
 import {
-    displayListingTitle,
-    listingShowsCatalogSubtitle,
-} from '@/lib/listing-display';
-
-function isPurchasable(listing: Listing) {
-    return listing.status === 'active' && listing.available_bandwidth_gb > 0;
-}
-
-function formatListingStatus(status: string) {
-    return status.replace(/_/g, ' ');
-}
+  getListing,
+  saveListing,
+  unsaveListing,
+  marketplaceKeys,
+} from "@/lib/api/marketplace";
+import { useAuth } from "@/lib/auth";
+import { LazyBuyListingModal as BuyListingModal } from "@/components/marketplace/LazyBuyListingModal";
+import { ListingSocialPanel } from "@/components/marketplace/ListingSocialPanel";
+import { ListingQASection } from "@/components/marketplace/ListingQASection";
+import { CatalogProductBadge } from "@/components/marketplace/CatalogProductBadge";
+import { trackListingViewOnce } from "@/lib/analytics/marketplace-funnel";
+import {
+  displayListingTitle,
+  listingShowsCatalogSubtitle,
+} from "@/lib/listing-display";
+import {
+  PageHeading,
+  Stat,
+  Status,
+  Loading,
+  DataError,
+  amount,
+  countryName,
+} from "@/components/workspace/Patterns";
 
 function ListingDetailContent() {
-    const params = useParams();
-    const router = useRouter();
-    const { user } = useAuth();
-    const toast = useToast();
-    const queryClient = useQueryClient();
-    const id = params.id as string;
-
-    const [listing, setListing] = useState<Listing | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState("");
-    const [isSaved, setIsSaved] = useState(false);
-    const [saving, setSaving] = useState(false);
-    const [buyOpen, setBuyOpen] = useState(false);
-
-    useEffect(() => {
-        const fetchDetails = async () => {
-            try {
-                const data = await getListing(id);
-                setListing(data.listing);
-                setIsSaved(data.is_saved);
-                trackListingViewOnce(data.listing.id, 'detail', Boolean(user));
-            } catch (err: unknown) {
-                setError(getErrorMessage(err) || 'Failed to load listing details');
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        if (id) fetchDetails();
-    }, [id, user]);
-
-    const handleBuyClick = () => {
-        if (!listing) return;
-        if (!user) {
-            toast.warning('Sign in required', 'Please sign in before buying marketplace bandwidth.');
-            router.push(`/login?redirect=/marketplace/${listing.id}`);
-            return;
-        }
-        if (!isPurchasable(listing)) {
-            toast.warning('Listing unavailable', `This listing is currently ${formatListingStatus(listing.status)}.`);
-            return;
-        }
-        setBuyOpen(true);
-    };
-
-    const handleToggleSave = async () => {
-        if (!listing || saving) return;
-        if (!user) {
-            toast.warning('Sign in required', 'Please sign in before saving marketplace listings.');
-            router.push(`/login?redirect=/marketplace/${listing.id}`);
-            return;
-        }
-        if (!isSaved && listing.status !== 'active') {
-            toast.warning('Listing unavailable', `Only active listings can be saved. Current status: ${formatListingStatus(listing.status)}.`);
-            return;
-        }
-
-        setSaving(true);
-        try {
-            if (isSaved) {
-                await unsaveListing(listing.id);
-                setIsSaved(false);
-                setListing(current => current ? { ...current, saves_count: Math.max((current.saves_count || 0) - 1, 0) } : current);
-                toast.success('Listing removed', 'This listing was removed from your saved list.');
-            } else {
-                await saveListing(listing.id);
-                setIsSaved(true);
-                setListing(current => current ? { ...current, saves_count: (current.saves_count || 0) + 1 } : current);
-                toast.success('Listing saved', 'This listing was added to your saved list.');
-            }
-            void queryClient.invalidateQueries({ queryKey: marketplaceKeys.all });
-        } catch (err: unknown) {
-            toast.error('Save failed', getErrorMessage(err) || 'Please try again.');
-        } finally {
-            setSaving(false);
-        }
-    };
-
-    if (loading) {
-        return (
-            <div className="flex flex-col items-center justify-center min-h-[50vh]">
-                <Loader2 className="w-12 h-12 animate-spin text-primary" />
-                <p className="mt-4 font-mono text-sm text-muted-foreground uppercase">Loading Node Details...</p>
-            </div>
-        );
+  const { id } = useParams<{ id: string }>();
+  const router = useRouter();
+  const { user } = useAuth();
+  const client = useQueryClient();
+  const [buyOpen, setBuyOpen] = useState(false);
+  const [shared, setShared] = useState(false);
+  const [shareError, setShareError] = useState("");
+  const key = [...marketplaceKeys.listing(id), user?.id];
+  const query = useQuery({
+    queryKey: key,
+    queryFn: () => getListing(id),
+    enabled: Boolean(id),
+    staleTime: 15_000,
+  });
+  const listing = query.data?.listing;
+  const saved = query.data?.is_saved ?? false;
+  useEffect(() => {
+    if (listing) trackListingViewOnce(listing.id, "detail", Boolean(user));
+  }, [listing, user]);
+  const save = useMutation({
+    mutationFn: () => (saved ? unsaveListing(id) : saveListing(id)),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: marketplaceKeys.all });
+    },
+  });
+  function requireLogin() {
+    router.push("/login?next=" + encodeURIComponent("/marketplace/" + id));
+  }
+  async function shareListing() {
+    setShareError("");
+    try {
+      await navigator.clipboard.writeText(
+        window.location.origin + "/marketplace/" + encodeURIComponent(id),
+      );
+      setShared(true);
+    } catch {
+      setShareError(
+        "Clipboard access is unavailable. Copy this page’s address from your browser.",
+      );
     }
-
-    if (error || !listing) {
-        return (
-            <div className="flex flex-col items-center justify-center min-h-[50vh] text-center px-4">
-                <div className="p-4 rounded-full bg-destructive/10 border border-destructive/20 mb-4">
-                    <Activity className="w-12 h-12 text-destructive" />
-                </div>
-                <h2 className="text-2xl font-mono font-bold uppercase mb-2">Node Unavailable</h2>
-                <p className="font-mono text-muted-foreground mb-6">{error || "This listing could not be found."}</p>
-                <Link href="/marketplace" className="btn-retro btn-retro-outline px-6 py-2">
-                    RETURN TO MARKET
-                </Link>
-            </div>
-        );
-    }
-
-    const metricsMeasured = listing.sla_source === 'gateway' || listing.sla_source === 'explorer' || listing.sla_source === 'provider';
-
+  }
+  if (query.isLoading) return <Loading label="Loading listing details…" />;
+  if (query.isError || !listing)
     return (
-        <div className="space-y-6">
-            {buyOpen && (
-                <BuyListingModal
-                    listing={listing}
-                    surface="detail"
-                    onClose={() => setBuyOpen(false)}
-                    onSuccess={() => {
-                        void queryClient.invalidateQueries({ queryKey: marketplaceKeys.all });
-                    }}
-                />
-            )}
-
-            <Link href="/marketplace" className="inline-flex items-center gap-2 text-xs font-mono font-bold uppercase text-muted-foreground hover:text-primary transition-colors">
-                <ArrowLeft size={14} /> Back to Market
-            </Link>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                <div className="lg:col-span-2 space-y-6">
-                    <div className="card-retro p-8 bg-card relative overflow-hidden group">
-                        <div className="absolute top-0 right-0 p-4 opacity-50">
-                            <Signal size={120} className="text-secondary opacity-10" />
-                        </div>
-
-                        <div className="relative z-10">
-                            <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
-                                <div>
-                                    <div className="flex items-center gap-3 mb-2">
-                                        <span className="px-2 py-0.5 rounded-sm bg-primary/10 border border-primary/20 text-primary text-[10px] uppercase font-bold tracking-wider">
-                                            {listing.proxy_type}
-                                        </span>
-                                        <div className="flex items-center gap-1 text-xs font-mono font-bold text-yellow-500">
-                                            <Star size={12} className="fill-current" />
-                                            {listing.seller?.avg_rating?.toFixed(1) || "5.0"}
-                                        </div>
-                                    </div>
-                                    <div className="flex flex-wrap items-center gap-2 mb-2">
-                                        <h1 className="text-3xl md:text-4xl font-bold font-mono uppercase tracking-tight leading-none">
-                                            {displayListingTitle(listing)}
-                                        </h1>
-                                        <CatalogProductBadge product={listing.catalog_product} className="self-end mb-1" />
-                                    </div>
-                                    {listingShowsCatalogSubtitle(listing) && (
-                                        <p className="text-xs font-mono text-muted-foreground mb-2">
-                                            Listing: {listing.title}
-                                        </p>
-                                    )}
-                                    <div className="flex items-center gap-2 text-sm text-muted-foreground font-mono">
-                                        <span>Node ID: {listing.id.slice(0, 8)}</span>
-                                        <span>•</span>
-                                        <span className="flex items-center gap-1">
-                                            <Globe size={12} /> {listing.seller?.location || "Global"}
-                                        </span>
-                                    </div>
-                                </div>
-                                <div className="flex gap-2">
-                                    <button
-                                        onClick={handleToggleSave}
-                                        disabled={saving || (!isSaved && listing.status !== 'active')}
-                                        aria-label={isSaved ? 'Remove from saved' : 'Save listing'}
-                                        aria-pressed={isSaved}
-                                        className={`btn-retro p-3 disabled:opacity-50 disabled:cursor-not-allowed ${isSaved ? 'bg-primary/20 text-primary border-primary' : 'bg-background border-border hover:border-primary'}`}
-                                    >
-                                        {saving ? <Loader2 size={20} className="animate-spin" /> : <Heart size={20} className={isSaved ? 'fill-current' : ''} />}
-                                    </button>
-                                    <button
-                                        aria-label="Share listing"
-                                        className="btn-retro p-3 bg-background border-border hover:border-primary"
-                                    >
-                                        <Share2 size={20} />
-                                    </button>
-                                </div>
-                            </div>
-
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-                                <div className="p-4 bg-secondary/10 border border-border rounded-sm">
-                                    <div className="text-[10px] font-mono text-muted-foreground uppercase mb-1">Latency</div>
-                                    <div className="font-mono font-bold text-lg flex items-center gap-1">
-                                        <Signal size={16} className="text-green-500" />
-                                        {metricsMeasured ? `${listing.avg_latency_ms}ms` : 'Unmeasured'}
-                                    </div>
-                                </div>
-                                <div className="p-4 bg-secondary/10 border border-border rounded-sm">
-                                    <div className="text-[10px] font-mono text-muted-foreground uppercase mb-1 flex items-center justify-between gap-2">
-                                        <span>Uptime</span>
-                                        {listing.sla_source === 'gateway' && (
-                                            <span className="text-emerald-500 text-[9px]">live</span>
-                                        )}
-                                    </div>
-                                    <div className="font-mono font-bold text-lg flex items-center gap-1">
-                                        <Activity size={16} className="text-blue-500" />
-                                        {metricsMeasured ? `${listing.uptime_percent}%` : 'Unmeasured'}
-                                    </div>
-                                    {listing.sla_source && (
-                                        <div className="text-[9px] font-mono text-muted-foreground mt-1 uppercase">
-                                            Source: {listing.sla_source}
-                                        </div>
-                                    )}
-                                </div>
-                                <div className="p-4 bg-secondary/10 border border-border rounded-sm">
-                                    <div className="text-[10px] font-mono text-muted-foreground uppercase mb-1">Success Rate</div>
-                                    <div className="font-mono font-bold text-lg flex items-center gap-1">
-                                        <Shield size={16} className="text-purple-500" />
-                                        {metricsMeasured ? `${listing.success_rate}%` : 'Unmeasured'}
-                                    </div>
-                                </div>
-                                <div className="p-4 bg-secondary/10 border border-border rounded-sm">
-                                    <div className="text-[10px] font-mono text-muted-foreground uppercase mb-1">In use</div>
-                                    <div className="font-mono font-bold text-lg">
-                                        {listing.active_sessions_count || 0}
-                                        {listing.max_concurrency ? `/${listing.max_concurrency}` : ''}
-                                    </div>
-                                    <div className="text-[9px] font-mono text-muted-foreground mt-1 uppercase">
-                                        Shared · other buyers can still connect
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div>
-                                <h3 className="text-sm font-bold font-mono uppercase mb-3">Description</h3>
-                                <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
-                                    {listing.description}
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="space-y-6">
-                    <div className="card-retro p-6 bg-card sticky top-24 border-l-4 border-l-primary">
-                        <div className="flex justify-between items-baseline mb-6">
-                            <span className="text-sm font-mono uppercase text-muted-foreground">Price</span>
-                            <div className="text-right">
-                                <span className="text-4xl font-bold font-mono">{Number(listing.price_per_gb || 0).toFixed(4)}</span>
-                                <span className="text-sm text-muted-foreground font-mono"> USD/GB</span>
-                            </div>
-                        </div>
-
-                        <div className="space-y-4 mb-6">
-                            <div className="flex justify-between text-xs font-mono">
-                                <span className="text-muted-foreground uppercase">Min Purchase</span>
-                                <span className="font-bold">{listing.min_purchase_gb || 1} GB</span>
-                            </div>
-                            <div className="flex justify-between text-xs font-mono">
-                                <span className="text-muted-foreground uppercase">Available</span>
-                                <span className="font-bold">{listing.available_bandwidth_gb.toLocaleString()} GB</span>
-                            </div>
-                            <div className="flex justify-between text-xs font-mono">
-                                <span className="text-muted-foreground uppercase">Buyers connected</span>
-                                <span className="font-bold">
-                                    {listing.active_sessions_count || 0}
-                                    {listing.max_concurrency ? ` / ${listing.max_concurrency}` : ''}
-                                </span>
-                            </div>
-                            <div className="flex justify-between text-xs font-mono">
-                                <span className="text-muted-foreground uppercase">Protocol</span>
-                                <span className="font-bold uppercase">{listing.protocol}</span>
-                            </div>
-                        </div>
-
-                        <button
-                            onClick={handleBuyClick}
-                            disabled={!isPurchasable(listing)}
-                            className="w-full btn-retro btn-retro-primary py-4 text-sm uppercase tracking-wider flex items-center justify-center gap-2 group mb-4"
-                        >
-                            <ShoppingCart className="group-hover:translate-x-1 transition-transform" size={18} />
-                            {isPurchasable(listing) ? "Buy Bandwidth" : `Unavailable: ${formatListingStatus(listing.status)}`}
-                        </button>
-
-                        <p className="text-[10px] text-center text-muted-foreground font-mono">
-                            Provided by <Link 
-                                href={listing.seller?.username ? `/profile/${listing.seller.username}` : '#'} 
-                                className="font-bold text-foreground hover:text-primary hover:underline transition-colors"
-                            >
-                                {listing.seller?.display_name || "Anonymous"}
-                            </Link>
-                        </p>
-                    </div>
-
-                    <ListingSocialPanel
-                        listingId={listing.id}
-                        listingTitle={displayListingTitle(listing)}
-                        pricePerGb={listing.price_per_gb}
-                        location={listing.seller?.location}
-                    />
-
-                    <ListingQASection listingId={listing.id} />
-                </div>
-            </div>
-        </div>
+      <div className="ui-page">
+        <Link className="ui-button ghost self-start" href="/marketplace">
+          <ArrowLeft size={15} aria-hidden="true" />
+          Marketplace
+        </Link>
+        <PageHeading
+          eyebrow="Marketplace"
+          title="Listing unavailable"
+          description="This offer could not be loaded. You can retry or choose another offer."
+        />
+        <DataError error={query.error} retry={() => void query.refetch()} />
+      </div>
     );
+  const purchasable =
+    listing.status === "active" && listing.available_bandwidth_gb > 0;
+  const measured = ["gateway", "explorer"].includes(listing.sla_source || "");
+  const provenance = measured
+    ? "Measured · " + listing.sla_source
+    : listing.sla_source
+      ? "Reported · " + listing.sla_source
+      : "No source reported";
+  const hasReviews =
+    (listing.seller?.reviews_count ?? 0) > 0 &&
+    (listing.seller?.avg_rating ?? 0) > 0;
+  return (
+    <div className="ui-page listing-detail">
+      <Link className="ui-button ghost self-start" href="/marketplace">
+        <ArrowLeft size={15} aria-hidden="true" />
+        Back to marketplace
+      </Link>
+      <PageHeading
+        eyebrow="Marketplace / offer details"
+        title={displayListingTitle(listing)}
+        description={
+          countryName(listing.country) +
+          (listing.city ? " · " + listing.city : "") +
+          " · " +
+          listing.proxy_type +
+          " capacity"
+        }
+        actions={
+          <>
+            <button
+              className="ui-button secondary"
+              aria-label={saved ? "Remove from saved" : "Save listing"}
+              aria-pressed={saved}
+              disabled={
+                save.isPending || (!saved && listing.status !== "active")
+              }
+              onClick={() => (user ? save.mutate() : requireLogin())}
+            >
+              <Bookmark
+                size={15}
+                fill={saved ? "currentColor" : "none"}
+                aria-hidden="true"
+              />
+              {save.isPending ? "Saving…" : saved ? "Saved" : "Save offer"}
+            </button>
+            <button
+              className="ui-button secondary"
+              aria-label="Share listing"
+              onClick={() => void shareListing()}
+            >
+              {shared ? (
+                <Check size={15} aria-hidden="true" />
+              ) : (
+                <Share2 size={15} aria-hidden="true" />
+              )}
+              {shared ? "Link copied" : "Share"}
+            </button>
+          </>
+        }
+      />
+      {save.isError && (
+        <DataError
+          title="The saved offer could not be updated"
+          error={save.error}
+        />
+      )}
+      {shareError && (
+        <p className="ui-error" role="alert">
+          {shareError}
+        </p>
+      )}
+      {shared && (
+        <span className="sr-only" role="status">
+          Listing link copied to clipboard.
+        </span>
+      )}
+      <div className="detail-columns">
+        <div className="detail-main">
+          <section className="ui-surface listing-intro">
+            <div className="ui-section-heading">
+              <div className="ui-actions">
+                <span className="offer-region">
+                  {listing.country || <Globe2 size={19} aria-hidden="true" />}
+                </span>
+                <Status tone={listing.status === "active" ? "good" : "neutral"}>
+                  {listing.status.replace(/_/g, " ")}
+                </Status>
+                <CatalogProductBadge product={listing.catalog_product} />
+              </div>
+              <span className="detail-review">
+                <Star size={14} aria-hidden="true" />
+                {hasReviews
+                  ? amount(listing.seller?.avg_rating, 1) +
+                    " · " +
+                    listing.seller?.reviews_count +
+                    " reviews"
+                  : "No reviews yet"}
+              </span>
+            </div>
+            {listingShowsCatalogSubtitle(listing) && (
+              <h2 className="listing-subtitle">{listing.title}</h2>
+            )}
+            <p className="listing-description">
+              {listing.description ||
+                "The provider has not added a description for this offer."}
+            </p>
+            <dl className="detail-spec-grid">
+              <div>
+                <dt>Proxy type</dt>
+                <dd>{listing.proxy_type}</dd>
+              </div>
+              <div>
+                <dt>Protocol</dt>
+                <dd>{listing.protocol || "Not specified"}</dd>
+              </div>
+              <div>
+                <dt>Concurrency limit</dt>
+                <dd>
+                  {listing.max_concurrency > 0
+                    ? amount(listing.max_concurrency, 0) + " connections"
+                    : "Not reported"}
+                </dd>
+              </div>
+              <div>
+                <dt>Active sessions</dt>
+                <dd>{amount(listing.active_sessions_count, 0)}</dd>
+              </div>
+            </dl>
+          </section>
+          <section>
+            <div className="ui-section-heading">
+              <div>
+                <p className="ui-eyebrow">Network evidence</p>
+                <h2>Performance & availability</h2>
+              </div>
+              <span className="ui-tag">
+                {measured ? "Measured metrics" : "Reported metrics"}
+              </span>
+            </div>
+            <div className="ui-stats">
+              <Stat
+                icon={<Gauge size={18} />}
+                label="Latency"
+                value={
+                  listing.avg_latency_ms > 0
+                    ? amount(listing.avg_latency_ms) + " ms"
+                    : "Not measured"
+                }
+                detail={provenance}
+              />
+              <Stat
+                icon={<Layers size={18} />}
+                label="Available capacity"
+                value={amount(listing.available_bandwidth_gb) + " GB"}
+                detail="Published by the provider"
+              />
+              <Stat
+                icon={<ShieldCheck size={18} />}
+                label="Uptime"
+                value={
+                  listing.sla_source && Number.isFinite(listing.uptime_percent)
+                    ? amount(listing.uptime_percent, 2) + "%"
+                    : "—"
+                }
+                detail={provenance}
+              />
+            </div>
+          </section>
+          <section className="detail-evidence ui-surface">
+            <ShieldCheck size={23} aria-hidden="true" />
+            <div>
+              <h2>
+                {listing.listing_offer_verified
+                  ? "Provider signature verified"
+                  : "Offer signature not verified"}
+              </h2>
+              <p>
+                {listing.listing_offer_verified
+                  ? "The marketplace verified the provider’s offer signature. Availability, node health, and client routing are separate signals."
+                  : "A verified provider signature has not been reported for this offer. Review the terms and available evidence before checkout."}
+              </p>
+            </div>
+          </section>
+          <ListingQASection listingId={listing.id} />
+        </div>
+        <aside className="detail-sidebar" aria-label="Purchase and provider">
+          <section className="purchase-summary">
+            <p className="ui-eyebrow">Published price / USD</p>
+            <div className="purchase-price">
+              <strong>
+                {"$"}
+                {amount(listing.price_per_gb, 4)}
+              </strong>
+              <span>per GB</span>
+            </div>
+            <dl className="ui-detail-list">
+              <div>
+                <dt>Minimum purchase</dt>
+                <dd>
+                  {Number.isFinite(listing.min_purchase_gb)
+                    ? listing.min_purchase_gb === 0
+                      ? "No minimum"
+                      : amount(listing.min_purchase_gb) + " GB"
+                    : "Not reported"}
+                </dd>
+              </div>
+              <div>
+                <dt>Available bandwidth</dt>
+                <dd>{amount(listing.available_bandwidth_gb)} GB</dd>
+              </div>
+              <div>
+                <dt>Listing state</dt>
+                <dd>{listing.status.replace(/_/g, " ")}</dd>
+              </div>
+            </dl>
+            <button
+              className="ui-button purchase-action"
+              disabled={!purchasable}
+              onClick={() => (user ? setBuyOpen(true) : requireLogin())}
+            >
+              <ShoppingCart size={17} aria-hidden="true" />
+              {purchasable ? "Buy bandwidth" : "Currently unavailable"}
+              <ArrowRight size={14} aria-hidden="true" />
+            </button>
+            <p className="ui-note">
+              Review the exact bandwidth and required SOL escrow amount before
+              signing a wallet transaction.
+            </p>
+            {listing.seller && (
+              <div className="purchase-provider">
+                <span>Provided by</span>
+                <Link
+                  href={
+                    "/profile/" +
+                    encodeURIComponent(
+                      listing.seller.username || listing.seller.id,
+                    )
+                  }
+                >
+                  {listing.seller.display_name ||
+                    listing.seller.username ||
+                    "View provider"}
+                </Link>
+              </div>
+            )}
+          </section>
+          <ListingSocialPanel
+            listingId={listing.id}
+            listingTitle={displayListingTitle(listing)}
+            pricePerGb={listing.price_per_gb}
+            location={listing.seller?.location}
+          />
+        </aside>
+      </div>
+      {buyOpen && (
+        <BuyListingModal
+          listing={listing}
+          surface="detail"
+          onClose={() => setBuyOpen(false)}
+          onSuccess={(orderId) => {
+            void client.invalidateQueries({ queryKey: marketplaceKeys.all });
+            router.push("/app/connections/" + encodeURIComponent(orderId));
+          }}
+        />
+      )}
+    </div>
+  );
 }
 
 export default function ListingDetailPage() {
-    return (
-        <div className="container mx-auto px-4 py-8">
-            <Suspense fallback={<div className="flex justify-center py-20"><Loader2 className="animate-spin" /></div>}>
-                <ListingDetailContent />
-            </Suspense>
-        </div>
-    );
+  return (
+    <Suspense fallback={<Loading label="Loading listing…" />}>
+      <ListingDetailContent />
+    </Suspense>
+  );
 }

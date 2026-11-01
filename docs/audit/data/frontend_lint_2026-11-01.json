@@ -1,0 +1,919 @@
+{
+  "date": "2026-11-01",
+  "config": "installed ESLint/Next 16.4.3 configuration",
+  "full_app": {
+    "errors": 78,
+    "warnings": 80,
+    "files_with_findings": 60
+  },
+  "pages_and_layouts": {
+    "files": 160,
+    "errors": 0,
+    "warnings": 0
+  },
+  "workspaces": {
+    "files": 15,
+    "errors": 0,
+    "warnings": 0
+  },
+  "baseline": {
+    "ref": "HEAD",
+    "method": "rule + source statement + first message line; same installed configuration",
+    "matching_errors": 78,
+    "unmatched_errors": 0
+  },
+  "files": [
+    {
+      "file": "apps/web/src/components/Accessibility.tsx",
+      "baseline_errors": 2,
+      "current_errors": 2,
+      "errors_matching_baseline": 2,
+      "messages": [
+        {
+          "line": 158,
+          "severity": 2,
+          "rule": "react-hooks/set-state-in-effect",
+          "message": "Error: Calling setState synchronously within an effect can trigger cascading renders"
+        },
+        {
+          "line": 179,
+          "severity": 2,
+          "rule": "react-hooks/set-state-in-effect",
+          "message": "Error: Calling setState synchronously within an effect can trigger cascading renders"
+        }
+      ]
+    },
+    {
+      "file": "apps/web/src/components/AlertCenter.tsx",
+      "baseline_errors": 1,
+      "current_errors": 1,
+      "errors_matching_baseline": 1,
+      "messages": [
+        {
+          "line": 20,
+          "severity": 1,
+          "rule": "@typescript-eslint/no-unused-vars",
+          "message": "'loading' is assigned a value but never used."
+        },
+        {
+          "line": 20,
+          "severity": 1,
+          "rule": "@typescript-eslint/no-unused-vars",
+          "message": "'setLoading' is assigned a value but never used."
+        },
+        {
+          "line": 49,
+          "severity": 2,
+          "rule": "react-hooks/set-state-in-effect",
+          "message": "Error: Calling setState synchronously within an effect can trigger cascading renders"
+        },
+        {
+          "line": 52,
+          "severity": 1,
+          "rule": "react-hooks/exhaustive-deps",
+          "message": "React Hook useEffect has a missing dependency: 'fetchAlerts'. Either include it or remove the dependency array."
+        }
+      ]
+    },
+    {
+      "file": "apps/web/src/components/NetworkFeed.tsx",
+      "baseline_errors": 1,
+      "current_errors": 1,
+      "errors_matching_baseline": 1,
+      "messages": [
+        {
+          "line": 6,
+          "severity": 1,
+          "rule": "@typescript-eslint/no-unused-vars",
+          "message": "'Shield' is defined but never used."
+        },
+        {
+          "line": 6,
+          "severity": 1,
+          "rule": "@typescript-eslint/no-unused-vars",
+          "message": "'DollarSign' is defined but never used."
+        },
+        {
+          "line": 6,
+          "severity": 1,
+          "rule": "@typescript-eslint/no-unused-vars",
+          "message": "'Radio' is defined but never used."
+        },
+        {
+          "line": 19,
+          "severity": 2,
+          "rule": "react-hooks/set-state-in-effect",
+          "message": "Error: Calling setState synchronously within an effect can trigger cascading renders"
+        },
+        {
+          "line": 100,
+          "severity": 1,
+          "rule": "@typescript-eslint/no-unused-vars",
+          "message": "'idx' is defined but never used."
+        }
+      ]
+    },
+    {
+      "file": "apps/web/src/components/NotificationCenter.tsx",
+      "baseline_errors": 6,
+      "current_errors": 6,
+      "errors_matching_baseline": 6,
+      "messages": [
+        {
+          "line": 85,
+          "severity": 2,
+          "rule": "react-hooks/set-state-in-effect",
+          "message": "Error: Calling setState synchronously within an effect can trigger cascading renders"
+        },
+        {
+          "line": 94,
+          "severity": 2,
+          "rule": "react-hooks/set-state-in-effect",
+          "message": "Error: Calling setState synchronously within an effect can trigger cascading renders"
+        },
+        {
+          "line": 171,
+          "severity": 1,
+          "rule": "@typescript-eslint/no-unused-vars",
+          "message": "'unreadNotifications' is assigned a value but never used."
+        },
+        {
+          "line": 178,
+          "severity": 2,
+          "rule": "react-hooks/refs",
+          "message": "Error: Cannot access refs during render"
+        },
+        {
+          "line": 184,
+          "severity": 2,
+          "rule": "react-hooks/refs",
+          "message": "Error: Cannot access refs during render"
+        },
+        {
+          "line": 211,
+          "severity": 2,
+          "rule": "react-hooks/refs",
+          "message": "Error: Cannot access refs during render"
+        },
+        {
+          "line": 213,
+          "severity": 2,
+          "rule": "react-hooks/refs",
+          "message": "Error: Cannot access refs during render"
+        }
+      ]
+    },
+    {
+      "file": "apps/web/src/components/ProviderSetupGuide.tsx",
+      "baseline_errors": 3,
+      "current_errors": 2,
+      "errors_matching_baseline": 2,
+      "messages": [
+        {
+          "line": 13,
+          "severity": 1,
+          "rule": "@typescript-eslint/no-unused-vars",
+          "message": "'ChevronRight' is defined but never used."
+        },
+        {
+          "line": 18,
+          "severity": 1,
+          "rule": "@typescript-eslint/no-unused-vars",
+          "message": "'Shield' is defined but never used."
+        },
+        {
+          "line": 19,
+          "severity": 1,
+          "rule": "@typescript-eslint/no-unused-vars",
+          "message": "'RefreshCw' is defined but never used."
+        },
+        {
+          "line": 67,
+          "severity": 2,
+          "rule": "react-hooks/immutability",
+          "message": "Error: Cannot access variable before it is declared"
+        },
+        {
+          "line": 68,
+          "severity": 2,
+          "rule": "react-hooks/immutability",
+          "message": "Error: Cannot access variable before it is declared"
+        }
+      ]
+    },
+    {
+      "file": "apps/web/src/components/ProviderShowcase.tsx",
+      "baseline_errors": 1,
+      "current_errors": 1,
+      "errors_matching_baseline": 1,
+      "messages": [
+        {
+          "line": 33,
+          "severity": 1,
+          "rule": "@typescript-eslint/no-unused-vars",
+          "message": "'BarChart' is defined but never used."
+        },
+        {
+          "line": 34,
+          "severity": 1,
+          "rule": "@typescript-eslint/no-unused-vars",
+          "message": "'Bar' is defined but never used."
+        },
+        {
+          "line": 56,
+          "severity": 2,
+          "rule": "react-hooks/immutability",
+          "message": "Error: Cannot access variable before it is declared"
+        },
+        {
+          "line": 57,
+          "severity": 1,
+          "rule": "react-hooks/exhaustive-deps",
+          "message": "React Hook useEffect has a missing dependency: 'loadShowcaseData'. Either include it or remove the dependency array."
+        },
+        {
+          "line": 347,
+          "severity": 1,
+          "rule": "@next/next/no-img-element",
+          "message": "Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element"
+        },
+        {
+          "line": 416,
+          "severity": 1,
+          "rule": "@next/next/no-img-element",
+          "message": "Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element"
+        }
+      ]
+    },
+    {
+      "file": "apps/web/src/components/UsageReviewModal.tsx",
+      "baseline_errors": 5,
+      "current_errors": 5,
+      "errors_matching_baseline": 5,
+      "messages": [
+        {
+          "line": 51,
+          "severity": 2,
+          "rule": "react-hooks/immutability",
+          "message": "Error: Cannot access variable before it is declared"
+        },
+        {
+          "line": 53,
+          "severity": 1,
+          "rule": "react-hooks/exhaustive-deps",
+          "message": "React Hook useEffect has a missing dependency: 'fetchEligibility'. Either include it or remove the dependency array."
+        },
+        {
+          "line": 270,
+          "severity": 2,
+          "rule": "react-hooks/static-components",
+          "message": "Error: Cannot create components during render"
+        },
+        {
+          "line": 271,
+          "severity": 2,
+          "rule": "react-hooks/static-components",
+          "message": "Error: Cannot create components during render"
+        },
+        {
+          "line": 272,
+          "severity": 2,
+          "rule": "react-hooks/static-components",
+          "message": "Error: Cannot create components during render"
+        },
+        {
+          "line": 273,
+          "severity": 2,
+          "rule": "react-hooks/static-components",
+          "message": "Error: Cannot create components during render"
+        }
+      ]
+    },
+    {
+      "file": "apps/web/src/components/WalletConnect.tsx",
+      "baseline_errors": 2,
+      "current_errors": 2,
+      "errors_matching_baseline": 2,
+      "messages": [
+        {
+          "line": 3,
+          "severity": 1,
+          "rule": "@typescript-eslint/no-unused-vars",
+          "message": "'useEffect' is defined but never used."
+        },
+        {
+          "line": 25,
+          "severity": 2,
+          "rule": "@typescript-eslint/no-explicit-any",
+          "message": "Unexpected any. Specify a different type."
+        },
+        {
+          "line": 49,
+          "severity": 2,
+          "rule": "@typescript-eslint/no-explicit-any",
+          "message": "Unexpected any. Specify a different type."
+        }
+      ]
+    },
+    {
+      "file": "apps/web/src/components/map/GoogleProxyMapCanvas.tsx",
+      "baseline_errors": 14,
+      "current_errors": 14,
+      "errors_matching_baseline": 14,
+      "messages": [
+        {
+          "line": 86,
+          "severity": 2,
+          "rule": "react-hooks/refs",
+          "message": "Error: Cannot access refs during render"
+        },
+        {
+          "line": 110,
+          "severity": 1,
+          "rule": "react-hooks/exhaustive-deps",
+          "message": "React Hook useEffect has a missing dependency: 'position'. Either include it or remove the dependency array."
+        },
+        {
+          "line": 199,
+          "severity": 2,
+          "rule": "react-hooks/refs",
+          "message": "Error: Cannot access refs during render"
+        },
+        {
+          "line": 215,
+          "severity": 2,
+          "rule": "react-hooks/refs",
+          "message": "Error: Cannot access refs during render"
+        },
+        {
+          "line": 216,
+          "severity": 2,
+          "rule": "react-hooks/refs",
+          "message": "Error: Cannot access refs during render"
+        },
+        {
+          "line": 231,
+          "severity": 2,
+          "rule": "react-hooks/refs",
+          "message": "Error: Cannot access refs during render"
+        },
+        {
+          "line": 234,
+          "severity": 2,
+          "rule": "react-hooks/refs",
+          "message": "Error: Cannot access refs during render"
+        },
+        {
+          "line": 340,
+          "severity": 2,
+          "rule": "react-hooks/set-state-in-effect",
+          "message": "Error: Calling setState synchronously within an effect can trigger cascading renders"
+        },
+        {
+          "line": 392,
+          "severity": 2,
+          "rule": "react-hooks/set-state-in-effect",
+          "message": "Error: Calling setState synchronously within an effect can trigger cascading renders"
+        },
+        {
+          "line": 402,
+          "severity": 2,
+          "rule": "react-hooks/refs",
+          "message": "Error: Cannot access refs during render"
+        },
+        {
+          "line": 403,
+          "severity": 2,
+          "rule": "react-hooks/refs",
+          "message": "Error: Cannot access refs during render"
+        },
+        {
+          "line": 403,
+          "severity": 2,
+          "rule": "react-hooks/refs",
+          "message": "Error: Cannot access refs during render"
+        },
+        {
+          "line": 404,
+          "severity": 2,
+          "rule": "react-hooks/refs",
+          "message": "Error: Cannot access refs during render"
+        },
+        {
+          "line": 446,
+          "severity": 2,
+          "rule": "react-hooks/set-state-in-effect",
+          "message": "Error: Calling setState synchronously within an effect can trigger cascading renders"
+        },
+        {
+          "line": 591,
+          "severity": 2,
+          "rule": "react-hooks/refs",
+          "message": "Error: Cannot access refs during render"
+        }
+      ]
+    },
+    {
+      "file": "apps/web/src/components/marketing/NetworkPulse.tsx",
+      "baseline_errors": 1,
+      "current_errors": 1,
+      "errors_matching_baseline": 1,
+      "messages": [
+        {
+          "line": 14,
+          "severity": 2,
+          "rule": "react-hooks/set-state-in-effect",
+          "message": "Error: Calling setState synchronously within an effect can trigger cascading renders"
+        },
+        {
+          "line": 50,
+          "severity": 1,
+          "rule": "@typescript-eslint/no-unused-vars",
+          "message": "'_' is defined but never used."
+        },
+        {
+          "line": 50,
+          "severity": 1,
+          "rule": "@typescript-eslint/no-unused-vars",
+          "message": "'i' is defined but never used."
+        }
+      ]
+    },
+    {
+      "file": "apps/web/src/components/marketplace/ExtensionConnectCard.tsx",
+      "baseline_errors": 1,
+      "current_errors": 1,
+      "errors_matching_baseline": 1,
+      "messages": [
+        {
+          "line": 36,
+          "severity": 2,
+          "rule": "react-hooks/set-state-in-effect",
+          "message": "Error: Calling setState synchronously within an effect can trigger cascading renders"
+        }
+      ]
+    },
+    {
+      "file": "apps/web/src/components/onboarding/OnboardingBuyerPanels.tsx",
+      "baseline_errors": 1,
+      "current_errors": 1,
+      "errors_matching_baseline": 1,
+      "messages": [
+        {
+          "line": 65,
+          "severity": 2,
+          "rule": "react-hooks/set-state-in-effect",
+          "message": "Error: Calling setState synchronously within an effect can trigger cascading renders"
+        }
+      ]
+    },
+    {
+      "file": "apps/web/src/components/onboarding/OnboardingKYCPanel.tsx",
+      "baseline_errors": 2,
+      "current_errors": 2,
+      "errors_matching_baseline": 2,
+      "messages": [
+        {
+          "line": 38,
+          "severity": 2,
+          "rule": "react-hooks/set-state-in-effect",
+          "message": "Error: Calling setState synchronously within an effect can trigger cascading renders"
+        },
+        {
+          "line": 60,
+          "severity": 2,
+          "rule": "react-hooks/set-state-in-effect",
+          "message": "Error: Calling setState synchronously within an effect can trigger cascading renders"
+        }
+      ]
+    },
+    {
+      "file": "apps/web/src/components/onboarding/OnboardingProviderPanels.tsx",
+      "baseline_errors": 1,
+      "current_errors": 1,
+      "errors_matching_baseline": 1,
+      "messages": [
+        {
+          "line": 159,
+          "severity": 2,
+          "rule": "react-hooks/set-state-in-effect",
+          "message": "Error: Calling setState synchronously within an effect can trigger cascading renders"
+        }
+      ]
+    },
+    {
+      "file": "apps/web/src/components/provider/ProviderNodeConnectPanel.tsx",
+      "baseline_errors": 2,
+      "current_errors": 2,
+      "errors_matching_baseline": 2,
+      "messages": [
+        {
+          "line": 152,
+          "severity": 2,
+          "rule": "react-hooks/refs",
+          "message": "Error: Cannot access refs during render"
+        },
+        {
+          "line": 152,
+          "severity": 2,
+          "rule": "react-hooks/refs",
+          "message": "Error: Cannot access refs during render"
+        }
+      ]
+    },
+    {
+      "file": "apps/web/src/components/security/AnomaliesPanel.tsx",
+      "baseline_errors": 1,
+      "current_errors": 1,
+      "errors_matching_baseline": 1,
+      "messages": [
+        {
+          "line": 42,
+          "severity": 2,
+          "rule": "react-hooks/immutability",
+          "message": "Error: Cannot access variable before it is declared"
+        }
+      ]
+    },
+    {
+      "file": "apps/web/src/components/security/LoginHistoryPanel.tsx",
+      "baseline_errors": 1,
+      "current_errors": 1,
+      "errors_matching_baseline": 1,
+      "messages": [
+        {
+          "line": 5,
+          "severity": 1,
+          "rule": "@typescript-eslint/no-unused-vars",
+          "message": "'Filter' is defined but never used."
+        },
+        {
+          "line": 32,
+          "severity": 2,
+          "rule": "react-hooks/immutability",
+          "message": "Error: Cannot access variable before it is declared"
+        }
+      ]
+    },
+    {
+      "file": "apps/web/src/components/security/SessionsPanel.tsx",
+      "baseline_errors": 1,
+      "current_errors": 1,
+      "errors_matching_baseline": 1,
+      "messages": [
+        {
+          "line": 6,
+          "severity": 1,
+          "rule": "@typescript-eslint/no-unused-vars",
+          "message": "'AlertTriangle' is defined but never used."
+        },
+        {
+          "line": 35,
+          "severity": 2,
+          "rule": "react-hooks/immutability",
+          "message": "Error: Cannot access variable before it is declared"
+        }
+      ]
+    },
+    {
+      "file": "apps/web/src/components/settings/NotificationPreferencesPanel.tsx",
+      "baseline_errors": 1,
+      "current_errors": 1,
+      "errors_matching_baseline": 1,
+      "messages": [
+        {
+          "line": 31,
+          "severity": 2,
+          "rule": "react-hooks/immutability",
+          "message": "Error: Cannot access variable before it is declared"
+        }
+      ]
+    },
+    {
+      "file": "apps/web/src/components/ui/skeleton.tsx",
+      "baseline_errors": 1,
+      "current_errors": 1,
+      "errors_matching_baseline": 1,
+      "messages": [
+        {
+          "line": 167,
+          "severity": 2,
+          "rule": "react-hooks/purity",
+          "message": "Error: Cannot call impure function during render"
+        }
+      ]
+    },
+    {
+      "file": "apps/web/src/hooks/useKeyboardNavigation.ts",
+      "baseline_errors": 1,
+      "current_errors": 1,
+      "errors_matching_baseline": 1,
+      "messages": [
+        {
+          "line": 65,
+          "severity": 2,
+          "rule": "react-hooks/immutability",
+          "message": "Error: Cannot access variable before it is declared"
+        }
+      ]
+    },
+    {
+      "file": "apps/web/src/lib/api/provider.ts",
+      "baseline_errors": 1,
+      "current_errors": 1,
+      "errors_matching_baseline": 1,
+      "messages": [
+        {
+          "line": 441,
+          "severity": 2,
+          "rule": "@typescript-eslint/no-explicit-any",
+          "message": "Unexpected any. Specify a different type."
+        }
+      ]
+    },
+    {
+      "file": "apps/web/src/lib/auth.tsx",
+      "baseline_errors": 6,
+      "current_errors": 5,
+      "errors_matching_baseline": 5,
+      "messages": [
+        {
+          "line": 186,
+          "severity": 1,
+          "rule": "@typescript-eslint/no-unused-vars",
+          "message": "'_refreshToken' is defined but never used."
+        },
+        {
+          "line": 290,
+          "severity": 2,
+          "rule": "@typescript-eslint/no-explicit-any",
+          "message": "Unexpected any. Specify a different type."
+        },
+        {
+          "line": 311,
+          "severity": 2,
+          "rule": "@typescript-eslint/no-explicit-any",
+          "message": "Unexpected any. Specify a different type."
+        },
+        {
+          "line": 353,
+          "severity": 2,
+          "rule": "@typescript-eslint/no-explicit-any",
+          "message": "Unexpected any. Specify a different type."
+        },
+        {
+          "line": 381,
+          "severity": 2,
+          "rule": "@typescript-eslint/no-explicit-any",
+          "message": "Unexpected any. Specify a different type."
+        },
+        {
+          "line": 428,
+          "severity": 2,
+          "rule": "@typescript-eslint/no-explicit-any",
+          "message": "Unexpected any. Specify a different type."
+        }
+      ]
+    },
+    {
+      "file": "apps/web/src/lib/hooks/useApi.ts",
+      "baseline_errors": 1,
+      "current_errors": 1,
+      "errors_matching_baseline": 1,
+      "messages": [
+        {
+          "line": 243,
+          "severity": 2,
+          "rule": "@typescript-eslint/no-explicit-any",
+          "message": "Unexpected any. Specify a different type."
+        }
+      ]
+    },
+    {
+      "file": "apps/web/src/lib/hooks/useExplorerWS.ts",
+      "baseline_errors": 6,
+      "current_errors": 6,
+      "errors_matching_baseline": 6,
+      "messages": [
+        {
+          "line": 13,
+          "severity": 2,
+          "rule": "@typescript-eslint/no-explicit-any",
+          "message": "Unexpected any. Specify a different type."
+        },
+        {
+          "line": 18,
+          "severity": 2,
+          "rule": "@typescript-eslint/no-explicit-any",
+          "message": "Unexpected any. Specify a different type."
+        },
+        {
+          "line": 19,
+          "severity": 2,
+          "rule": "@typescript-eslint/no-explicit-any",
+          "message": "Unexpected any. Specify a different type."
+        },
+        {
+          "line": 22,
+          "severity": 2,
+          "rule": "@typescript-eslint/no-explicit-any",
+          "message": "Unexpected any. Specify a different type."
+        },
+        {
+          "line": 51,
+          "severity": 2,
+          "rule": "react-hooks/refs",
+          "message": "Error: Cannot access refs during render"
+        },
+        {
+          "line": 113,
+          "severity": 2,
+          "rule": "react-hooks/immutability",
+          "message": "Error: Cannot access variable before it is declared"
+        }
+      ]
+    },
+    {
+      "file": "apps/web/src/lib/hooks/useWalletWS.ts",
+      "baseline_errors": 2,
+      "current_errors": 2,
+      "errors_matching_baseline": 2,
+      "messages": [
+        {
+          "line": 38,
+          "severity": 2,
+          "rule": "react-hooks/refs",
+          "message": "Error: Cannot access refs during render"
+        },
+        {
+          "line": 74,
+          "severity": 2,
+          "rule": "react-hooks/immutability",
+          "message": "Error: Cannot access variable before it is declared"
+        }
+      ]
+    },
+    {
+      "file": "apps/web/src/lib/services/market.ts",
+      "baseline_errors": 1,
+      "current_errors": 1,
+      "errors_matching_baseline": 1,
+      "messages": [
+        {
+          "line": 40,
+          "severity": 2,
+          "rule": "@typescript-eslint/no-explicit-any",
+          "message": "Unexpected any. Specify a different type."
+        }
+      ]
+    },
+    {
+      "file": "apps/web/src/lib/services/social.ts",
+      "baseline_errors": 3,
+      "current_errors": 3,
+      "errors_matching_baseline": 3,
+      "messages": [
+        {
+          "line": 32,
+          "severity": 2,
+          "rule": "@typescript-eslint/no-explicit-any",
+          "message": "Unexpected any. Specify a different type."
+        },
+        {
+          "line": 35,
+          "severity": 2,
+          "rule": "@typescript-eslint/no-explicit-any",
+          "message": "Unexpected any. Specify a different type."
+        },
+        {
+          "line": 48,
+          "severity": 2,
+          "rule": "@typescript-eslint/no-explicit-any",
+          "message": "Unexpected any. Specify a different type."
+        }
+      ]
+    },
+    {
+      "file": "apps/web/src/lib/social-api.ts",
+      "baseline_errors": 2,
+      "current_errors": 2,
+      "errors_matching_baseline": 2,
+      "messages": [
+        {
+          "line": 145,
+          "severity": 2,
+          "rule": "@typescript-eslint/no-explicit-any",
+          "message": "Unexpected any. Specify a different type."
+        },
+        {
+          "line": 505,
+          "severity": 2,
+          "rule": "@typescript-eslint/no-explicit-any",
+          "message": "Unexpected any. Specify a different type."
+        }
+      ]
+    },
+    {
+      "file": "apps/web/src/lib/solana.ts",
+      "baseline_errors": 7,
+      "current_errors": 7,
+      "errors_matching_baseline": 7,
+      "messages": [
+        {
+          "line": 115,
+          "severity": 2,
+          "rule": "@typescript-eslint/no-explicit-any",
+          "message": "Unexpected any. Specify a different type."
+        },
+        {
+          "line": 169,
+          "severity": 2,
+          "rule": "@typescript-eslint/no-explicit-any",
+          "message": "Unexpected any. Specify a different type."
+        },
+        {
+          "line": 245,
+          "severity": 2,
+          "rule": "@typescript-eslint/no-explicit-any",
+          "message": "Unexpected any. Specify a different type."
+        },
+        {
+          "line": 327,
+          "severity": 2,
+          "rule": "@typescript-eslint/no-explicit-any",
+          "message": "Unexpected any. Specify a different type."
+        },
+        {
+          "line": 523,
+          "severity": 2,
+          "rule": "@typescript-eslint/no-explicit-any",
+          "message": "Unexpected any. Specify a different type."
+        },
+        {
+          "line": 533,
+          "severity": 1,
+          "rule": "@typescript-eslint/no-unused-vars",
+          "message": "'connection' is assigned a value but never used."
+        },
+        {
+          "line": 600,
+          "severity": 2,
+          "rule": "@typescript-eslint/no-explicit-any",
+          "message": "Unexpected any. Specify a different type."
+        },
+        {
+          "line": 705,
+          "severity": 2,
+          "rule": "@typescript-eslint/no-explicit-any",
+          "message": "Unexpected any. Specify a different type."
+        },
+        {
+          "line": 769,
+          "severity": 1,
+          "rule": "@typescript-eslint/no-unused-vars",
+          "message": "'_escrowPda' is defined but never used."
+        },
+        {
+          "line": 770,
+          "severity": 1,
+          "rule": "@typescript-eslint/no-unused-vars",
+          "message": "'_buyerPercentage' is defined but never used."
+        },
+        {
+          "line": 771,
+          "severity": 1,
+          "rule": "@typescript-eslint/no-unused-vars",
+          "message": "'_resolution' is defined but never used."
+        }
+      ]
+    },
+    {
+      "file": "apps/web/src/lib/supabase/client.ts",
+      "baseline_errors": 1,
+      "current_errors": 1,
+      "errors_matching_baseline": 1,
+      "messages": [
+        {
+          "line": 8,
+          "severity": 2,
+          "rule": "@typescript-eslint/no-explicit-any",
+          "message": "Unexpected any. Specify a different type."
+        }
+      ]
+    },
+    {
+      "file": "apps/web/src/lib/supabase/server.ts",
+      "baseline_errors": 1,
+      "current_errors": 1,
+      "errors_matching_baseline": 1,
+      "messages": [
+        {
+          "line": 7,
+          "severity": 2,
+          "rule": "@typescript-eslint/no-explicit-any",
+          "message": "Unexpected any. Specify a different type."
+        }
+      ]
+    }
+  ]
+}

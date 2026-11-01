@@ -1,6 +1,16 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
+import {
+  ArrowLeft,
+  Cable,
+  Gauge,
+  Layers,
+  RefreshCw,
+  ShieldCheck,
+  Wallet,
+} from "lucide-react";
+import { CopyValue } from "@/components/workspace/CopyValue";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { getSession, terminateSession } from "@/lib/api/sessions";
@@ -53,8 +63,12 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
   const eligible = row?.status === "active";
   return (
     <div className="ui-page">
-      <Link className="ui-link self-start" href="/app/connections?tab=sessions">
-        ← Sessions
+      <Link
+        className="ui-button ghost self-start"
+        href="/app/connections?tab=sessions"
+      >
+        <ArrowLeft size={15} aria-hidden="true" />
+        Sessions
       </Link>
       <PageHeading
         title="Session details"
@@ -67,18 +81,17 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
       )}
       {row && (
         <>
-          <section className="ui-surface ui-page">
+          <section className="ui-surface ui-page session-record">
             <div className="ui-section-heading">
               <h2>Session record</h2>
               <Status tone={eligible ? "good" : "neutral"}>
                 {row.status.replace(/_/g, " ")}
               </Status>
             </div>
-            <p className="ui-note" style={{ overflowWrap: "anywhere" }}>
-              {row.id}
-            </p>
+            <CopyValue label="session ID" value={row.id} />
             <section className="ui-stats">
               <Stat
+                icon={<Gauge size={18} />}
                 label="Reported usage"
                 value={
                   bytes != null ? `${amount(bytes / 1024 ** 3, 4)} GB` : "—"
@@ -86,6 +99,7 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
                 detail="Server counters; separate from client connection state"
               />
               <Stat
+                icon={<Layers size={18} />}
                 label="Bandwidth limit"
                 value={
                   row.bytes_limit > 0
@@ -95,6 +109,7 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
                 detail="As reported by the session service"
               />
               <Stat
+                icon={<Wallet size={18} />}
                 label="Reported cost"
                 value={
                   usage.data?.cost_sol != null
@@ -104,11 +119,27 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
                 detail="No estimate substituted when unavailable"
               />
             </section>
-            <p className="ui-note">
-              {(bytes ?? 0) > 0
-                ? "Usage has been recorded for this session. This does not prove the current browser is routing through it."
-                : "Client routing is not verified. Configure a client and check whether server usage increases."}
-            </p>
+            {bytes != null && row.bytes_limit > 0 && (
+              <div className="session-usage-meter">
+                <div>
+                  <span>Bandwidth consumed</span>
+                  <strong>{amount((bytes / row.bytes_limit) * 100, 1)}%</strong>
+                </div>
+                <progress
+                  aria-label="Consumed session bandwidth"
+                  value={Math.min(bytes, row.bytes_limit)}
+                  max={row.bytes_limit}
+                />
+              </div>
+            )}
+            <div className="workflow-note">
+              <ShieldCheck size={18} aria-hidden="true" />
+              <p>
+                {(bytes ?? 0) > 0
+                  ? "Usage has been recorded for this session. This does not prove the current browser is routing through it."
+                  : "Client routing is not verified. Configure a client and check whether server usage increases."}
+              </p>
+            </div>
             <dl className="ui-detail-list">
               <div>
                 <dt>Session behavior</dt>
@@ -134,6 +165,7 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
                   void usage.refetch();
                 }}
               >
+                <RefreshCw size={14} aria-hidden="true" />
                 Refresh observed state
               </button>
               {[
@@ -143,7 +175,7 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
                 "activation_failed",
               ].includes(row.status) && (
                 <button
-                  className="ui-button secondary"
+                  className="ui-button secondary danger"
                   onClick={() => setEndOpen(true)}
                 >
                   End session…
@@ -158,6 +190,7 @@ export function SessionDetail({ sessionId }: { sessionId: string }) {
             className="ui-button secondary self-start"
             href={order ? `/app/connections/${order.id}` : "/app/connections"}
           >
+            <Cable size={15} aria-hidden="true" />
             Open purchased access & client setup →
           </Link>
           <p className="ui-note">

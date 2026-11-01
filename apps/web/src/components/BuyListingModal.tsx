@@ -1,5 +1,6 @@
 "use client";
 
+import { WalletBoundary } from "@/providers/WalletBoundary";
 import { useEffect, useRef, useState } from "react";
 import {
   ShieldCheck,
@@ -89,7 +90,7 @@ interface BuyListingModalProps {
   surface?: MarketplaceFunnelSurface | string;
 }
 
-export function BuyListingModal({
+function BuyListingModalContent({
   listing,
   existingOrder,
   onClose,
@@ -111,9 +112,35 @@ export function BuyListingModal({
   const [completedOrderId, setCompletedOrderId] = useState<string | null>(null);
   const [showPass, setShowPass] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const [copyError, setCopyError] = useState("");
+  const minimumBandwidth =
+    Number.isFinite(listing.min_purchase_gb) && listing.min_purchase_gb >= 0
+      ? listing.min_purchase_gb
+      : null;
+  const availableBandwidth =
+    Number.isFinite(listing.available_bandwidth_gb) &&
+    listing.available_bandwidth_gb > 0
+      ? listing.available_bandwidth_gb
+      : null;
+  const validPurchaseTerms =
+    minimumBandwidth !== null &&
+    availableBandwidth !== null &&
+    minimumBandwidth <= availableBandwidth &&
+    Number.isFinite(listing.price_per_gb) &&
+    listing.price_per_gb > 0 &&
+    listing.status === "active";
   const [bandwidth, setBandwidth] = useState(
-    existingOrder?.bandwidth_gb ?? (listing.min_purchase_gb || 1),
+    existingOrder?.bandwidth_gb ??
+      (minimumBandwidth === 0
+        ? Math.min(1, availableBandwidth ?? 0)
+        : (minimumBandwidth ?? 0)),
   );
+  const validSelection =
+    validPurchaseTerms &&
+    Number.isFinite(bandwidth) &&
+    bandwidth > 0 &&
+    bandwidth >= (minimumBandwidth ?? Infinity) &&
+    bandwidth <= (availableBandwidth ?? 0);
 
   const { data: systemConfig } = useQuery({
     queryKey: ["system-config-public"],
@@ -146,11 +173,17 @@ export function BuyListingModal({
     solPriceUsd > 0 ? estimatedCostUSD / solPriceUsd : null;
   const bulkRateActive = effectivePricePerGB < listing.price_per_gb - 1e-12;
 
-  const copyToClipboard = (text: string, key: string) => {
-    void navigator.clipboard.writeText(text).then(() => {
+  const copyToClipboard = async (text: string, key: string) => {
+    setCopyError("");
+    try {
+      await navigator.clipboard.writeText(text);
       setCopied(key);
       setTimeout(() => setCopied(null), 2000);
-    });
+    } catch {
+      setCopyError(
+        "Clipboard access is unavailable. Reveal and select the value to copy it manually.",
+      );
+    }
   };
 
   const e2eMockBuy =
@@ -181,6 +214,12 @@ export function BuyListingModal({
 
   const handleConnect = async () => {
     if (paymentInFlight.current) return;
+    if (!pendingOrderId && !validSelection) {
+      setError(
+        "Purchase terms are unavailable. Reload this listing before starting a new order.",
+      );
+      return;
+    }
     if (!e2eMockBuy && (!wallet || !publicKey)) {
       toast.warning(
         "Wallet required",
@@ -461,9 +500,19 @@ export function BuyListingModal({
           </div>
         </div>
 
+        {copied && (
+          <p role="status" className="sr-only">
+            Copied {copied} to clipboard.
+          </p>
+        )}
+        {copyError && (
+          <p role="alert" className="ui-error mt-4">
+            {copyError}
+          </p>
+        )}
         <p className="mt-4 text-xs text-muted-foreground">
-          Configure your client as an HTTP proxy. Billing is hourly; the session
-          ends when the bandwidth quota is reached.
+          Configure your client as an HTTP proxy. Traffic consumes your
+          purchased bandwidth, and the session ends when its quota is reached.
         </p>
       </Modal>
     );
@@ -484,7 +533,7 @@ export function BuyListingModal({
             type="button"
             data-testid="buy-listing-start-connection"
             onClick={() => void handleConnect()}
-            disabled={loading}
+            disabled={loading || (!pendingOrderId && !validSelection)}
             isLoading={loading}
             className="w-full"
           >
@@ -502,6 +551,12 @@ export function BuyListingModal({
       }
     >
       <div className="space-y-5">
+        {!pendingOrderId && !validPurchaseTerms && (
+          <p role="alert" className="ui-error">
+            Purchase terms are unavailable. Reload this listing before starting
+            a new order.
+          </p>
+        )}
         {!publicKey && <UnlockWalletPrompt compact />}
         <div className="flex gap-4 rounded-[var(--radius-md)] border border-border bg-secondary p-4">
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-primary font-mono text-sm font-semibold text-primary-foreground">
@@ -559,31 +614,57 @@ export function BuyListingModal({
           <input
             id="buy-bandwidth"
             type="range"
-            min={listing.min_purchase_gb || 1}
-            max={Math.min(listing.available_bandwidth_gb || 1000, 100)}
+            min={minimumBandwidth ?? 0}
+            max={
+              validPurchaseTerms
+                ? Math.min(
+                    availableBandwidth!,
+                    Math.max(100, minimumBandwidth!),
+                  )
+                : 0
+            }
             step={1}
-            disabled={loading || Boolean(pendingOrderId)}
+            disabled={loading || Boolean(pendingOrderId) || !validPurchaseTerms}
             value={bandwidth}
-            onChange={(e) => setBandwidth(parseInt(e.target.value, 10))}
+            onChange={(e) => setBandwidth(Number(e.target.value))}
             className="w-full accent-[var(--primary)]"
           />
           <div className="flex justify-between font-mono text-xs text-muted-foreground">
-            <span>Min: {listing.min_purchase_gb || 1} GB</span>
-            <span>Avail: {listing.available_bandwidth_gb || "Unlimited"}</span>
+            <span>
+              Min:{" "}
+              {minimumBandwidth === 0
+                ? "No minimum"
+                : (minimumBandwidth ?? "—") + " GB"}
+            </span>
+            <span>Avail: {availableBandwidth ?? "—"} GB</span>
           </div>
         </div>
 
+        {validPurchaseTerms && bandwidth <= 0 && (
+          <p role="status" className="text-sm text-muted-foreground">
+            Select a positive bandwidth quota to continue.
+          </p>
+        )}
         <div className="flex items-center justify-between rounded-[var(--radius-md)] border border-border bg-secondary p-4">
           <div>
             <p className="mb-1 text-xs text-muted-foreground">
               Estimated total
             </p>
-            <p className="font-mono text-2xl font-semibold text-[var(--success)]">
-              ${estimatedCostUSD.toFixed(2)}
+            <p
+              data-testid="buy-estimated-total"
+              className="font-mono text-2xl font-semibold text-[var(--success)]"
+            >
+              {existingOrder || validPurchaseTerms
+                ? "$" +
+                  estimatedCostUSD.toLocaleString("en-US", {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 8,
+                  })
+                : "—"}
             </p>
             <p className="mt-1 font-mono text-xs text-muted-foreground">
               {estimatedCostSOL != null
-                ? `≈ ${estimatedCostSOL.toFixed(6)} SOL escrow`
+                ? `≈ ${estimatedCostSOL.toFixed(9)} SOL escrow`
                 : "SOL estimate pending price feed"}
             </p>
           </div>
@@ -623,5 +704,13 @@ export function BuyListingModal({
         ) : null}
       </div>
     </Modal>
+  );
+}
+
+export function BuyListingModal(props: BuyListingModalProps) {
+  return (
+    <WalletBoundary>
+      <BuyListingModalContent {...props} />
+    </WalletBoundary>
   );
 }

@@ -1,0 +1,30 @@
+{
+  "date": "2026-11-01",
+  "next": "16.4.3",
+  "api_data": "controlled fixtures",
+  "real_transfers": false,
+  "stats": {
+    "startTime": "2026-11-01T14:14:57.123Z",
+    "duration": 20540.229,
+    "expected": 1,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "runner_errors": [],
+  "cases": [
+    {
+      "file": "marketplace-catalog.spec.ts",
+      "title": "marketplace catalog browse + buy / browse card prefers linked catalog product title then mocked buy works",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 13482,
+          "retry": 0
+        }
+      ]
+    }
+  ]
+}

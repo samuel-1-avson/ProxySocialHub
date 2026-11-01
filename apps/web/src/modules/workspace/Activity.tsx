@@ -2,6 +2,8 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
+import { Cable, Clock3, Gauge, ShoppingBag, Wallet } from "lucide-react";
+import { UsageChart } from "@/components/workspace/UsageChart";
 import { getDailyUsage } from "@/lib/api/analytics";
 import { BuyerBilling } from "./BuyerBilling";
 import { useAuth } from "@/lib/auth";
@@ -37,6 +39,12 @@ export function Activity() {
         eyebrow="Buyer workspace"
         title="Activity"
         description="One place for orders, measured usage, and cost."
+        actions={
+          <Link className="ui-button secondary" href="/marketplace">
+            <ShoppingBag size={16} aria-hidden="true" />
+            Browse proxies
+          </Link>
+        }
       />
       <nav className="ui-tabs" aria-label="Activity views">
         {[
@@ -50,6 +58,7 @@ export function Activity() {
               key === "orders" ? "/app/activity" : `/app/activity?tab=${key}`
             }
             className={tab === key ? "active" : ""}
+            aria-current={tab === key ? "page" : undefined}
           >
             {label}
           </Link>
@@ -57,6 +66,39 @@ export function Activity() {
       </nav>
       {tab === "orders" && (
         <>
+          <section className="ui-stats" aria-label="Order summary">
+            <Stat
+              icon={<ShoppingBag size={18} />}
+              label="Orders shown"
+              value={orders.isSuccess ? orders.data.length : "—"}
+              detail="Orders in your account history"
+            />
+            <Stat
+              icon={<Cable size={18} />}
+              label="Active access"
+              value={
+                orders.isSuccess
+                  ? orders.data.filter((order) => order.status === "active")
+                      .length
+                  : "—"
+              }
+              detail="Purchased orders with active access"
+            />
+            <Stat
+              icon={<Clock3 size={18} />}
+              label="Needs review"
+              value={
+                orders.isSuccess
+                  ? orders.data.filter((order) =>
+                      ["pending", "pending_payment", "disputed"].includes(
+                        order.status,
+                      ),
+                    ).length
+                  : "—"
+              }
+              detail="Payment, provisioning, or dispute status"
+            />
+          </section>
           {orders.isLoading && <Loading label="Loading orders…" />}
           {orders.isError && (
             <DataError
@@ -86,7 +128,9 @@ export function Activity() {
                     <th>Order state</th>
                     <th>Purchased</th>
                     <th>Price reference</th>
-                    <th></th>
+                    <th>
+                      <span className="sr-only">Actions</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -142,6 +186,7 @@ export function Activity() {
         <>
           <section className="ui-stats">
             <Stat
+              icon={<Gauge size={18} />}
               label="Bandwidth used"
               value={
                 usage.data?.total_gb != null
@@ -151,6 +196,7 @@ export function Activity() {
               detail="Reported account usage"
             />
             <Stat
+              icon={<Wallet size={18} />}
               label="Reported cost"
               value={
                 usage.data?.total_cost_sol != null
@@ -160,6 +206,7 @@ export function Activity() {
               detail="Account usage record"
             />
             <Stat
+              icon={<Cable size={18} />}
               label="Total sessions"
               value={amount(usage.data?.total_sessions, 0)}
               detail="Reported sessions, not active clients"
@@ -172,46 +219,7 @@ export function Activity() {
           {daily.isError && (
             <DataError error={daily.error} retry={() => void daily.refetch()} />
           )}
-          {daily.isSuccess && (
-            <section className="ui-surface">
-              <h2>Bandwidth over the last seven days</h2>
-              <div
-                className="ui-table-wrap mt-5"
-                role="region"
-                aria-label="Daily bandwidth usage"
-                tabIndex={0}
-              >
-                <table className="ui-table">
-                  <thead>
-                    <tr>
-                      <th>Date</th>
-                      <th>Reported usage</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {daily.data.data?.map((point) => (
-                      <tr key={point.date}>
-                        <td>{shortDate(point.date)}</td>
-                        <td>
-                          {point.gb_used != null
-                            ? amount(point.gb_used, 3)
-                            : point.bytes_used != null
-                              ? amount(point.bytes_used / 1024 ** 3, 3)
-                              : "—"}{" "}
-                          GB
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {!daily.data.data?.length && (
-                <p className="ui-note mt-4">
-                  No daily measurements were returned for this period.
-                </p>
-              )}
-            </section>
-          )}
+          {daily.isSuccess && <UsageChart points={daily.data.data ?? []} />}
           <Link href="/dashboard/trustless" className="ui-button ghost">
             Inspect oracle-attested usage records →
           </Link>

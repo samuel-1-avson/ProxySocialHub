@@ -56,7 +56,7 @@ export interface Listing {
     active_sessions_count?: number;
     total_sales: number;
     rating: number;
-    bulk_discounts?: any[];
+    bulk_discounts?: { min_gb: number; price_per_gb: number }[];
     staked_amount: number;
     priority_rank: number;
     is_priority: boolean;

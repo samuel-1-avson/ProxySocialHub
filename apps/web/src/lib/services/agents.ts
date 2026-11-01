@@ -7,7 +7,7 @@ export interface MarketAgent {
     version: string;
     price_per_run: number;
     categories: string[];
-    parameters: Record<string, any>;
+    parameters: Record<string, unknown>;
 }
 
 export interface AgentInstance {
@@ -15,7 +15,7 @@ export interface AgentInstance {
     user_id: string;
     market_agent_id: string;
     name: string;
-    config: Record<string, any>;
+    config: Record<string, unknown>;
     status: 'active' | 'paused';
     market_agent?: MarketAgent;
     last_run_at?: string;
@@ -26,7 +26,7 @@ export interface AgentJob {
     id: string;
     agent_instance_id: string;
     status: 'pending' | 'running' | 'completed' | 'failed';
-    result: Record<string, any>;
+    result: Record<string, unknown>;
     logs: string;
     duration_sec: number;
     cost: number;
@@ -45,7 +45,7 @@ export async function getMyAgents(): Promise<AgentInstance[]> {
     return res.json();
 }
 
-export async function rentAgent(agentId: string, name: string, config: any): Promise<AgentInstance> {
+export async function rentAgent(agentId: string, name: string, config: Record<string, unknown>): Promise<AgentInstance> {
     const res = await fetchWithAuth(`${API_BASE_URL}/v1/agents/rent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
