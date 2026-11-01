@@ -29,7 +29,7 @@ export async function getUserUsage() {
         total_bytes?: number;
         total_gb?: number;
         total_cost_sol?: number;
-        sessions?: any[];
+        sessions?: import("./sessions").Session[];
     }>('/v1/usage/me');
 }
 

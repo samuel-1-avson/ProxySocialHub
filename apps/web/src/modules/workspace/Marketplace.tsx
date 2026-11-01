@@ -7,10 +7,17 @@ import {
   ArrowRight,
   Bookmark,
   Check,
+  Gauge,
+  GitCompareArrows,
+  Layers,
   MapPin,
+  Shield,
+  ShieldCheck,
   SlidersHorizontal,
+  X,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import { useHydrated } from "@/hooks/useHydrated";
 import {
   getListings,
   getListingFacets,
@@ -22,9 +29,12 @@ import {
   type ListingFilters,
 } from "@/lib/api/marketplace";
 import { CatalogProductBadge } from "@/components/marketplace/CatalogProductBadge";
-import { displayListingTitle } from "@/lib/listing-display";
+import {
+  displayListingTitle,
+  listingShowsCatalogSubtitle,
+} from "@/lib/listing-display";
 import { Modal } from "@/components/patterns/Modal";
-import { BuyListingModal } from "@/components/BuyListingModal";
+import { LazyBuyListingModal as BuyListingModal } from "@/components/marketplace/LazyBuyListingModal";
 import {
   PageHeading,
   Status,
@@ -46,15 +56,10 @@ export function Marketplace() {
   const proxyType = params.get("type") || "";
   const maxPrice = params.get("max_price") || "";
   const sort = params.get("sort") || "newest";
-  const [draftCountry, setDraftCountry] = useState(country);
-  const [draftType, setDraftType] = useState(proxyType);
-  const [draftPrice, setDraftPrice] = useState(maxPrice);
-  const [draftSort, setDraftSort] = useState(sort);
   const [details, setDetails] = useState<Listing | null>(null);
   const [checkout, setCheckout] = useState<Listing | null>(null);
   const [compare, setCompare] = useState<Listing[]>([]);
   const [compareOpen, setCompareOpen] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
   const filters: ListingFilters = {
     page,
     limit: 20,
@@ -109,15 +114,6 @@ export function Marketplace() {
     if (!("page" in next)) search.delete("page");
     router.push(`/marketplace${search.size ? `?${search}` : ""}`);
   }
-  function apply() {
-    update({
-      country: draftCountry.trim().toUpperCase(),
-      type: draftType,
-      max_price: draftPrice,
-      sort: draftSort,
-    });
-    setMoreOpen(false);
-  }
   function toggleCompare(listing: Listing) {
     setCompare((current) =>
       current.some((item) => item.id === listing.id)
@@ -157,74 +153,15 @@ export function Marketplace() {
         </Link>
       </nav>
       {!savedView && (
-        <form
-          className="ui-filters"
-          onSubmit={(event) => {
-            event.preventDefault();
-            apply();
-          }}
-        >
-          <label className="ui-field">
-            Location
-            <input
-              className="ui-input"
-              aria-label="Country (ISO)"
-              data-testid="marketplace-filter-country"
-              value={draftCountry}
-              onChange={(event) =>
-                setDraftCountry(event.target.value.toUpperCase())
-              }
-              placeholder="All locations"
-              maxLength={2}
-              list="marketplace-countries"
-            />
-            <datalist id="marketplace-countries">
-              {facets.data?.countries.map((item) => (
-                <option key={item.value} value={item.value}>
-                  {countryName(item.value)}
-                </option>
-              ))}
-            </datalist>
-          </label>
-          <label className="ui-field">
-            Proxy type
-            <select
-              className="ui-select"
-              value={draftType}
-              onChange={(event) => setDraftType(event.target.value)}
-            >
-              <option value="">All types</option>
-              <option value="residential">Residential</option>
-              <option value="mobile">Mobile</option>
-              <option value="datacenter">Datacenter</option>
-            </select>
-          </label>
-          <label className="ui-field">
-            Sort by
-            <select
-              className="ui-select"
-              value={draftSort}
-              onChange={(event) => setDraftSort(event.target.value)}
-            >
-              <option value="newest">Newest</option>
-              <option value="price_asc">Lowest price</option>
-              <option value="price_desc">Highest price</option>
-              <option value="latency">Reported latency</option>
-              <option value="sales">Order volume</option>
-            </select>
-          </label>
-          <button
-            className="ui-button secondary"
-            type="button"
-            onClick={() => setMoreOpen(true)}
-          >
-            <SlidersHorizontal size={15} aria-hidden="true" />
-            More filters
-          </button>
-          <button className="ui-button" type="submit">
-            Apply filters
-          </button>
-        </form>
+        <MarketplaceFilters
+          key={[country, proxyType, maxPrice, sort].join(":")}
+          country={country}
+          proxyType={proxyType}
+          maxPrice={maxPrice}
+          sort={sort}
+          countries={facets.data?.countries ?? []}
+          onApply={update}
+        />
       )}
       {saving.isError && <DataError error={saving.error} />}
       {savedView && !isAuthenticated ? (
@@ -239,16 +176,15 @@ export function Marketplace() {
           <p className="ui-filter-summary">
             {query.isSuccess
               ? `${total} ${total === 1 ? "offer" : "offers"}`
-              : query.isError ? "Inventory unavailable" : "Loading inventory…"}
+              : query.isError
+                ? "Inventory unavailable"
+                : "Loading inventory…"}
             {country ? ` · ${countryName(country)}` : ""}
             {maxPrice ? ` · up to $${maxPrice} / GB` : ""}
             {(country || proxyType || maxPrice) && (
               <button
                 className="ui-button ghost small ml-4"
                 onClick={() => {
-                  setDraftCountry("");
-                  setDraftType("");
-                  setDraftPrice("");
                   update({ country: "", type: "", max_price: "" });
                 }}
               >
@@ -257,16 +193,46 @@ export function Marketplace() {
             )}
           </p>
           {compare.length > 0 && (
-            <div className="ui-surface ui-actions">
-              <span className="ui-note">
-                {compare.length} selected · compare up to three offers
-              </span>
+            <div
+              className="marketplace-compare-bar"
+              role="region"
+              aria-label="Selected offers"
+            >
+              <div className="marketplace-compare-label">
+                <GitCompareArrows size={18} aria-hidden="true" />
+                <div>
+                  <strong>{compare.length} selected</strong>
+                  <p>Compare up to three offers</p>
+                </div>
+              </div>
+              <div className="marketplace-compare-items">
+                {compare.map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => toggleCompare(item)}
+                    aria-label={
+                      "Remove " + displayListingTitle(item) + " from comparison"
+                    }
+                  >
+                    {listingShowsCatalogSubtitle(item)
+                      ? item.title
+                      : displayListingTitle(item)}
+                    <X size={12} aria-hidden="true" />
+                  </button>
+                ))}
+              </div>
               <button
-                className="ui-button small secondary"
+                className="ui-button small"
                 disabled={compare.length < 2}
                 onClick={() => setCompareOpen(true)}
               >
                 Compare offers
+              </button>
+              <button
+                className="ui-button ghost small"
+                onClick={() => setCompare([])}
+              >
+                Clear
               </button>
             </div>
           )}
@@ -290,28 +256,25 @@ export function Marketplace() {
               action="Browse proxies"
             />
           )}
-          <section aria-label="Proxy offers">
-            {rows.map((listing) => (
-              <article
-                className="ui-listing"
-                key={listing.id}
-                data-testid={`listing-${listing.id}`}
-              >
-                <div>
-                  <div className="ui-row-identity">
-                    <span className="ui-region">{listing.country || "Unknown"}</span>
-                    <div>
-                      <h2>{displayListingTitle(listing)}</h2>
-                      <CatalogProductBadge product={listing.catalog_product} />
-                      <p className="ui-note">
-                        {countryName(listing.country)}
-                        {listing.city ? ` · ${listing.city}` : ""} ·{" "}
-                        {listing.proxy_type} ·{" "}
-                        {listing.protocol || "Protocol not specified"}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="ui-listing-meta">
+          <section className="offer-grid" aria-label="Proxy offers">
+            {rows.map((listing) => {
+              const selected = compare.some((item) => item.id === listing.id);
+              const isSaved = savedIds.has(listing.id);
+              return (
+                <article
+                  className={"offer-card" + (selected ? " is-selected" : "")}
+                  key={listing.id}
+                  data-testid={"listing-" + listing.id}
+                >
+                  <div className="offer-card-top">
+                    <span
+                      className="offer-region"
+                      aria-label={countryName(listing.country)}
+                    >
+                      {listing.country || (
+                        <MapPin size={18} aria-hidden="true" />
+                      )}
+                    </span>
                     <Status
                       tone={listing.status === "active" ? "good" : "neutral"}
                     >
@@ -319,77 +282,149 @@ export function Marketplace() {
                         ? "Listed"
                         : listing.status.replace(/_/g, " ")}
                     </Status>
+                    <button
+                      className={"offer-save" + (isSaved ? " is-saved" : "")}
+                      disabled={saving.isPending}
+                      aria-pressed={isSaved}
+                      aria-label={isSaved ? "Unsave offer" : "Save offer"}
+                      onClick={() => {
+                        if (!isAuthenticated) {
+                          router.push(
+                            "/login?next=" + encodeURIComponent("/marketplace"),
+                          );
+                          return;
+                        }
+                        saving.mutate({ id: listing.id, remove: isSaved });
+                      }}
+                    >
+                      <Bookmark
+                        size={17}
+                        fill={isSaved ? "currentColor" : "none"}
+                        aria-hidden="true"
+                      />
+                    </button>
+                  </div>
+                  <div className="offer-card-heading">
+                    <p className="offer-location">
+                      {countryName(listing.country)}
+                      {listing.city ? " · " + listing.city : ""}
+                    </p>
+                    <h2>{displayListingTitle(listing)}</h2>
+                    {listingShowsCatalogSubtitle(listing) && (
+                      <p className="offer-subtitle">{listing.title}</p>
+                    )}
+                    {listing.seller && (
+                      <p className="offer-provider">
+                        From{" "}
+                        {listing.seller.display_name || listing.seller.username}
+                      </p>
+                    )}
+                    <CatalogProductBadge product={listing.catalog_product} />
+                  </div>
+                  <div className="offer-type-line">
+                    <span>{listing.proxy_type}</span>
+                    <span>{listing.protocol || "Protocol not specified"}</span>
+                  </div>
+                  <dl className="offer-specs">
+                    <div>
+                      <dt>
+                        <Layers size={13} aria-hidden="true" />
+                        Capacity
+                      </dt>
+                      <dd>
+                        {amount(listing.available_bandwidth_gb)} <span>GB</span>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>
+                        <Gauge size={13} aria-hidden="true" />
+                        Latency
+                      </dt>
+                      <dd>
+                        {listing.avg_latency_ms > 0 ? (
+                          <>
+                            {amount(listing.avg_latency_ms)} <span>ms</span>
+                          </>
+                        ) : (
+                          <span>Not measured</span>
+                        )}
+                        <small>
+                          {listing.avg_latency_ms > 0
+                            ? ["gateway", "explorer"].includes(
+                                listing.sla_source || "",
+                              )
+                              ? "Measured"
+                              : "Reported"
+                            : "No measurement"}
+                        </small>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Minimum</dt>
+                      <dd>
+                        {amount(listing.min_purchase_gb)} <span>GB</span>
+                      </dd>
+                    </div>
+                  </dl>
+                  <div className="offer-evidence">
                     <span>
-                      {listing.avg_latency_ms > 0
-                        ? `${amount(listing.avg_latency_ms)} ms · ${["gateway", "explorer"].includes(listing.sla_source || "") ? "measured" : "reported"}`
-                        : "Latency not measured"}
+                      {listing.listing_offer_verified ? (
+                        <ShieldCheck
+                          size={14}
+                          className="text-success"
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <Shield size={14} aria-hidden="true" />
+                      )}
+                      {listing.listing_offer_verified
+                        ? "Provider-signed offer"
+                        : "Signature not verified"}
                     </span>
                     <span>
                       {(listing.seller?.reviews_count ?? 0) > 0 &&
                       (listing.seller?.avg_rating ?? 0) > 0
-                        ? `${amount(listing.seller?.avg_rating, 1)} · ${listing.seller?.reviews_count} reviews`
+                        ? amount(listing.seller?.avg_rating, 1) +
+                          " · " +
+                          listing.seller?.reviews_count +
+                          " reviews"
                         : "No reviews yet"}
                     </span>
-                    {listing.listing_offer_verified && (
-                      <span className="ui-inline-icon">
-                        <Check size={13} />
-                        Provider-signed offer
-                      </span>
-                    )}
                   </div>
-                  <div className="ui-actions mt-3">
+                  <div className="offer-card-bottom">
+                    <div className="offer-price">
+                      <small>Price per GB</small>
+                      <strong>
+                        ${amount(listing.price_per_gb, 4)}
+                        <span> USD</span>
+                      </strong>
+                    </div>
                     <button
-                      className="ui-listing-save"
-                      disabled={saving.isPending}
-                      aria-label={
-                        savedIds.has(listing.id) ? "Unsave offer" : "Save offer"
-                      }
-                      onClick={() => {
-                        if (!isAuthenticated) {
-                          router.push(
-                            `/login?next=${encodeURIComponent("/marketplace")}`,
-                          );
-                          return;
-                        }
-                        saving.mutate({
-                          id: listing.id,
-                          remove: savedIds.has(listing.id),
-                        });
-                      }}
+                      className="ui-button small"
+                      onClick={() => setDetails(listing)}
                     >
-                      <Bookmark
-                        size={12}
-                        className="inline mr-1"
-                        aria-hidden="true"
-                      />
-                      {savedIds.has(listing.id) ? "Saved" : "Save offer"}
-                    </button>
-                    <button
-                      className="ui-listing-save"
-                      onClick={() => toggleCompare(listing)}
-                      aria-pressed={compare.some(
-                        (item) => item.id === listing.id,
-                      )}
-                    >
-                      {compare.some((item) => item.id === listing.id)
-                        ? "Selected"
-                        : "Compare"}
+                      View details
+                      <ArrowRight size={14} aria-hidden="true" />
                     </button>
                   </div>
-                </div>
-                <div className="ui-listing-price">
-                  <strong>${amount(listing.price_per_gb, 4)}</strong>
-                  <span className="ui-note"> / GB</span>
-                  <p>{amount(listing.min_purchase_gb)} GB minimum</p>
                   <button
-                    className="ui-button small secondary"
-                    onClick={() => setDetails(listing)}
+                    className="offer-compare"
+                    onClick={() => toggleCompare(listing)}
+                    aria-pressed={selected}
+                    disabled={!selected && compare.length >= 3}
                   >
-                    View details <ArrowRight size={13} aria-hidden="true" />
+                    <span>
+                      {selected ? (
+                        <Check size={12} aria-hidden="true" />
+                      ) : (
+                        <PlusCompare />
+                      )}
+                    </span>
+                    {selected ? "Selected for comparison" : "Add to comparison"}
                   </button>
-                </div>
-              </article>
-            ))}
+                </article>
+              );
+            })}
           </section>
           {total > 20 && (
             <div className="ui-pagination">
@@ -414,40 +449,6 @@ export function Marketplace() {
           )}
         </>
       )}
-      <Modal
-        open={moreOpen}
-        onOpenChange={setMoreOpen}
-        title="Refine your results"
-      >
-        <form
-          className="ui-page"
-          onSubmit={(event) => {
-            event.preventDefault();
-            apply();
-          }}
-        >
-          <label className="ui-field">
-            Maximum USD / GB
-            <input
-              className="ui-input"
-              data-testid="marketplace-filter-max-price"
-              type="number"
-              min="0"
-              step="0.0001"
-              value={draftPrice}
-              onChange={(event) => setDraftPrice(event.target.value)}
-              placeholder="No maximum"
-            />
-          </label>
-          <p className="ui-note">
-            Prices are listed in USD. Checkout confirms the required SOL escrow
-            amount before a wallet signature.
-          </p>
-          <button type="submit" className="ui-button">
-            Apply filters
-          </button>
-        </form>
-      </Modal>
       <Modal
         open={Boolean(details)}
         onOpenChange={(open) => {
@@ -542,11 +543,19 @@ export function Marketplace() {
             <tbody>
               {compare.map((item) => (
                 <tr key={item.id}>
-                  <td>{displayListingTitle(item)}</td>
+                  <td>
+                    {displayListingTitle(item)}
+                    {listingShowsCatalogSubtitle(item) && <p>{item.title}</p>}
+                    {item.seller && (
+                      <p>
+                        From {item.seller.display_name || item.seller.username}
+                      </p>
+                    )}
+                  </td>
                   <td>${amount(item.price_per_gb, 4)}</td>
                   <td>
                     {item.avg_latency_ms > 0
-                      ? `${amount(item.avg_latency_ms)} ms · reported`
+                      ? `${amount(item.avg_latency_ms)} ms · ${["gateway", "explorer"].includes(item.sla_source || "") ? "measured" : "reported"}`
                       : "Not measured"}
                   </td>
                   <td>
@@ -572,5 +581,160 @@ export function Marketplace() {
         />
       )}
     </div>
+  );
+}
+
+function PlusCompare() {
+  return <GitCompareArrows size={12} aria-hidden="true" />;
+}
+
+function MarketplaceFilters({
+  country,
+  proxyType,
+  maxPrice,
+  sort,
+  countries,
+  onApply,
+}: {
+  country: string;
+  proxyType: string;
+  maxPrice: string;
+  sort: string;
+  countries: { value: string }[];
+  onApply: (next: Record<string, string>) => void;
+}) {
+  const hydrated = useHydrated();
+  const [draftCountry, setDraftCountry] = useState(country);
+  const [draftType, setDraftType] = useState(proxyType);
+  const [draftPrice, setDraftPrice] = useState(maxPrice);
+  const [draftSort, setDraftSort] = useState(sort);
+  const [moreOpen, setMoreOpen] = useState(false);
+  function apply() {
+    onApply({
+      country: draftCountry.trim().toUpperCase(),
+      type: draftType,
+      max_price: draftPrice,
+      sort: draftSort,
+    });
+    setMoreOpen(false);
+  }
+  return (
+    <section
+      className="marketplace-filter-panel"
+      aria-label="Filter available offers"
+    >
+      <div className="marketplace-filter-heading">
+        <SlidersHorizontal size={16} aria-hidden="true" />
+        <strong>Find your capacity</strong>
+        <span>Filter by location, type, and price</span>
+      </div>
+      <form
+        className="ui-filters"
+        onSubmit={(event) => {
+          event.preventDefault();
+          apply();
+        }}
+      >
+        <label className="ui-field">
+          Location
+          <input
+            disabled={!hydrated}
+            className="ui-input"
+            aria-label="Country (ISO)"
+            data-testid="marketplace-filter-country"
+            value={draftCountry}
+            onChange={(event) =>
+              setDraftCountry(event.target.value.toUpperCase())
+            }
+            placeholder="All locations"
+            maxLength={2}
+            list="marketplace-countries"
+          />
+          <datalist id="marketplace-countries">
+            {countries.map((item) => (
+              <option key={item.value} value={item.value}>
+                {countryName(item.value)}
+              </option>
+            ))}
+          </datalist>
+        </label>
+        <label className="ui-field">
+          Proxy type
+          <select
+            disabled={!hydrated}
+            className="ui-select"
+            value={draftType}
+            onChange={(event) => setDraftType(event.target.value)}
+          >
+            <option value="">All types</option>
+            <option value="residential">Residential</option>
+            <option value="mobile">Mobile</option>
+            <option value="datacenter">Datacenter</option>
+          </select>
+        </label>
+        <label className="ui-field">
+          Sort by
+          <select
+            disabled={!hydrated}
+            className="ui-select"
+            value={draftSort}
+            onChange={(event) => setDraftSort(event.target.value)}
+          >
+            <option value="newest">Newest</option>
+            <option value="price_asc">Lowest price</option>
+            <option value="price_desc">Highest price</option>
+            <option value="latency">Reported latency</option>
+            <option value="sales">Order volume</option>
+          </select>
+        </label>
+        <button
+          disabled={!hydrated}
+          className="ui-button secondary"
+          type="button"
+          onClick={() => setMoreOpen(true)}
+        >
+          <SlidersHorizontal size={15} aria-hidden="true" />
+          More filters{draftPrice && <span className="filter-count">1</span>}
+        </button>
+        <button className="ui-button" type="submit" disabled={!hydrated}>
+          Apply filters
+        </button>
+      </form>
+      <Modal
+        open={moreOpen}
+        onOpenChange={setMoreOpen}
+        title="Refine your results"
+      >
+        <form
+          className="ui-page"
+          onSubmit={(event) => {
+            event.preventDefault();
+            apply();
+          }}
+        >
+          <label className="ui-field">
+            Maximum USD / GB
+            <input
+              disabled={!hydrated}
+              className="ui-input"
+              data-testid="marketplace-filter-max-price"
+              type="number"
+              min="0"
+              step="0.0001"
+              value={draftPrice}
+              onChange={(event) => setDraftPrice(event.target.value)}
+              placeholder="No maximum"
+            />
+          </label>
+          <p className="ui-note">
+            Prices are listed in USD. Checkout confirms the required SOL escrow
+            amount before a wallet signature.
+          </p>
+          <button type="submit" className="ui-button" disabled={!hydrated}>
+            Apply filters
+          </button>
+        </form>
+      </Modal>
+    </section>
   );
 }

@@ -12,9 +12,13 @@ test.describe('wallet auto-reconnect', () => {
     test.setTimeout(180_000);
 
     test('does not open a web wallet when no wallet extension is installed', async ({ page }) => {
+        await page.route('**/v1/**', (route) => route.fulfill({
+            status: 503,
+            json: { error: 'Fixture wallet source unavailable' },
+        }));
         await seedSignedAuth(page, BASE_URL, 'provider');
 
-        await page.goto(`${BASE_URL}/marketplace`, { waitUntil: 'domcontentloaded', timeout: 120_000 });
+        await page.goto(`${BASE_URL}/app/wallet`, { waitUntil: 'domcontentloaded', timeout: 120_000 });
         // The reconnect effect runs once the user and the wallet list are available.
         await page.waitForTimeout(10_000);
 

@@ -22,6 +22,8 @@ import {
 } from "@/lib/navigation/workspace";
 import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
 import { Modal } from "@/components/patterns/Modal";
+import { BrandLockup } from "@/components/BrandLockup";
+import { ModeToggle } from "@/components/ModeToggle";
 import { ThemeSelect } from "./ThemeSelect";
 export function WorkspaceHeader() {
   const { user, logout } = useAuth();
@@ -48,6 +50,9 @@ export function WorkspaceHeader() {
       : "Your account");
   const destinations = [
     ...WORKSPACE_DESTINATIONS[mode],
+    { label: "Community forum", href: "/community/forum" },
+    { label: "Activity feed", href: "/community/feed" },
+    { label: "Governance", href: "/governance" },
     { label: "Settings", href: "/app/settings" },
     { label: "Wallet", href: "/app/wallet" },
     { label: "Inbox", href: "/messages" },
@@ -59,21 +64,22 @@ export function WorkspaceHeader() {
   return (
     <>
       <header className="workspace-header">
-        <Link className="workspace-mobile-brand" href="/app">
-          <span className="workspace-mark">ph</span>
-          <span>ProxyHubb</span>
-        </Link>
+        <BrandLockup
+          className="workspace-mobile-brand"
+          href={mode === "seller" ? "/provider" : "/app"}
+        />
         <button
           className="workspace-search-trigger"
           onClick={() => setSearchOpen(true)}
-          aria-label="Search workspace"
+          title="Search workspace"
+          aria-keyshortcuts="Control+k Meta+k"
         >
           <Search size={17} aria-hidden="true" />
-          <span>Search workspace</span>
-          <kbd>Ctrl / ⌘ K</kbd>
+          <span className="workspace-search-label">Search workspace</span>
+          <kbd aria-hidden="true">Ctrl / ⌘ K</kbd>
         </button>
         <div className="workspace-header-actions">
-          <ThemeSelect />
+          <ModeToggle />
           <Link href="/app/wallet" className="workspace-wallet-link">
             <Wallet size={16} aria-hidden="true" />
             Wallet
@@ -136,6 +142,9 @@ export function WorkspaceHeader() {
         }
       >
         <WorkspaceSwitcher onSwitch={() => setAccountOpen(false)} />
+        <div className="workspace-account-preferences">
+          <ThemeSelect />
+        </div>
         <div className="workspace-menu-list mt-5">
           <Link href="/app/settings" onClick={() => setAccountOpen(false)}>
             <Settings size={17} />

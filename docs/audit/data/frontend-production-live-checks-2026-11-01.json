@@ -1,0 +1,263 @@
+{
+  "checkedAt": "2026-11-01T17:16:50.252Z",
+  "revision": "9c3969398a1e82250aa2ce724779d4c45350508e",
+  "buildId": "i5Ao8LucOY7rxqjku8TtG",
+  "results": [
+    {
+      "route": "/",
+      "width": 390,
+      "theme": "dark",
+      "status": 200,
+      "heading": "Clear routes.\nConfident connections.",
+      "overflow": 0,
+      "buildMatches": true,
+      "pageErrors": [],
+      "assetFailures": [],
+      "axeScanned": true,
+      "violations": []
+    },
+    {
+      "route": "/marketplace",
+      "width": 390,
+      "theme": "dark",
+      "status": 200,
+      "heading": "Marketplace",
+      "overflow": 0,
+      "buildMatches": true,
+      "pageErrors": [],
+      "assetFailures": [],
+      "axeScanned": true,
+      "violations": []
+    },
+    {
+      "route": "/login",
+      "width": 390,
+      "theme": "dark",
+      "status": 200,
+      "heading": "Sign in",
+      "overflow": 0,
+      "buildMatches": true,
+      "pageErrors": [],
+      "assetFailures": [],
+      "axeScanned": false,
+      "violations": []
+    },
+    {
+      "route": "/help",
+      "width": 390,
+      "theme": "dark",
+      "status": 200,
+      "heading": "Help Center",
+      "overflow": 0,
+      "buildMatches": true,
+      "pageErrors": [],
+      "assetFailures": [],
+      "axeScanned": false,
+      "violations": []
+    },
+    {
+      "route": "/",
+      "width": 390,
+      "theme": "light",
+      "status": 200,
+      "heading": "Clear routes.\nConfident connections.",
+      "overflow": 0,
+      "buildMatches": true,
+      "pageErrors": [],
+      "assetFailures": [],
+      "axeScanned": true,
+      "violations": []
+    },
+    {
+      "route": "/marketplace",
+      "width": 390,
+      "theme": "light",
+      "status": 200,
+      "heading": "Marketplace",
+      "overflow": 0,
+      "buildMatches": true,
+      "pageErrors": [],
+      "assetFailures": [],
+      "axeScanned": true,
+      "violations": []
+    },
+    {
+      "route": "/login",
+      "width": 390,
+      "theme": "light",
+      "status": 200,
+      "heading": "Sign in",
+      "overflow": 0,
+      "buildMatches": true,
+      "pageErrors": [],
+      "assetFailures": [],
+      "axeScanned": false,
+      "violations": []
+    },
+    {
+      "route": "/help",
+      "width": 390,
+      "theme": "light",
+      "status": 200,
+      "heading": "Help Center",
+      "overflow": 0,
+      "buildMatches": true,
+      "pageErrors": [],
+      "assetFailures": [],
+      "axeScanned": false,
+      "violations": []
+    },
+    {
+      "route": "/",
+      "width": 1440,
+      "theme": "dark",
+      "status": 200,
+      "heading": "Clear routes.\nConfident connections.",
+      "overflow": 0,
+      "buildMatches": true,
+      "pageErrors": [],
+      "assetFailures": [],
+      "axeScanned": true,
+      "violations": []
+    },
+    {
+      "route": "/marketplace",
+      "width": 1440,
+      "theme": "dark",
+      "status": 200,
+      "heading": "Marketplace",
+      "overflow": 0,
+      "buildMatches": true,
+      "pageErrors": [],
+      "assetFailures": [],
+      "axeScanned": true,
+      "violations": []
+    },
+    {
+      "route": "/login",
+      "width": 1440,
+      "theme": "dark",
+      "status": 200,
+      "heading": "Sign in",
+      "overflow": 0,
+      "buildMatches": true,
+      "pageErrors": [],
+      "assetFailures": [],
+      "axeScanned": false,
+      "violations": []
+    },
+    {
+      "route": "/help",
+      "width": 1440,
+      "theme": "dark",
+      "status": 200,
+      "heading": "Help Center",
+      "overflow": 0,
+      "buildMatches": true,
+      "pageErrors": [],
+      "assetFailures": [],
+      "axeScanned": false,
+      "violations": []
+    },
+    {
+      "route": "/",
+      "width": 1440,
+      "theme": "light",
+      "status": 200,
+      "heading": "Clear routes.\nConfident connections.",
+      "overflow": 0,
+      "buildMatches": true,
+      "pageErrors": [],
+      "assetFailures": [],
+      "axeScanned": true,
+      "violations": []
+    },
+    {
+      "route": "/marketplace",
+      "width": 1440,
+      "theme": "light",
+      "status": 200,
+      "heading": "Marketplace",
+      "overflow": 0,
+      "buildMatches": true,
+      "pageErrors": [],
+      "assetFailures": [],
+      "axeScanned": true,
+      "violations": []
+    },
+    {
+      "route": "/login",
+      "width": 1440,
+      "theme": "light",
+      "status": 200,
+      "heading": "Sign in",
+      "overflow": 0,
+      "buildMatches": true,
+      "pageErrors": [],
+      "assetFailures": [],
+      "axeScanned": false,
+      "violations": []
+    },
+    {
+      "route": "/help",
+      "width": 1440,
+      "theme": "light",
+      "status": 200,
+      "heading": "Help Center",
+      "overflow": 0,
+      "buildMatches": true,
+      "pageErrors": [],
+      "assetFailures": [],
+      "axeScanned": false,
+      "violations": []
+    }
+  ],
+  "http": [
+    {
+      "route": "/app/connections",
+      "redirectedToSignIn": true
+    },
+    {
+      "route": "/provider",
+      "redirectedToSignIn": true
+    },
+    {
+      "url": "https://proxyhubb.com/v1/listings?limit=1",
+      "status": 200,
+      "location": null,
+      "passed": true
+    },
+    {
+      "url": "https://proxyhubb.com/v1/system/config/public",
+      "status": 200,
+      "location": null,
+      "passed": true
+    },
+    {
+      "url": "https://api.proxyhubb.com/health",
+      "status": 200,
+      "location": null,
+      "passed": true,
+      "body": "{\"status\":\"ok\"}"
+    },
+    {
+      "url": "https://proxyhubb.com/explorer",
+      "status": 307,
+      "location": "https://explorer.proxyhubb.com/",
+      "passed": true
+    },
+    {
+      "url": "https://www.proxyhubb.com",
+      "status": 301,
+      "location": "https://proxyhubb.com/",
+      "passed": true
+    },
+    {
+      "url": "https://app.proxyhubb.com",
+      "status": 301,
+      "location": "https://proxyhubb.com/",
+      "passed": true
+    }
+  ],
+  "failures": 0
+}

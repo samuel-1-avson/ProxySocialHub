@@ -34,7 +34,7 @@ test.describe('marketplace listing detail buy', () => {
 
         const modal = page.getByTestId('buy-listing-modal');
         await expect(modal).toBeVisible({ timeout: 15000 });
-        await expect(modal.getByRole('heading', { name: /review purchase/i })).toBeVisible();
+        await expect(modal.getByRole('heading', { name: /buy with sol/i })).toBeVisible();
     });
 
     test('completes mocked purchase from listing detail', async ({ page }) => {

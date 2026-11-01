@@ -4,14 +4,19 @@ import { AppShell } from "@/components/AppShell";
 import { ComingSoonBanner } from "@/components/ComingSoonBanner";
 
 export default function TreasuryLayout({
-    children,
+  children,
 }: {
-    children: React.ReactNode;
+  children: React.ReactNode;
 }) {
-    return (
-        <AppShell showDesktopActions={false} showBreadcrumbs={false} contentClassName="animate-in fade-in duration-500">
-            <ComingSoonBanner feature="The treasury" />
-            {children}
-        </AppShell>
-    );
+  return (
+    <AppShell
+      withWallet={false}
+      showDesktopActions={false}
+      showBreadcrumbs={false}
+      contentClassName="animate-in fade-in duration-500"
+    >
+      <ComingSoonBanner feature="The treasury" />
+      {children}
+    </AppShell>
+  );
 }

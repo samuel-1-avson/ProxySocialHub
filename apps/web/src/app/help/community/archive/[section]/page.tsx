@@ -5,7 +5,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 const archiveSections = {
   feed: {
     title: "Community activity",
-    summary: "The social activity feed is no longer a primary Property Hub destination.",
+    summary: "The social activity feed is no longer a primary ProxyHubb destination.",
     sections: [
       {
         title: "Where to go now",

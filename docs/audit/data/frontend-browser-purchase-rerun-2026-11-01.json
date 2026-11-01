@@ -1,0 +1,151 @@
+{
+  "date": "2026-11-01",
+  "next": "16.4.3",
+  "api_data": "controlled fixtures",
+  "real_transfers": false,
+  "stats": {
+    "startTime": "2026-11-01T14:11:02.350Z",
+    "duration": 219253.35799999998,
+    "expected": 9,
+    "skipped": 0,
+    "unexpected": 1,
+    "flaky": 0
+  },
+  "runner_errors": [],
+  "cases": [
+    {
+      "file": "marketplace-browse-buy.spec.ts",
+      "title": "focused marketplace purchase / reviews an offer before requesting escrow funding",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 11266,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "marketplace-browse-buy.spec.ts",
+      "title": "focused marketplace purchase / completes mocked escrow flow and opens the real order credentials screen",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 17085,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "marketplace-browse-buy.spec.ts",
+      "title": "focused marketplace purchase / retries an existing order after a failed payment confirmation without creating another",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 6527,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "marketplace-browse-buy.spec.ts",
+      "title": "focused marketplace purchase / requests catalog products and keeps the useful product badge",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 2901,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "marketplace-browse-buy.spec.ts",
+      "title": "focused marketplace purchase / applies a country filter to the inventory request and URL",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 3267,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "marketplace-browse-buy.spec.ts",
+      "title": "focused marketplace purchase / limits comparisons to three offers and lets buyers remove a selection",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 5595,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "marketplace-catalog.spec.ts",
+      "title": "marketplace catalog manage / provider can open catalog manage and create a product",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 10351,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "marketplace-catalog.spec.ts",
+      "title": "marketplace catalog manage / provider links a listing via select (no raw listing-id UX)",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 3646,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "marketplace-catalog.spec.ts",
+      "title": "marketplace catalog browse + buy / browse card prefers linked catalog product title then mocked buy works",
+      "project": "chromium",
+      "status": "unexpected",
+      "results": [
+        {
+          "status": "timedOut",
+          "duration_ms": 123828,
+          "retry": 0,
+          "errors": [
+            "[31mTest timeout of 120000ms exceeded.[39m",
+            "Error: locator.click: Test timeout of 120000ms exceeded.\nCall log:\n[2m  - waiting for getByRole('button', { name: 'Buy bandwidth', exact: true })[22m\n\n\n  108 |\n  109 |         await page.getByRole('button', { name: 'View details', exact: true }).first().click();\n> 110 |         await page.getByRole('button', { name: 'Buy bandwidth', exact: true }).click();\n      |                                                                                ^\n  111 |         await expect(page.getByTestId('buy-listing-modal')).toBeVisible({ timeout: 15_000 });\n  112 |         await page.getByTestId('buy-listing-start-connection').click();\n  113 |         await expect(page).toHaveURL(new RegExp('/app/connections/' + e2eOrderId + '$'), { timeout: 30_000 });\n    at C:\\Users\\samue\\OneDrive\\Desktop\\projects\\ProxySocialHub\\apps\\web\\e2e\\marketplace-catalog.spec.ts:110:80"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "wallet-no-web-wallet-popup.spec.ts",
+      "title": "wallet auto-reconnect / does not open a web wallet when no wallet extension is installed",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 23518,
+          "retry": 0
+        }
+      ]
+    }
+  ]
+}

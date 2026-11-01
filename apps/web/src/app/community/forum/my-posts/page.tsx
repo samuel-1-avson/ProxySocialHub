@@ -1,115 +1,81 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
-import { formatDistanceToNow } from "date-fns";
-import { MessageSquare, ArrowLeft, Loader2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { getMyPosts, type ForumPost } from "@/lib/forum-api";
+import { useQuery } from "@tanstack/react-query";
+import { ArrowRight, MessageSquare } from "lucide-react";
+import { getMyPosts } from "@/lib/forum-api";
+import { useAuth } from "@/lib/auth";
+import {
+  DataError,
+  EmptyState,
+  Loading,
+  PageHeading,
+  Status,
+} from "@/components/workspace/Patterns";
+import { forumDate } from "@/components/community/ForumThreadCard";
 
 export default function MyPostsPage() {
-    const [posts, setPosts] = useState<ForumPost[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-
-    useEffect(() => {
-        loadPosts();
-    }, []);
-
-    const loadPosts = async () => {
-        setIsLoading(true);
-        setError(null);
-        try {
-            const data = await getMyPosts({ page: 1, limit: 20 });
-            setPosts(data.posts);
-        } catch (err) {
-            setError("Failed to load your posts");
-            console.error(err);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    return (
-        <div className="container mx-auto py-8 px-4">
-            {/* Header */}
-            <div className="flex items-center gap-4 mb-6">
-                <Link href="/help/forum">
-                    <Button variant="ghost" size="icon">
-                        <ArrowLeft className="w-5 h-5" />
-                    </Button>
-                </Link>
-                <div>
-                    <h1 className="text-2xl font-bold">My Posts</h1>
-                    <p className="text-muted-foreground">
-                        Your forum activity
-                    </p>
-                </div>
-            </div>
-
-            {/* Content */}
-            {isLoading ? (
-                <div className="flex justify-center py-12">
-                    <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                </div>
-            ) : error ? (
-                <Card className="py-12 text-center">
-                    <p className="text-muted-foreground">{error}</p>
-                    <Button onClick={loadPosts} className="mt-4">
-                        Retry
-                    </Button>
-                </Card>
-            ) : posts.length === 0 ? (
-                <Card className="py-12 text-center">
-                    <MessageSquare className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                    <h3 className="text-lg font-medium mb-2">No posts yet</h3>
-                    <p className="text-muted-foreground mb-4">
-                        Start participating in discussions!
-                    </p>
-                    <Link href="/help/forum">
-                        <Button>Browse Forum</Button>
-                    </Link>
-                </Card>
-            ) : (
-                <div className="space-y-4">
-                    {posts.map((post) => (
-                        <Card key={post.id} className="p-6 hover:border-primary/50 transition-colors">
-                            <div className="flex gap-4">
-                                {/* Vote counts */}
-                                <div className="flex flex-col items-center gap-1 min-w-[60px]">
-                                    <div className="text-lg font-bold">
-                                        {post.upvotes - post.downvotes}
-                                    </div>
-                                    <div className="text-xs text-muted-foreground">votes</div>
-                                </div>
-
-                                {/* Content */}
-                                <div className="flex-1 min-w-0">
-                                    <p className="text-muted-foreground line-clamp-3">
-                                        {post.content}
-                                    </p>
-
-                                    <div className="flex items-center gap-4 mt-3 text-sm">
-                                        <Badge variant="secondary">
-                                            Reply
-                                        </Badge>
-                                        <span className="text-muted-foreground">
-                                            {formatDistanceToNow(new Date(post.created_at), {
-                                                addSuffix: true,
-                                            })}
-                                        </span>
-                                        {post.is_solution && (
-                                            <Badge variant="default">Solution</Badge>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                        </Card>
-                    ))}
-                </div>
-            )}
+  const { user, isAuthenticated } = useAuth();
+  const query = useQuery({
+    queryKey: ["forum", "my-posts", user?.id],
+    queryFn: () => getMyPosts({ page: 1, limit: 20 }),
+    enabled: isAuthenticated,
+  });
+  return (
+    <div className="ui-page forum-page">
+      <PageHeading
+        eyebrow="Community / Your activity"
+        title="My posts"
+        description="Your recent replies and contributions to community discussions."
+      />
+      {!isAuthenticated ? (
+        <EmptyState
+          title="Sign in to see your posts"
+          description="Your contributions are linked to your ProxyHubb account."
+          href="/login?next=%2Fhelp%2Fforum%3Ffilter%3Dmine"
+          action="Sign in"
+        />
+      ) : query.isPending ? (
+        <Loading label="Loading your posts…" />
+      ) : query.isError ? (
+        <DataError
+          title="Your posts could not be loaded"
+          error={query.error}
+          retry={() => void query.refetch()}
+        />
+      ) : !query.data.posts?.length ? (
+        <EmptyState
+          title="Your first conversation is waiting"
+          description="Explore the forum and share your experience with the community."
+          href="/help/forum"
+          action="Browse discussions"
+          icon={<MessageSquare size={28} />}
+        />
+      ) : (
+        <div className="forum-thread-list">
+          {query.data.posts.map((post) => (
+            <article key={post.id} className="ui-surface forum-post-preview">
+              <div className="ui-actions">
+                <span className="ui-subtle">{forumDate(post.created_at)}</span>
+                {post.is_solution && (
+                  <Status tone="good">Accepted solution</Status>
+                )}
+                <span className="ui-subtle">
+                  {post.upvotes - post.downvotes} votes
+                </span>
+              </div>
+              <p>{post.content}</p>
+              <Link
+                className="ui-link"
+                href={"/help/forum/thread/" + post.thread_id}
+              >
+                View discussion
+                <ArrowRight size={14} aria-hidden="true" />
+              </Link>
+            </article>
+          ))}
         </div>
-    );
+      )}
+    </div>
+  );
 }

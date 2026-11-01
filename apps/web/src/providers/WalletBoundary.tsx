@@ -1,7 +1,10 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import type { ReactNode } from 'react';
+import { createContext, useContext, type ReactNode } from 'react';
+import { LinkedWalletAutoReconnect } from '@/components/LinkedWalletAutoReconnect';
+
+const WalletBoundaryContext = createContext(false);
 
 /**
  * Lazy-loads Solana wallet providers only for routes that
@@ -16,5 +19,14 @@ const SolanaWalletProvider = dynamic(
 );
 
 export function WalletBoundary({ children }: { children: ReactNode }) {
-  return <SolanaWalletProvider>{children}</SolanaWalletProvider>;
+  const provided = useContext(WalletBoundaryContext);
+  if (provided) return <>{children}</>;
+  return (
+    <SolanaWalletProvider>
+      <WalletBoundaryContext.Provider value={true}>
+        <LinkedWalletAutoReconnect />
+        {children}
+      </WalletBoundaryContext.Provider>
+    </SolanaWalletProvider>
+  );
 }

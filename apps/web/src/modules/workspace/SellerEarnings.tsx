@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { CircleDollarSign, Clock3, Coins } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import {
@@ -23,6 +24,7 @@ import {
   DataError,
   Stat,
   Status,
+  EmptyState,
   amount,
   shortDate,
 } from "@/components/workspace/Patterns";
@@ -53,7 +55,7 @@ export function SellerEarnings() {
   return (
     <div className="ui-page">
       <PageHeading
-        eyebrow="Seller workspace"
+        eyebrow="Provider workspace"
         title="Earnings"
         description="Understand recorded earnings, payout eligibility, and settlement evidence."
       />
@@ -83,6 +85,7 @@ export function SellerEarnings() {
       )}
       <section className="ui-stats">
         <Stat
+          icon={<Coins size={18} />}
           label="Earned in 30 days"
           value={
             summary.data
@@ -92,6 +95,7 @@ export function SellerEarnings() {
           detail="Recorded earnings for the period"
         />
         <Stat
+          icon={<Clock3 size={18} />}
           label="Pending"
           value={
             summary.data ? `${amount(summary.data.pending_sol, 6)} SOL` : "…"
@@ -99,6 +103,7 @@ export function SellerEarnings() {
           detail="Separate from payable and paid funds"
         />
         <Stat
+          icon={<CircleDollarSign size={18} />}
           label="Paid lifetime"
           value={summary.data ? `${amount(summary.data.paid_sol, 6)} SOL` : "…"}
           detail="Completed payments in provider records"
@@ -124,7 +129,7 @@ export function SellerEarnings() {
         </>
       )}
       {tab === "history" && (
-        <section>
+        <section className="ui-surface">
           <h2 className="mb-4">Earning history</h2>
           {earnings.isLoading && <Loading label="Loading earning records…" />}
           {earnings.isError && (
@@ -197,7 +202,11 @@ export function SellerEarnings() {
                 </table>
               </div>
               {!earnings.data.earnings.length && (
-                <p className="ui-note">No earning records were returned.</p>
+                <EmptyState
+                  title="Your earning history starts here."
+                  description="Recorded bandwidth earnings will appear here with their fees, net value, and settlement evidence."
+                  icon={<Coins size={24} />}
+                />
               )}
               {earnings.data.total > 20 && (
                 <div className="ui-pagination mt-4">
@@ -229,7 +238,7 @@ export function SellerEarnings() {
         </section>
       )}
       {tab !== "history" && (
-        <section>
+        <section className="ui-surface">
           <h2 className="mb-4">Payout history</h2>
           {payouts.isLoading && <Loading label="Loading payouts…" />}
           {payouts.isError && (
@@ -260,11 +269,15 @@ export function SellerEarnings() {
             </div>
           ))}
           {payouts.isSuccess && !payouts.data.payouts.length && (
-            <p className="ui-note">No completed payouts have been reported.</p>
+            <EmptyState
+              title="No payouts recorded yet."
+              description="Payout records will appear here with their settlement status and transaction link when available."
+              icon={<CircleDollarSign size={24} />}
+            />
           )}
         </section>
       )}
-      <details className="ui-note">
+      <details className="workflow-advanced ui-note">
         <summary>Advanced business tools</summary>
         <div className="ui-actions mt-3">
           <Link className="ui-link" href="/dashboard/provider/analytics">Performance analytics →</Link>
