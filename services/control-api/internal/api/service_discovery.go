@@ -71,7 +71,7 @@ func discoverServices(c *gin.Context) {
 	var listings []models.ProxyListing
 	offset := discovery.Offset(q.Page, q.Limit)
 	if err := discovery.ServiceDiscoveryOrder(query).
-		Preload("Seller").
+		Preload("Seller", publicSellerColumns).
 		Offset(offset).
 		Limit(q.Limit).
 		Find(&listings).Error; err != nil {
@@ -307,7 +307,7 @@ func matchServices(c *gin.Context) {
 	var listings []models.ProxyListing
 	if err := query.
 		Select("*, " + weightedScore).
-		Preload("Seller").
+		Preload("Seller", publicSellerColumns).
 		Order("match_score DESC").
 		Limit(req.Count).
 		Find(&listings).Error; err != nil {

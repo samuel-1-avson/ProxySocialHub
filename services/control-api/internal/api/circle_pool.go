@@ -547,8 +547,8 @@ func getCircleSessions(c *gin.Context) {
 
 	var sessions []models.CircleSession
 	if err := db.Social().
-		Preload("Buyer").
-		Preload("Provider").
+		Preload("Buyer", counterpartyColumns).
+		Preload("Provider", counterpartyColumns).
 		Where("circle_id = ?", circleID).
 		Order("created_at DESC").
 		Find(&sessions).Error; err != nil {

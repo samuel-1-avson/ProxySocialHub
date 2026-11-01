@@ -3,7 +3,7 @@
  * All listing and order-related API calls and types
  */
 
-import { apiGet, apiPost, apiPut, apiDelete, publicApiGet } from './client';
+import { apiGet, apiPost, apiPatch, apiDelete, publicApiGet } from './client';
 import type { CatalogProductSummary } from './catalog';
 import type { OrderStatus } from '@/lib/order-status';
 
@@ -31,6 +31,9 @@ export interface Listing {
     id: string;
     seller_id: string;
     node_id: string;
+    /** Owning provider node (omitted for node-less offers). */
+    provider_node_id?: string;
+    rotation_type?: string;
     title: string;
     description: string;
     price_per_gb: number;
@@ -56,7 +59,7 @@ export interface Listing {
     active_sessions_count?: number;
     total_sales: number;
     rating: number;
-    bulk_discounts?: any[];
+    bulk_discounts?: Array<{ min_gb: number; price_per_gb: number; }>;
     staked_amount: number;
     priority_rank: number;
     is_priority: boolean;
@@ -162,7 +165,10 @@ export interface UpdateListingRequest {
     min_purchase_gb?: number;
     available_bandwidth_gb?: number;
     max_concurrency?: number;
+    bulk_discounts?: unknown;
     status?: 'active' | 'paused' | 'sold_out' | string;
+    listing_offer_expires_at?: number;
+    proof?: ProviderProofEnvelope;
 }
 
 export interface SavedListingEntry {
@@ -609,7 +615,7 @@ export function deleteListing(id: string) {
 }
 
 export function updateListing(id: string, data: UpdateListingRequest) {
-    return apiPut<{ listing: Listing }>(`/v1/listings/${id}`, data);
+    return apiPatch<{ listing: Listing }>(`/v1/listings/${id}`, data);
 }
 
 /**
