@@ -21,8 +21,15 @@ the work, cost drivers, risks, and decisions required before real SOL moves.
   `proxyhub.json` IDL is a 4-instruction client subset, not the full surface.
 - Hot payouts already sign via GCP KMS (`USE_GCP_KMS_HOT=true`, no file
   keypair). Oracle/hot/cold split and vault PDA model exist in config.
-- `APP_ENV` is unset in production, so BC-08 custody checks log warnings
-  instead of enforcing. Nothing fails closed on custody misconfig today.
+- `APP_ENV=testnet` is hardcoded by the testnet compose overlays (a `.env`
+  value is ignored for control-api), so BC-08 custody checks enforce and
+  fail closed — verified live (`BC-08 custody split active`, and a scratch
+  boot with merged hot/legacy addresses refuses to start) — and the
+  staging-only unauthenticated geoip/map-backfill POSTs are no longer
+  registered on the deployed stack. At mainnet cutover, flip the overlays
+  to `production`: proofs, custody, billing, and session gates stay as-is.
+  The code gate still registers those two POSTs for `""`/`development`/
+  `staging`; remove `staging` from it or add auth regardless.
 - SOL/USD comes from CoinGecko free tier only, with no API keys configured
   (deploy logs warn). A circuit breaker exists but has never seen mainnet
   volatility. One price source = one failure/manipulation point.
@@ -30,8 +37,12 @@ the work, cost drivers, risks, and decisions required before real SOL moves.
   RPC failover lists and WS derivation exist but point at public endpoints.
 - Deposit watcher polls (10s) with durable watermarks; withdrawal holds and
   pending-payment recovery exist and must be preserved through cutover.
-- `scripts/ops-mainnet-preflight.ts` is self-asserting (compares constants to
-  themselves, always passes). It verifies nothing live and must be rebuilt.
+- The old `scripts/ops-mainnet-preflight.ts` was self-asserting (compared
+  constants to themselves, always passed) and has been replaced by
+  `services/control-api/cmd/preflight`: a live, fail-closed Go gate (real
+  RPC slots, WS notification, program executable + upgrade authority, vault
+  PDA, KMS sign round-trip, custody distinctness, hot float, vault floor,
+  fresh + cross-checked SOL price, dev-keys off, banner consistency).
 - Multisig settlement client code exists; no mainnet multisig set is defined.
 
 ## Workstreams
@@ -141,8 +152,13 @@ The new preflight must check live state and fail closed:
 - Audit surface is 60+ instructions (not the 4-instruction web IDL): larger
   audit scope, cost, and schedule than the escrow-only picture.
 - Single free-tier price source and public RPC today: both already showed
-  limits on devnet.
-- Custody checks currently warn-only (`APP_ENV` unset).
+  limits on devnet. Live 2026-11-01: control-api's own BlockchainIndexer
+  emits ~90 `getBlock` 429s/min, exhausting the Helius key quota ("max usage
+  reached") and throttling the public fallbacks. Deposit verification and
+  any preflight share the same starved quota until the indexer is fixed or
+  moved to a dedicated endpoint/key.
+- Two unauthenticated admin POSTs (geoip backfill, map-links aggregate)
+  stay registered under `staging`; remove or auth-gate them before mainnet.
 - No CI (billing): every cutover change still goes through the manual gate
   (`docs/MANUAL_CI_GATE.md`) until billing is restored.
 - Key ceremony + upgrade-authority custody are procedural: they need

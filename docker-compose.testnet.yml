@@ -9,7 +9,7 @@
 services:
   control-api:
     environment:
-      - APP_ENV=staging
+      - APP_ENV=testnet
       - API_BASE_URL=${API_BASE_URL:?API_BASE_URL must be set}
       - FRONTEND_URL=${FRONTEND_URL:?FRONTEND_URL must be set}
       - CORS_ORIGINS=${CORS_ORIGINS:?CORS_ORIGINS must be set}

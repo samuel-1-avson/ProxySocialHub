@@ -143,7 +143,8 @@ func isMainnetEnv() bool {
 func isStagingEnv() bool {
 	network := strings.ToLower(strings.TrimSpace(os.Getenv("SOLANA_NETWORK")))
 	appEnv := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
-	return network == "staging" || appEnv == "staging"
+	// testnet shares the staging treasury tier (APP_ENV=testnet flip).
+	return network == "staging" || appEnv == "staging" || appEnv == "testnet"
 }
 
 func isDevEnv() bool {
