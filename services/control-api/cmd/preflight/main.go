@@ -175,28 +175,31 @@ func runAll(ctx context.Context) []Result {
 		good = append(good, healthy{client: c, ep: ep, slot: slot})
 		rpcNotes = append(rpcNotes, fmt.Sprintf("%s slot=%d %dms", scrubEndpoint(ep), slot, time.Since(start).Milliseconds()))
 	}
+	// No early return here: RPC-independent checks (KMS, price, dev-keys,
+	// banner) still run when RPC is down; RPC-dependent checks skip below.
+	var rpcClient *rpc.Client
 	if len(good) == 0 {
 		fail("rpc_reachable", "no RPC endpoint served a slot: %s", strings.Join(rpcNotes, "; "))
-		return out
-	}
-	rpcDetail := strings.Join(rpcNotes, "; ")
-	public := false
-	for _, ep := range endpoints {
-		if isPublicEndpoint(ep) {
-			public = true
+	} else {
+		rpcDetail := strings.Join(rpcNotes, "; ")
+		public := false
+		for _, ep := range endpoints {
+			if isPublicEndpoint(ep) {
+				public = true
+			}
 		}
+		switch {
+		case prod && public:
+			fail("rpc_reachable", "production uses public RPC (rate-limited before): %s", rpcDetail)
+		case len(endpoints) < 2:
+			warn("rpc_reachable", "single RPC endpoint (no failover): %s", rpcDetail)
+		case public:
+			warn("rpc_reachable", "public RPC endpoint in use: %s", rpcDetail)
+		default:
+			pass("rpc_reachable", "%s", rpcDetail)
+		}
+		rpcClient = good[0].client
 	}
-	switch {
-	case prod && public:
-		fail("rpc_reachable", "production uses public RPC (rate-limited before): %s", rpcDetail)
-	case len(endpoints) < 2:
-		warn("rpc_reachable", "single RPC endpoint (no failover): %s", rpcDetail)
-	case public:
-		warn("rpc_reachable", "public RPC endpoint in use: %s", rpcDetail)
-	default:
-		pass("rpc_reachable", "%s", rpcDetail)
-	}
-	rpcClient := good[0].client
 
 	// --- ws_live: live slot notifications over WebSocket. ---
 	wsEndpoint := solana.WSEndpointFromEnv(endpoints)
@@ -211,7 +214,9 @@ func runAll(ctx context.Context) []Result {
 
 	// --- program_live: program executable + upgrade authority on-chain. ---
 	programID, pok := resolveProgramID(client)
-	if !pok {
+	if rpcClient == nil {
+		skip("program_live", "no healthy RPC endpoint")
+	} else if !pok {
 		fail("program_live", "no oracle client and SOLANA_PROGRAM_ID missing or invalid")
 	} else {
 		authority, authPresent, err := checkProgramLive(ctx, rpcClient, programID)
@@ -241,7 +246,9 @@ func runAll(ctx context.Context) []Result {
 
 	// --- pda_vault: canonical vault PDA derives + matches config. ---
 	var vaultPDA sol.PublicKey
-	if client == nil {
+	if rpcClient == nil {
+		skip("pda_vault", "no healthy RPC endpoint")
+	} else if client == nil {
 		skip("pda_vault", "settlement disabled (no oracle client)")
 	} else if pda, bump, err := client.GetDepositVaultPDA(); err != nil {
 		fail("pda_vault", "derive: %v", err)
@@ -314,6 +321,8 @@ func runAll(ctx context.Context) []Result {
 		}
 	} else if client == nil {
 		skip("hot_float", "settlement disabled (no oracle client)")
+	} else if rpcClient == nil {
+		skip("hot_float", "no healthy RPC endpoint")
 	} else {
 		bctx, bcancel := context.WithTimeout(ctx, 20*time.Second)
 		bal, berr := client.GetBalance(bctx, hotPK)
@@ -337,6 +346,8 @@ func runAll(ctx context.Context) []Result {
 	floorF, floorOK := parseFloatEnv("SOLANA_VAULT_RESERVE_FLOOR_SOL")
 	if client == nil {
 		skip("vault_floor", "settlement disabled (no oracle client)")
+	} else if rpcClient == nil {
+		skip("vault_floor", "no healthy RPC endpoint")
 	} else if vaultMissing(ctx, rpcClient, vaultPDA) {
 		skip("vault_floor", "vault %s not initialized; floor applies after first deposit", shortKey(vaultPDA.String()))
 	} else if !floorOK {
