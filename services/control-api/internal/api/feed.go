@@ -174,6 +174,9 @@ func getTrendingListings(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch trending listings"})
 		return
 	}
+	for i := range listings {
+		scrubPublicSeller(listings[i].Seller)
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"listings": listings,

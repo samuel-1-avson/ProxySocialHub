@@ -16,7 +16,7 @@ func TestProviderTokenPathAllowed(t *testing.T) {
 		{http.MethodGet, "/v1/provider/nodes"},
 		{http.MethodPost, "/v1/provider/nodes"},
 		{http.MethodPost, "/v1/provider/nodes/abc/heartbeat"},
-			{http.MethodPost, "/v1/provider/lease"},
+		{http.MethodPost, "/v1/provider/lease"},
 		{http.MethodPost, "/v1/provider/gateway-token"},
 		{http.MethodGet, "/v1/provider/earnings/summary"},
 		{http.MethodGet, "/v1/cli/download"},
@@ -48,13 +48,13 @@ func TestProviderTokenPathAllowed(t *testing.T) {
 		{http.MethodPost, "/v1/cli/download"},
 		{http.MethodGet, "/v1/admin/users"},
 		// Node management needs the owner's session: a leaked node token must not
-	// rename or delete nodes.
-	{http.MethodPut, "/v1/provider/nodes/abc"},
-	{http.MethodDelete, "/v1/provider/nodes/abc"},
-	{http.MethodPut, "/v1/provider/nodes/abc/location"},
-	{http.MethodDelete, "/v1/provider/lease/x"},
-	{http.MethodGet, "/v1/provider/gateway-token"},
-	{http.MethodGet, "/v1/provider/nodesx"},
+		// rename or delete nodes.
+		{http.MethodPut, "/v1/provider/nodes/abc"},
+		{http.MethodDelete, "/v1/provider/nodes/abc"},
+		{http.MethodPut, "/v1/provider/nodes/abc/location"},
+		{http.MethodDelete, "/v1/provider/lease/x"},
+		{http.MethodGet, "/v1/provider/gateway-token"},
+		{http.MethodGet, "/v1/provider/nodesx"},
 		{http.MethodGet, "/v1/provider/lease-other"},
 	}
 	for _, tc := range blocked {
