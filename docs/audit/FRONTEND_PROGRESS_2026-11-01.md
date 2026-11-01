@@ -8,6 +8,8 @@ The [completion report](./FRONTEND_COMPLETION_REPORT_2026-11-01.md) is the curre
 
 The installed and declared Next.js versions are aligned at **16.4.3**. Earlier figures recorded on Next 16.2.2 are historical and do not represent the final runtime. Current browser/build/security evidence belongs in the completion report and [verification data](./data/frontend_verification_2026-11-01.json).
 
+The redesigned frontend is deployed on the existing devnet production site. Follow the [production deployment report](./FRONTEND_PRODUCTION_DEPLOYMENT_2026-11-01.md) for final release-source checks and remaining live-flow acceptance.
+
 ## Delivered in the final continuation
 
 - Rebuilt discussion composer/thread, inbox, public/provider profiles, friends, treasury, Explorer insight and record pages, API-key/referral controls, and architecture/protocol reading layouts.
@@ -21,7 +23,7 @@ The installed and declared Next.js versions are aligned at **16.4.3**. Earlier f
 
 Build and TypeScript checks pass on Next 16.4.3. All 84 distinct browser checks have a passing latest result across staged runs; 29 were also checked on optimized builds. Page/layout and workspace-module lint is clean. Full repository lint remains at 78 errors/80 warnings, with all 78 errors matched to HEAD under the same configuration.
 
-Both-theme full-document accessibility checks pass, alongside the main/tablet/dialog checks. Local mobile Lighthouse performance scores are landing 97, Marketplace 94, Explorer 89; accessibility and SEO score 100 for each. The completion report explains the unavailable-API condition, best-practices score, and remaining live acceptance gates.
+Both-theme full-document accessibility checks pass, alongside the main/tablet/dialog checks. Local mobile Lighthouse performance scores are landing 97, Marketplace 94, Explorer 89; accessibility and SEO score 100 for each. The completion report distinguishes those original local lab limits from the later live deployment checks and remaining acceptance gates.
 
 ## Preview evidence
 
@@ -36,4 +38,8 @@ Previews use controlled API data, with test accounts and fixture inventory. They
 - [Analytics](./previews/2026-11-01/analytics-mobile.png)
 - [Architecture reading layout](./previews/2026-11-01/architecture-mobile.png)
 
-Production clearance still requires the repository/security gates and the configured live API and funded network acceptance described in the completion report. No production deployment is claimed.
+The frontend is deployed on the existing devnet production site. The [deployment report](./FRONTEND_PRODUCTION_DEPLOYMENT_2026-11-01.md) includes the source/image identity, live route and accessibility checks, endpoint results, and rollback image. Full repository lint cleanup, nine moderate dependency advisories, manual assistive-technology acceptance, authenticated live flows, and funded network acceptance remain open; this release does not claim mainnet readiness.
+
+- [Live production route and accessibility results](./data/frontend-production-live-checks-2026-11-01.json)
+- [Production landing page — mobile](./previews/2026-11-01/production-landing-mobile.png)
+- [Production landing page — desktop](./previews/2026-11-01/production-landing-desktop.png)
