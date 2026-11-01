@@ -167,7 +167,7 @@ func getTrendingListings(c *gin.Context) {
 	query.Count(&total)
 
 	// Score by views, saves, and orders
-	if err := query.Preload("Seller").
+	if err := query.Preload("Seller", publicSellerColumns).
 		Order("(views_count + saves_count * 2 + orders_count * 5) DESC, created_at DESC").
 		Offset(offset).Limit(limit).
 		Find(&listings).Error; err != nil {

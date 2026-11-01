@@ -71,12 +71,11 @@ const gatewayTokenTTL = 1 * time.Hour
 
 // listProviderTokens returns all tokens for the current user
 func listProviderTokens(c *gin.Context) {
-	currentUserID, exists := c.Get("user_id")
-	if !exists {
+	userID, ok := GetUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
 		return
 	}
-	userID := currentUserID.(uuid.UUID)
 
 	var tokens []models.ProviderToken
 	if err := db.DB.Where("user_id = ? AND deleted_at IS NULL", userID).
@@ -109,12 +108,11 @@ func listProviderTokens(c *gin.Context) {
 
 // rotateProviderToken revokes an existing provider token and creates a fresh replacement.
 func rotateProviderToken(c *gin.Context) {
-	currentUserID, exists := c.Get("user_id")
-	if !exists {
+	userID, ok := GetUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
 		return
 	}
-	userID := currentUserID.(uuid.UUID)
 
 	tokenID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -182,7 +180,7 @@ func rotateProviderToken(c *gin.Context) {
 // CreateTokenRequest is the request to create a new token
 type CreateTokenRequest struct {
 	Name      string `json:"name" binding:"required,max=100"`
-	ExpiresIn int    `json:"expires_in"` // Days until expiration, 0 = no expiration
+	ExpiresIn int    `json:"expires_in"` // Days until expiration, 0/blank = 30-day default, capped at 90
 	// Optional: bind this token to an existing provider_nodes row so CLI
 	// validate/heartbeat use that node_id (not a newly auto-created one).
 	NodeID string `json:"node_id"`
@@ -190,12 +188,11 @@ type CreateTokenRequest struct {
 
 // createProviderToken creates a new provider token
 func createProviderToken(c *gin.Context) {
-	currentUserID, exists := c.Get("user_id")
-	if !exists {
+	userID, ok := GetUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
 		return
 	}
-	userID := currentUserID.(uuid.UUID)
 
 	var req CreateTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -316,12 +313,11 @@ func createProviderToken(c *gin.Context) {
 
 // revokeProviderToken revokes a provider token
 func revokeProviderToken(c *gin.Context) {
-	currentUserID, exists := c.Get("user_id")
-	if !exists {
+	userID, ok := GetUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
 		return
 	}
-	userID := currentUserID.(uuid.UUID)
 
 	tokenID, err := uuid.Parse(c.Param("id"))
 	if err != nil {

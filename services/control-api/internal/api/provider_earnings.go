@@ -22,7 +22,7 @@ func RegisterProviderEarningsRoutes(rg *gin.RouterGroup) {
 	rg.GET("/provider/earnings", getProviderEarnings)
 	rg.GET("/provider/earnings/summary", getProviderEarningsSummary)
 	rg.GET("/provider/earnings/history", getProviderPayoutHistory)
-	rg.POST("/provider/earnings/claim", claimProviderEarnings)
+	rg.POST("/provider/earnings/claim", RateLimitMiddleware(), claimProviderEarnings)
 	rg.GET("/provider/earnings/payout-settings", getPayoutSettings)
 	rg.PUT("/provider/earnings/payout-settings", updatePayoutSettings)
 }

@@ -233,7 +233,7 @@ func getDisputeJury(c *gin.Context) {
 	juryID := c.Param("id")
 
 	var jury models.DisputeJury
-	if err := db.DB.Preload("Buyer").Preload("Seller").
+	if err := db.DB.Preload("Buyer", counterpartyColumns).Preload("Seller", counterpartyColumns).
 		Preload("Juror1").Preload("Juror2").Preload("Juror3").
 		Where("id = ?", juryID).First(&jury).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Jury not found"})
