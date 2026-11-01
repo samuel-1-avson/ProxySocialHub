@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	sol "github.com/gagliardetto/solana-go"
+
+	"github.com/proxyhubb/control-api/internal/solana"
 )
 
 func TestParseProgramAccount(t *testing.T) {
@@ -155,6 +157,28 @@ func TestIsTruthy(t *testing.T) {
 func TestLamportsToSOL(t *testing.T) {
 	if got := lamportsToSOL(1_500_000_000); got != 1.5 {
 		t.Fatalf("got %v", got)
+	}
+}
+
+func TestResolveProgramIDNilClient(t *testing.T) {
+	t.Setenv("SOLANA_PROGRAM_ID", "")
+	pid, ok := resolveProgramID(nil)
+	if !ok {
+		t.Fatal("default program id must resolve")
+	}
+	if pid.String() != solana.DefaultProgramID {
+		t.Fatalf("got %s, want default %s", pid, solana.DefaultProgramID)
+	}
+
+	t.Setenv("SOLANA_PROGRAM_ID", "11111111111111111111111111111111")
+	pid, ok = resolveProgramID(nil)
+	if !ok || pid.String() != "11111111111111111111111111111111" {
+		t.Fatalf("override not honored: %s %v", pid, ok)
+	}
+
+	t.Setenv("SOLANA_PROGRAM_ID", "!!!not-a-key!!!")
+	if _, ok := resolveProgramID(nil); ok {
+		t.Fatal("invalid override must not resolve")
 	}
 }
 

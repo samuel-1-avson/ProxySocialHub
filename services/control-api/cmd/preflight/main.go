@@ -133,17 +133,23 @@ func runAll(ctx context.Context) []Result {
 		fail("app_env", "APP_ENV=%q is not explicit (want testnet|staging|production); custody checks would warn instead of enforce", os.Getenv("APP_ENV"))
 	}
 
-	// --- config_load: build the exact runtime Solana client. ---
-	if err := solana.InitOracleFromEnv(); err != nil {
-		fail("config_load", "InitOracleFromEnv: %v", err)
-		return out
-	}
-	client := solana.GetOracleClient()
+	// --- config_load: mirror the server's two init paths (main.go). ---
+	// Path 1 (InitOracleFromEnv) skips without SOLANA_ORACLE_KEYPAIR; path 2
+	// (liquidity-manager boot) defaults the path and succeeds via KMS.
+	client := initRuntimeClient(ctx)
 	if client == nil {
-		fail("config_load", "InitOracleFromEnv succeeded but oracle client is nil")
+		if prod {
+			fail("config_load", "no oracle client after both server init paths (settlement disabled in production)")
+			return out
+		}
+		warn("config_load", "no oracle client after both server init paths (settlement disabled; client checks skip)")
+	} else if err := solana.ValidateConfiguredTreasuryAddresses(client); err != nil {
+		// The server log.Fatalf's here, so the gate fails too.
+		fail("config_load", "treasury custody misconfiguration: %v", err)
 		return out
+	} else {
+		pass("config_load", "oracle client built (program %s)", client.GetProgramID())
 	}
-	pass("config_load", "oracle client built (program %s)", client.GetProgramID())
 
 	// --- rpc_reachable: every configured endpoint must serve a live slot. ---
 	endpoints := solana.RPCEndpointsFromEnv()
@@ -201,36 +207,43 @@ func runAll(ctx context.Context) []Result {
 	}
 
 	// --- program_live: program executable + upgrade authority on-chain. ---
-	programID := client.GetProgramID()
-	authority, authPresent, err := checkProgramLive(ctx, rpcClient, programID)
-	switch {
-	case err != nil:
-		fail("program_live", "%s: %v", programID, err)
-	case !authPresent:
-		if isTruthy(os.Getenv("PROXYHUBB_ALLOW_IMMUTABLE_PROGRAM")) {
-			warn("program_live", "%s executable, upgrade authority None (immutable; explicitly allowed)", programID)
-		} else {
-			fail("program_live", "%s executable but upgrade authority is None (immutable); set PROXYHUBB_ALLOW_IMMUTABLE_PROGRAM=true only if intended", programID)
-		}
-	case prod:
-		want := strings.TrimSpace(os.Getenv("SOLANA_PROGRAM_UPGRADE_AUTHORITY"))
+	programID, pok := resolveProgramID(client)
+	if !pok {
+		fail("program_live", "no oracle client and SOLANA_PROGRAM_ID missing or invalid")
+	} else {
+		authority, authPresent, err := checkProgramLive(ctx, rpcClient, programID)
 		switch {
-		case want == "":
-			fail("program_live", "%s authority %s but SOLANA_PROGRAM_UPGRADE_AUTHORITY is unset; production must pin it", programID, authority)
-		case want != authority.String():
-			fail("program_live", "%s authority %s != pinned %s", programID, authority, want)
+		case err != nil:
+			fail("program_live", "%s: %v", programID, err)
+		case !authPresent:
+			if isTruthy(os.Getenv("PROXYHUBB_ALLOW_IMMUTABLE_PROGRAM")) {
+				warn("program_live", "%s executable, upgrade authority None (immutable; explicitly allowed)", programID)
+			} else {
+				fail("program_live", "%s executable but upgrade authority is None (immutable); set PROXYHUBB_ALLOW_IMMUTABLE_PROGRAM=true only if intended", programID)
+			}
+		case prod:
+			want := strings.TrimSpace(os.Getenv("SOLANA_PROGRAM_UPGRADE_AUTHORITY"))
+			switch {
+			case want == "":
+				fail("program_live", "%s authority %s but SOLANA_PROGRAM_UPGRADE_AUTHORITY is unset; production must pin it", programID, authority)
+			case want != authority.String():
+				fail("program_live", "%s authority %s != pinned %s", programID, authority, want)
+			default:
+				pass("program_live", "%s executable, authority matches pin %s", programID, shortKey(authority.String()))
+			}
 		default:
-			pass("program_live", "%s executable, authority matches pin %s", programID, shortKey(authority.String()))
+			pass("program_live", "%s executable, upgrade authority %s", programID, authority)
 		}
-	default:
-		pass("program_live", "%s executable, upgrade authority %s", programID, authority)
 	}
 
 	// --- pda_vault: canonical vault PDA derives + matches config. ---
-	vaultPDA, bump, err := client.GetDepositVaultPDA()
-	if err != nil {
+	var vaultPDA sol.PublicKey
+	if client == nil {
+		skip("pda_vault", "settlement disabled (no oracle client)")
+	} else if pda, bump, err := client.GetDepositVaultPDA(); err != nil {
 		fail("pda_vault", "derive: %v", err)
 	} else {
+		vaultPDA = pda
 		want := solana.GetDepositVaultAddress()
 		if want != "" && want != vaultPDA.String() {
 			fail("pda_vault", "derived %s (bump %d) != SOLANA_DEPOSIT_VAULT_ADDRESS %s", vaultPDA, bump, want)
@@ -253,11 +266,16 @@ func runAll(ctx context.Context) []Result {
 	checkKMSRoundTrip(ctx, prod, pass, fail, warn)
 
 	// --- custody_distinct: oracle / hot / vault / cold pairwise distinct. ---
-	oraclePK := client.GetOraclePublicKey()
-	hotPK := client.GetPayoutPublicKey()
+	var oraclePK, hotPK sol.PublicKey
+	if client != nil {
+		oraclePK = client.GetOraclePublicKey()
+		hotPK = client.GetPayoutPublicKey()
+	}
 	coldStr := strings.TrimSpace(os.Getenv("SOLANA_TREASURY_COLD_ADDRESS"))
 	coldPK, coldErr := sol.PublicKeyFromBase58(coldStr)
-	if coldStr == "" || coldErr != nil {
+	if client == nil {
+		skip("custody_distinct", "settlement disabled (no oracle client)")
+	} else if coldStr == "" || coldErr != nil {
 		if prod {
 			fail("custody_distinct", "SOLANA_TREASURY_COLD_ADDRESS missing or invalid in production")
 		} else {
@@ -291,6 +309,8 @@ func runAll(ctx context.Context) []Result {
 		} else {
 			warn("hot_float", "hot float bounds unset (min ok=%v max ok=%v)", minOK, maxOK)
 		}
+	} else if client == nil {
+		skip("hot_float", "settlement disabled (no oracle client)")
 	} else {
 		bctx, bcancel := context.WithTimeout(ctx, 20*time.Second)
 		bal, berr := client.GetBalance(bctx, hotPK)
@@ -312,7 +332,9 @@ func runAll(ctx context.Context) []Result {
 
 	// --- vault_floor: deposit vault above the reserve floor. ---
 	floorF, floorOK := parseFloatEnv("SOLANA_VAULT_RESERVE_FLOOR_SOL")
-	if vaultMissing(ctx, rpcClient, vaultPDA) {
+	if client == nil {
+		skip("vault_floor", "settlement disabled (no oracle client)")
+	} else if vaultMissing(ctx, rpcClient, vaultPDA) {
 		skip("vault_floor", "vault %s not initialized; floor applies after first deposit", shortKey(vaultPDA.String()))
 	} else if !floorOK {
 		if prod {
@@ -373,6 +395,76 @@ func runAll(ctx context.Context) []Result {
 	}
 
 	return out
+}
+
+// initRuntimeClient reproduces the server boot's oracle wiring (main.go):
+// InitOracleFromEnv first, then the liquidity-manager Config with the same
+// keypair-path defaulting. Returns nil when settlement is disabled.
+func initRuntimeClient(ctx context.Context) *solana.OracleClient {
+	restore := quietStdout()
+	defer restore()
+
+	// Path 1: skips silently without SOLANA_ORACLE_KEYPAIR (settlement off).
+	// The server only logs a warning on error and continues, so do the same.
+	_ = solana.InitOracleFromEnv()
+	if client := solana.GetOracleClient(); client != nil {
+		return client
+	}
+
+	// Path 2: liquidity-manager boot defaults the keypair path and relies on
+	// KMS signers when no file exists.
+	hotPath := strings.TrimSpace(os.Getenv("SOLANA_TREASURY_HOT_KEYPAIR"))
+	if hotPath == "" {
+		hotPath = strings.TrimSpace(os.Getenv("SOLANA_TREASURY_KEYPAIR"))
+	}
+	oraclePath := strings.TrimSpace(os.Getenv("SOLANA_ORACLE_KEYPAIR"))
+	if oraclePath == "" {
+		oraclePath = "oracle-keypair.json"
+	}
+	client, err := solana.NewOracleClient(solana.Config{
+		RPCEndpoints:           solana.HealthyRPCEndpoints(ctx, solana.RPCEndpointsFromEnv()),
+		OracleKeypairPath:      oraclePath,
+		TreasuryHotKeypairPath: hotPath,
+		Network:                solana.EffectiveSolanaNetwork(),
+	})
+	if err != nil {
+		return nil
+	}
+	solana.RegisterOracleClient(client)
+	return client
+}
+
+// quietStdout silences the solana package's boot chatter so --json output
+// stays parseable. Returns a restore function.
+func quietStdout() func() {
+	null, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		return func() {}
+	}
+	saved := os.Stdout
+	os.Stdout = null
+	return func() {
+		os.Stdout = saved
+		null.Close()
+	}
+}
+
+// resolveProgramID returns the program under test: the oracle client's when
+// settlement is enabled, else SOLANA_PROGRAM_ID or the compiled-in default
+// (mirroring effectiveProgramID in internal/solana/client.go).
+func resolveProgramID(client *solana.OracleClient) (sol.PublicKey, bool) {
+	if client != nil {
+		return client.GetProgramID(), true
+	}
+	id := strings.TrimSpace(os.Getenv("SOLANA_PROGRAM_ID"))
+	if id == "" {
+		id = solana.DefaultProgramID
+	}
+	pid, err := sol.PublicKeyFromBase58(id)
+	if err != nil {
+		return sol.PublicKey{}, false
+	}
+	return pid, true
 }
 
 // webEnvProvided reports whether -web-env was passed (set in loadWebEnv).
