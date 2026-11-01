@@ -2,11 +2,12 @@
 @import "../../../../packages/design-system/tokens.css";
 @import "../../../../packages/design-system/workspace.css";
 @import "../../../../packages/design-system/explorer.css";
+@import "../../../../packages/design-system/marketing.css";
+@import "../../../../packages/design-system/workflow.css";
+@import "../../../../packages/design-system/detail.css";
+@import "../../../../packages/design-system/completion.css";
 
-/* ===========================================
-   ProxyHub — Quiet Infrastructure
-   Design system tokens (FRONTEND_RECONSTRUCTION_PLAN §10–11)
-   =========================================== */
+/* ProxyHubb — Signal Foundry visual system. */
 
 @theme inline {
   --color-background: var(--background);
@@ -51,8 +52,8 @@
   --radius-lg: var(--radius-lg);
   --radius: var(--radius-md);
 
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, "Segoe UI", sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-sans: var(--font-display), ui-sans-serif, sans-serif;
+  --font-mono: var(--font-code), ui-monospace, monospace;
 }
 
 /* Base */
@@ -78,8 +79,8 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 1.571;
+  font-size: 15px;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -95,8 +96,38 @@ h2,
 h3 {
   font-family: var(--font-sans);
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.035em;
   color: var(--foreground);
+}
+
+h1 {
+  text-wrap: balance;
+}
+
+p {
+  text-wrap: pretty;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 78%, transparent);
+  color: var(--accent-foreground);
+}
+
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]) {
+  cursor: pointer;
+}
+
+input,
+select,
+textarea {
+  color: var(--foreground);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted-foreground);
+  opacity: 0.8;
 }
 
 .font-data {
@@ -110,19 +141,21 @@ h3 {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
 
 .card-retro:hover {
   border-color: var(--border-strong);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-raise);
+  transform: translateY(-1px);
 }
 
 .glass-card {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--glass-shadow);
 }
 
 .dark .glass-card {
@@ -131,8 +164,8 @@ h3 {
 }
 
 .glow-emerald {
-  box-shadow: none;
-  border-color: color-mix(in srgb, var(--primary) 40%, var(--border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 28%, transparent), 0 12px 44px color-mix(in srgb, var(--primary) 10%, transparent);
+  border-color: color-mix(in srgb, var(--primary) 50%, var(--border));
 }
 
 .btn-retro {
@@ -242,6 +275,7 @@ h3 {
 .glass-industrial {
   background: var(--card);
   border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
 }
 
 .scanline-effect {
@@ -271,4 +305,10 @@ h3 {
 
 .animate-float {
   animation: float 6s ease-in-out infinite;
+}
+
+@media (max-width: 640px) {
+  body {
+    font-size: 14px;
+  }
 }

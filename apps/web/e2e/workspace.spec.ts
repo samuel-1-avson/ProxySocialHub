@@ -9,6 +9,13 @@ async function stubWorkspace(page: Page) {
     const responses: Record<string, unknown> = {
       "/v1/orders": { orders: [] },
       "/v1/usage/me": { total_gb: 0, total_cost_sol: 0 },
+      "/v1/analytics/usage/daily": {
+        data: [
+          { date: "2026-10-29", gb_used: 0 },
+          { date: "2026-10-30", gb_used: 1.25 },
+          { date: "2026-10-31" },
+        ],
+      },
       "/v1/provider/nodes": { nodes: [] },
       "/v1/provider/readiness": {
         status: "incomplete",
@@ -49,8 +56,24 @@ test.describe("buyer and seller workspaces", () => {
       page.getByRole("heading", { name: "Overview", exact: true }),
     ).toBeVisible();
     await expect(page.getByText("0 GB", { exact: true })).toBeVisible();
-    await page.getByRole("combobox", { name: "Color theme" }).selectOption("light");
-    await page.screenshot({path:testInfo.outputPath('buyer-workspace.png'),fullPage:true});
+    await page.addStyleTag({
+      content:
+        "nextjs-portal, .tsqd-parent-container { display: none !important; }",
+    });
+    await page
+      .getByRole("combobox", { name: "Color theme" })
+      .selectOption("dark");
+    await page.screenshot({
+      path: testInfo.outputPath("buyer-workspace-dark.png"),
+      fullPage: true,
+    });
+    await page
+      .getByRole("combobox", { name: "Color theme" })
+      .selectOption("light");
+    await page.screenshot({
+      path: testInfo.outputPath("buyer-workspace.png"),
+      fullPage: true,
+    });
     await page
       .getByRole("combobox", { name: "Workspace", exact: true })
       .selectOption("seller");
@@ -62,13 +85,20 @@ test.describe("buyer and seller workspaces", () => {
       "Earnings",
     ]);
     await expect(
-      page.getByRole("heading", { name: "Seller overview" }),
+      page.getByRole("heading", { name: "Provider overview" }),
     ).toBeVisible();
+    await page.addStyleTag({
+      content:
+        "nextjs-portal, .tsqd-parent-container { display: none !important; }",
+    });
     await expect(nav.getByRole("link", { name: "Overview" })).toHaveAttribute(
       "aria-current",
       "page",
     );
-    await page.screenshot({path:testInfo.outputPath('seller-workspace.png'),fullPage:true});
+    await page.screenshot({
+      path: testInfo.outputPath("seller-workspace.png"),
+      fullPage: true,
+    });
   });
   test("persists explicit light and dark themes and supports a 320px workspace", async ({
     page,
@@ -143,5 +173,35 @@ test.describe("buyer and seller workspaces", () => {
       waitUntil: "domcontentloaded",
     });
     await expect(page).toHaveURL(/\/login\?next=/);
+  });
+  test("distinguishes zero usage from missing measurements on a narrow screen", async ({
+    page,
+  }, info) => {
+    await stubWorkspace(page);
+    await seedSignedAuth(page, base, "buyer");
+    await page.setViewportSize({ width: 360, height: 800 });
+    await page.goto(`${base}/app/activity?tab=usage`, {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(page.getByRole("listitem", { name: /: 0 GB$/ })).toBeVisible();
+    await expect(
+      page.getByRole("listitem", { name: /: 1.25 GB$/ }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("listitem", { name: /: Unavailable$/ }),
+    ).toBeVisible();
+    await page.getByText("View exact measurements", { exact: true }).click();
+    await expect(
+      page.getByRole("cell", { name: "Unavailable", exact: true }),
+    ).toBeVisible();
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    ).toBe(true);
+    await page.screenshot({
+      path: info.outputPath("usage-mobile.png"),
+      fullPage: true,
+    });
   });
 });

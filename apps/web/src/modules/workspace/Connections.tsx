@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Cable } from "lucide-react";
+import { Activity, ArrowRight, Cable, Layers, ShieldCheck } from "lucide-react";
 import { orderStatusLabel } from "@/lib/order-status";
 import {
   PageHeading,
@@ -9,6 +9,7 @@ import {
   Loading,
   DataError,
   Status,
+  Stat,
   amount,
   shortDate,
 } from "@/components/workspace/Patterns";
@@ -33,22 +34,63 @@ export function Connections() {
           </Link>
         }
       />
+      <section className="ui-stats" aria-label="Connection summary">
+        <Stat
+          icon={<Cable size={18} />}
+          label="Active access"
+          value={orders.isSuccess ? access.length : "—"}
+          detail="Active purchased orders"
+        />
+        <Stat
+          icon={<Activity size={18} />}
+          label="Active sessions"
+          value={
+            sessions.isSuccess
+              ? sessions.data.filter((session) => session.status === "active")
+                  .length
+              : "—"
+          }
+          detail="Service state, not verified client routing"
+        />
+        <Stat
+          icon={<Layers size={18} />}
+          label="Purchased bandwidth"
+          value={
+            orders.isSuccess
+              ? amount(
+                  access.reduce(
+                    (total, order) => total + order.bandwidth_gb,
+                    0,
+                  ),
+                ) + " GB"
+              : "—"
+          }
+          detail="Across your active orders"
+        />
+      </section>
       <nav className="ui-tabs" aria-label="Connection views">
-        <Link className={!sessionsView ? "active" : ""} href="/app/connections">
+        <Link
+          className={!sessionsView ? "active" : ""}
+          aria-current={!sessionsView ? "page" : undefined}
+          href="/app/connections"
+        >
           Access
         </Link>
         <Link
           className={sessionsView ? "active" : ""}
+          aria-current={sessionsView ? "page" : undefined}
           href="/app/connections?tab=sessions"
         >
           Sessions
         </Link>
       </nav>
-      <p className="ui-note">
-        Credentials, client setup, and observed traffic are separate states. An
-        active order does not confirm that your browser is routing through a
-        proxy.
-      </p>
+      <div className="workflow-note">
+        <ShieldCheck size={18} aria-hidden="true" />
+        <p>
+          Access, client setup, and observed traffic have separate states. Use
+          session activity to verify traffic after configuring your client.
+        </p>
+      </div>
       {sessionsView ? (
         <>
           {sessions.isLoading && <Loading label="Loading sessions…" />}
@@ -74,6 +116,7 @@ export function Connections() {
               tabIndex={0}
             >
               <table className="ui-table">
+                <caption className="sr-only">Reported proxy sessions</caption>
                 <thead>
                   <tr>
                     <th>Session</th>
@@ -135,42 +178,58 @@ export function Connections() {
               action="Browse proxies"
             />
           )}
-          {access.map((order) => (
-            <section key={order.id} className="ui-surface">
-              <div className="ui-row">
-                <div className="ui-row-identity">
-                  <span className="ui-region">
-                    <Cable size={17} aria-hidden="true" />
-                  </span>
-                  <div>
-                    <h3>{order.listing?.title || "Purchased proxy access"}</h3>
-                    <p>
-                      {amount(order.bandwidth_gb)} GB purchased ·{" "}
-                      {shortDate(order.created_at)}
-                    </p>
+          <div className="connection-grid">
+            {access.map((order) => (
+              <section key={order.id} className="connection-card">
+                <div className="ui-row">
+                  <div className="ui-row-identity">
+                    <span className="ui-region">
+                      <Cable size={17} aria-hidden="true" />
+                    </span>
+                    <div>
+                      <h3>
+                        {order.listing?.title || "Purchased proxy access"}
+                      </h3>
+                      <p>
+                        {amount(order.bandwidth_gb)} GB purchased ·{" "}
+                        {shortDate(order.created_at)}
+                      </p>
+                    </div>
                   </div>
+                  <Status tone="good">{orderStatusLabel(order.status)}</Status>
                 </div>
-                <Status tone="good">{orderStatusLabel(order.status)}</Status>
-              </div>
-              <div className="ui-actions mt-5">
-                <Link
-                  className="ui-button"
-                  href={`/app/connections/${order.id}`}
-                >
-                  Connect your app →
-                </Link>
-                <Link
-                  className="ui-button secondary"
-                  href={`/app/activity/orders/${order.id}`}
-                >
-                  View order
-                </Link>
-              </div>
-            </section>
-          ))}
+                <dl className="connection-card-meta">
+                  <div>
+                    <dt>Purchased bandwidth</dt>
+                    <dd>
+                      {amount(order.bandwidth_gb)} <span>GB</span>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Client routing</dt>
+                    <dd className="connection-routing">Not verified</dd>
+                  </div>
+                </dl>
+                <div className="ui-actions mt-5">
+                  <Link
+                    className="ui-button"
+                    href={`/app/connections/${order.id}`}
+                  >
+                    Connect your app <ArrowRight size={14} aria-hidden="true" />
+                  </Link>
+                  <Link
+                    className="ui-button secondary"
+                    href={`/app/activity/orders/${order.id}`}
+                  >
+                    View order
+                  </Link>
+                </div>
+              </section>
+            ))}
+          </div>
         </>
       )}
-      <details className="ui-note">
+      <details className="workflow-advanced ui-note">
         <summary className="cursor-pointer">Advanced integrations</summary>
         <p className="mt-3">
           Supported intent and SDK tools remain available for integrations that

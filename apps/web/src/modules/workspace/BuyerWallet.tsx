@@ -2,6 +2,15 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  CreditCard,
+  History,
+  Landmark,
+  Wallet,
+} from "lucide-react";
+import { CopyValue } from "@/components/workspace/CopyValue";
 import { useSearchParams } from "next/navigation";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
@@ -29,6 +38,7 @@ import {
   DataError,
   Stat,
   Status,
+  EmptyState,
   amount,
   shortDate,
 } from "@/components/workspace/Patterns";
@@ -134,8 +144,8 @@ export function BuyerWallet() {
     (parseSolAmountLamports(withdraw.withdrawAmount) ?? 0) > 0;
   const ledgerMismatch = Boolean(
     wallet?.solana_network &&
-    wallet.solana_network.replace("mainnet-beta", "mainnet") !==
-      page.solanaNetwork.replace("mainnet-beta", "mainnet"),
+      wallet.solana_network.replace("mainnet-beta", "mainnet") !==
+        page.solanaNetwork.replace("mainnet-beta", "mainnet"),
   );
   const canFund = Boolean(
     wallet && configuredNetwork && !ledgerMismatch && !processing,
@@ -173,7 +183,7 @@ export function BuyerWallet() {
           </Link>
         ))}
       </nav>
-      <div className="ui-actions">
+      <div className="wallet-network-control">
         <label className="ui-field">
           Balance network
           <select
@@ -233,11 +243,13 @@ export function BuyerWallet() {
         <>
           <section className="ui-stats">
             <Stat
+              icon={<Landmark size={18} />}
               label="Account funds"
               value={wallet ? `${amount(wallet.balance_sol, 9)} SOL` : "—"}
               detail="Custodial account ledger; separate from escrow"
             />
             <Stat
+              icon={<Wallet size={18} />}
               label="Linked wallet balance"
               value={
                 chainBalance.isSuccess
@@ -247,6 +259,7 @@ export function BuyerWallet() {
               detail={`On-chain observation · ${inspection}`}
             />
             <Stat
+              icon={<CreditCard size={18} />}
               label="Active order escrow"
               value={
                 orders.isSuccess
@@ -262,9 +275,17 @@ export function BuyerWallet() {
               retry={() => void chainBalance.refetch()}
             />
           )}
-          <section className="ui-surface ui-page">
+          <section className="ui-surface ui-page wallet-identity">
             <div className="ui-section-heading">
-              <h2>Solana wallet</h2>
+              <div className="credential-panel-heading">
+                <span className="ui-region">
+                  <Wallet size={20} aria-hidden="true" />
+                </span>
+                <div>
+                  <p className="ui-eyebrow">Wallet identity</p>
+                  <h2>Solana wallet</h2>
+                </div>
+              </div>
               <Status tone={matching ? "good" : "neutral"}>
                 {linkedStatus}
               </Status>
@@ -272,11 +293,26 @@ export function BuyerWallet() {
             <dl className="ui-detail-list">
               <div>
                 <dt>Linked account address</dt>
-                <dd>{address || "Not linked"}</dd>
+                <dd>
+                  {address ? (
+                    <CopyValue label="linked wallet address" value={address} />
+                  ) : (
+                    "Not linked"
+                  )}
+                </dd>
               </div>
               <div>
                 <dt>Connected address</dt>
-                <dd>{adapter.publicKey?.toBase58() || "Not connected"}</dd>
+                <dd>
+                  {adapter.publicKey ? (
+                    <CopyValue
+                      label="connected wallet address"
+                      value={adapter.publicKey.toBase58()}
+                    />
+                  ) : (
+                    "Not connected"
+                  )}
+                </dd>
               </div>
             </dl>
             <div className="ui-actions">
@@ -345,9 +381,17 @@ export function BuyerWallet() {
         </>
       )}
       {tab === "funds" && (
-        <>
+        <div className="wallet-funding">
           <section className="ui-surface ui-page">
-            <h2>Deposit into account funds</h2>
+            <div className="credential-panel-heading">
+              <span className="ui-region">
+                <ArrowDownLeft size={20} aria-hidden="true" />
+              </span>
+              <div>
+                <p className="ui-eyebrow">Add account balance</p>
+                <h2>Deposit into account funds</h2>
+              </div>
+            </div>
             {deposit.retainedDeposit && !deposit.depositTxHash && (
               <div className="ui-attention">
                 <p>
@@ -450,7 +494,15 @@ export function BuyerWallet() {
             )}
           </section>
           <section className="ui-surface ui-page">
-            <h2>Withdraw account funds</h2>
+            <div className="credential-panel-heading">
+              <span className="ui-region">
+                <ArrowUpRight size={20} aria-hidden="true" />
+              </span>
+              <div>
+                <p className="ui-eyebrow">Transfer to your wallet</p>
+                <h2>Withdraw account funds</h2>
+              </div>
+            </div>
             <p className="ui-note">
               Withdrawals go to your linked address, subject to the server’s
               eligibility and security checks.
@@ -488,11 +540,11 @@ export function BuyerWallet() {
               </p>
             )}
           </section>
-        </>
+        </div>
       )}
       {tab === "history" && (
         <>
-          <section>
+          <section className="ui-surface">
             <h2 className="mb-4">Account ledger</h2>
             {history.isLoading && <Loading label="Loading account activity…" />}
             {history.isError && (
@@ -536,9 +588,11 @@ export function BuyerWallet() {
               </div>
             ))}
             {history.isSuccess && !history.data.transactions.length && (
-              <p className="ui-note">
-                No account ledger entries were returned.
-              </p>
+              <EmptyState
+                title="Your account activity belongs here."
+                description="Deposits, withdrawals, and account transactions will appear when they are recorded."
+                icon={<History size={24} />}
+              />
             )}
             <div className="ui-pagination mt-4">
               <button
@@ -563,8 +617,9 @@ export function BuyerWallet() {
               </button>
             </div>
           </section>
-          <section>
+          <section className="ui-surface">
             <h2 className="mb-4">Withdrawal status</h2>
+            {withdrawals.isLoading && <Loading label="Loading withdrawals…" />}
             {withdrawals.isError && (
               <DataError
                 error={withdrawals.error}
@@ -665,7 +720,13 @@ export function BuyerWallet() {
           </div>
           <div>
             <dt>Destination</dt>
-            <dd>{address || "Not linked"}</dd>
+            <dd>
+              {address ? (
+                <CopyValue label="linked wallet address" value={address} />
+              ) : (
+                "Not linked"
+              )}
+            </dd>
           </div>
           <div>
             <dt>Network</dt>

@@ -1,0 +1,73 @@
+{
+  "date": "2026-11-01",
+  "build_id": "9zSuB3MRgVsi2ve6izmM2",
+  "source": "controlled API unavailable responses; full document; Axe WCAG 2/2.1 A/AA and best-practice",
+  "results": [
+    {
+      "route": "/",
+      "theme": "dark",
+      "horizontal_overflow": 0,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "passing_rules": 41,
+      "violations": []
+    },
+    {
+      "route": "/marketplace",
+      "theme": "dark",
+      "horizontal_overflow": 0,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "passing_rules": 38,
+      "violations": []
+    },
+    {
+      "route": "/explorer",
+      "theme": "dark",
+      "horizontal_overflow": 0,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "passing_rules": 43,
+      "violations": []
+    },
+    {
+      "route": "/",
+      "theme": "light",
+      "horizontal_overflow": 0,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "passing_rules": 41,
+      "violations": []
+    },
+    {
+      "route": "/marketplace",
+      "theme": "light",
+      "horizontal_overflow": 0,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "passing_rules": 38,
+      "violations": []
+    },
+    {
+      "route": "/explorer",
+      "theme": "light",
+      "horizontal_overflow": 0,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "passing_rules": 43,
+      "violations": []
+    }
+  ]
+}

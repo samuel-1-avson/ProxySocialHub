@@ -4,7 +4,7 @@
  * Buyer onboarding wizard shell — reconstruction plan §15.3.
  * Steps are resumable via ?step=; full marketplace connect is linked from the final step.
  */
-import { useCallback, useMemo, useState } from "react";
+import { useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Check, ChevronRight, Wallet } from "lucide-react";
@@ -13,45 +13,49 @@ import { AppShell } from "@/components/AppShell";
 import { withAuth } from "@/components/ProtectedRoute";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
+
+import { CopyValue } from "@/components/workspace/CopyValue";
 import { cn } from "@/lib/utils";
 
 const STEPS = [
-  { id: "welcome", title: "Welcome", description: "Choose your path" },
+  {
+    id: "welcome",
+    title: "Welcome",
+    description: "Make your first connection",
+  },
   { id: "wallet", title: "Wallet", description: "Confirm your linked wallet" },
-  { id: "first-proxy", title: "First proxy", description: "Browse or connect" },
+  {
+    id: "first-proxy",
+    title: "First proxy",
+    description: "Find capacity that fits",
+  },
 ] as const;
 
 function OnboardingPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useAuth();
-  const initial = (() => {
+  const index = (() => {
     const id = searchParams.get("step");
     const idx = STEPS.findIndex((s) => s.id === id);
     return idx >= 0 ? idx : 0;
   })();
-  const [index, setIndex] = useState(initial);
   const step = STEPS[index];
 
   const goTo = useCallback(
     (next: number) => {
       const clamped = Math.max(0, Math.min(STEPS.length - 1, next));
-      setIndex(clamped);
       const id = STEPS[clamped].id;
       router.replace(`/onboarding?step=${id}`, { scroll: false });
     },
-    [router]
+    [router],
   );
 
-  const walletLabel = useMemo(() => {
-    const addr = user?.wallet_address;
-    if (!addr) return null;
-    return `${addr.slice(0, 4)}…${addr.slice(-4)}`;
-  }, [user?.wallet_address]);
+  const walletLabel = user?.wallet_address;
 
   return (
-    <AppShell showBreadcrumbs={false} maxWidthClassName="max-w-xl">
-      <div className="mx-auto space-y-8 py-8">
+    <AppShell showBreadcrumbs={false} maxWidthClassName="max-w-4xl">
+      <div className="onboarding-page mx-auto space-y-8 py-8">
         <nav aria-label="Onboarding progress">
           <ol className="flex flex-wrap items-center gap-2">
             {STEPS.map((s, i) => {
@@ -66,7 +70,9 @@ function OnboardingPageInner() {
                       "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
                       current && "border-primary bg-primary/10 text-primary",
                       done && "border-border bg-secondary text-foreground",
-                      !current && !done && "border-border text-muted-foreground"
+                      !current &&
+                        !done &&
+                        "border-border text-muted-foreground",
                     )}
                     aria-current={current ? "step" : undefined}
                   >
@@ -75,7 +81,7 @@ function OnboardingPageInner() {
                         "flex h-5 w-5 items-center justify-center rounded-full text-[10px]",
                         current || done
                           ? "bg-primary text-primary-foreground"
-                          : "bg-secondary text-muted-foreground"
+                          : "bg-secondary text-muted-foreground",
                       )}
                       aria-hidden
                     >
@@ -84,7 +90,11 @@ function OnboardingPageInner() {
                     {s.title}
                   </button>
                   {i < STEPS.length - 1 ? (
-                    <ChevronRight size={14} className="text-muted-foreground" aria-hidden />
+                    <ChevronRight
+                      size={14}
+                      className="text-muted-foreground"
+                      aria-hidden
+                    />
                   ) : null}
                 </li>
               );
@@ -96,7 +106,9 @@ function OnboardingPageInner() {
           <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
             Step {index + 1} of {STEPS.length}
           </p>
-          <h1 className="text-2xl font-semibold tracking-tight">{step.title}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {step.title}
+          </h1>
           <p className="text-sm text-muted-foreground">{step.description}</p>
         </header>
 
@@ -104,8 +116,8 @@ function OnboardingPageInner() {
           {step.id === "welcome" ? (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                ProxyHubb is a marketplace for proxy access. Buyers
-                purchase bandwidth; providers earn by sharing capacity.
+                ProxyHubb is a marketplace for proxy access. Buyers purchase
+                bandwidth; providers earn by sharing capacity.
               </p>
               <div className="grid gap-3">
                 <button
@@ -122,7 +134,9 @@ function OnboardingPageInner() {
                   href={ROUTES.dashboardBecomeProvider}
                   className="rounded-[var(--radius-md)] border border-border p-4 hover:border-[var(--border-strong)] hover:bg-secondary"
                 >
-                  <h2 className="text-sm font-semibold">I want to provide bandwidth</h2>
+                  <h2 className="text-sm font-semibold">
+                    I want to provide bandwidth
+                  </h2>
                   <p className="mt-1 text-xs text-muted-foreground">
                     Start the provider application instead.
                   </p>
@@ -137,16 +151,27 @@ function OnboardingPageInner() {
                 <Wallet className="mt-0.5 h-5 w-5 text-primary" aria-hidden />
                 <div>
                   <p className="text-sm font-medium text-foreground">
-                    {walletLabel ? "Wallet linked" : "No wallet on this session"}
+                    {walletLabel
+                      ? "Wallet linked"
+                      : "No wallet on this session"}
                   </p>
-                  <p className="mt-1 font-mono text-sm text-muted-foreground">
-                    {walletLabel ?? "Connect from Settings → Account if needed."}
-                  </p>
+                  <div className="mt-1 text-sm text-muted-foreground">
+                    {walletLabel ? (
+                      <CopyValue
+                        label="Linked wallet address"
+                        value={walletLabel}
+                      />
+                    ) : (
+                      <Link className="ui-link" href="/app/wallet">
+                        Open wallet workspace →
+                      </Link>
+                    )}
+                  </div>
                 </div>
               </div>
               <p className="text-sm text-muted-foreground">
-                Purchases and escrow use your Solana wallet. You can continue and connect later if
-                needed.
+                Purchases and escrow use your Solana wallet. You can continue
+                and connect later if needed.
               </p>
             </div>
           ) : null}
@@ -154,8 +179,8 @@ function OnboardingPageInner() {
           {step.id === "first-proxy" ? (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Browse the marketplace for a listing, or open Connect to start a session with
-                defaults.
+                Browse the marketplace for a listing, then manage your orders
+                and sessions from Connections.
               </p>
               <div className="grid gap-3 sm:grid-cols-2">
                 <Link
@@ -168,12 +193,12 @@ function OnboardingPageInner() {
                   </p>
                 </Link>
                 <Link
-                  href={ROUTES.dashboardProxy}
+                  href="/app/connections"
                   className="rounded-[var(--radius-md)] border border-border p-4 hover:border-[var(--border-strong)] hover:bg-secondary"
                 >
-                  <h2 className="text-sm font-semibold">Open Connect</h2>
+                  <h2 className="text-sm font-semibold">Open connections</h2>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Create a session with guided defaults.
+                    Manage orders and active sessions.
                   </p>
                 </Link>
               </div>
@@ -191,7 +216,10 @@ function OnboardingPageInner() {
             Back
           </Button>
           <div className="flex items-center gap-3">
-            <Link href={ROUTES.dashboard} className="text-sm text-muted-foreground hover:underline">
+            <Link
+              href={ROUTES.dashboard}
+              className="text-sm text-muted-foreground hover:underline"
+            >
               Skip for now
             </Link>
             {index < STEPS.length - 1 ? (
@@ -199,7 +227,10 @@ function OnboardingPageInner() {
                 Continue
               </Button>
             ) : (
-              <Button type="button" onClick={() => router.push(ROUTES.dashboard)}>
+              <Button
+                type="button"
+                onClick={() => router.push(ROUTES.dashboard)}
+              >
                 Finish
               </Button>
             )}

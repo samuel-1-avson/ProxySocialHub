@@ -150,7 +150,7 @@ export default function MarketplaceOrdersPage() {
         >
           <ArrowLeft size={12} aria-hidden /> Discover
         </Link>
-        <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-primary">
+        <div className="mb-2 flex items-center gap-2 text-xs font-medium normal-case tracking-normal text-primary">
           <Package size={14} aria-hidden />
           Buyer
         </div>

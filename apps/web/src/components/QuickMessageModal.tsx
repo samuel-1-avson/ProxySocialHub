@@ -1,320 +1,108 @@
-'use client';
+"use client";
 
-import React, { useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
-import { MessageSquare, Send, Loader2, Globe, Zap, Lock, Gamepad2, Smartphone, TrendingUp, FlaskConical, ClipboardList } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
-import { getAccessTokenSilently, useAuth } from '@/lib/auth';
-import { useNotificationStore } from '@/stores';
-import { useRouter } from 'next/navigation';
+import { useState, type FormEvent } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { CheckCircle2, Loader2, MessageSquare, Send } from "lucide-react";
+import { getAccessTokenSilently, useAuth } from "@/lib/auth";
+import { Modal } from "@/components/patterns/Modal";
 
 interface QuickMessageModalProps {
-    isOpen: boolean;
-    onClose: () => void;
-    listingId: string;
-    listingTitle: string;
-    providerId: string;
-    providerName: string;
-    providerAvatar?: string;
-    providerOnline?: boolean;
-    pricePerGb?: number;
-    location?: string;
+  isOpen: boolean;
+  onClose: () => void;
+  listingId: string;
+  listingTitle: string;
+  providerId: string;
+  providerName: string;
+  providerAvatar?: string;
+  providerOnline?: boolean;
+  pricePerGb?: number;
+  location?: string;
 }
-
-const INTENTS: { value: string; label: string; icon: LucideIcon }[] = [
-    { value: 'web_scraping', label: 'Web Scraping', icon: Globe },
-    { value: 'vpn', label: 'VPN / Privacy', icon: Lock },
-    { value: 'gaming', label: 'Gaming', icon: Gamepad2 },
-    { value: 'social_media', label: 'Social Media Management', icon: Smartphone },
-    { value: 'seo', label: 'SEO / Marketing', icon: TrendingUp },
-    { value: 'testing', label: 'Testing / Development', icon: FlaskConical },
-    { value: 'other', label: 'Other', icon: ClipboardList },
+const intents = [
+  ["web_scraping", "Web scraping"], ["vpn", "VPN / privacy"],
+  ["gaming", "Gaming"], ["social_media", "Social media management"],
+  ["seo", "SEO / marketing"], ["testing", "Testing / development"], ["other", "Other"],
 ];
 
-const EXPECTED_USAGE = [
-    { value: 10, label: '~10 GB/month' },
-    { value: 50, label: '~50 GB/month' },
-    { value: 100, label: '~100 GB/month' },
-    { value: 500, label: '~500 GB/month' },
-    { value: 1000, label: '1 TB+/month' },
-];
-
-export function QuickMessageModal({
-    isOpen,
-    onClose,
-    listingId,
-    listingTitle,
-    providerId,
-    providerName,
-    providerAvatar,
-    providerOnline = false,
-    pricePerGb,
-    location,
-}: QuickMessageModalProps) {
-    const { user, isAuthenticated } = useAuth();
-    const { addNotification } = useNotificationStore();
-    const router = useRouter();
-    
-    const [message, setMessage] = useState('');
-    const [intent, setIntent] = useState('');
-    const [expectedGb, setExpectedGb] = useState<number | null>(null);
-    const [isSending, setIsSending] = useState(false);
-    const [step, setStep] = useState<'form' | 'success'>('form');
-
-    const handleSend = async () => {
-        if (!isAuthenticated) {
-            addNotification({
-                type: 'error',
-                title: 'Authentication required',
-                message: 'Please sign in to message providers',
-            });
-            router.push('/auth/login?redirect=' + encodeURIComponent(window.location.pathname));
-            return;
-        }
-
-        if (!message.trim()) {
-            addNotification({
-                type: 'error',
-                title: 'Message required',
-                message: 'Please enter a message',
-            });
-            return;
-        }
-
-        setIsSending(true);
-
-        try {
-            const token = await getAccessTokenSilently();
-            const response = await fetch(`/v1/listings/${listingId}/inquire`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-                },
-                body: JSON.stringify({
-                    message: message.trim(),
-                    intent: intent || undefined,
-                    expected_gb: expectedGb || undefined,
-                }),
-            });
-
-            if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.error || 'Failed to send message');
-            }
-
-            const data = await response.json();
-            
-            setStep('success');
-            
-            addNotification({
-                type: 'success',
-                title: 'Message sent!',
-                message: `${providerName} will be notified.`,
-            });
-
-            // Close after 2 seconds
-            setTimeout(() => {
-                onClose();
-                setStep('form');
-                setMessage('');
-                setIntent('');
-                setExpectedGb(null);
-                
-                // Optionally navigate to messages
-                // router.push('/messages');
-            }, 2000);
-
-        } catch (error: any) {
-            addNotification({
-                type: 'error',
-                title: 'Failed to send',
-                message: error.message,
-            });
-        } finally {
-            setIsSending(false);
-        }
-    };
-
-    const getPrefillMessage = () => {
-        if (intent) {
-            const intentLabel = INTENTS.find(i => i.value === intent)?.label || intent;
-            return `Hi! I'm interested in your ${listingTitle} for ${intentLabel.toLowerCase()}.`;
-        }
-        return `Hi! I'm interested in your ${listingTitle}.`;
-    };
-
-    // Set prefill when intent changes and message is empty
-    React.useEffect(() => {
-        if (intent && !message) {
-            setMessage(getPrefillMessage());
-        }
-    }, [intent]);
-
-    if (step === 'success') {
-        return (
-            <Dialog open={isOpen} onOpenChange={onClose}>
-                <DialogContent className="sm:max-w-md bg-black/90 border-white/10">
-                    <div className="flex flex-col items-center justify-center py-8 space-y-4">
-                        <div className="w-16 h-16 rounded-full bg-emerald-500/20 flex items-center justify-center">
-                            <MessageSquare className="w-8 h-8 text-emerald-500" />
-                        </div>
-                        <h3 className="text-lg font-semibold text-white">Message Sent!</h3>
-                        <p className="text-sm text-white/60 text-center">
-                            {providerName} has been notified and will respond soon.
-                        </p>
-                        <Button 
-                            onClick={() => router.push('/messages')}
-                            className="mt-4"
-                        >
-                            Go to Messages
-                        </Button>
-                    </div>
-                </DialogContent>
-            </Dialog>
-        );
+export function QuickMessageModal(props: QuickMessageModalProps) {
+  return <InquiryForm key={props.listingId} {...props} />;
+}
+function InquiryForm({ isOpen, onClose, listingId, listingTitle, providerId, providerName, providerOnline, pricePerGb, location }: QuickMessageModalProps) {
+  const { isAuthenticated } = useAuth();
+  const router = useRouter();
+  const [message, setMessage] = useState("");
+  const [intent, setIntent] = useState("");
+  const [expectedGb, setExpectedGb] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState("");
+  async function send(event: FormEvent) {
+    event.preventDefault();
+    if (sending || sent || !message.trim()) return;
+    if (!isAuthenticated) {
+      router.push("/login?redirect=" + encodeURIComponent(window.location.pathname + window.location.search));
+      return;
     }
-
-    return (
-        <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="sm:max-w-lg bg-black/95 border-white/10 text-white">
-                <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2 text-lg">
-                        <MessageSquare className="w-5 h-5 text-emerald-500" />
-                        Message {providerName}
-                    </DialogTitle>
-                </DialogHeader>
-
-                {/* Listing Context */}
-                <div className="bg-white/5 rounded-lg p-3 border border-white/10">
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center">
-                            <Zap className="w-5 h-5 text-emerald-500" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                            <h4 className="text-sm font-medium text-white truncate">
-                                {listingTitle}
-                            </h4>
-                            <div className="flex items-center gap-2 text-xs text-white/50">
-                                {location && (
-                                    <span className="flex items-center gap-1">
-                                        <Globe className="w-3 h-3" />
-                                        {location}
-                                    </span>
-                                )}
-                                {pricePerGb && (
-                                    <span>${Number(pricePerGb).toFixed(4)}/GB</span>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Intent Selection */}
-                <div className="space-y-2">
-                    <label className="text-xs font-medium text-white/70 uppercase tracking-wider">
-                        What will you use this for?
-                    </label>
-                    <div className="grid grid-cols-2 gap-2">
-                        {INTENTS.map((i) => {
-                            const Icon = i.icon;
-                            const selected = intent === i.value;
-                            return (
-                                <button
-                                    key={i.value}
-                                    type="button"
-                                    onClick={() => setIntent(i.value)}
-                                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition-all ${
-                                        selected
-                                            ? 'bg-emerald-500/20 border border-emerald-500/50 text-emerald-400'
-                                            : 'bg-white/5 border border-white/10 text-white/70 hover:bg-white/10'
-                                    }`}
-                                >
-                                    <Icon
-                                        size={14}
-                                        strokeWidth={1.75}
-                                        className={`shrink-0 ${selected ? 'text-emerald-400' : 'text-white/50'}`}
-                                    />
-                                    <span className="text-left leading-snug">{i.label}</span>
-                                </button>
-                            );
-                        })}
-                    </div>
-                </div>
-
-                {/* Expected Usage */}
-                <div className="space-y-2">
-                    <label className="text-xs font-medium text-white/70 uppercase tracking-wider">
-                        Expected monthly usage
-                    </label>
-                    <div className="flex flex-wrap gap-2">
-                        {EXPECTED_USAGE.map((u) => (
-                            <button
-                                key={u.value}
-                                onClick={() => setExpectedGb(u.value)}
-                                className={`px-3 py-1.5 rounded-full text-xs transition-all ${
-                                    expectedGb === u.value
-                                        ? 'bg-emerald-500 text-black font-medium'
-                                        : 'bg-white/10 text-white/70 hover:bg-white/20'
-                                }`}
-                            >
-                                {u.label}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-
-                {/* Message Input */}
-                <div className="space-y-2">
-                    <label className="text-xs font-medium text-white/70 uppercase tracking-wider">
-                        Your message
-                    </label>
-                    <Textarea
-                        value={message}
-                        onChange={(e) => setMessage(e.target.value)}
-                        placeholder="Hi! I'm interested in this proxy..."
-                        className="bg-white/5 border-white/10 text-white placeholder:text-white/30 min-h-[100px] resize-none"
-                    />
-                </div>
-
-                {/* Provider Status */}
-                <div className="flex items-center gap-2 text-xs text-white/50">
-                    <span className={`w-2 h-2 rounded-full ${providerOnline ? 'bg-emerald-500 animate-pulse' : 'bg-white/30'}`} />
-                    <span>{providerOnline ? 'Online now' : 'Offline'}</span>
-                    <span className="mx-1">•</span>
-                    <span>Typical response: ~15 min</span>
-                </div>
-
-                {/* Actions */}
-                <div className="flex gap-3 pt-2">
-                    <Button
-                        variant="outline"
-                        onClick={onClose}
-                        className="flex-1 bg-white/5 border-white/10 text-white hover:bg-white/10"
-                    >
-                        Cancel
-                    </Button>
-                    <Button
-                        onClick={handleSend}
-                        disabled={isSending || !message.trim()}
-                        className="flex-1 bg-emerald-500 text-black hover:bg-emerald-400"
-                    >
-                        {isSending ? (
-                            <>
-                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                Sending...
-                            </>
-                        ) : (
-                            <>
-                                <Send className="w-4 h-4 mr-2" />
-                                Send Message
-                            </>
-                        )}
-                    </Button>
-                </div>
-            </DialogContent>
-        </Dialog>
-    );
+    setSending(true); setError("");
+    try {
+      const token = await getAccessTokenSilently();
+      const response = await fetch("/v1/listings/" + encodeURIComponent(listingId) + "/inquire", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: "Bearer " + token } : {}) },
+        body: JSON.stringify({ message: message.trim(), intent: intent || undefined, expected_gb: expectedGb ? Number(expectedGb) : undefined }),
+      });
+      if (!response.ok) {
+        const detail = await response.json().catch(() => ({}));
+        throw new Error(typeof detail.error === "string" ? detail.error : "Your inquiry could not be sent. Please try again.");
+      }
+      setSent(true);
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "Your inquiry could not be sent. Please try again.");
+    } finally { setSending(false); }
+  }
+  return (
+    <Modal open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}
+      title={sent ? "Inquiry sent" : "Message " + providerName}
+      description={sent ? "The service accepted your inquiry. A reply has not been received yet." : "Ask about this offer before purchasing. Your draft stays available if sending fails."}
+      size="lg" contentClassName="space-y-5">
+      {sent ? <div className="space-y-5">
+        <CheckCircle2 className="text-primary" size={32} aria-hidden />
+        <p className="text-sm text-muted-foreground">Your question about <strong className="text-foreground">{listingTitle}</strong> was sent.</p>
+        <div className="ui-actions">
+          <Link className="ui-button" href={"/messages?recipient=" + encodeURIComponent(providerId)}>Open inbox</Link>
+          <button type="button" className="ui-button secondary" onClick={onClose}>Done</button>
+        </div>
+      </div> : <form onSubmit={(event) => void send(event)} className="space-y-5">
+        <div className="rounded-xl border border-border bg-secondary p-4 space-y-1">
+          <p className="text-sm font-semibold flex items-center gap-2"><MessageSquare size={16} aria-hidden />{listingTitle}</p>
+          <p className="text-sm text-muted-foreground">{location || "Location not reported"}{Number.isFinite(pricePerGb) ? " · $" + Number(pricePerGb).toFixed(4) + " / GB" : ""}</p>
+          {providerOnline && <p className="text-xs text-primary">Provider reports online</p>}
+        </div>
+        <label className="grid gap-2 text-sm font-medium">Intended use <span className="sr-only">(optional)</span>
+          <select className="ui-input" value={intent} onChange={(event) => setIntent(event.target.value)}>
+            <option value="">Choose a use (optional)</option>
+            {intents.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </label>
+        <label className="grid gap-2 text-sm font-medium">Expected monthly usage
+          <select className="ui-input" value={expectedGb} onChange={(event) => setExpectedGb(event.target.value)}>
+            <option value="">Not sure yet</option>
+            {[10, 50, 100, 500, 1000].map((value) => <option key={value} value={value}>{value.toLocaleString()} GB / month</option>)}
+          </select>
+        </label>
+        <label className="grid gap-2 text-sm font-medium">Your message
+          <textarea className="ui-input min-h-32 resize-y" rows={4} required maxLength={4000} value={message} onChange={(event) => setMessage(event.target.value)} placeholder="What would you like to know about this offer?" aria-describedby={error ? "inquiry-error" : undefined} />
+        </label>
+        {error && <p id="inquiry-error" className="text-sm text-destructive" role="alert">{error}</p>}
+        <div className="ui-actions justify-end">
+          <button type="button" className="ui-button secondary" onClick={onClose}>Cancel</button>
+          <button type="submit" className="ui-button" disabled={sending || !message.trim()} aria-busy={sending}>
+            {sending ? <Loader2 size={16} className="animate-spin" aria-hidden /> : <Send size={16} aria-hidden />}
+            {sending ? "Sending…" : isAuthenticated ? "Send inquiry" : "Sign in to send"}
+          </button>
+        </div>
+      </form>}
+    </Modal>
+  );
 }

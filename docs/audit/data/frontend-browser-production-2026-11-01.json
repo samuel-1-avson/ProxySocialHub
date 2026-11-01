@@ -1,0 +1,460 @@
+{
+  "date": "2026-11-01",
+  "next": "16.4.3",
+  "api_data": "controlled fixtures",
+  "real_transfers": false,
+  "stats": {
+    "startTime": "2026-11-01T14:20:36.589Z",
+    "duration": 202065.64,
+    "expected": 24,
+    "skipped": 0,
+    "unexpected": 2,
+    "flaky": 0
+  },
+  "runner_errors": [],
+  "cases": [
+    {
+      "file": "frontend-completion.spec.ts",
+      "title": "remaining frontend acceptance / discussion editor validates, preserves rejected content, and opens the canonical result",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 4986,
+          "retry": 0,
+          "accessibility": [
+            {
+              "name": "accessibility",
+              "violations": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "file": "frontend-completion.spec.ts",
+      "title": "remaining frontend acceptance / discussion replies, votes, reports and keyboard dialogs expose failures",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 3135,
+          "retry": 0,
+          "accessibility": [
+            {
+              "name": "accessibility",
+              "violations": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "file": "frontend-completion.spec.ts",
+      "title": "remaining frontend acceptance / inbox failure recovers without pretending there are no conversations",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 9600,
+          "retry": 0,
+          "accessibility": [
+            {
+              "name": "accessibility",
+              "violations": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "file": "frontend-completion.spec.ts",
+      "title": "remaining frontend acceptance / message send preserves drafts and conversation switching stays scoped",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 2424,
+          "retry": 0,
+          "accessibility": [
+            {
+              "name": "accessibility",
+              "violations": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "file": "frontend-completion.spec.ts",
+      "title": "remaining frontend acceptance / public profile keeps review failure distinct from no reviews",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 9878,
+          "retry": 0,
+          "accessibility": [
+            {
+              "name": "accessibility",
+              "violations": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "file": "frontend-completion.spec.ts",
+      "title": "remaining frontend acceptance / treasury distinguishes missing balances and preserves true zero values",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 1957,
+          "retry": 0,
+          "accessibility": [
+            {
+              "name": "accessibility",
+              "violations": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "file": "frontend-completion.spec.ts",
+      "title": "remaining frontend acceptance / analytics applies custom dates and provides exact accessible measurements",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 2295,
+          "retry": 0,
+          "accessibility": [
+            {
+              "name": "accessibility",
+              "violations": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "file": "frontend-completion.spec.ts",
+      "title": "remaining frontend acceptance / health transport failures do not claim an outage or a healthy event log",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 1635,
+          "retry": 0,
+          "accessibility": [
+            {
+              "name": "accessibility",
+              "violations": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "file": "frontend-completion.spec.ts",
+      "title": "remaining frontend acceptance / wallet lookup validates and public records recover from failures",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 34195,
+          "retry": 0,
+          "accessibility": [
+            {
+              "name": "accessibility",
+              "violations": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "file": "frontend-completion.spec.ts",
+      "title": "remaining frontend acceptance / draft documentation has working contents, consistent themes, and a narrow reading layout",
+      "project": "chromium",
+      "status": "unexpected",
+      "results": [
+        {
+          "status": "failed",
+          "duration_ms": 31966,
+          "retry": 0,
+          "errors": [
+            "Error: [2mexpect([22m[31mreceived[39m[2m).[22mtoBeLessThanOrEqual[2m([22m[32mexpected[39m[2m)[22m\n\nExpected: <= [32m1[39m\nReceived:    [31m42[39m\n\nCall Log:\n- Timeout 30000ms exceeded while waiting on the predicate\n\n  63 | async function narrow(page: Page, width = 390) {\n  64 |   await page.setViewportSize({ width, height: 844 });\n> 65 |   await expect\n     |   ^\n  66 |     .poll(() =>\n  67 |       page.evaluate(() => document.documentElement.scrollWidth - innerWidth),\n  68 |     )\n    at narrow (C:\\Users\\samue\\OneDrive\\Desktop\\projects\\ProxySocialHub\\apps\\web\\e2e\\frontend-completion.spec.ts:65:3)\n    at C:\\Users\\samue\\OneDrive\\Desktop\\projects\\ProxySocialHub\\apps\\web\\e2e\\frontend-completion.spec.ts:502:5"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "frontend-controls.spec.ts",
+      "title": "a listing inquiry preserves a rejected draft, confirms acceptance, and returns keyboard focus",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 2634,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "frontend-controls.spec.ts",
+      "title": "friend suggestions show a recoverable status failure before offering a request",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 1245,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "frontend-controls.spec.ts",
+      "title": "a failed circle source is not presented as an empty pool collection",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 8590,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "frontend-message-recovery.spec.ts",
+      "title": "an accepted first message survives a failed inbox preview refresh without a second send",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 1013,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "frontend-message-recovery.spec.ts",
+      "title": "stored light and dark themes hydrate without rebuilding the page",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 896,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "frontend-route-review.spec.ts",
+      "title": "route-family release review / public reading and authentication routes fit a 360px light viewport",
+      "project": "chromium",
+      "status": "unexpected",
+      "results": [
+        {
+          "status": "failed",
+          "duration_ms": 5882,
+          "retry": 0,
+          "errors": [
+            "Error: [2mexpect([22m[31mreceived[39m[2m).[22mtoBeLessThanOrEqual[2m([22m[32mexpected[39m[2m)[22m\n\nExpected: <= [32m1[39m\nReceived:    [31m42[39m\n\nCall Log:\n- Timeout 5000ms exceeded while waiting on the predicate\n\n  28 |     page.getByRole(\"heading\", { name: \"SYSTEM ERROR\", exact: true }),\n  29 |   ).toHaveCount(0);\n> 30 |   await expect\n     |   ^\n  31 |     .poll(() =>\n  32 |       page.evaluate(() => document.documentElement.scrollWidth - innerWidth),\n  33 |     )\n    at review (C:\\Users\\samue\\OneDrive\\Desktop\\projects\\ProxySocialHub\\apps\\web\\e2e\\frontend-route-review.spec.ts:30:3)\n    at C:\\Users\\samue\\OneDrive\\Desktop\\projects\\ProxySocialHub\\apps\\web\\e2e\\frontend-route-review.spec.ts:61:7"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "frontend-route-review.spec.ts",
+      "title": "route-family release review / operator and account utilities recover in a 390px viewport",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 36659,
+          "retry": 0,
+          "routes_reviewed": [
+            "/dashboard/agents",
+            "/dashboard/analytics",
+            "/dashboard/monitoring",
+            "/dashboard/provider/analytics",
+            "/dashboard/provider/circle",
+            "/dashboard/provider/cli",
+            "/dashboard/provider/health",
+            "/dashboard/provider/pair",
+            "/dashboard/provider/relationships",
+            "/dashboard/provider/services",
+            "/dashboard/proxy",
+            "/dashboard/trustless",
+            "/dashboard/settings/account",
+            "/dashboard/settings/api-keys",
+            "/community/friends",
+            "/app/settings?tab=referrals",
+            "/marketplace/manage/products"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "frontend-route-review.spec.ts",
+      "title": "route-family release review / public record details and disabled feeds have usable narrow recovery",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 18678,
+          "retry": 0,
+          "routes_reviewed": [
+            "/explorer/blocks/123",
+            "/explorer/transactions/unavailable-hash",
+            "/explorer/wallets/5J7sQx1LQx32fY6k3i8rXQ9rC3Z1V3aNQ3fxh7c7c4yD",
+            "/explorer/contracts/unavailable-contract",
+            "/explorer/nodes/unavailable-node",
+            "/explorer/nodes/compare?ids=node-a,node-b",
+            "/explorer/leaderboard",
+            "/explorer/sessions",
+            "/explorer/earnings",
+            "/providers/unavailable-provider"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "frontend-route-review.spec.ts",
+      "title": "route-family release review / light-theme treasury and wallet lookup meet automated WCAG checks",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 3392,
+          "retry": 0,
+          "accessibility": [
+            {
+              "name": "-treasury-accessibility",
+              "violations": 0
+            },
+            {
+              "name": "-explorer-wallets-accessibility",
+              "violations": 0
+            },
+            {
+              "name": "-whitepaper-accessibility",
+              "violations": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "file": "social/forum.spec.ts",
+      "title": "canonical forum navigation / legacy collection links retain their filter and page",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 968,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "social/forum.spec.ts",
+      "title": "canonical forum navigation / legacy category links preserve the category and pagination",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 661,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "workspace.spec.ts",
+      "title": "buyer and seller workspaces / switches between four focused destinations using existing account capability",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 2430,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "workspace.spec.ts",
+      "title": "buyer and seller workspaces / persists explicit light and dark themes and supports a 320px workspace",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 1261,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "workspace.spec.ts",
+      "title": "buyer and seller workspaces / keeps seller access protected and offers onboarding to buyers",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 914,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "workspace.spec.ts",
+      "title": "buyer and seller workspaces / requires sign in on new private workspace routes",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 718,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "workspace.spec.ts",
+      "title": "buyer and seller workspaces / distinguishes zero usage from missing measurements on a narrow screen",
+      "project": "chromium",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "duration_ms": 1219,
+          "retry": 0
+        }
+      ]
+    }
+  ]
+}

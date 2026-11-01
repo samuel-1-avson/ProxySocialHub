@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { Loader2, UserCheck, UserPlus } from 'lucide-react';
 import { followUser, unfollowUser } from '@/lib/social-api';
 import { useAuth } from '@/lib/auth';
-import { useNotificationStore, useToast } from '@/stores';
+import { useToast } from '@/stores';
 
 interface FollowProviderButtonProps {
     providerId: string;
@@ -17,24 +17,22 @@ interface FollowProviderButtonProps {
     showFeedHint?: boolean;
 }
 
-export function FollowProviderButton({
+export function FollowProviderButton(props: FollowProviderButtonProps) {
+    return <FollowProviderControl key={props.providerId + ":" + Boolean(props.isFollowed)} {...props} />;
+}
+function FollowProviderControl({
     providerId,
     providerName,
     isFollowed = false,
     onFollowChange,
     compact = false,
     className = '',
-    showFeedHint = true,
 }: FollowProviderButtonProps) {
     const { user, isAuthenticated } = useAuth();
     const toast = useToast();
-    const addNotification = useNotificationStore((s) => s.addNotification);
     const [followed, setFollowed] = useState(isFollowed);
     const [busy, setBusy] = useState(false);
 
-    useEffect(() => {
-        setFollowed(isFollowed);
-    }, [isFollowed]);
 
     if (!providerId || (user?.id && user.id === providerId)) {
         return null;
@@ -61,22 +59,7 @@ export function FollowProviderButton({
                 setFollowed(true);
                 onFollowChange?.(true);
                 const label = providerName || 'this provider';
-                if (showFeedHint) {
-                    addNotification({
-                        type: 'success',
-                        title: `Following ${label}`,
-                        message:
-                            'New listings and milestones from providers you follow appear on your activity feed.',
-                        action: {
-                            label: 'Open feed',
-                            onClick: () => {
-                                window.location.href = '/community/feed';
-                            },
-                        },
-                    });
-                } else {
-                    toast.success('Following', `You are now following ${label}.`);
-                }
+                toast.success('Following', `You are now following ${label}.`);
             }
         } catch (err) {
             toast.error('Follow failed', err instanceof Error ? err.message : 'Please try again.');
@@ -90,14 +73,16 @@ export function FollowProviderButton({
             type="button"
             onClick={handleClick}
             disabled={busy}
-            title={followed ? 'Unfollow provider' : 'Follow for personalized feed'}
-            className={`inline-flex items-center justify-center gap-2 rounded-lg border font-black uppercase tracking-widest transition-colors disabled:opacity-50 ${
+            aria-pressed={followed}
+            aria-label={(followed ? 'Unfollow ' : 'Follow ') + (providerName || 'provider')}
+            title={followed ? 'Unfollow provider' : 'Follow provider'}
+            className={`inline-flex items-center justify-center gap-2 rounded-lg border font-semibold transition-colors disabled:opacity-50 ${
                 compact
-                    ? 'py-2 px-3 text-[9px]'
-                    : 'py-2.5 px-3 text-[10px]'
+                    ? 'py-2 px-3 text-xs'
+                    : 'py-2.5 px-3 text-sm'
             } ${
                 followed
-                    ? 'border-white/10 bg-white/5 text-muted-foreground hover:text-foreground'
+                    ? 'border-border bg-secondary text-muted-foreground hover:text-foreground'
                     : 'border-primary/30 bg-primary/10 text-primary hover:bg-primary/20'
             } ${className}`}
         >
@@ -116,12 +101,9 @@ export function FollowProviderButton({
 /** Inline hint shown near follow actions on marketplace surfaces. */
 export function FollowFeedHint({ className = '' }: { className?: string }) {
     return (
-        <p className={`text-[9px] font-mono text-muted-foreground/40 uppercase tracking-wider ${className}`}>
-            Follow providers to see their listings on{' '}
-            <Link href="/community/feed" className="text-primary/80 hover:text-primary">
-                your feed
-            </Link>
-            .
+        <p className={`text-xs leading-relaxed text-muted-foreground ${className}`}>
+            Find current offers and availability in the{' '}
+            <Link href="/marketplace" className="ui-link">marketplace</Link>.
         </p>
     );
 }

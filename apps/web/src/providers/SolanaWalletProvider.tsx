@@ -1,6 +1,7 @@
 'use client';
 
-import { FC, ReactNode, useMemo, useState, useEffect } from 'react';
+import { FC, ReactNode, useMemo, useEffect } from 'react';
+import { useHydrated } from '@/hooks/useHydrated';
 import { ConnectionProvider, WalletProvider, useWallet } from '@solana/wallet-adapter-react';
 import {
     BaseMessageSignerWalletAdapter,
@@ -14,7 +15,7 @@ import { SolflareWalletAdapter } from '@solana/wallet-adapter-solflare';
 import { clusterApiUrl, Keypair, PublicKey, Transaction, VersionedTransaction } from '@solana/web3.js';
 
 // Import default styles
-import '@solana/wallet-adapter-react-ui/styles.css';
+import '@/styles/wallet-adapter.css';
 import { WalletAuthSync } from '@/components/WalletAuthSync';
 
 interface Props {
@@ -137,13 +138,7 @@ function PlaywrightWalletConnector() {
 }
 
 export const SolanaWalletProvider: FC<Props> = ({ children }) => {
-    const [mounted, setMounted] = useState(false);
-
-    useEffect(() => {
-        // Prevent hydration mismatch
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setMounted(true);
-    }, []);
+    const mounted = useHydrated();
 
     const rawNetwork = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'devnet';
     const network = rawNetwork === 'mainnet' || rawNetwork === 'mainnet-beta'
@@ -157,16 +152,8 @@ export const SolanaWalletProvider: FC<Props> = ({ children }) => {
         return process.env.NEXT_PUBLIC_SOLANA_RPC_URL || process.env.NEXT_PUBLIC_SOLANA_RPC || clusterApiUrl(network);
     }, [network]);
 
-    const [runtimeTestWallet, setRuntimeTestWallet] = useState(false);
-
-    useEffect(() => {
-        if (playwrightTestWalletEnabled()) {
-            setRuntimeTestWallet(true);
-        }
-    }, []);
-
-    const enableTestWallet = playwrightTestWalletEnabled() || runtimeTestWallet;
-    const testWalletSecret = playwrightTestWalletSecret();
+    const enableTestWallet = mounted && playwrightTestWalletEnabled();
+    const testWalletSecret = mounted ? playwrightTestWalletSecret() : undefined;
     const wallets = useMemo(() => {
         if (enableTestWallet && testWalletSecret) {
             return [new PlaywrightSolanaTestWalletAdapter(testWalletSecret)];

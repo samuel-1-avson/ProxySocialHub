@@ -43,7 +43,7 @@ export function NewUserDashboard() {
                         How will you use the network?
                     </h1>
                     <p className="text-lg text-muted-foreground max-w-xl mx-auto">
-                        Choose your primary goal. Don't worry, you can always change this later or use both features from your settings.
+                        Choose your primary goal. Don&#39;t worry, you can always change this later or use both features from your settings.
                     </p>
                 </div>
 

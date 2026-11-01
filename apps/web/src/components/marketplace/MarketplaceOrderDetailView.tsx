@@ -1,7 +1,17 @@
 "use client";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, ArrowUpRight } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  ArrowUpRight,
+  CheckCircle2,
+  Circle,
+  CreditCard,
+  KeyRound,
+  Radio,
+  ReceiptText,
+} from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import {
   getOrder,
@@ -15,7 +25,8 @@ import {
 import { explorerHref } from "@/lib/navigation/workspace";
 import { MarketplaceOrderCredentials } from "@/components/marketplace/MarketplaceOrderCredentials";
 import { ExtensionConnectCard } from "@/components/marketplace/ExtensionConnectCard";
-import { OrderRecovery } from '@/modules/workspace/OrderRecovery';
+import { OrderRecovery } from "@/modules/workspace/OrderRecovery";
+import { CopyValue } from "@/components/workspace/CopyValue";
 import {
   PageHeading,
   Status,
@@ -100,9 +111,12 @@ export function MarketplaceOrderDetailView({
       )}
       {order && (
         <>
-          <section className="ui-surface">
+          <section className="order-state-panel">
             <div className="ui-section-heading">
-              <h2>Order receipt</h2>
+              <div>
+                <p className="ui-eyebrow">Purchase lifecycle</p>
+                <h2>Payment, access, and traffic</h2>
+              </div>
               <Status
                 tone={
                   order.status === "active"
@@ -117,90 +131,175 @@ export function MarketplaceOrderDetailView({
                 {orderStatusLabel(order.status)}
               </Status>
             </div>
-            <p className="ui-note break-all">{order.id}</p>
-            <div className="ui-row">
-              <span>Purchased bandwidth</span>
-              <strong>{amount(order.bandwidth_gb)} GB</strong>
-            </div>
-            <div className="ui-row">
-              <span>Price reference</span>
-              <span>
-                {order.total_price != null || order.price_total != null
-                  ? `$${amount(order.total_price ?? order.price_total, 4)}`
-                  : "Unavailable"}
-              </span>
-            </div>
-            <div className="ui-row">
-              <span>Created</span>
-              <span>{shortDate(order.created_at)}</span>
-            </div>
-            <div className="ui-row">
-              <span>Escrow state</span>
-              <span>{order.escrow_status || "See payment record"}</span>
-            </div>
-            <p className="ui-note mt-5">
-              {credentials.data
-                ? "Credentials are available. This does not verify client routing or current traffic."
-                : orderStatusDescription(order.status)}
-            </p>
-            {(order.tx_signature || order.tx_hash) && (
-              <a
-                className="ui-button ghost mt-3"
-                href={explorerHref(
-                  `/transactions/${encodeURIComponent(order.tx_signature || order.tx_hash || "")}`,
+            <ol className="order-journey" aria-label="Order progress">
+              <li className="complete">
+                <span>
+                  <ReceiptText size={18} aria-hidden="true" />
+                </span>
+                <div>
+                  <strong>Order recorded</strong>
+                  <p>{shortDate(order.created_at)}</p>
+                </div>
+                <CheckCircle2 size={15} aria-hidden="true" />
+              </li>
+              <li className={eligible ? "complete" : ""}>
+                <span>
+                  <CreditCard size={18} aria-hidden="true" />
+                </span>
+                <div>
+                  <strong>Payment & access</strong>
+                  <p>
+                    {eligible
+                      ? "Escrow confirmed by order state"
+                      : orderStatusLabel(order.status)}
+                  </p>
+                </div>
+                {eligible ? (
+                  <CheckCircle2 size={15} aria-hidden="true" />
+                ) : (
+                  <Circle size={15} aria-hidden="true" />
                 )}
-              >
-                View public transaction
-                <ArrowUpRight size={14} />
-              </a>
-            )}
+              </li>
+              <li className={credentials.data ? "complete" : ""}>
+                <span>
+                  <KeyRound size={18} aria-hidden="true" />
+                </span>
+                <div>
+                  <strong>Credentials</strong>
+                  <p>
+                    {credentials.data
+                      ? "Available for client setup"
+                      : "Available after provisioning"}
+                  </p>
+                </div>
+                {credentials.data ? (
+                  <CheckCircle2 size={15} aria-hidden="true" />
+                ) : (
+                  <Circle size={15} aria-hidden="true" />
+                )}
+              </li>
+              <li>
+                <span>
+                  <Radio size={18} aria-hidden="true" />
+                </span>
+                <div>
+                  <strong>Traffic</strong>
+                  <p>Inspect session usage after setup</p>
+                </div>
+                <Circle size={15} aria-hidden="true" />
+              </li>
+            </ol>
           </section>
-          {eligible && credentials.isLoading && (
-            <Loading label="Preparing connection instructions…" />
-          )}
-          {eligible && credentials.isError && (
-            <DataError
-              error={credentials.error}
-              retry={() => void credentials.refetch()}
-            />
-          )}
-          {eligible && credentials.data && (
-            <>
-              {order.status === "active" && (
-                <ExtensionConnectCard
-                  orderId={order.id}
-                  listingTitle={order.listing?.title}
+          <div className="detail-columns order-detail-columns">
+            <div className="detail-main">
+              {eligible && credentials.isLoading && (
+                <Loading label="Preparing connection instructions…" />
+              )}
+              {eligible && credentials.isError && (
+                <DataError
+                  error={credentials.error}
+                  retry={() => void credentials.refetch()}
                 />
               )}
-              <MarketplaceOrderCredentials
-                credentials={credentials.data}
-                orderId={order.id}
-              />
-            </>
-          )}
-          {!eligible && (
-            <section className="ui-attention">
-              <h3>Access follows the order state.</h3>
-              <p>
-                Credentials appear after payment is confirmed and provisioning
-                completes. Keep the same order reference while checking a
-                pending transaction.
+              {eligible && credentials.data && (
+                <>
+                  {order.status === "active" && (
+                    <ExtensionConnectCard
+                      orderId={order.id}
+                      listingTitle={order.listing?.title}
+                    />
+                  )}
+                  <MarketplaceOrderCredentials
+                    credentials={credentials.data}
+                    orderId={order.id}
+                  />
+                </>
+              )}
+              {!eligible && (
+                <section className="ui-attention">
+                  <h3>Access follows the order state.</h3>
+                  <p>
+                    Credentials appear after payment is confirmed and
+                    provisioning completes. Keep the same order reference while
+                    checking a pending transaction.
+                  </p>
+                  <button
+                    className="ui-button secondary small"
+                    onClick={() => void query.refetch()}
+                  >
+                    Refresh order status
+                  </button>
+                </section>
+              )}
+              {["pending", "pending_payment"].includes(order.status) && (
+                <OrderRecovery order={order} />
+              )}
+            </div>
+            <aside
+              className="order-receipt ui-surface"
+              aria-label="Order receipt"
+            >
+              <div className="ui-section-heading">
+                <h2>Order receipt</h2>
+                <Status
+                  tone={
+                    order.status === "active"
+                      ? "good"
+                      : ["pending", "pending_payment", "disputed"].includes(
+                            order.status,
+                          )
+                        ? "warning"
+                        : "neutral"
+                  }
+                >
+                  {orderStatusLabel(order.status)}
+                </Status>
+              </div>
+              <CopyValue label="order reference" value={order.id} />
+              <div className="ui-row">
+                <span>Purchased bandwidth</span>
+                <strong>{amount(order.bandwidth_gb)} GB</strong>
+              </div>
+              <div className="ui-row">
+                <span>Price reference</span>
+                <span>
+                  {order.total_price != null || order.price_total != null
+                    ? `$${amount(order.total_price ?? order.price_total, 4)}`
+                    : "Unavailable"}
+                </span>
+              </div>
+              <div className="ui-row">
+                <span>Created</span>
+                <span>{shortDate(order.created_at)}</span>
+              </div>
+              <div className="ui-row">
+                <span>Escrow state</span>
+                <span>{order.escrow_status || "See payment record"}</span>
+              </div>
+              <p className="ui-note mt-5">
+                {credentials.data
+                  ? "Credentials are available. This does not verify client routing or current traffic."
+                  : orderStatusDescription(order.status)}
               </p>
-              <button
-                className="ui-button secondary small"
-                onClick={() => void query.refetch()}
-              >
-                Refresh order status
-              </button>
-            </section>
-          )}
-          {['pending','pending_payment'].includes(order.status) && <OrderRecovery order={order} />}
+              {(order.tx_signature || order.tx_hash) && (
+                <a
+                  className="ui-button ghost mt-3"
+                  href={explorerHref(
+                    `/transactions/${encodeURIComponent(order.tx_signature || order.tx_hash || "")}`,
+                  )}
+                >
+                  View public transaction
+                  <ArrowUpRight size={14} />
+                </a>
+              )}
+            </aside>
+          </div>
           <div className="ui-actions">
             <Link
               className="ui-button secondary"
               href="/app/connections?tab=sessions"
             >
-              Inspect sessions
+              Inspect sessions <ArrowRight size={14} aria-hidden="true" />
             </Link>
             <Link className="ui-button ghost" href="/help">
               Order support →

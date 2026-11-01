@@ -53,8 +53,8 @@ export function EvmWalletProvider({ children }: { children: React.ReactNode }) {
         <WagmiProvider config={config}>
             <RainbowKitProvider
                 theme={darkTheme({
-                    accentColor: '#f97316',
-                    accentColorForeground: 'white',
+                    accentColor: '#c5ef70',
+                    accentColorForeground: '#182213',
                     borderRadius: 'medium',
                     fontStack: 'system',
                     overlayBlur: 'small',

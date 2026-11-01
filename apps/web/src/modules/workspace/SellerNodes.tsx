@@ -2,6 +2,14 @@
 
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
+import {
+  ArrowRight,
+  Gauge,
+  KeyRound,
+  Plus,
+  Server,
+  ShieldCheck,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
@@ -41,6 +49,7 @@ import {
   DataError,
   EmptyState,
   Status,
+  Stat,
   amount,
   countryName,
 } from "@/components/workspace/Patterns";
@@ -94,7 +103,7 @@ export function SellerNodeSetup() {
         ← Nodes
       </Link>
       <PageHeading
-        eyebrow="Seller workspace"
+        eyebrow="Provider workspace"
         title="Set up a node"
         description="Register your supply, install the node software, then verify its first heartbeat."
       />
@@ -441,7 +450,7 @@ export function SellerNodeDetail({ nodeId }: { nodeId: string }) {
       {node && (
         <>
           <PageHeading
-            eyebrow="Seller workspace"
+            eyebrow="Provider workspace"
             title={node.name}
             description={`${countryName(node.country)}${node.city ? ` · ${node.city}` : ""} · ${node.id}`}
             actions={
@@ -657,96 +666,141 @@ function NodeSettings({ node }: { node: NodeRegistration }) {
 
 export function SellerNodes() {
   const query = useSellerNodes();
+  const nodes = query.data?.nodes ?? [];
   return (
     <div className="ui-page">
       <PageHeading
-        eyebrow="Seller workspace"
+        eyebrow="Provider workspace"
         title="Nodes"
-        description="Register supply, connect its software, and review reported health."
+        description="Your fleet, from first registration to verified traffic."
         actions={
           <Link className="ui-button" href="/provider/nodes/new">
+            <Plus size={16} aria-hidden="true" />
             Add node
           </Link>
         }
       />
-      <div className="ui-actions">
-        <Link
-          className="ui-button secondary"
-          href="/provider/nodes/credentials"
-        >
-          Node credentials
-        </Link>
-        <Link className="ui-button ghost" href="/dashboard/provider/services">
-          Advanced services →
-        </Link>
+      <section className="ui-stats" aria-label="Node fleet summary">
+        <Stat
+          icon={<Server size={18} />}
+          label="Registered nodes"
+          value={query.isSuccess ? nodes.length : "—"}
+          detail="Machines linked to your account"
+        />
+        <Stat
+          icon={<Gauge size={18} />}
+          label="Reported online"
+          value={
+            query.isSuccess
+              ? nodes.filter((node) => node.status === "online").length
+              : "—"
+          }
+          detail="Latest reported service state"
+        />
+        <Stat
+          icon={<ShieldCheck size={18} />}
+          label="Verified heartbeats"
+          value={
+            query.isSuccess
+              ? nodes.filter((node) => node.latest_heartbeat_verified).length
+              : "—"
+          }
+          detail="Latest heartbeat signature verified"
+        />
+      </section>
+      <div className="ui-section-heading">
+        <h2>Your infrastructure</h2>
+        <div className="ui-actions">
+          <Link
+            className="ui-button secondary small"
+            href="/provider/nodes/credentials"
+          >
+            <KeyRound size={14} aria-hidden="true" />
+            Node credentials
+          </Link>
+          <Link
+            className="ui-button ghost small"
+            href="/dashboard/provider/services"
+          >
+            Advanced services →
+          </Link>
+        </div>
       </div>
       {query.isLoading && <Loading label="Loading your nodes…" />}
       {query.isError && (
-        <DataError error={query.error} retry={() => void query.refetch()} />
+        <DataError
+          title="Your fleet could not be loaded"
+          error={query.error}
+          retry={() => void query.refetch()}
+        />
       )}
-      {query.isSuccess && !query.data.nodes.length && (
+      {query.isSuccess && !nodes.length && (
         <EmptyState
           title="Start with one healthy node."
           description="Register your machine and verify its first heartbeat before publishing an offer."
           href="/provider/nodes/new"
           action="Set up a node"
+          icon={<Server size={25} />}
         />
       )}
-      {Boolean(query.data?.nodes.length) && (
-        <div
-          className="ui-table-wrap"
-          role="region"
-          aria-label="Your provider nodes"
-          tabIndex={0}
-        >
-          <table className="ui-table">
-            <thead>
-              <tr>
-                <th>Node</th>
-                <th>Service state</th>
-                <th>Heartbeat signature</th>
-                <th>Reported latency</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {query.data?.nodes.map((node) => (
-                <tr key={node.id}>
-                  <td>
-                    {node.name}
-                    <p>{countryName(node.country)}</p>
-                  </td>
-                  <td>
-                    <Status
-                      tone={node.status === "online" ? "good" : "neutral"}
-                    >
-                      {node.status}
-                    </Status>
-                  </td>
-                  <td>
-                    {node.latest_heartbeat_verified
-                      ? "Verified"
-                      : "Not verified"}
-                  </td>
-                  <td>
-                    {node.latency_ms != null && node.latency_ms > 0
-                      ? `${amount(node.latency_ms)} ms`
-                      : "Not measured"}
-                  </td>
-                  <td>
-                    <Link
-                      className="ui-button secondary small"
-                      href={`/provider/nodes/${encodeURIComponent(node.id)}`}
-                    >
-                      Manage node →
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <div className="node-grid" aria-label="Your provider nodes">
+        {nodes.map((node) => (
+          <article className="node-card" key={node.id}>
+            <div className="node-card-top">
+              <div className="ui-row-identity">
+                <span className="ui-region">
+                  <Server size={18} aria-hidden="true" />
+                </span>
+                <div>
+                  <h2>{node.name}</h2>
+                  <p>
+                    {countryName(node.country)}
+                    {node.city ? " · " + node.city : ""}
+                  </p>
+                </div>
+              </div>
+              <Status tone={node.status === "online" ? "good" : "neutral"}>
+                {node.status}
+              </Status>
+            </div>
+            <dl className="connection-card-meta">
+              <div>
+                <dt>Reported latency</dt>
+                <dd>
+                  {node.latency_ms != null && node.latency_ms > 0 ? (
+                    <>
+                      {amount(node.latency_ms)} <span>ms</span>
+                    </>
+                  ) : (
+                    <span>Not measured</span>
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt>Active connections</dt>
+                <dd>{amount(node.active_connections, 0)}</dd>
+              </div>
+            </dl>
+            <div className="node-card-evidence">
+              <Status
+                tone={node.latest_heartbeat_verified ? "good" : "neutral"}
+              >
+                {node.latest_heartbeat_verified
+                  ? "Verified heartbeat"
+                  : "Heartbeat not verified"}
+              </Status>
+              <p>Node health and offer publication are separate checks.</p>
+            </div>
+            <Link
+              className="ui-button secondary mt-5"
+              href={"/provider/nodes/" + encodeURIComponent(node.id)}
+            >
+              Manage node
+              <ArrowRight size={14} aria-hidden="true" />
+            </Link>
+          </article>
+        ))}
+      </div>
     </div>
   );
 }
@@ -803,7 +857,7 @@ export function SellerNodeCredentials() {
         ← Nodes
       </Link>
       <PageHeading
-        eyebrow="Seller workspace"
+        eyebrow="Provider workspace"
         title="Node credentials"
         description="Create credentials for a specific node and revoke access you no longer need."
       />

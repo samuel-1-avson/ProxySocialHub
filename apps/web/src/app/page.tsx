@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { ArrowRight, ArrowUpRight, Cable, Server, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { MarketingHeader } from "@/components/marketing/MarketingHeader";
-import { NetworkPulse } from "@/components/marketing/NetworkPulse";
+import { LandingHeroVisual } from "@/components/marketing/LandingHeroVisual";
 import {
   FOOTER_LEGAL_LINKS,
   FOOTER_PLATFORM_LINKS,
@@ -11,247 +12,180 @@ import {
   ROUTES,
 } from "@/lib/navigation/routes";
 
-/**
- * Public landing — Quiet Infrastructure.
- * Interactive, minimal, auth-aware.
- */
+const steps = [
+  {
+    number: "01",
+    title: "Connect a wallet",
+    description: "Sign in with Solana and enter your workspace without a password or email gate.",
+  },
+  {
+    number: "02",
+    title: "Choose a route",
+    description: "Compare provider offers by price, capacity, location, and published terms.",
+  },
+  {
+    number: "03",
+    title: "Stay in control",
+    description: "Use a supported gateway, then review session status and reported usage in Activity.",
+  },
+];
+
+const proofPoints = [
+  { label: "Access", value: "Wallet-native", icon: ShieldCheck },
+  { label: "Protocol", value: "CONNECT", icon: Cable },
+  { label: "Supply", value: "Provider-run nodes", icon: Server },
+];
+
 export default function Home() {
   const { user, isLoading } = useAuth();
+  const primaryHref = user ? ROUTES.workspace : ROUTES.register;
+  const primaryLabel = user ? "Open workspace" : "Connect your wallet";
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="landing-page min-h-screen bg-background text-foreground">
       <MarketingHeader />
 
-      <main>
-        {/* Hero — full viewport, interactive network mesh */}
-        <section className="relative isolate flex min-h-[calc(100vh-3.5rem)] flex-col overflow-hidden border-b border-border">
-          <NetworkPulse />
-
-          <div className="relative z-10 mx-auto flex w-full max-w-[1120px] flex-1 flex-col justify-center px-4 py-20 sm:px-6">
-            <p className="mb-6 font-data text-xs font-medium uppercase tracking-[0.2em] text-primary">
-              ProxyHubb
-            </p>
-
-            <h1 className="max-w-3xl text-5xl font-semibold tracking-tight text-foreground sm:text-6xl md:text-7xl md:leading-[1.05]">
-              A clearer way to buy and provide proxy capacity.
-            </h1>
-
-            <p className="mt-6 max-w-xl text-lg leading-relaxed text-muted-foreground sm:text-xl">
-              Compare provider offers, manage buyer connections, or publish capacity from one workspace. Public network records have their own Explorer.
-            </p>
-
-            <div className="mt-10 flex flex-col gap-3 sm:flex-row sm:items-center">
-              {isLoading ? (
-                <span className="h-12 w-40 animate-pulse rounded-[var(--radius-md)] bg-secondary" aria-hidden />
-              ) : user ? (
-                <Link
-                  href={ROUTES.workspace}
-                  className="inline-flex h-12 items-center justify-center rounded-[var(--radius-md)] bg-primary px-8 text-base font-medium text-primary-foreground transition-colors hover:bg-[var(--primary-dark)]"
-                >
-                  Open dashboard
+      <main id="main-content" tabIndex={-1}>
+        <section className="landing-hero">
+          <div className="landing-hero-orbit" aria-hidden="true" />
+          <div className="landing-hero-inner">
+            <div className="landing-hero-copy">
+              <p className="landing-kicker"><span /> Proxy capacity / connected</p>
+              <h1>
+                Clear routes.
+                <br />
+                <span>Confident connections.</span>
+              </h1>
+              <p className="landing-lede">
+                Compare provider offers, connect through a supported gateway, and follow session status and reported usage from one workspace.
+              </p>
+              <div className="landing-actions">
+                <Link href={ROUTES.marketplace} className="landing-button landing-button-primary">
+                  Browse marketplace <ArrowRight size={17} aria-hidden="true" />
                 </Link>
-              ) : (
-                <>
-                  <Link
-                    href={ROUTES.register}
-                    className="inline-flex h-12 items-center justify-center rounded-[var(--radius-md)] bg-primary px-8 text-base font-medium text-primary-foreground transition-colors hover:bg-[var(--primary-dark)]"
-                  >
-                    Get started
-                  </Link>
-                  <Link
-                    href={ROUTES.explorer}
-                    className="inline-flex h-12 items-center justify-center rounded-[var(--radius-md)] border border-[var(--border-strong)] bg-transparent px-8 text-base font-medium text-foreground transition-colors hover:bg-secondary"
-                  >
-                    Explore the network
-                  </Link>
-                </>
-              )}
+                <Link href={ROUTES.explorer} className="landing-button landing-button-secondary">
+                  Explore the network <ArrowUpRight size={16} aria-hidden="true" />
+                </Link>
+              </div>
+              <p className="landing-note">
+                {isLoading ? "Checking your workspace…" : user ? primaryLabel : "Wallet sign-in · no password"}
+                {!isLoading && user ? <Link href={primaryHref}>Continue <ArrowRight size={13} aria-hidden="true" /></Link> : null}
+              </p>
             </div>
-
-            {/* Scroll hint */}
-            <div className="mt-16 flex items-center gap-3 text-sm text-muted-foreground">
-              <span className="h-px w-8 bg-border-strong" />
-              <span>Scroll to see how it works</span>
+            <div className="landing-hero-art">
+              <LandingHeroVisual />
             </div>
+          </div>
+          <div className="landing-hero-footer">
+            <span>BUYER → GATEWAY → PROVIDER</span>
+            <span>NETWORK ACCESS / DEVNET</span>
           </div>
         </section>
 
-        {/* Proof strip */}
-        <section className="border-b border-border" aria-label="Network proof points">
-          <div className="mx-auto grid max-w-[1120px] grid-cols-1 divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-            {[
-              { value: "Devnet", label: "Test network" },
-              { value: "CONNECT", label: "Supported proxy protocol" },
-              { value: "SOL", label: "Test settlement asset" },
-            ].map((m) => (
-              <div key={m.label} className="px-6 py-10 sm:px-8">
-                <div className="font-data text-3xl font-semibold tabular-nums text-foreground">
-                  {m.value}
+        <section className="landing-proof" aria-label="Platform capabilities">
+          <div className="landing-proof-inner">
+            {proofPoints.map(({ label, value, icon: Icon }) => (
+              <div key={label} className="landing-proof-item">
+                <span className="landing-proof-icon"><Icon size={17} aria-hidden="true" /></span>
+                <div>
+                  <p>{label}</p>
+                  <strong>{value}</strong>
                 </div>
-                <div className="mt-2 text-sm text-muted-foreground">{m.label}</div>
+                <span className="landing-proof-rule" aria-hidden="true" />
               </div>
             ))}
           </div>
         </section>
 
-        {/* How it works */}
-        <section className="border-b border-border py-24 sm:py-32">
-          <div className="mx-auto max-w-[1120px] px-4 sm:px-6">
-            <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">How it works</h2>
-            <p className="mt-3 max-w-xl text-lg text-muted-foreground">
-              Three clear steps across the buyer and provider workspaces.
-            </p>
-            <ol className="mt-16 grid gap-12 sm:grid-cols-3">
-              {[
-                {
-                  step: "01",
-                  title: "Connect a wallet",
-                  desc: "Sign in with Solana. No passwords, no email gate.",
-                },
-                {
-                  step: "02",
-                  title: "Buy or sell capacity",
-                  desc: "Browse listings as a buyer, or register nodes and publish supply.",
-                },
-                {
-                  step: "03",
-                  title: "Connect and monitor",
-                  desc: "Use the supported gateway, then review session status and reported usage in your workspace.",
-                },
-              ].map((item) => (
-                <li key={item.step} className="group min-w-0">
-                  <div className="font-data text-sm text-primary transition-transform group-hover:-translate-y-0.5">
-                    {item.step}
-                  </div>
-                  <h3 className="mt-4 text-xl font-semibold tracking-tight">{item.title}</h3>
-                  <p className="mt-3 text-base leading-relaxed text-muted-foreground">{item.desc}</p>
-                </li>
-              ))}
-            </ol>
+        <section className="landing-section landing-process">
+          <div className="landing-section-heading">
+            <div>
+              <p className="landing-section-kicker">A path you can follow</p>
+              <h2>From offer to active session.</h2>
+            </div>
+            <p>Each step has a place in the product, so buyers and providers can keep track of what happens next.</p>
+          </div>
+          <ol className="landing-step-grid">
+            {steps.map((step) => (
+              <li key={step.number} className="landing-step-card">
+                <span className="landing-step-number">{step.number}</span>
+                <h3>{step.title}</h3>
+                <p>{step.description}</p>
+              </li>
+            ))}
+          </ol>
+        </section>
+
+        <section className="landing-audience-section">
+          <div className="landing-audience-inner">
+            <article className="landing-audience-card landing-buyer-card">
+              <p className="landing-section-kicker">For buyers / discover and connect</p>
+              <div className="landing-audience-icon"><Cable size={23} aria-hidden="true" /></div>
+              <h2>Find the right capacity for the work.</h2>
+              <p>Compare published location, price, capacity, and terms. Keep orders, connection details, and reported usage together.</p>
+              <Link href={ROUTES.marketplace}>
+                Browse marketplace <ArrowRight size={16} aria-hidden="true" />
+              </Link>
+              <span className="landing-card-index">01 — BUYER WORKSPACE</span>
+            </article>
+            <article className="landing-audience-card landing-provider-card">
+              <p className="landing-section-kicker">For providers / publish supply</p>
+              <div className="landing-audience-icon"><Server size={23} aria-hidden="true" /></div>
+              <h2>Bring your nodes into the network.</h2>
+              <p>Register nodes, shape your offer, and review activity and earnings from the provider workspace.</p>
+              <Link href={ROUTES.seller}>
+                Explore provider tools <ArrowRight size={16} aria-hidden="true" />
+              </Link>
+              <span className="landing-card-index">02 — PROVIDER WORKSPACE</span>
+            </article>
           </div>
         </section>
 
-        {/* Buyer / provider split */}
-        <section className="border-b border-border py-24 sm:py-32">
-          <div className="mx-auto grid max-w-[1120px] gap-8 px-4 sm:px-6 md:grid-cols-2">
-            <div className="group border border-border bg-card p-10 transition-colors hover:border-[var(--border-strong)] sm:p-12">
-              <h2 className="text-2xl font-semibold tracking-tight">For buyers</h2>
-              <p className="mt-4 text-base leading-relaxed text-muted-foreground">
-                Compare listed price, capacity, location, and terms. Review orders, credentials, and reported usage in Activity.
-              </p>
-              <Link
-                href={ROUTES.marketplace}
-                className="mt-8 inline-flex items-center gap-2 text-base font-medium text-primary transition-colors hover:gap-3"
-              >
-                Browse marketplace
-                <span aria-hidden>→</span>
-              </Link>
+        <section className="landing-records">
+          <div className="landing-records-content">
+            <div>
+              <p className="landing-section-kicker">Public network records</p>
+              <h2>Inspect the network without signing in.</h2>
+              <p>Explore reported nodes, indexed ledger records, network health, and governance activity in one public surface.</p>
             </div>
-            <div className="group border border-border bg-card p-10 transition-colors hover:border-[var(--border-strong)] sm:p-12">
-              <h2 className="text-2xl font-semibold tracking-tight">For providers</h2>
-              <p className="mt-4 text-base leading-relaxed text-muted-foreground">
-                Set up nodes, publish offers, and review reported earnings in the provider workspace.
-              </p>
-              <Link
-                href={ROUTES.seller}
-                className="mt-8 inline-flex items-center gap-2 text-base font-medium text-primary transition-colors hover:gap-3"
-              >
-                Become a provider
-                <span aria-hidden>→</span>
+            <div className="landing-record-links">
+              <Link href={ROUTES.explorer} className="landing-button landing-button-primary">
+                Open Explorer <ArrowUpRight size={16} aria-hidden="true" />
               </Link>
+              <Link href={ROUTES.explorerHealth} className="landing-record-secondary">Network health <ArrowRight size={15} aria-hidden="true" /></Link>
             </div>
           </div>
+          <div className="landing-record-stamp" aria-hidden="true">PUBLIC<br />BY DESIGN</div>
         </section>
-
-        {/* Network teaser */}
-        <section className="border-b border-border py-24 sm:py-32">
-          <div className="mx-auto max-w-[1120px] px-4 sm:px-6">
-            <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">Public network records</h2>
-            <p className="mt-3 max-w-xl text-lg text-muted-foreground">
-              Inspect reported nodes, indexed ledger records, health, and governance evidence without signing in.
-            </p>
-            <div className="mt-10 flex flex-wrap gap-4">
-              <Link
-                href={ROUTES.explorer}
-                className="inline-flex h-12 items-center rounded-[var(--radius-md)] border border-[var(--border-strong)] px-6 text-base font-medium transition-colors hover:bg-secondary"
-              >
-                Open explorer
-              </Link>
-              <Link
-                href={ROUTES.explorerHealth}
-                className="inline-flex h-12 items-center rounded-[var(--radius-md)] px-6 text-base font-medium text-muted-foreground transition-colors hover:text-foreground"
-              >
-                Network health
-              </Link>
-            </div>
-          </div>
-        </section>
-
-        <footer className="py-20">
-          <div className="mx-auto max-w-[1120px] px-4 sm:px-6">
-            <div className="grid grid-cols-2 gap-12 md:grid-cols-4">
-              <div className="col-span-2 md:col-span-1">
-                <div className="flex items-center gap-2.5">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] bg-primary text-primary-foreground font-data text-sm font-bold">
-                    PH
-                  </span>
-                  <span className="font-data text-sm font-semibold tracking-[0.12em] uppercase">
-                    ProxyHubb
-                  </span>
-                </div>
-                <p className="mt-5 text-sm leading-relaxed text-muted-foreground">
-                  Quiet infrastructure for residential proxy bandwidth.
-                </p>
-              </div>
-              <div>
-                <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Platform
-                </h3>
-                <ul className="mt-5 space-y-3 text-sm">
-                  {FOOTER_PLATFORM_LINKS.map((item) => (
-                    <li key={item.href}>
-                      <Link href={item.href} className="text-foreground/80 transition-colors hover:text-primary">
-                        {item.label}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <div>
-                <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Support
-                </h3>
-                <ul className="mt-5 space-y-3 text-sm">
-                  {FOOTER_SUPPORT_LINKS.map((item) => (
-                    <li key={item.href}>
-                      <Link href={item.href} className="text-foreground/80 transition-colors hover:text-primary">
-                        {item.label}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <div>
-                <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Legal
-                </h3>
-                <ul className="mt-5 space-y-3 text-sm">
-                  {FOOTER_LEGAL_LINKS.map((item) => (
-                    <li key={item.href}>
-                      <Link href={item.href} className="text-foreground/80 transition-colors hover:text-primary">
-                        {item.label}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-            <div className="mt-16 border-t border-border pt-8 font-data text-xs text-muted-foreground">
-              © {new Date().getFullYear()} ProxyHubb. All rights reserved.
-            </div>
-          </div>
-        </footer>
       </main>
+
+      <footer className="landing-footer">
+        <div className="landing-footer-grid">
+          <div className="landing-footer-brand">
+            <Link href={ROUTES.home} className="marketing-brand">
+              <span className="marketing-brand-mark" aria-hidden="true">PH</span>
+              <span className="marketing-brand-name">ProxyHubb</span>
+            </Link>
+            <p>Proxy infrastructure, with a clear line from offer to usage.</p>
+          </div>
+          <div>
+            <h3>Platform</h3>
+            <ul>{FOOTER_PLATFORM_LINKS.map((item) => <li key={item.href}><Link href={item.href}>{item.label}</Link></li>)}</ul>
+          </div>
+          <div>
+            <h3>Support</h3>
+            <ul>{FOOTER_SUPPORT_LINKS.map((item) => <li key={item.href}><Link href={item.href}>{item.label}</Link></li>)}</ul>
+          </div>
+          <div>
+            <h3>Legal</h3>
+            <ul>{FOOTER_LEGAL_LINKS.map((item) => <li key={item.href}><Link href={item.href}>{item.label}</Link></li>)}</ul>
+          </div>
+        </div>
+        <div className="landing-footer-bottom">
+          <span>© {new Date().getFullYear()} ProxyHubb</span>
+          <span>NETWORK ACCESS / DEVNET</span>
+        </div>
+      </footer>
     </div>
   );
 }

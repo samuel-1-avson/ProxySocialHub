@@ -12,12 +12,12 @@ const destinations = [
     label: "Browse marketplace",
   },
   {
-    eyebrow: "Seller workspace",
+    eyebrow: "Provider workspace",
     title: "Manage provider supply",
     description:
       "Register a node, configure its connection, publish an offer, and review recorded earnings from the provider workspace.",
     href: "/provider",
-    label: "Open seller workspace",
+    label: "Open provider workspace",
   },
   {
     eyebrow: "Public evidence",
@@ -31,7 +31,7 @@ const destinations = [
 
 export function DePINPortal() {
   return (
-    <main className="min-h-screen bg-background px-4 py-12 text-foreground sm:px-6 lg:py-16">
+    <div className="protocol-page py-4 text-foreground lg:py-8">
       <div className="mx-auto w-full max-w-6xl">
         <header className="max-w-3xl">
           <p className="mb-3 text-sm font-medium text-muted-foreground">
@@ -100,7 +100,10 @@ export function DePINPortal() {
                   href={destination.href}
                   className="mt-5 inline-flex min-h-10 w-fit items-center rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                 >
-                  {destination.label} <span aria-hidden="true" className="ml-2">→</span>
+                  {destination.label}{" "}
+                  <span aria-hidden="true" className="ml-2">
+                    →
+                  </span>
                 </Link>
               </article>
             ))}
@@ -127,12 +130,14 @@ export function DePINPortal() {
           <Link className="underline underline-offset-4" href="/help">
             Read the help center
           </Link>
-          <span aria-hidden="true" className="mx-2">·</span>
+          <span aria-hidden="true" className="mx-2">
+            ·
+          </span>
           <Link className="underline underline-offset-4" href="/">
             Return to ProxyHubb
           </Link>
         </footer>
       </div>
-    </main>
+    </div>
   );
 }

@@ -1,39 +1,52 @@
-'use client';
+"use client";
 
-import { useEffect } from 'react';
+import { useEffect } from "react";
+import Link from "next/link";
+import { ArrowLeft, RefreshCw, Unplug } from "lucide-react";
 
 export default function Error({
-    error,
-    reset,
+  error,
+  reset,
 }: {
-    error: Error & { digest?: string };
-    reset: () => void;
+  error: Error & { digest?: string };
+  reset: () => void;
 }) {
-    useEffect(() => {
-        // Log the error to an error reporting service
-        console.error('Application error:', error);
-    }, [error]);
-
-    return (
-        <div className="flex h-[calc(100vh-4rem)] flex-col items-center justify-center gap-4 text-center">
-            <h2 className="text-2xl font-bold tracking-tight">Something went wrong!</h2>
-            <p className="text-muted-foreground max-w-[500px]">
-                {error.message || 'An unexpected error occurred. Please try again later.'}
-            </p>
-            <div className="flex gap-2">
-                <button
-                    onClick={() => window.location.href = '/'}
-                    className="rounded-md bg-secondary px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary/90"
-                >
-                    Go Home
-                </button>
-                <button
-                    onClick={() => reset()}
-                    className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-                >
-                    Try again
-                </button>
-            </div>
-        </div>
-    );
+  useEffect(() => {
+    console.error("Application error:", error);
+  }, [error]);
+  return (
+    <main
+      className="public-status error-status"
+      id="main-content"
+      tabIndex={-1}
+    >
+      <div className="public-status-icon">
+        <Unplug size={38} aria-hidden="true" />
+      </div>
+      <p className="ui-eyebrow">Connection interrupted</p>
+      <h1>This view couldn’t be loaded.</h1>
+      <p>
+        Try loading it again. If the issue continues, return home or contact
+        support with the reference below.
+      </p>
+      {error.digest && (
+        <code className="public-error-reference">
+          Reference · {error.digest}
+        </code>
+      )}
+      <div className="public-reading-actions">
+        <button type="button" className="ui-button" onClick={reset}>
+          <RefreshCw size={15} aria-hidden="true" />
+          Try again
+        </button>
+        <Link href="/" className="ui-button secondary">
+          <ArrowLeft size={15} aria-hidden="true" />
+          Go home
+        </Link>
+        <Link href="/contact" className="ui-link">
+          Contact support
+        </Link>
+      </div>
+    </main>
+  );
 }

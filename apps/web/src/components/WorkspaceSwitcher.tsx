@@ -33,9 +33,9 @@ export function WorkspaceSwitcher({
       >
         <option value="buyer">Buyer workspace</option>
         {canSell ? (
-          <option value="seller">Seller workspace</option>
+          <option value="seller">Provider workspace</option>
         ) : (
-          <option value="apply">Start selling…</option>
+          <option value="apply">Become a provider…</option>
         )}
       </select>
     </label>

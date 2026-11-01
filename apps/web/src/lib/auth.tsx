@@ -492,7 +492,7 @@ export function isAuthenticated(): boolean {
 
 // Helper to make authenticated API calls
 export async function fetchWithAuth(url: string, options: RequestInit = {}) {
-  let token = await refreshAccessToken();
+  const token = await refreshAccessToken();
 
   if (!token) {
     throw new Error('Not authenticated');

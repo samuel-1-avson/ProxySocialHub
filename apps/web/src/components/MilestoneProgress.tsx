@@ -88,7 +88,7 @@ export function MilestoneProgress({ className }: MilestoneProgressProps) {
                     </div>
                     <div>
                         <h3 className="text-white font-bold">Elite Status!</h3>
-                        <p className="text-sm text-white/60">You've achieved all milestones</p>
+                        <p className="text-sm text-white/60">You&#39;ve achieved all milestones</p>
                     </div>
                 </div>
                 <div className="mt-3 text-2xl font-black text-emerald-400">

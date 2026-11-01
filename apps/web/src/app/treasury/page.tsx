@@ -1,257 +1,322 @@
-'use client';
+"use client";
 
-import React, { useEffect, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import Link from 'next/link';
-import { GlassCard } from '@/components/ui/glass-card';
-import { getPublicTreasury, type WalletBalanceView } from '@/lib/api/treasury';
-import { ArrowLeft, ExternalLink, Wallet, Shield, Activity } from 'lucide-react';
+import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
+import {
+  ArrowLeft,
+  ArrowUpRight,
+  Landmark,
+  RefreshCw,
+  ShieldCheck,
+  Wallet,
+} from "lucide-react";
+import { getPublicTreasury, type WalletBalanceView } from "@/lib/api/treasury";
+import { CopyValue } from "@/components/workspace/CopyValue";
+import {
+  DataError,
+  EmptyState,
+  Loading,
+  PageHeading,
+  Stat,
+  Status,
+  amount,
+  shortDate,
+} from "@/components/workspace/Patterns";
 
-function formatSOL(n: number) {
-    return n.toLocaleString(undefined, { maximumFractionDigits: 4 });
+function balance(wallet?: WalletBalanceView) {
+  if (!wallet?.address) return "Not configured";
+  return wallet.balance_unavailable || !Number.isFinite(wallet.balance_sol)
+    ? "Unavailable"
+    : amount(wallet.balance_sol, 9) + " SOL";
 }
-
-function balanceLabel(wallet: WalletBalanceView | undefined, emptyLabel: string) {
-    if (!wallet?.address) return emptyLabel;
-    if (wallet.balance_unavailable) return 'Unavailable';
-    return `${formatSOL(wallet.balance_sol ?? 0)} SOL`;
+function external(value?: string) {
+  try {
+    return value && new URL(value).protocol === "https:" ? value : null;
+  } catch {
+    return null;
+  }
 }
-
 export default function TreasuryPage() {
-    const [mounted, setMounted] = useState(false);
-    useEffect(() => { setMounted(true); }, []);
-
-    const { data, isLoading, error, refetch, isFetching } = useQuery({
-        queryKey: ['treasury-public'],
-        queryFn: ({ signal }) => getPublicTreasury(signal),
-        refetchInterval: 60_000,
-    });
-
-    const treasury = data?.treasury;
-    const cluster = data?.network === 'mainnet-beta' || data?.network === 'mainnet' ? 'mainnet' : data?.network;
-    const rpcDegraded = treasury?.status === 'RPC_UNAVAILABLE'
-        || treasury?.hot?.balance_unavailable
-        || treasury?.cold?.balance_unavailable;
-
+  const query = useQuery({
+    queryKey: ["treasury-public"],
+    queryFn: ({ signal }) => getPublicTreasury(signal),
+    refetchInterval: 60_000,
+  });
+  const data = query.data;
+  const treasury = data?.treasury;
+  const degraded =
+    treasury?.status === "RPC_UNAVAILABLE" ||
+    treasury?.hot?.balance_unavailable ||
+    treasury?.cold?.balance_unavailable ||
+    treasury?.vault?.balance_unavailable;
+  const network = data?.network;
+  function accountUrl(address: string) {
+    if (
+      !["mainnet", "mainnet-beta", "devnet", "testnet"].includes(network || "")
+    )
+      return null;
     return (
-        <div className="min-h-screen bg-[#050508] text-white pb-24">
-            <div className="max-w-5xl mx-auto px-4 pt-8">
-                <Link
-                    href="/explorer"
-                    className="inline-flex items-center gap-2 text-white/40 hover:text-white text-xs font-black uppercase tracking-widest mb-8"
+      "https://solscan.io/account/" +
+      encodeURIComponent(address) +
+      (network === "devnet" || network === "testnet"
+        ? "?cluster=" + network
+        : "")
+    );
+  }
+  return (
+    <div className="ui-page treasury-page">
+      <Link href="/explorer" className="ui-button ghost self-start">
+        <ArrowLeft size={15} />
+        Explorer
+      </Link>
+      <PageHeading
+        eyebrow="Public records / Treasury"
+        title="Platform treasury"
+        description="Inspect reported wallet balances, liquidity, and provider batch payouts without signing in."
+        actions={
+          <button
+            type="button"
+            className="ui-button secondary"
+            disabled={query.isFetching}
+            onClick={() => void query.refetch()}
+          >
+            <RefreshCw
+              size={15}
+              className={query.isFetching ? "animate-spin" : ""}
+            />
+            Refresh records
+          </button>
+        }
+      />
+      {query.isPending && <Loading label="Loading public treasury records…" />}
+      {query.isError && (
+        <DataError
+          title="Treasury records are unavailable"
+          error={query.error}
+          retry={() => void query.refetch()}
+        />
+      )}
+      {degraded && (
+        <p className="workflow-note" role="status">
+          The RPC service could not refresh one or more balances. Configured
+          addresses remain visible; unavailable balances are not shown as zero.
+        </p>
+      )}
+      <div className="ui-stats">
+        <Stat
+          label="Hot wallet"
+          value={data ? balance(treasury?.hot) : "—"}
+          detail="Reported operational wallet balance"
+          icon={<Wallet size={18} />}
+        />
+        <Stat
+          label="Cold wallet"
+          value={data ? balance(treasury?.cold) : "—"}
+          detail="Reported reserve wallet balance"
+          icon={<ShieldCheck size={18} />}
+        />
+        <Stat
+          label="Lifetime provider payouts"
+          value={
+            data ? amount(data.lifetime_provider_paid_sol, 9) + " SOL" : "—"
+          }
+          detail={
+            network
+              ? "Native settlement · " + network
+              : "Settlement network unavailable"
+          }
+          icon={<Landmark size={18} />}
+        />
+      </div>
+      {data && (
+        <>
+          <div className="treasury-record-header ui-surface">
+            <div>
+              <p className="ui-eyebrow">Reported service state</p>
+              <h2>
+                {treasury?.status?.replace(/_/g, " ") ||
+                  "Treasury state unavailable"}
+              </h2>
+              <p>
+                Network · {network || "Not reported"}
+                {treasury?.last_checked_at
+                  ? " · Last checked " +
+                    new Date(treasury.last_checked_at).toLocaleString()
+                  : ""}
+              </p>
+            </div>
+            <div className="ui-actions">
+              <Status tone={data.oracle_configured ? "good" : "warning"}>
+                Oracle{" "}
+                {data.oracle_configured ? "configured" : "not configured"}
+              </Status>
+              <Status tone={data.operational_healthy ? "good" : "warning"}>
+                {data.operational_healthy
+                  ? "Operational health reported"
+                  : "Operational health degraded"}
+              </Status>
+            </div>
+          </div>
+          <div className="treasury-wallets">
+            {[
+              ["Hot wallet", treasury?.hot],
+              ["Cold wallet", treasury?.cold],
+              ["Deposit vault", treasury?.vault],
+            ].map(([label, value]) => {
+              const wallet = value as WalletBalanceView | undefined;
+              const href = wallet?.address ? accountUrl(wallet.address) : null;
+              return (
+                <section
+                  className="ui-surface treasury-wallet"
+                  key={label as string}
                 >
-                    <ArrowLeft size={14} /> Explorer
-                </Link>
-
-                <div className="mb-10">
-                    <p className="text-[10px] font-black text-emerald-400/80 uppercase tracking-[0.3em] mb-2">Transparency</p>
-                    <h1 className="text-4xl font-black tracking-tighter uppercase">Platform Treasury</h1>
-                    <p className="text-white/40 text-sm mt-2 max-w-xl">
-                        On-chain hot and cold balances, recent provider batch payouts, and network health. No login required.
-                    </p>
-                </div>
-
-                {error && (
-                    <GlassCard className="!p-6 border border-rose-500/30 mb-6">
-                        <p className="text-rose-400 text-sm">{(error as Error).message}</p>
-                        <button
-                            type="button"
-                            onClick={() => refetch()}
-                            className="mt-3 text-xs font-black uppercase tracking-widest text-white/60 hover:text-white"
+                  <p className="ui-eyebrow">{label as string}</p>
+                  <h2>{balance(wallet)}</h2>
+                  {wallet?.address ? (
+                    <>
+                      <CopyValue
+                        label={String(label) + " address"}
+                        value={wallet.address}
+                      />
+                      {href && (
+                        <a
+                          className="ui-link"
+                          href={href}
+                          target="_blank"
+                          rel="noopener noreferrer"
                         >
-                            Retry
-                        </button>
-                    </GlassCard>
-                )}
-
-                {rpcDegraded && (
-                    <GlassCard className="!p-4 border border-amber-500/30 mb-6">
-                        <p className="text-amber-300/90 text-xs">
-                            Solana RPC could not refresh balances. Addresses below are still configured — try again shortly.
-                        </p>
-                    </GlassCard>
-                )}
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-                    <GlassCard className="!p-5 border border-white/5">
-                        <Wallet size={18} className="text-emerald-400/70 mb-3" />
-                        <div className="text-[9px] font-black text-white/30 uppercase tracking-widest">Hot wallet</div>
-                        <div className="text-2xl font-black mt-1">
-                            {mounted && !isLoading
-                                ? balanceLabel(treasury?.hot, 'Not configured')
-                                : '—'}
-                        </div>
-                        {treasury?.hot?.needs_replenish && !treasury.hot.balance_unavailable && (
-                            <p className="text-[9px] text-amber-400 font-black uppercase tracking-widest mt-2">Below minimum</p>
+                          View on Solscan
+                          <ArrowUpRight size={13} />
+                        </a>
+                      )}
+                      {wallet.needs_replenish &&
+                        !wallet.balance_unavailable && (
+                          <Status tone="warning">
+                            Below the reported minimum
+                          </Status>
                         )}
-                    </GlassCard>
-                    <GlassCard className="!p-5 border border-white/5">
-                        <Shield size={18} className="text-blue-400/70 mb-3" />
-                        <div className="text-[9px] font-black text-white/30 uppercase tracking-widest">Cold wallet</div>
-                        <div className="text-2xl font-black mt-1">
-                            {mounted && !isLoading
-                                ? balanceLabel(treasury?.cold, 'Not configured')
-                                : '—'}
-                        </div>
-                    </GlassCard>
-                    <GlassCard className="!p-5 border border-white/5">
-                        <Activity size={18} className="text-violet-400/70 mb-3" />
-                        <div className="text-[9px] font-black text-white/30 uppercase tracking-widest">Lifetime paid</div>
-                        <div className="text-2xl font-black mt-1">
-                            {mounted && !isLoading ? formatSOL(data?.lifetime_provider_paid_sol ?? 0) : '—'} SOL
-                        </div>
-                        <p className="text-[9px] text-white/30 mt-2">
-                            Native settlement: SOL · {data?.network ?? '—'}
-                        </p>
-                    </GlassCard>
+                    </>
+                  ) : (
+                    <p>No wallet address has been reported for this role.</p>
+                  )}
+                </section>
+              );
+            })}
+          </div>
+          {treasury?.liquidity && (
+            <section className="ui-surface treasury-liquidity">
+              <div className="ui-section-heading">
+                <div>
+                  <p className="ui-eyebrow">Liquidity observation</p>
+                  <h2>Payout queue & funding</h2>
                 </div>
-
-                {(treasury?.vault?.address || treasury?.liquidity) && (
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-                        {treasury?.vault?.address && (
-                            <GlassCard className="!p-5 border border-white/5">
-                                <div className="text-[9px] font-black text-white/30 uppercase tracking-widest">Deposit vault</div>
-                                <div className="text-2xl font-black mt-1">
-                                    {mounted && !isLoading
-                                        ? balanceLabel(treasury.vault, '—')
-                                        : '—'}
-                                </div>
-                            </GlassCard>
-                        )}
-                        <GlassCard className="!p-5 border border-white/5">
-                            <div className="text-[9px] font-black text-white/30 uppercase tracking-widest">Payout queue</div>
-                            <div className="text-2xl font-black mt-1">
-                                {mounted && !isLoading ? (treasury?.liquidity?.queue_depth ?? 0) : '—'}
-                            </div>
-                            {(treasury?.liquidity?.queue_oldest_age_secs ?? 0) > 0 && (
-                                <p className="text-[9px] text-white/30 mt-2">
-                                    Oldest ~{Math.round((treasury?.liquidity?.queue_oldest_age_secs ?? 0) / 60)} min
-                                </p>
-                            )}
-                        </GlassCard>
-                        <GlassCard className="!p-5 border border-white/5">
-                            <div className="text-[9px] font-black text-white/30 uppercase tracking-widest">Last vault→hot</div>
-                            <div className="text-lg font-black mt-1">
-                                {mounted && !isLoading && treasury?.liquidity?.last_topup_sol
-                                    ? `${formatSOL(treasury.liquidity.last_topup_sol)} SOL`
-                                    : '—'}
-                            </div>
-                            {treasury?.liquidity?.last_topup_at && (
-                                <p className="text-[9px] text-white/30 mt-2 font-mono">
-                                    {new Date(treasury.liquidity.last_topup_at).toLocaleString()}
-                                    {treasury.liquidity.last_topup_source
-                                        ? ` · ${treasury.liquidity.last_topup_source}`
-                                        : ''}
-                                </p>
-                            )}
-                        </GlassCard>
-                    </div>
-                )}
-
-                {treasury?.hot?.address && (
-                    <GlassCard className="!p-6 border border-white/5 mb-8">
-                        <h2 className="text-sm font-black uppercase tracking-tighter mb-4">Addresses</h2>
-                        <dl className="space-y-3 text-sm">
-                            <div>
-                                <dt className="text-[9px] font-black text-white/30 uppercase tracking-widest">Hot</dt>
-                                <dd className="font-mono text-xs break-all mt-1">{treasury.hot.address}</dd>
-                            </div>
-                            {treasury.cold?.address && (
-                                <div>
-                                    <dt className="text-[9px] font-black text-white/30 uppercase tracking-widest">Cold</dt>
-                                    <dd className="font-mono text-xs break-all mt-1">{treasury.cold.address}</dd>
-                                </div>
-                            )}
-                            {treasury.vault?.address && (
-                                <div>
-                                    <dt className="text-[9px] font-black text-white/30 uppercase tracking-widest">Vault</dt>
-                                    <dd className="font-mono text-xs break-all mt-1">{treasury.vault.address}</dd>
-                                </div>
-                            )}
-                            <div>
-                                <dt className="text-[9px] font-black text-white/30 uppercase tracking-widest">Combined</dt>
-                                <dd className="font-black mt-1">
-                                    {treasury.hot.balance_unavailable || treasury.cold?.balance_unavailable
-                                        ? `Balances unavailable · ${treasury.status}`
-                                        : `${formatSOL(treasury.combined_balance_sol)} SOL · ${treasury.status}`}
-                                </dd>
-                            </div>
-                        </dl>
-                        <div className="flex flex-wrap gap-3 mt-4">
-                            <a
-                                href={`https://solscan.io/account/${treasury.hot.address}${cluster && cluster !== 'mainnet' ? `?cluster=${cluster}` : ''}`}
+              </div>
+              <dl className="detail-spec-grid">
+                <div>
+                  <dt>Queued payouts</dt>
+                  <dd>{amount(treasury.liquidity.queue_depth, 0)}</dd>
+                </div>
+                <div>
+                  <dt>Oldest queued payout</dt>
+                  <dd>
+                    {treasury.liquidity.queue_oldest_age_secs != null
+                      ? amount(
+                          treasury.liquidity.queue_oldest_age_secs / 60,
+                          1,
+                        ) + " minutes"
+                      : "Not reported"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Last vault top-up</dt>
+                  <dd>
+                    {treasury.liquidity.last_topup_sol != null
+                      ? amount(treasury.liquidity.last_topup_sol, 9) + " SOL"
+                      : "Not reported"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Top-up record</dt>
+                  <dd>
+                    {treasury.liquidity.last_topup_at
+                      ? shortDate(treasury.liquidity.last_topup_at)
+                      : "No date reported"}
+                    {treasury.liquidity.last_topup_source
+                      ? " · " + treasury.liquidity.last_topup_source
+                      : ""}
+                  </dd>
+                </div>
+              </dl>
+            </section>
+          )}
+          <section>
+            <div className="ui-section-heading">
+              <div>
+                <p className="ui-eyebrow">Distribution records</p>
+                <h2>Recent batch payouts</h2>
+              </div>
+              <span className="ui-subtle">
+                {data.recent_batch_payouts?.length ?? 0} records
+              </span>
+            </div>
+            {!data.recent_batch_payouts?.length ? (
+              <EmptyState
+                title="No payout records returned"
+                description="Reported provider batch payouts will appear here as they become available."
+              />
+            ) : (
+              <div className="ui-surface treasury-payouts">
+                <div className="record-table-scroll">
+                  <table className="record-table">
+                    <caption className="sr-only">
+                      Recent provider batch payouts
+                    </caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Amount</th>
+                        <th scope="col">Recipients</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Processed</th>
+                        <th scope="col">Transaction</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.recent_batch_payouts.map((payout) => (
+                        <tr key={payout.id}>
+                          <td>{amount(payout.total_amount, 9)} SOL</td>
+                          <td>
+                            {amount(payout.success_count, 0)} /{" "}
+                            {amount(payout.total_count, 0)}
+                          </td>
+                          <td>
+                            <Status>{payout.status}</Status>
+                          </td>
+                          <td>{shortDate(payout.processed_at)}</td>
+                          <td>
+                            {external(payout.solscan_url) ? (
+                              <a
+                                className="ui-link"
+                                href={external(payout.solscan_url)!}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-emerald-400/80 hover:text-emerald-300"
-                            >
-                                Solscan (hot) <ExternalLink size={12} />
-                            </a>
-                            {treasury.cold?.address && (
-                                <a
-                                    href={`https://solscan.io/account/${treasury.cold.address}${cluster && cluster !== 'mainnet' ? `?cluster=${cluster}` : ''}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-blue-400/80 hover:text-blue-300"
-                                >
-                                    Solscan (cold) <ExternalLink size={12} />
-                                </a>
+                              >
+                                View transaction
+                                <ArrowUpRight size={12} />
+                              </a>
+                            ) : (
+                              "Not reported"
                             )}
-                            {treasury.vault?.address && (
-                                <a
-                                    href={`https://solscan.io/account/${treasury.vault.address}${cluster && cluster !== 'mainnet' ? `?cluster=${cluster}` : ''}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-violet-400/80 hover:text-violet-300"
-                                >
-                                    Solscan (vault) <ExternalLink size={12} />
-                                </a>
-                            )}
-                        </div>
-                    </GlassCard>
-                )}
-
-                <GlassCard className="!p-6 border border-white/5">
-                    <div className="flex items-center justify-between mb-4">
-                        <h2 className="text-sm font-black uppercase tracking-tighter">Recent batch payouts</h2>
-                        {isFetching && (
-                            <span className="text-[9px] text-white/30 font-black uppercase tracking-widest">Updating…</span>
-                        )}
-                    </div>
-                    {!data?.recent_batch_payouts?.length && !isLoading && (
-                        <p className="text-white/30 text-sm">No completed batch payouts yet.</p>
-                    )}
-                    <ul className="space-y-3">
-                        {(data?.recent_batch_payouts ?? []).map((p) => (
-                            <li
-                                key={p.id}
-                                className="flex flex-wrap items-center justify-between gap-2 py-3 border-b border-white/5 last:border-0"
-                            >
-                                <div>
-                                    <span className="text-xs font-black">{formatSOL(p.total_amount)} SOL</span>
-                                    <span className="text-[9px] text-white/30 ml-2 uppercase tracking-widest">
-                                        {p.success_count}/{p.total_count} · {p.status}
-                                    </span>
-                                </div>
-                                {p.solscan_url && (
-                                    <a
-                                        href={p.solscan_url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-white/50 hover:text-white"
-                                    >
-                                        Tx <ExternalLink size={12} />
-                                    </a>
-                                )}
-                            </li>
-                        ))}
-                    </ul>
-                </GlassCard>
-
-                <p className="text-center text-[9px] text-white/20 font-black uppercase tracking-widest mt-8">
-                    Oracle {data?.oracle_configured ? 'online' : 'offline'} ·{' '}
-                    {data?.operational_healthy ? 'operational healthy' : 'degraded'}
-                </p>
-            </div>
-        </div>
-    );
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </section>
+        </>
+      )}
+    </div>
+  );
 }

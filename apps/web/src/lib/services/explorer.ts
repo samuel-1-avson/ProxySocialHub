@@ -103,7 +103,7 @@ export interface TransactionDetail extends TransactionSummary {
     block_number: number;
     program_id?: string;
     confirmations: number;
-    raw_data?: any;
+    raw_data?: unknown;
 }
 
 export interface ContractSummary {
@@ -134,7 +134,7 @@ export interface ContractDetails {
     deployer_address?: string;
     description?: string;
     source_code?: string;
-    abi?: any;
+    abi?: unknown;
 }
 
 export interface NetworkHealth {
@@ -344,7 +344,7 @@ export async function getNodeGeo(activeOnly = false, validatorOnly = false, sign
     return response.json();
 }
 
-export async function getBandwidthStats(period = '24h', signal?: AbortSignal): Promise<any> {
+export async function getBandwidthStats(period = '24h', signal?: AbortSignal): Promise<Record<string, unknown>> {
     const response = await xfetch(`${API_BASE_URL}/v1/explorer/bandwidth?period=${period}`, signal);
     if (!response.ok) throw new Error('Failed to fetch bandwidth stats');
     return response.json();
