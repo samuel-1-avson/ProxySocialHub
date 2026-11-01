@@ -22,6 +22,7 @@ import {
 } from "@/lib/navigation/workspace";
 import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
 import { Modal } from "@/components/patterns/Modal";
+import { BrandLockup } from "@/components/BrandLockup";
 import { ThemeSelect } from "./ThemeSelect";
 export function WorkspaceHeader() {
   const { user, logout } = useAuth();
@@ -62,14 +63,15 @@ export function WorkspaceHeader() {
   return (
     <>
       <header className="workspace-header">
-        <Link className="workspace-mobile-brand" href={mode === "seller" ? "/provider" : "/app"}>
-          <span className="workspace-mark" aria-hidden="true">PH</span>
-          <span>ProxyHubb</span>
-        </Link>
+        <BrandLockup
+          className="workspace-mobile-brand"
+          href={mode === "seller" ? "/provider" : "/app"}
+        />
         <button
           className="workspace-search-trigger"
           onClick={() => setSearchOpen(true)}
           title="Search workspace"
+          aria-label="Search workspace"
           aria-keyshortcuts="Control+k Meta+k"
         >
           <Search size={17} aria-hidden="true" />

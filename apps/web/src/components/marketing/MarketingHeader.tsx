@@ -6,7 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ArrowUpRight, Menu, X } from "lucide-react";
 import { ModeToggle } from "@/components/ModeToggle";
-import { BrandMonogram } from "@/components/BrandMonogram";
+import { BrandLockup } from "@/components/BrandLockup";
 import { useAuth } from "@/lib/auth";
 import { ROUTES } from "@/lib/navigation/routes";
 
@@ -61,10 +61,11 @@ export function MarketingHeader() {
   return (
     <header className="marketing-header sticky top-0 z-50">
       <div className="marketing-header-inner mx-auto flex h-16 max-w-[1320px] items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
-        <Link href={ROUTES.home} className="marketing-brand" aria-label="ProxyHubb home" onClick={() => setMenuOpen(false)}>
-          <span className="marketing-brand-mark" aria-hidden="true"><BrandMonogram /></span>
-          <span className="marketing-brand-name">ProxyHubb</span>
-        </Link>
+        <BrandLockup
+          href={ROUTES.home}
+          ariaLabel="ProxyHubb home"
+          onClick={() => setMenuOpen(false)}
+        />
 
         <nav className="marketing-desktop-nav hidden items-center gap-1 lg:flex" aria-label="Primary">
           {navigation()}

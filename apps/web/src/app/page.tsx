@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowRight, ArrowUpRight, Cable, Server, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { MarketingHeader } from "@/components/marketing/MarketingHeader";
+import { BrandLockup } from "@/components/BrandLockup";
 import { LandingHeroVisual } from "@/components/marketing/LandingHeroVisual";
 import {
   FOOTER_LEGAL_LINKS,
@@ -163,10 +164,7 @@ export default function Home() {
       <footer className="landing-footer">
         <div className="landing-footer-grid">
           <div className="landing-footer-brand">
-            <Link href={ROUTES.home} className="marketing-brand">
-              <span className="marketing-brand-mark" aria-hidden="true">PH</span>
-              <span className="marketing-brand-name">ProxyHubb</span>
-            </Link>
+            <BrandLockup href={ROUTES.home} />
             <p>Proxy infrastructure, with a clear line from offer to usage.</p>
           </div>
           <div>

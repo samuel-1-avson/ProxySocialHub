@@ -4,18 +4,14 @@ import {
   FOOTER_PLATFORM_LINKS,
   FOOTER_SUPPORT_LINKS,
 } from "@/lib/navigation/routes";
+import { BrandLockup } from "@/components/BrandLockup";
 
 export function MarketingFooter() {
   return (
     <footer className="landing-footer">
       <div className="landing-footer-grid">
         <div className="landing-footer-brand">
-          <Link href="/" className="marketing-brand">
-            <span className="marketing-brand-mark" aria-hidden="true">
-              PH
-            </span>
-            <span className="marketing-brand-name">ProxyHubb</span>
-          </Link>
+          <BrandLockup href="/" />
           <p>Proxy infrastructure, with a clear line from offer to usage.</p>
         </div>
         {[
