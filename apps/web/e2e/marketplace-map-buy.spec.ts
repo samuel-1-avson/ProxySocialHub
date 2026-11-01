@@ -72,11 +72,11 @@ test.describe("marketplace map buy-from-map", () => {
     await page.getByTestId("marketplace-map-buy-btn").click();
     const error = page
       .getByRole("alert")
-      .filter({ hasText: "Couldn’t load purchase terms" });
+      .filter({ hasText: "Current offer terms are unavailable" });
     await expect(error).toBeVisible();
     await expect(page.getByTestId("buy-listing-modal")).toHaveCount(0);
     unavailable = false;
-    await error.getByRole("button", { name: "Try again" }).click();
+    await page.getByTestId("marketplace-map-buy-btn").click();
     await expect(page.getByTestId("buy-listing-modal")).toBeVisible({
       timeout: 15_000,
     });
@@ -112,11 +112,11 @@ test.describe("marketplace map buy-from-map", () => {
     await expect(page.getByTestId("buy-listing-modal-success")).toBeVisible({
       timeout: 20000,
     });
+    const credentials = page.getByTestId("marketplace-order-credentials");
+    await credentials.getByText("Use in another app or device").click();
+    await expect(credentials.getByText(mockProxyCredentials.endpoint.split(":")[0], { exact: true })).toBeVisible();
     await expect(
-      page.getByText(mockProxyCredentials.endpoint, { exact: true }),
-    ).toBeVisible();
-    await expect(
-      page.getByText(mockProxyCredentials.username, { exact: true }),
+      credentials.getByText(mockProxyCredentials.username, { exact: true }).first(),
     ).toBeVisible();
   });
 });

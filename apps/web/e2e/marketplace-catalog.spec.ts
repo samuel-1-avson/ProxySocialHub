@@ -113,6 +113,7 @@ test.describe('marketplace catalog browse + buy', () => {
         await expect(page.getByTestId('buy-listing-modal').getByRole('heading', { name: /buy with sol/i })).toBeVisible();
         await page.getByTestId('buy-listing-start-connection').click();
         await expect(page.getByTestId('buy-listing-modal-success')).toBeVisible({ timeout: 20_000 });
-        await expect(page.getByText(mockProxyCredentials.endpoint)).toBeVisible();
+        await page.getByTestId('marketplace-order-credentials').getByText('Use in another app or device').click();
+        await expect(page.getByTestId('marketplace-order-credentials').getByText(mockProxyCredentials.endpoint.split(':')[0], { exact: true })).toBeVisible();
     });
 });

@@ -69,11 +69,12 @@ export function WorkspaceHeader() {
         <button
           className="workspace-search-trigger"
           onClick={() => setSearchOpen(true)}
-          aria-label="Search workspace"
+          title="Search workspace"
+          aria-keyshortcuts="Control+k Meta+k"
         >
           <Search size={17} aria-hidden="true" />
           <span>Search workspace</span>
-          <kbd>Ctrl / ⌘ K</kbd>
+          <kbd aria-hidden="true">Ctrl / ⌘ K</kbd>
         </button>
         <div className="workspace-header-actions">
           <ThemeSelect />
