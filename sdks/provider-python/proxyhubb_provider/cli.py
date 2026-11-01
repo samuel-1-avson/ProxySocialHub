@@ -20,7 +20,7 @@ import json
 
 DEFAULT_API_URL = "https://api.proxyhubb.com"
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 
 
 def api_base() -> str:
