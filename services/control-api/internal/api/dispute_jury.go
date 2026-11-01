@@ -227,8 +227,20 @@ func createDisputeJury(c *gin.Context) {
 // @Produce json
 // @Success 200 {object} models.DisputeJury
 // @Router /v1/disputes/jury/{id} [get]
+// juryParticipant reports whether userID is a dispute party or an assigned juror,
+// the only audiences for jury detail and voting status.
+func juryParticipant(jury *models.DisputeJury, userID uuid.UUID) bool {
+	return jury.BuyerID == userID || jury.SellerID == userID || jury.IsJuror(userID)
+}
+
 func getDisputeJury(c *gin.Context) {
 	setAuthorityHeaders(c, authorityModeDBAuthoritative, "none", "source_of_truth")
+
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
 
 	juryID := c.Param("id")
 
@@ -237,6 +249,10 @@ func getDisputeJury(c *gin.Context) {
 		Preload("Juror1").Preload("Juror2").Preload("Juror3").
 		Where("id = ?", juryID).First(&jury).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Jury not found"})
+		return
+	}
+	if !juryParticipant(&jury, userID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
 		return
 	}
 	scrubCounterpartyTaxID(jury.Buyer)
@@ -606,11 +622,21 @@ func enqueueJurySettlementRetry(order *models.Order, decision models.JuryVote, r
 func getJuryStatus(c *gin.Context) {
 	setAuthorityHeaders(c, authorityModeDBAuthoritative, "none", "source_of_truth")
 
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
+
 	juryID := c.Param("id")
 
 	var jury models.DisputeJury
 	if err := db.DB.Where("id = ?", juryID).First(&jury).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Jury not found"})
+		return
+	}
+	if !juryParticipant(&jury, userID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
 		return
 	}
 
