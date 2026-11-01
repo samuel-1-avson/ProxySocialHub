@@ -22,6 +22,7 @@ import (
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
 	"github.com/proxyhubb/control-api/internal/solana"
 	"github.com/proxyhubb/control-api/internal/ws"
+	"gorm.io/gorm"
 
 	sol "github.com/gagliardetto/solana-go"
 )
@@ -358,6 +359,15 @@ func createOrder(c *gin.Context) {
 	if req.BandwidthGB > 0 {
 		unitPrice = requestedTotalPrice / req.BandwidthGB
 	}
+	// Fail closed on mispriced offers: a zero or negative total must never reach escrow.
+	if requestedTotalPrice <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "This offer is mispriced for the requested size. Try a different amount or another offer."})
+		return
+	}
+	if listing.MinPurchaseGB > 0 && req.BandwidthGB < listing.MinPurchaseGB {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Minimum purchase for this offer is %.2f GB", listing.MinPurchaseGB)})
+		return
+	}
 
 	// Marketplace checkout is escrow-funded from the buyer's linked on-chain SOL
 	// wallet (see initiateSolanaPayment). Do not preflight custodial balance_sol —
@@ -513,7 +523,7 @@ func createOrder(c *gin.Context) {
 	}()
 
 	// Reload order with relations
-	db.DB.Preload("Buyer").Preload("Seller").Preload("Listing").First(&order, "id = ?", order.ID)
+	db.DB.Preload("Buyer", counterpartyColumns).Preload("Seller", counterpartyColumns).Preload("Listing").First(&order, "id = ?", order.ID)
 
 	// Notify seller via WebSocket
 	BroadcastToUser(listing.SellerID.String(), ws.MsgTypeNewOrder, gin.H{
@@ -749,6 +759,18 @@ func getOrderCredentials(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+// counterpartyColumns projects a preloaded order counterparty to identity and contact
+// basics. TaxID, wallet, business and verification details stay server-side.
+func counterpartyColumns(q *gorm.DB) *gorm.DB {
+	return q.Select("id", "email", "display_name", "username", "avatar_url")
+}
+
+// publicSellerColumns projects a preloaded listing seller to the public storefront
+// fields marketplace clients render. Contact and business details stay server-side.
+func publicSellerColumns(q *gorm.DB) *gorm.DB {
+	return q.Select("id", "display_name", "username", "avatar_url", "location", "avg_rating", "reviews_count", "total_bandwidth_sold", "verified", "is_online", "last_seen_at")
+}
+
 // getMyOrders returns the current user's purchases
 func getMyOrders(c *gin.Context) {
 	setAuthorityHeaders(c, authorityModeDBAuthoritative, "none", "source_of_truth")
@@ -779,7 +801,7 @@ func getMyOrders(c *gin.Context) {
 	query := db.DB.Model(&models.Order{}).Where("buyer_id = ?", userID)
 	query.Count(&total)
 
-	if err := query.Preload("Seller").Preload("Listing").
+	if err := query.Preload("Seller", counterpartyColumns).Preload("Listing").
 		Order("created_at DESC").
 		Offset(offset).Limit(limit).
 		Find(&orders).Error; err != nil {
@@ -822,7 +844,7 @@ func getOrder(c *gin.Context) {
 	}
 
 	var order models.Order
-	if err := db.DB.Preload("Buyer").Preload("Seller").Preload("Listing").
+	if err := db.DB.Preload("Buyer", counterpartyColumns).Preload("Seller", counterpartyColumns).Preload("Listing").
 		First(&order, "id = ?", orderID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Order not found"})
 		return
@@ -867,7 +889,7 @@ func getMySales(c *gin.Context) {
 	query := db.DB.Model(&models.Order{}).Where("seller_id = ?", userID)
 	query.Count(&total)
 
-	if err := query.Preload("Buyer").Preload("Listing").
+	if err := query.Preload("Buyer", counterpartyColumns).Preload("Listing").
 		Order("created_at DESC").
 		Offset(offset).Limit(limit).
 		Find(&orders).Error; err != nil {

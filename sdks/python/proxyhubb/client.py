@@ -57,7 +57,8 @@ class ProxyHubClient:
         Dashboard JWT for session intents, order credentials, and seller ops
         (``Authorization: Bearer``).
     provider_token:
-        Provider CLI/dashboard token; alias of ``access_token`` (same Bearer header).
+        Long-lived node token (pt_...) for headless reporting. Node tokens may register,
+        report and read, but node management (rename/delete) needs a user session token.
     base_url:
         Control API base URL. Defaults to production.
     proxy_endpoint:

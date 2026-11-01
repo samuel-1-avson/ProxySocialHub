@@ -46,13 +46,17 @@ func RestrictProviderToken() gin.HandlerFunc {
 // an earnings summary, and CLI downloads.
 func providerTokenPathAllowed(method, path string) bool {
 	path = strings.TrimSuffix(path, "/")
+	// A node token sits in plaintext on provider machines: it may register, report and
+	// read, but never rename or delete the owner's nodes. Node management needs the
+	// owner's user session instead.
+	report := method == http.MethodGet || method == http.MethodPost
 	switch {
 	case path == "/v1/provider/nodes" || strings.HasPrefix(path, "/v1/provider/nodes/"):
-		return true
+		return report
 	case path == "/v1/provider/lease" || strings.HasPrefix(path, "/v1/provider/lease/"):
-		return true
+		return report
 	case path == "/v1/provider/gateway-token":
-		return true
+		return method == http.MethodPost
 	case path == "/v1/provider/earnings/summary" && method == http.MethodGet:
 		return true
 	case strings.HasPrefix(path, "/v1/cli/") && method == http.MethodGet:

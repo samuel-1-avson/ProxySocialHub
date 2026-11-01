@@ -43,8 +43,8 @@ func RegisterListingRoutes(rg *gin.RouterGroup) {
 	rg.GET("/listings/my", getMyListings)
 	rg.GET("/listings/proof-policy", getListingProofPolicy)
 	rg.GET("/listings/:id", getListing)
-	rg.POST("/listings", createListing)
-	rg.PATCH("/listings/:id", updateListing)
+	rg.POST("/listings", RateLimitMiddleware(), createListing)
+	rg.PATCH("/listings/:id", RateLimitMiddleware(), updateListing)
 	rg.DELETE("/listings/:id", deleteListing)
 	rg.POST("/listings/:id/save", saveListing)
 	rg.DELETE("/listings/:id/save", unsaveListing)
@@ -462,6 +462,12 @@ func createListing(c *gin.Context) {
 		return
 	}
 	if hasProofContext {
+		// A node that never connected has no registered hotkey to bind: fail closed
+		// instead of accepting any valid signature.
+		if providerProofRequired() && strings.TrimSpace(proofContext.Hotkey) == "" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "This node has not connected yet. Start the node once so it registers its signing key, then publish the offer.", "code": "node_hotkey_missing"})
+			return
+		}
 		payloadHash := providerProofs.HashListingOfferPayload(providerProofs.ListingOfferPayload{
 			ProviderNodeID:       proofContext.ProviderNodeID,
 			GatewayNodeID:        proofContext.GatewayNodeID,
@@ -569,6 +575,20 @@ func loadListingProofContext(sellerID uuid.UUID, providerNodeID *uuid.UUID) (lis
 	}, true, nil
 }
 
+// statusOnlyListingUpdate reports whether an update touches nothing but publication
+// status (pause/resume). The session already proves account ownership, so such flips
+// must not demand a fresh node signature; price, capacity and content edits still do.
+func statusOnlyListingUpdate(req models.UpdateListingRequest) bool {
+	return req.Title == nil &&
+		req.Description == nil &&
+		req.PricePerGB == nil &&
+		req.MinPurchaseGB == nil &&
+		req.AvailableBandwidthGB == nil &&
+		req.MaxConcurrency == nil &&
+		len(req.BulkDiscounts) == 0 &&
+		req.Status != nil
+}
+
 // updateListing updates an existing listing
 func updateListing(c *gin.Context) {
 	userIDStr := c.GetString("userID")
@@ -639,7 +659,7 @@ func updateListing(c *gin.Context) {
 		updates.BulkDiscountsJSON = discountsJSON
 	}
 
-	if providerProofPresent(req.Proof) || providerProofRequired() {
+	if providerProofPresent(req.Proof) || (providerProofRequired() && !statusOnlyListingUpdate(req)) {
 		var existing models.ProxyListing
 		if err := db.DB.Where("id = ? AND seller_id = ? AND status != ?", listingID, userID, models.ListingStatusDeleted).
 			First(&existing).Error; err != nil {
@@ -656,6 +676,10 @@ func updateListing(c *gin.Context) {
 			return
 		}
 		if hasProofContext {
+			if providerProofRequired() && strings.TrimSpace(proofContext.Hotkey) == "" {
+				c.JSON(http.StatusForbidden, gin.H{"error": "This node has not connected yet. Start the node once so it registers its signing key, then edit the offer.", "code": "node_hotkey_missing"})
+				return
+			}
 			title := existing.Title
 			if req.Title != nil {
 				title = *req.Title

@@ -55,7 +55,7 @@ func finalizeSandboxBuy(c *gin.Context, order *models.Order, buyerID uuid.UUID) 
 	RecordAuditLog(c, models.AuditOrderDevActivated, models.AuditSeverityInfo, &actor, "order", order.ID.String(),
 		"Sandbox buy activated order without on-chain escrow", true)
 
-	db.DB.Preload("Buyer").Preload("Seller").Preload("Listing").First(order, "id = ?", order.ID)
+	db.DB.Preload("Buyer", counterpartyColumns).Preload("Seller", counterpartyColumns).Preload("Listing").First(order, "id = ?", order.ID)
 
 	c.JSON(http.StatusCreated, gin.H{
 		"order":             order,

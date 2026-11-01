@@ -13,7 +13,7 @@ import {
   signListingOfferDev,
   type CreateListingRequest,
 } from "@/lib/api/marketplace";
-import { loadProviderSigningKey, saveProviderSigningKey } from "@/lib/provider-config";
+import { loadProviderSigningKey } from "@/lib/provider-config";
 import {
   canonicalListingFields,
   publicKeyFromProviderSecret,
@@ -36,6 +36,7 @@ import {
   countryName,
 } from "@/components/workspace/Patterns";
 import { useSellerNodes } from "./SellerNodes";
+import { NodeKeyImport, useListingSigner } from "./NodeKeyImport";
 
 export function ListingEditor() {
   const router = useRouter();
@@ -64,9 +65,7 @@ export function ListingEditor() {
   const [concurrency, setConcurrency] = useState("10");
   const [review, setReview] = useState<CreateListingRequest | null>(null);
   const [progress, setProgress] = useState("");
-  const [importKey, setImportKey] = useState("");
-  const [importError, setImportError] = useState("");
-  const [importDone, setImportDone] = useState("");
+  const [, setImportTick] = useState(0);
   const selectedId =
     nodeId || (nodes.data?.nodes.length === 1 ? nodes.data.nodes[0].id : "");
   const selectedNode = nodes.data?.nodes.find((node) => node.id === selectedId);
@@ -74,26 +73,10 @@ export function ListingEditor() {
   const nodeHotkey = selectedNode?.hotkey?.trim() ?? "";
   const walletHotkey =
     wallet.connected && wallet.publicKey ? wallet.publicKey.toBase58() : "";
-  const localSecret = selectedId ? loadProviderSigningKey(selectedId) : null;
-  const deviceHotkeyQuery = useQuery({
-    queryKey: ["device-hotkey", selectedId],
-    queryFn: () => publicKeyFromProviderSecret(localSecret ?? ""),
-    enabled: Boolean(localSecret),
-    staleTime: Infinity,
-    retry: false,
-  });
-  const deviceHotkey = deviceHotkeyQuery.data ?? "";
-  const devicePending = deviceHotkeyQuery.isPending;
-  const needsProof = Boolean(policy.data?.required || nodeHotkey);
-  const signerKind = resolveListingSigner({
-    hasSecret: Boolean(localSecret),
-    deviceHotkey,
+  const { signerKind, needsProof, devicePending, refreshSecret } = useListingSigner(
+    selectedId,
     nodeHotkey,
-    walletConnected: wallet.connected,
-    walletCanSign: Boolean(wallet.signMessage),
-    walletHotkey,
-    devServerSigning: policy.data?.dev_server_signing ?? false,
-  });
+  );
   const suggestion = useQuery({
     queryKey: ["listing-price-suggestion", region, type],
     queryFn: () => getSuggestedListingPrice(region, type),
@@ -191,41 +174,9 @@ export function ListingEditor() {
     },
     onSettled: () => setProgress(""),
   });
-  async function importSigningKey() {
-    setImportError("");
-    setImportDone("");
-    const pasted = importKey.trim();
-    if (!pasted || !selectedNode) return;
-    let derived = "";
-    try {
-      derived = await publicKeyFromProviderSecret(pasted);
-    } catch {
-      setImportError(
-        "That key could not be read. Paste the full provider_signing_key value from provider.toml.",
-      );
-      return;
-    }
-    if (nodeHotkey && derived !== nodeHotkey) {
-      setImportError(
-        `That key belongs to ${derived.slice(0, 4)}...${derived.slice(-4)}, not this node.`,
-      );
-      return;
-    }
-    saveProviderSigningKey(pasted, selectedNode.id);
-    setImportKey("");
-    setImportDone(
-      `Saved. This browser can now sign offers for ${derived.slice(0, 4)}...${derived.slice(-4)}. Publish when ready.`,
-    );
-    void client.invalidateQueries({ queryKey: ["device-hotkey", selectedNode.id] });
-    publish.reset();
-  }
-
   function prepare() {
     if (!valid) return;
     publish.reset();
-    setImportKey("");
-    setImportError("");
-    setImportDone("");
     setReview({
       title: title.trim(),
       description: description.trim(),
@@ -323,54 +274,22 @@ export function ListingEditor() {
                   : "the configured development signature."}
             </p>
           )}
-          {policy.isSuccess && needsProof && signerKind === "none" && !devicePending && (
-            <section className="ui-attention" aria-label="Node signing key needed">
-              <h3>This browser doesn&apos;t have this node&apos;s signing key</h3>
-              <p className="ui-note">
-                This node was configured outside this browser, so its key was never saved
-                here. Paste the <code>provider_signing_key</code> value from your{
-                } <code>provider.toml</code> to sign offers in this browser. The key stays
-                in this browser&apos;s local storage, exactly as if the node had been
-                configured here. Never share it.
-              </p>
-              {nodeHotkey && (
-                <p className="ui-note">
-                  Node hotkey: <code>{nodeHotkey}</code>
-                </p>
-              )}
-              <label className="ui-field">
-                Node signing key
-                <input
-                  className="ui-input"
-                  type="password"
-                  autoComplete="off"
-                  spellCheck={false}
-                  value={importKey}
-                  onChange={(e) => setImportKey(e.target.value)}
-                  placeholder="Paste provider_signing_key from provider.toml"
-                />
-              </label>
-              {importError && (
-                <p className="ui-note" role="alert">
-                  {importError}
-                </p>
-              )}
-              {importDone && (
-                <p className="ui-note" role="status">
-                  {importDone}
-                </p>
-              )}
-              <div className="ui-actions">
-                <button
-                  className="ui-button secondary"
-                  disabled={!importKey.trim() || publish.isPending}
-                  onClick={() => void importSigningKey()}
-                >
-                  Save key in this browser
-                </button>
-              </div>
-            </section>
-          )}
+          {policy.isSuccess &&
+            needsProof &&
+            signerKind === "none" &&
+            !devicePending &&
+            selectedNode && (
+              <NodeKeyImport
+                nodeId={selectedNode.id}
+                nodeHotkey={nodeHotkey}
+                busy={publish.isPending}
+                onImported={() => {
+                  publish.reset();
+                  refreshSecret();
+                  setImportTick((t) => t + 1);
+                }}
+              />
+            )}
           {publish.isError && (
             <>
               <DataError error={publish.error} />

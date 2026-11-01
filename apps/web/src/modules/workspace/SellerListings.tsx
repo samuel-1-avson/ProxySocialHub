@@ -5,13 +5,25 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
+import { useWallet } from "@solana/wallet-adapter-react";
 import {
   deleteListing,
   getMyListings,
   marketplaceKeys,
+  signListingOfferDev,
   updateListing,
+  type CreateListingRequest,
   type Listing,
+  type UpdateListingRequest,
 } from "@/lib/api/marketplace";
+import { loadProviderSigningKey } from "@/lib/provider-config";
+import {
+  publicKeyFromProviderSecret,
+  raceTimeout,
+  resolveListingSigner,
+  signListingOfferProof,
+  signListingOfferWithSecret,
+} from "@/lib/proofs/listing-offer";
 import { displayListingTitle } from "@/lib/listing-display";
 import { evaluateListingPrice } from "@/lib/listing-price";
 import { CatalogProductBadge } from "@/components/marketplace/CatalogProductBadge";
@@ -25,6 +37,8 @@ import {
   amount,
   countryName,
 } from "@/components/workspace/Patterns";
+import { useSellerNodes } from "./SellerNodes";
+import { NodeKeyImport, useListingSigner } from "./NodeKeyImport";
 
 export function SellerListings() {
   const { user } = useAuth();
@@ -276,6 +290,28 @@ function EditOffer({
   const [concurrency, setConcurrency] = useState(
     String(listing.max_concurrency),
   );
+  const wallet = useWallet();
+  const nodes = useSellerNodes();
+  const boundNode = nodes.data?.nodes.find(
+    (node) => node.id === listing.provider_node_id,
+  );
+  const nodeHotkey = boundNode?.hotkey?.trim() ?? "";
+  const bound = Boolean(listing.provider_node_id && boundNode);
+  const {
+    signerKind,
+    needsProof,
+    devicePending,
+    policyReady,
+    policyRequired,
+    devServerSigning,
+    refreshSecret,
+  } = useListingSigner(listing.provider_node_id, nodeHotkey);
+  const [, setImportTick] = useState(0);
+  const [progress, setProgress] = useState("");
+  const saveBlocked =
+    policyReady &&
+    ((bound && needsProof && signerKind === "none" && !devicePending) ||
+      (!bound && needsProof));
   const guidance = evaluateListingPrice(Number(price), listing.proxy_type);
   const valid =
     title.trim() &&
@@ -287,16 +323,88 @@ function EditOffer({
     !guidance.overHardCap;
   const save = useMutation({
     retry: false,
-    mutationFn: () =>
-      updateListing(listing.id, {
+    mutationFn: async () => {
+      const data: UpdateListingRequest = {
         title: title.trim(),
         description: description.trim(),
         price_per_gb: Number(price),
         available_bandwidth_gb: Number(capacity),
         min_purchase_gb: Number(minimum),
         max_concurrency: Number(concurrency),
-      }),
+      };
+      if (
+        policyReady &&
+        needsProof &&
+        bound &&
+        boundNode &&
+        listing.provider_node_id
+      ) {
+        const secret = loadProviderSigningKey(listing.provider_node_id);
+        const freshDeviceHotkey = secret
+          ? await publicKeyFromProviderSecret(secret)
+          : "";
+        const freshWalletHotkey =
+          wallet.connected && wallet.publicKey
+            ? wallet.publicKey.toBase58()
+            : "";
+        const signer = resolveListingSigner({
+          hasSecret: Boolean(secret),
+          deviceHotkey: freshDeviceHotkey,
+          nodeHotkey,
+          walletConnected: wallet.connected,
+          walletCanSign: Boolean(wallet.signMessage),
+          walletHotkey: freshWalletHotkey,
+          devServerSigning,
+        });
+        const form: CreateListingRequest = {
+          title: title.trim(),
+          description: description.trim(),
+          proxy_type: listing.proxy_type,
+          protocol: listing.protocol,
+          rotation_type: listing.rotation_type ?? "static",
+          country: listing.country ?? "",
+          isp: listing.isp ?? "",
+          price_per_gb: Number(price),
+          min_purchase_gb: Number(minimum),
+          available_bandwidth_gb: Number(capacity),
+          max_concurrency: Number(concurrency),
+        };
+        if (signer === "local-secret" && secret) {
+          setProgress("Signing with this node's local provider key...");
+          data.proof = await signListingOfferWithSecret(
+            form,
+            listing.provider_node_id,
+            boundNode.gateway_node_id,
+            secret,
+            listing.status,
+          );
+        } else if (signer === "wallet" && wallet.signMessage) {
+          setProgress("Approve the offer signature in your wallet...");
+          data.proof = await raceTimeout(
+            signListingOfferProof(
+              form,
+              listing.provider_node_id,
+              boundNode.gateway_node_id,
+              freshWalletHotkey,
+              wallet.signMessage,
+              listing.status,
+            ),
+            60_000,
+            "Wallet did not respond. Unlock it and save again.",
+          );
+        } else if (signer === "dev") {
+          data.proof = (await signListingOfferDev(form)).proof;
+        } else if (policyRequired) {
+          throw new Error(
+            "This offer needs its node's signing key. Import it below, use the browser that configured the node, or connect the wallet matching its provider hotkey.",
+          );
+        }
+      }
+      setProgress("Saving your offer...");
+      return updateListing(listing.id, data);
+    },
     onSuccess: onSaved,
+    onSettled: () => setProgress(""),
   });
   return (
     <form
@@ -389,8 +497,41 @@ function EditOffer({
           offer into review.
         </p>
       )}
+      {policyReady && bound && needsProof && signerKind !== "none" && !devicePending && (
+        <p className="ui-note">
+          Saving re-signs the offer with{" "}
+          {signerKind === "local-secret"
+            ? "this browser's stored node key."
+            : signerKind === "wallet"
+              ? "your connected wallet. You will approve it there."
+              : "the configured development signature."}
+        </p>
+      )}
+      {policyReady && bound && needsProof && signerKind === "none" && !devicePending && (
+        <NodeKeyImport
+          nodeId={listing.provider_node_id ?? ""}
+          nodeHotkey={nodeHotkey}
+          busy={save.isPending}
+          onImported={() => {
+            save.reset();
+            refreshSecret();
+            setImportTick((t) => t + 1);
+          }}
+        />
+      )}
+      {policyReady && !bound && needsProof && (
+        <p className="ui-note" role="note">
+          This offer is not bound to a node, so its terms cannot be re-signed.
+          Pause or remove it, or recreate it from a node.
+        </p>
+      )}
+      {progress && (
+        <p className="ui-note" role="status">
+          {progress}
+        </p>
+      )}
       {save.isError && <DataError error={save.error} />}
-      <button className="ui-button" disabled={!valid || save.isPending}>
+      <button className="ui-button" disabled={!valid || save.isPending || saveBlocked}>
         {save.isPending ? "Saving…" : "Save offer"}
       </button>
     </form>

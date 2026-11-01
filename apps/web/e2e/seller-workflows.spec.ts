@@ -1,5 +1,7 @@
 import { expect as baseExpect, test, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import bs58 from "bs58";
 import { seedSignedAuth } from "./fixtures/signed-auth";
 
 const expect = baseExpect.configure({ timeout: 30_000 });
@@ -34,6 +36,14 @@ const offer = {
   max_concurrency: 10,
   orders_count: 0,
 };
+// Deterministic test-only node key, derived at runtime from a public seed string
+// so no key material is hardcoded in the repo. It can never protect real funds.
+async function deriveBoundNodeKey() {
+  const seed = createHash("sha256").update("proxyhubb-seller-e2e-node-key").digest();
+  const { getPublicKeyAsync } = await import("@noble/ed25519");
+  const pub = await getPublicKeyAsync(seed);
+  return { secret: bs58.encode(seed), hotkey: bs58.encode(pub) };
+}
 async function setup(
   page: Page,
   options: {
@@ -41,10 +51,20 @@ async function setup(
     tokenFailure?: boolean;
     policyFailure?: boolean;
     pendingReview?: boolean;
+    boundOffer?: boolean;
+    proofRequired?: boolean;
   } = {},
 ) {
-  let registered = options.emptyNodes ? [] : [{ ...node }];
-  let listings = [{ ...offer }];
+  const nodeKey = options.boundOffer ? await deriveBoundNodeKey() : null;
+  const nodeFixture: typeof node & Partial<{ hotkey: string; gateway_node_id: string }> = { ...node };
+  if (options.boundOffer && nodeKey) {
+    nodeFixture.hotkey = nodeKey.hotkey;
+    nodeFixture.gateway_node_id = "seller-gateway-1";
+  }
+  const offerFixture: typeof offer & Partial<{ provider_node_id: string }> = { ...offer };
+  if (options.boundOffer) offerFixture.provider_node_id = node.id;
+  let registered = options.emptyNodes ? [] : [nodeFixture];
+  let listings = [offerFixture];
   let tokenFails = options.tokenFailure;
   let claimFails = true;
   let revoked = false;
@@ -57,6 +77,7 @@ async function setup(
     nodes: 0,
     tokens: 0,
     offers: [] as Record<string, unknown>[],
+    updates: [] as Record<string, unknown>[],
     payouts: [] as Record<string, unknown>[],
     settings: [] as Record<string, unknown>[],
     deletes: 0,
@@ -136,11 +157,19 @@ async function setup(
     if (path === "/v1/system/provider-proof-policy")
       return options.policyFailure
         ? send({ error: "Publication requirements unavailable" }, 503)
-        : send({
-            required: false,
-            mode: "optional",
-            dev_server_signing: false,
-          });
+        : send(
+            options.proofRequired
+              ? {
+                  required: true,
+                  mode: "enforce",
+                  dev_server_signing: false,
+                }
+              : {
+                  required: false,
+                  mode: "optional",
+                  dev_server_signing: false,
+                },
+          );
     if (path === "/v1/suggest-price") return send({ suggested_price: 0.99 });
     if (path === "/v1/listings/my")
       return send({ listings, total: listings.length, page: 1, limit: 20 });
@@ -156,8 +185,9 @@ async function setup(
       ];
       return send(listings[0], 201);
     }
-    if (path === `/v1/listings/${offer.id}` && method === "PUT") {
+    if (path === `/v1/listings/${offer.id}` && method === "PATCH") {
       const payload = body();
+      calls.updates.push(payload);
       listings = [{ ...listings[0], ...payload } as typeof offer];
       return send({ listing: listings[0] });
     }
@@ -206,7 +236,7 @@ async function setup(
     return send({ error: `Not used in this fixture: ${path}` }, 503);
   });
   await seedSignedAuth(page, base, "provider");
-  return calls;
+  return Object.assign(calls, { nodeKey });
 }
 
 test.describe("seller workflow migration", () => {
@@ -367,6 +397,72 @@ test.describe("seller workflow migration", () => {
     await expect(
       page.getByRole("button", { name: "Resume offer" }),
     ).toBeVisible();
+  });
+  test("signs bound offer edits with the node's local key", async ({
+    page,
+  }) => {
+    const calls = await setup(page, { boundOffer: true, proofRequired: true });
+    await page.addInitScript(
+      ({ key, secret }: { key: string; secret: string }) =>
+        localStorage.setItem(key, secret),
+      {
+        key: `proxyhubb_provider_signing_key_${node.id}`,
+        secret: calls.nodeKey!.secret,
+      },
+    );
+    await page.goto(`${base}/provider/listings`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page.getByRole("button", { name: "Edit offer" }).click();
+    const modal = page.getByRole("dialog");
+    await modal
+      .getByRole("textbox", { name: "Offer title" })
+      .fill("Signed Accra capacity");
+    await modal.getByRole("button", { name: "Save offer" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Signed Accra capacity" }),
+    ).toBeVisible();
+    expect(calls.updates).toHaveLength(1);
+    const proof = calls.updates[0].proof as Record<string, unknown>;
+    expect(proof.provider_hotkey).toBe(calls.nodeKey!.hotkey);
+    expect(proof.payload_hash).toBeTruthy();
+    expect(proof.signature).toBeTruthy();
+  });
+  test("blocks bound offer edits until the node key is available", async ({
+    page,
+  }) => {
+    const calls = await setup(page, { boundOffer: true, proofRequired: true });
+    await page.goto(`${base}/provider/listings`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page.getByRole("button", { name: "Edit offer" }).click();
+    const modal = page.getByRole("dialog");
+    await expect(
+      modal.getByRole("heading", { name: "signing key" }),
+    ).toBeVisible();
+    await expect(
+      modal.getByRole("button", { name: "Save offer" }),
+    ).toBeDisabled();
+    await modal
+      .getByPlaceholder("Paste provider_signing_key from provider.toml")
+      .fill(calls.nodeKey!.secret);
+    await modal
+      .getByRole("button", { name: "Save key in this browser" })
+      .click();
+    await expect(
+      modal.getByRole("button", { name: "Save offer" }),
+    ).toBeEnabled();
+    await modal
+      .getByRole("textbox", { name: "Offer title" })
+      .fill("Recovered Accra capacity");
+    await modal.getByRole("button", { name: "Save offer" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Recovered Accra capacity" }),
+    ).toBeVisible();
+    expect(calls.updates).toHaveLength(1);
+    const proof = calls.updates[0].proof as Record<string, unknown>;
+    expect(proof.provider_hotkey).toBe(calls.nodeKey!.hotkey);
+    expect(proof.signature).toBeTruthy();
   });
   test("revokes credentials only after the in-app review and clears stale connection tokens", async ({
     page,
