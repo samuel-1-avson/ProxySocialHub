@@ -1,5 +1,4 @@
 import { expect as baseExpect, test, type Page } from "@playwright/test";
-import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import bs58 from "bs58";
 import { seedSignedAuth } from "./fixtures/signed-auth";
@@ -242,7 +241,7 @@ async function setup(
 test.describe("seller workflow migration", () => {
   test.setTimeout(180_000);
   test.use({ actionTimeout: 30_000 });
-  test("recovers token creation without duplicating a node, then downloads node-bound configuration", async ({
+  test("recovers token creation without duplicating a node, then shows the node-bound join command", async ({
     page,
   }, info) => {
     const calls = await setup(page, { emptyNodes: true, tokenFailure: true });
@@ -267,17 +266,17 @@ test.describe("seller workflow migration", () => {
     ).toBeVisible();
     expect(calls.nodes).toBe(1);
     expect(calls.tokens).toBe(2);
-    await page
-      .getByText("Manual installation & configuration", { exact: true })
-      .click();
-    const downloading = page.waitForEvent("download");
-    await page.getByRole("button", { name: "Download provider.toml" }).click();
-    const download = await downloading;
-    const path = await download.path();
-    expect(path).toBeTruthy();
-    const config = await readFile(path!, "utf8");
-    expect(config).toContain(`node_id = "${node.id}"`);
-    expect(config).toContain("fixture-node-scoped-token");
+    const joinBlock = page.locator("pre.ui-code", {
+      hasText: "provider-node join",
+    });
+    await expect(joinBlock).toContainText(`--node-id ${node.id}`);
+    await expect(joinBlock).toContainText("fixture-node-scoped-token");
+    await expect(
+      page.getByRole("button", { name: "Copy join command" }),
+    ).toBeEnabled();
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.getByRole("button", { name: "Copy join command" }).click();
+    await expect(page.getByText("Join command copied")).toBeVisible();
     await expect(
       page.getByText("Waiting for a verified heartbeat"),
     ).toBeVisible();
@@ -307,8 +306,14 @@ test.describe("seller workflow migration", () => {
       }),
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: "Download setup script" }),
+      page.getByRole("button", { name: "Copy join command" }),
     ).toBeDisabled();
+    await expect(
+      page.getByRole("button", { name: "Copy install command" }),
+    ).toBeEnabled();
+    await expect(
+      page.getByText("Create a connection token above first."),
+    ).toBeVisible();
     expect(calls.tokens).toBe(0);
     await expect(page.getByText("Not measured", { exact: true })).toHaveCount(
       2,
