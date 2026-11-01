@@ -11,8 +11,7 @@ export interface NodeLocation {
     city: string;
 }
 
-const selectClass =
-    'w-full bg-secondary border border-border rounded-lg px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-primary/50 transition-colors';
+const selectClass = 'ui-select w-full';
 
 function countryName(code: string): string {
     try {

@@ -439,7 +439,7 @@ function ManageProductDialog({
                                 aria-label="Listing to link"
                                 value={linkListingId}
                                 onChange={(e) => onLinkListingIdChange(e.target.value)}
-                                className="flex-1 bg-card border border-border rounded-xl px-4 py-3 text-sm outline-none focus:border-primary"
+                                className="ui-select flex-1"
                                 data-testid="catalog-link-listing-select"
                             >
                                 <option value="">Select a listing to link…</option>
@@ -518,7 +518,7 @@ function ProductFields({
                     <select
                         value={form.status}
                         onChange={(e) => onChange({ ...form, status: e.target.value as CatalogProductStatus })}
-                        className="w-full bg-card border border-border rounded-xl px-4 py-3 text-sm outline-none focus:border-primary"
+                        className="ui-select w-full"
                     >
                         <option value="draft">Draft</option>
                         <option value="active">Active</option>

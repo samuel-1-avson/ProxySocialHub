@@ -80,13 +80,13 @@ function InquiryForm({ isOpen, onClose, listingId, listingTitle, providerId, pro
           {providerOnline && <p className="text-xs text-primary">Provider reports online</p>}
         </div>
         <label className="grid gap-2 text-sm font-medium">Intended use <span className="sr-only">(optional)</span>
-          <select className="ui-input" value={intent} onChange={(event) => setIntent(event.target.value)}>
+          <select className="ui-select" value={intent} onChange={(event) => setIntent(event.target.value)}>
             <option value="">Choose a use (optional)</option>
             {intents.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
         </label>
         <label className="grid gap-2 text-sm font-medium">Expected monthly usage
-          <select className="ui-input" value={expectedGb} onChange={(event) => setExpectedGb(event.target.value)}>
+          <select className="ui-select" value={expectedGb} onChange={(event) => setExpectedGb(event.target.value)}>
             <option value="">Not sure yet</option>
             {[10, 50, 100, 500, 1000].map((value) => <option key={value} value={value}>{value.toLocaleString()} GB / month</option>)}
           </select>

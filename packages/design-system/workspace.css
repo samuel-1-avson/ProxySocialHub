@@ -111,19 +111,121 @@
   min-width: 0;
   width: 100%;
   border: 0;
-  background: transparent;
+  background-color: transparent;
   color: var(--foreground);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   min-height: 28px;
 }
-/* The native option list does not inherit the transparent select background,
-   so it can open white with light text. Give it the theme colours. */
-.workspace-switcher select option,
-.ui-select option {
+/* ---- Dropdowns ----------------------------------------------------------
+   Every <select> follows the theme. The field gets a themed arrow and focus
+   ring; the open list uses the popover colours. Browsers that support
+   customizable selects (appearance: base-select) also get a fully styled
+   open list; the rest fall back to the native list in theme colours. */
+:root {
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2345653c' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+.dark {
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23c5ef70' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+:where(select) {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: var(--select-arrow);
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 16px 16px;
+  padding-right: 38px;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast),
+    box-shadow var(--dur-fast);
+}
+:where(select[multiple], select[size]:not([size="1"])) {
+  background-image: none;
+  padding-right: 12px;
+}
+:where(select):hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+:where(select):focus-visible {
+  outline: none;
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 28%, transparent);
+}
+:where(select):disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+select option,
+select optgroup {
   background: var(--popover);
   color: var(--popover-foreground);
+}
+select option:checked {
+  background: color-mix(in srgb, var(--accent) 24%, var(--popover));
+  color: var(--popover-foreground);
+}
+select option:disabled {
+  color: var(--muted-foreground);
+}
+@supports (appearance: base-select) {
+  select:not([multiple]),
+  select:not([multiple])::picker(select) {
+    appearance: base-select;
+  }
+  select:not([multiple]) {
+    background-image: none;
+    padding-right: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  select:not([multiple])::picker-icon {
+    content: "";
+    width: 16px;
+    height: 16px;
+    margin-left: auto;
+    background: var(--select-arrow) center / 16px 16px no-repeat;
+    transition: rotate var(--dur-fast);
+  }
+  select:not([multiple]):open::picker-icon {
+    rotate: 180deg;
+  }
+  select:not([multiple])::picker(select) {
+    margin-top: 6px;
+    padding: 6px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--popover);
+    color: var(--popover-foreground);
+    box-shadow: var(--shadow-pop);
+    max-height: min(360px, 60vh);
+  }
+  select:not([multiple]) option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    border-radius: 6px;
+    font-size: 14px;
+    background: transparent;
+  }
+  select:not([multiple]) option:hover,
+  select:not([multiple]) option:focus-visible {
+    background: var(--surface-hover);
+    outline: none;
+  }
+  select:not([multiple]) option:checked {
+    background: color-mix(in srgb, var(--accent) 18%, var(--popover));
+    font-weight: 600;
+  }
+  select:not([multiple]) option::checkmark {
+    color: var(--accent);
+    order: 1;
+    margin-left: auto;
+  }
 }
 .workspace-nav-label {
   font-size: 10px;
@@ -242,7 +344,7 @@
   font-size: 12px;
 }
 .workspace-theme select {
-  background: var(--secondary);
+  background-color: var(--secondary);
   color: var(--foreground);
   min-height: 40px;
   padding: 6px 9px;
@@ -405,11 +507,14 @@
   min-height: 44px;
   border: 1px solid var(--input);
   border-radius: 7px;
-  background: var(--card);
+  background-color: var(--card);
   color: var(--foreground);
   padding: 10px 12px;
   font-size: 14px;
   max-width: 100%;
+}
+.ui-select {
+  padding-right: 38px;
 }
 .ui-field {
   display: flex;

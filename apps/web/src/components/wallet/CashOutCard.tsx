@@ -157,7 +157,7 @@ export function CashOutCard() {
                         aria-label="Mobile Money network"
                         value={network}
                         onChange={(e) => setNetwork(e.target.value as MomoNetwork)}
-                        className="h-10 rounded-lg border border-border bg-background px-3 text-sm"
+                        className="ui-select"
                     >
                         {MOMO_NETWORKS.map((n) => (
                             <option key={n.code} value={n.code}>{n.label}</option>

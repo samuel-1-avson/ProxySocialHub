@@ -257,7 +257,7 @@ export function NotificationPreferencesPanel() {
                             value={preferences.email_digest_frequency}
                             onChange={(e) => handleDigestChange("email_digest_frequency", e.target.value)}
                             disabled={saving}
-                            className="w-full bg-secondary/20 border border-border rounded-lg px-4 py-2 text-sm font-mono focus:border-primary outline-none"
+                            className="ui-select w-full"
                         >
                             <option value="immediate">Immediate</option>
                             <option value="hourly">Hourly digest</option>
@@ -273,7 +273,7 @@ export function NotificationPreferencesPanel() {
                                     value={preferences.digest_day}
                                     onChange={(e) => handleDigestChange("digest_day", e.target.value)}
                                     disabled={saving}
-                                    className="w-full bg-secondary/20 border border-border rounded-lg px-4 py-2 text-sm font-mono focus:border-primary outline-none"
+                                    className="ui-select w-full"
                                 >
                                     <option value="monday">Monday</option>
                                     <option value="tuesday">Tuesday</option>
@@ -290,7 +290,7 @@ export function NotificationPreferencesPanel() {
                                     value={preferences.digest_hour}
                                     onChange={(e) => handleDigestChange("digest_hour", parseInt(e.target.value, 10))}
                                     disabled={saving}
-                                    className="w-full bg-secondary/20 border border-border rounded-lg px-4 py-2 text-sm font-mono focus:border-primary outline-none"
+                                    className="ui-select w-full"
                                 >
                                     {Array.from({ length: 24 }, (_, i) => (
                                         <option key={i} value={i}>
