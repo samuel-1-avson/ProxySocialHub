@@ -98,7 +98,7 @@ export function SellerOverview() {
           <span className="ui-eyebrow">Supply readiness</span>
           <div>
             <strong>
-              {readiness.isSuccess && checks.length ? complete : "—"}
+              {readiness.isSuccess && checks.length ? complete : "…"}
             </strong>
             <span>
               {checks.length
@@ -129,7 +129,7 @@ export function SellerOverview() {
           icon={<Server size={18} />}
           label="Nodes online"
           value={
-            nodes.isSuccess ? online + " / " + nodes.data.nodes.length : "—"
+            nodes.isSuccess ? online + " / " + nodes.data.nodes.length : "…"
           }
           detail="Reported node status"
         />
@@ -139,7 +139,7 @@ export function SellerOverview() {
           value={
             earnings.data
               ? amount(earnings.data.last_30_days_sol, 4) + " SOL"
-              : "—"
+              : "…"
           }
           detail="Recorded provider earnings"
         />
@@ -230,7 +230,7 @@ export function SellerOverview() {
           <Coins size={25} className="text-primary" aria-hidden="true" />
           <h2>Follow the value of your supply.</h2>
           <div className="workflow-feature-value">
-            {earnings.data ? amount(earnings.data.pending_sol, 4) : "—"}{" "}
+            {earnings.data ? amount(earnings.data.pending_sol, 4) : "…"}{" "}
             <span>SOL pending</span>
           </div>
           <p>

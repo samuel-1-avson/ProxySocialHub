@@ -48,7 +48,7 @@ export function markerHtml(color: NodeColor, size: number, count: number, isActi
 }
 
 export function singleNodePopup(node: NodeGeoPoint, color: NodeColor): string {
-    const location = [node.city, node.country || node.region].filter(Boolean).map(esc).join(', ') || '—';
+    const location = [node.city, node.country || node.region].filter(Boolean).map(esc).join(', ') || 'Unknown';
     const typeLabel = node.trust_label
         || (node.network_class ? `${node.network_class} node` : null)
         || 'Proxy node';
@@ -97,7 +97,7 @@ export function listingMarkerHtml(price: number | undefined, selected: boolean, 
     const size = count > 1 ? 30 : 24;
     const label = count > 1
         ? `<span style="font-size:11px;font-weight:900;color:#fff;line-height:1;">${count}</span>`
-        : `<span style="font-size:7px;font-weight:900;color:#fff;">${price === undefined ? '—' : price.toFixed(4)}</span>`;
+        : `<span style="font-size:7px;font-weight:900;color:#fff;">${price === undefined ? 'n/a' : price.toFixed(4)}</span>`;
     const sublabel = count > 1
         ? `<span style="position:absolute;bottom:-10px;left:50%;transform:translateX(-50%);font-size:6px;font-weight:800;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.08em;white-space:nowrap;">listings</span>`
         : '';
@@ -111,7 +111,7 @@ export function listingMarkerHtml(price: number | undefined, selected: boolean, 
 
 function listingLocationLabel(pin: ExplorerListingPin & { city?: string }): string {
     const parts = [pin.city, pin.country].filter(Boolean);
-    return parts.length > 0 ? parts.join(', ') : (pin.country || '—');
+    return parts.length > 0 ? parts.join(', ') : (pin.country || 'Unknown');
 }
 
 function catalogPopupLine(pin: { catalog_product?: { title?: string; slug?: string } }): string {
@@ -171,7 +171,7 @@ export function listingClusterPopup(pins: (ExplorerListingPin & { city?: string 
 }
 
 export function clusterPopup(nodes: NodeGeoPoint[], color: NodeColor): string {
-    const location = [nodes[0].city, nodes[0].country || nodes[0].region].filter(Boolean).map(esc).join(', ') || '—';
+    const location = [nodes[0].city, nodes[0].country || nodes[0].region].filter(Boolean).map(esc).join(', ') || 'Unknown';
     const rows = nodes.map(n => {
         const sc = n.is_active ? '#10b981' : '#ef4444';
         const linkable = n.explorer_linkable !== false && !!n.node_id && !/^[a-f0-9]{16}$/i.test(n.node_id);

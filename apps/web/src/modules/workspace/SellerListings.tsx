@@ -101,7 +101,7 @@ export function SellerListings() {
               ? query.data.listings.filter(
                   (listing) => listing.status === "active",
                 ).length
-              : "—"
+              : "…"
           }
           detail="Offers currently published"
         />
@@ -113,7 +113,7 @@ export function SellerListings() {
               ? query.data.listings.filter(
                   (listing) => listing.status === "pending_review",
                 ).length
-              : "—"
+              : "…"
           }
           detail="Offers on this page pending approval"
         />
@@ -128,7 +128,7 @@ export function SellerListings() {
                     0,
                   ),
                 ) + " GB"
-              : "—"
+              : "…"
           }
           detail="Across offers shown on this page"
         />

@@ -285,7 +285,7 @@ export default function ExplorerDashboard() {
     const metricCards = [
         {
             label: 'Block Height',
-            value: blockHeight ? blockHeight.toLocaleString() : '—',
+            value: blockHeight ? blockHeight.toLocaleString() : 'Not available',
             icon: Database,
             color: 'text-primary',
             sparkColor: '#6366f1',
@@ -295,7 +295,7 @@ export default function ExplorerDashboard() {
         },
         {
             label: 'Active Relays',
-            value: nodes ? nodes.toLocaleString() : '—',
+            value: nodes ? nodes.toLocaleString() : 'Not available',
             icon: Server,
             color: 'text-blue-500',
             sparkColor: '#3b82f6',
@@ -305,7 +305,7 @@ export default function ExplorerDashboard() {
         },
         {
             label: '24H Volume',
-            value: volume ? `${Number(volume).toFixed(2)} SOL` : '—',
+            value: volume ? `${Number(volume).toFixed(2)} SOL` : 'Not available',
             icon: ArrowRightLeft,
             color: 'text-emerald-500',
             sparkColor: '#10b981',
@@ -315,7 +315,7 @@ export default function ExplorerDashboard() {
         },
         {
             label: 'Throughput',
-            value: bandwidth ? `${Number(bandwidth).toFixed(2)} GB` : '—',
+            value: bandwidth ? `${Number(bandwidth).toFixed(2)} GB` : 'Not available',
             icon: Zap,
             color: 'text-yellow-500',
             sparkColor: '#eab308',
@@ -334,7 +334,7 @@ export default function ExplorerDashboard() {
 
     const consensusRate = decentralization && decentralization.recent_slots_analyzed > 0
         ? `${(decentralization.quorum_ratio * 100).toFixed(1)}%`
-        : '—';
+        : 'Not measured';
     const consensusColor = !decentralization || decentralization.recent_slots_analyzed === 0
         ? 'text-muted-foreground'
         : decentralization.conflicting_slots > 0
@@ -516,7 +516,7 @@ export default function ExplorerDashboard() {
                             <div className="text-right">
                                 <div className="text-[8px] font-black text-muted-foreground uppercase tracking-[0.3em] mb-1">Response Latency</div>
                                 <div className={`text-3xl font-black ${(health?.avg_response_time_ms || 0) < 50 ? 'text-emerald-400' : (health?.avg_response_time_ms || 0) < 200 ? 'text-yellow-400' : 'text-rose-400'}`}>
-                                    {health?.avg_response_time_ms?.toFixed(0) || '—'}<span className="text-sm opacity-40 ml-1">ms</span>
+                                    {health?.avg_response_time_ms != null ? <>{health.avg_response_time_ms.toFixed(0)}<span className="text-sm opacity-40 ml-1">ms</span></> : 'Not measured'}
                                 </div>
                             </div>
                             <div className="w-px h-12 bg-border hidden lg:block" />
@@ -729,7 +729,7 @@ export default function ExplorerDashboard() {
                                                 <div className="text-right">
                                                     <div className="text-[8px] text-muted-foreground font-black uppercase tracking-widest">{block.transaction_count ?? 0} txs</div>
                                                     <div className="text-[8px] text-muted-foreground mt-0.5">
-                                                        {block.timestamp ? formatDistanceToNow(new Date(block.timestamp), { addSuffix: true }) : '—'}
+                                                        {block.timestamp ? formatDistanceToNow(new Date(block.timestamp), { addSuffix: true }) : 'Unknown'}
                                                     </div>
                                                 </div>
                                             </div>
@@ -788,7 +788,7 @@ export default function ExplorerDashboard() {
                     className="flex items-center gap-3 px-5 py-3 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[9px] font-black uppercase tracking-widest"
                 >
                     <span className="text-rose-500">⚠</span>
-                    {explorerGateActive ? 'Explorer full decentralization gate is active — detailed feeds are paused until quorum is satisfied' :
+                    {explorerGateActive ? 'Explorer full decentralization gate is active. Detailed feeds are paused until quorum is satisfied' :
                      metricsError instanceof ExplorerApiError && metricsError.kind === 'not_found' ? 'Requested explorer resource was not found' :
                      metricsError && txError ? 'Network metrics and transaction data unavailable' :
                      metricsError ? (metricsError instanceof Error ? metricsError.message : 'Network metrics unavailable') :

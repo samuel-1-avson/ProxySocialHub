@@ -68,7 +68,7 @@ export default function TreasuryPage() {
                 {rpcDegraded && (
                     <GlassCard className="!p-4 border border-amber-500/30 mb-6">
                         <p className="text-amber-300/90 text-xs">
-                            Solana RPC could not refresh balances. Addresses below are still configured — try again shortly.
+                            Solana RPC could not refresh balances. Addresses below are still configured. Try again shortly.
                         </p>
                     </GlassCard>
                 )}
@@ -80,7 +80,7 @@ export default function TreasuryPage() {
                         <div className="text-2xl font-black mt-1">
                             {mounted && !isLoading
                                 ? balanceLabel(treasury?.hot, 'Not configured')
-                                : '—'}
+                                : '…'}
                         </div>
                         {treasury?.hot?.needs_replenish && !treasury.hot.balance_unavailable && (
                             <p className="text-[9px] text-amber-400 font-black uppercase tracking-widest mt-2">Below minimum</p>
@@ -92,17 +92,17 @@ export default function TreasuryPage() {
                         <div className="text-2xl font-black mt-1">
                             {mounted && !isLoading
                                 ? balanceLabel(treasury?.cold, 'Not configured')
-                                : '—'}
+                                : '…'}
                         </div>
                     </GlassCard>
                     <GlassCard className="!p-5 border border-white/5">
                         <Activity size={18} className="text-violet-400/70 mb-3" />
                         <div className="text-[9px] font-black text-white/30 uppercase tracking-widest">Lifetime paid</div>
                         <div className="text-2xl font-black mt-1">
-                            {mounted && !isLoading ? formatSOL(data?.lifetime_provider_paid_sol ?? 0) : '—'} SOL
+                            {mounted && !isLoading ? formatSOL(data?.lifetime_provider_paid_sol ?? 0) : '…'} SOL
                         </div>
                         <p className="text-[9px] text-white/30 mt-2">
-                            Native settlement: SOL · {data?.network ?? '—'}
+                            Native settlement: SOL · {data?.network ?? 'Unknown'}
                         </p>
                     </GlassCard>
                 </div>
@@ -114,15 +114,15 @@ export default function TreasuryPage() {
                                 <div className="text-[9px] font-black text-white/30 uppercase tracking-widest">Deposit vault</div>
                                 <div className="text-2xl font-black mt-1">
                                     {mounted && !isLoading
-                                        ? balanceLabel(treasury.vault, '—')
-                                        : '—'}
+                                        ? balanceLabel(treasury.vault, 'Not configured')
+                                        : '…'}
                                 </div>
                             </GlassCard>
                         )}
                         <GlassCard className="!p-5 border border-white/5">
                             <div className="text-[9px] font-black text-white/30 uppercase tracking-widest">Payout queue</div>
                             <div className="text-2xl font-black mt-1">
-                                {mounted && !isLoading ? (treasury?.liquidity?.queue_depth ?? 0) : '—'}
+                                {mounted && !isLoading ? (treasury?.liquidity?.queue_depth ?? 0) : '…'}
                             </div>
                             {(treasury?.liquidity?.queue_oldest_age_secs ?? 0) > 0 && (
                                 <p className="text-[9px] text-white/30 mt-2">
@@ -135,7 +135,7 @@ export default function TreasuryPage() {
                             <div className="text-lg font-black mt-1">
                                 {mounted && !isLoading && treasury?.liquidity?.last_topup_sol
                                     ? `${formatSOL(treasury.liquidity.last_topup_sol)} SOL`
-                                    : '—'}
+                                    : '…'}
                             </div>
                             {treasury?.liquidity?.last_topup_at && (
                                 <p className="text-[9px] text-white/30 mt-2 font-mono">

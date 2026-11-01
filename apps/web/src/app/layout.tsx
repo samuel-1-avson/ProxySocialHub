@@ -11,7 +11,7 @@ import { TestnetEnvironmentBanner } from "@/components/TestnetEnvironmentBanner"
 
 export const metadata: Metadata = {
   title: {
-    default: "ProxyHubb — Proxy capacity, connected.",
+    default: "ProxyHubb | Proxy capacity, connected.",
     template: "%s | ProxyHubb",
   },
   description:
