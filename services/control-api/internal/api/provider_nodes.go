@@ -32,7 +32,7 @@ var registryTunnelAddrs = func() []string {
 func RegisterProviderNodeRoutes(rg *gin.RouterGroup) {
 	rg.GET("/provider/readiness", getProviderReadiness)
 	rg.GET("/provider/nodes", getMyNodes)
-	rg.POST("/provider/nodes", createNode)
+	rg.POST("/provider/nodes", RateLimitMiddleware(), createNode)
 	rg.PUT("/provider/nodes/:id", updateNode)
 	rg.DELETE("/provider/nodes/:id", deleteNode)
 	rg.GET("/provider/nodes/:id/uptime", getNodeUptime)
@@ -45,8 +45,11 @@ func RegisterProviderNodeRoutes(rg *gin.RouterGroup) {
 
 // getMyNodes returns user's provider nodes
 func getMyNodes(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	userID := currentUserID.(uuid.UUID)
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
 
 	var nodes []models.ProviderNode
 	db.DB.Where("user_id = ?", userID).Order("created_at DESC").Find(&nodes)
@@ -65,8 +68,11 @@ type CreateNodeRequest struct {
 // createNode creates a new provider node.
 // IP ownership verification and duplicate IP detection are enforced.
 func createNode(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	userID := currentUserID.(uuid.UUID)
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
 
 	var req CreateNodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -241,8 +247,11 @@ func autoPublishListing(userID uuid.UUID, node models.ProviderNode, connType str
 
 // updateNode updates a provider node
 func updateNode(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	userID := currentUserID.(uuid.UUID)
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
 
 	nodeID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -288,8 +297,11 @@ func updateNode(c *gin.Context) {
 
 // deleteNode deletes a provider node
 func deleteNode(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	userID := currentUserID.(uuid.UUID)
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
 
 	nodeID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -321,8 +333,11 @@ func deleteNode(c *gin.Context) {
 
 // getNodeUptime returns uptime statistics for a node
 func getNodeUptime(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	userID := currentUserID.(uuid.UUID)
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
 
 	nodeID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -390,8 +405,11 @@ func getNodeUptime(c *gin.Context) {
 // getNodeConnectInfo returns public connection metadata for provider-node (no API keys).
 // GET /v1/provider/nodes/:id/connect
 func getNodeConnectInfo(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	userID := currentUserID.(uuid.UUID)
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
 
 	nodeID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -516,8 +534,11 @@ func providerPublicTunnelAddrs(primary string) []string {
 // Rows go offline after PROVIDER_NODE_STALE_AFTER (default 5m) without a heartbeat.
 // POST /v1/provider/nodes/:id/heartbeat
 func nodeHeartbeat(c *gin.Context) {
-	currentUserID, _ := c.Get("user_id")
-	userID := currentUserID.(uuid.UUID)
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
 
 	nodeID, err := uuid.Parse(c.Param("id"))
 	if err != nil {

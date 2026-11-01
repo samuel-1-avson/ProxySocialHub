@@ -596,3 +596,22 @@ func TestUpdateListing_CalculatedUpdates(t *testing.T) {
 		t.Errorf("Expected price %f, got %f", newPrice, updated.PricePerGB)
 	}
 }
+func TestStatusOnlyListingUpdate(t *testing.T) {
+	paused := models.ListingStatusPaused
+	price := 1.5
+	title := "x"
+	if !statusOnlyListingUpdate(models.UpdateListingRequest{Status: &paused}) {
+		t.Fatal("status-only flip must skip the proof requirement")
+	}
+	cases := []models.UpdateListingRequest{
+		{Status: &paused, PricePerGB: &price},
+		{Status: &paused, Title: &title},
+		{Status: &paused, BulkDiscounts: []models.BulkDiscount{{MinGB: 1, PricePerGB: 0.5}}},
+		{PricePerGB: &price},
+	}
+	for i, req := range cases {
+		if statusOnlyListingUpdate(req) {
+			t.Fatalf("case %d must still require a proof", i)
+		}
+	}
+}
