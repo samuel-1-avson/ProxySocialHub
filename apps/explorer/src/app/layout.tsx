@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { Geist, Geist_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 import { ThemeProvider } from "./ThemeProvider";
-const sans = Geist({ subsets: ["latin"], variable: "--font-geist-sans", display: "swap" });
-const mono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono", display: "swap" });
+const sans = localFont({ src: "../../../../packages/design-system/fonts/space-grotesk-latin-wght-normal.woff2", variable: "--font-display", weight: "300 700", display: "swap" });
+const mono = localFont({ src: "../../../../packages/design-system/fonts/ibm-plex-mono-latin-400-normal.woff2", variable: "--font-code", weight: "400", display: "swap", preload: false });
 export const metadata: Metadata = {
   title: "ProxyHubb Explorer",
   description: "Public network, node, and settlement evidence for ProxyHubb.",

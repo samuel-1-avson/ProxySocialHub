@@ -18,7 +18,7 @@ export function PathCard({
       <span className="path-card-code">{code}</span>
       <span className="path-card-title">{title}</span>
       {meta ? <span className="path-card-meta">{meta}</span> : null}
-      <span className="path-card-body">{children}</span>
+      <div className="path-card-body">{children}</div>
       <span className="path-card-cta">Open →</span>
     </a>
   );
@@ -45,6 +45,7 @@ export function StripLink({
     <a href={href} className="strip-link">
       <span className="strip-label">{label}</span>
       {hint ? <span className="strip-hint">{hint}</span> : null}
+      <span className="strip-arrow" aria-hidden="true">↗</span>
     </a>
   );
 }

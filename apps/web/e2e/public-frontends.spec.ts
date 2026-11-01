@@ -6,12 +6,12 @@ test('Docs: system appearance follows the device and explicit choices persist', 
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.goto(`${docs}/docs`);
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-  const theme = page.getByRole('combobox', { name: 'Color theme' });
-  await theme.selectOption('light');
+  await expect(page.locator('.docs-header select')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Switch to light theme' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await page.reload();
-  await expect(theme).toHaveValue('light');
-  await theme.selectOption('system');
+  await expect(page.getByRole('button', { name: 'Switch to dark theme' })).toBeVisible();
+  await page.getByRole('button', { name: 'Use device appearance' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await page.emulateMedia({ colorScheme: 'light' });
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
@@ -23,7 +23,7 @@ test('Docs: blocked preference storage does not break theme selection', async ({
     Storage.prototype.setItem = () => { throw new Error('Storage disabled'); };
   });
   await page.goto(`${docs}/docs`);
-  await page.getByRole('combobox', { name: 'Color theme' }).selectOption('dark');
+  await page.getByRole('button', { name: 'Switch to dark theme' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await expect(page.getByRole('heading', { name: 'Start with your workflow.' })).toBeVisible();
 });
@@ -96,4 +96,56 @@ test('Explorer: invalid public resources and identifiers are rejected before fet
   expect(unknown.status()).toBe(400);
   const write = await request.post(`${explorer}/api/public?resource=metrics`);
   expect(write.status()).toBe(405);
+});
+
+test('Docs: mobile examples use the reading width and contents never cover code', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.addInitScript(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('Clipboard blocked'); } } }));
+  await page.goto(`${docs}/docs/sdks/python`);
+  const example = page.getByRole('region', { name: /code example/ }).first();
+  const width = await example.evaluate(el => el.clientWidth);
+  const readingWidth = await page.locator('.doc-article').evaluate(el => el.clientWidth);
+  expect(readingWidth - width).toBeLessThanOrEqual(4);
+  const contents = page.getByRole('button', { name: 'On this page', exact: true });
+  await expect(contents).toHaveCSS('position', 'static');
+  await contents.click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(contents).toBeFocused();
+  await page.getByRole('button', { name: 'Copy code', exact: true }).first().click();
+  await expect(page.getByRole('button', { name: 'Copy failed. Try again', exact: true })).toBeVisible();
+  await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => {} } }));
+  await page.getByRole('button', { name: 'Copy failed. Try again', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Code copied', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+});
+
+test('Explorer: mobile navigation and settlement actions stay fully visible', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route('**/api/public?**', route => route.fulfill({ json: { transactions: [{ tx_hash: '5'.repeat(88), tx_type: 'settlement', status: 'confirmed', amount: .32, currency: 'SOL' }], total: 1 } }));
+  await page.goto(`${explorer}/transactions`);
+  const nav = page.getByRole('navigation', { name: 'Explorer primary' });
+  for (const link of await nav.getByRole('link').all()) {
+    const box = await link.boundingBox();
+    expect(box && box.x >= 0 && box.x + box.width <= 390).toBeTruthy();
+  }
+  const inspect = page.getByRole('link', { name: 'Inspect →' }).first();
+  await expect(inspect).toBeVisible();
+  const box = await inspect.boundingBox();
+  expect(box && box.x >= 0 && box.x + box.width <= 390).toBeTruthy();
+  await expect(page.getByText('0.32 SOL', { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+});
+
+test('Docs: API reference initializes once in the selected theme', async ({ page }) => {
+  await page.addInitScript(() => { if (!localStorage.getItem('phub-docs-theme')) localStorage.setItem('phub-docs-theme', 'light'); });
+  await page.goto(`${docs}/docs/api`);
+  const instances = page.locator('.openapi-frame .scalar-api-reference');
+  await expect(instances).toHaveCount(1);
+  await expect(page.locator('.openapi-frame .sidebar-search').first()).toHaveAttribute('aria-label', 'Search API reference');
+  await page.getByRole('button', { name: 'Switch to dark theme', exact: true }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await page.waitForTimeout(500);
+  await expect(instances).toHaveCount(1);
 });

@@ -19,7 +19,7 @@ export function EnvTable({
   caption?: string;
 }) {
   return (
-    <div className="table-scroll env-table-wrap">
+    <div className="table-scroll env-table-wrap" role="region" aria-label={caption} tabIndex={0}>
       <table className="env-table">
         <caption className="sr-only">{caption}</caption>
         <thead>

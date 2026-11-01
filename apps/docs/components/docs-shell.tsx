@@ -12,6 +12,7 @@ import {
   useState,
 } from 'react';
 import { NAV, SEARCH_INDEX, navGroupActive, type NavItem } from '@/lib/nav';
+import { BrandSymbol, ThemeSymbol, ArrowSymbol, SearchSymbol } from '@/components/site-icons';
 
 type Theme = 'system' | 'dark' | 'light';
 
@@ -23,8 +24,9 @@ type SearchDoc = {
   text?: string;
 };
 
-function useTheme(): [Theme, (t: Theme) => void] {
+function useTheme(): [Theme, (t: Theme) => void, 'dark' | 'light', boolean] {
   const [theme, setThemeState] = useState<Theme>('system');
+  const [resolved, setResolved] = useState<'dark' | 'light'>('dark');
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -49,6 +51,7 @@ function useTheme(): [Theme, (t: Theme) => void] {
       const dark = theme === 'dark' || (theme === 'system' && media.matches);
       document.documentElement.classList.toggle('dark', dark);
       document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+      setResolved(dark ? 'dark' : 'light');
     };
     apply();
     media.addEventListener('change', apply);
@@ -60,20 +63,11 @@ function useTheme(): [Theme, (t: Theme) => void] {
     try { window.localStorage.setItem('phub-docs-theme', t); } catch { /* Optional persistence. */ }
   }, []);
 
-  return [theme, setTheme];
+  return [theme, setTheme, resolved, ready];
 }
 
-function ThemeControl({ theme, onChange }: { theme: Theme; onChange: (theme: Theme) => void }) {
-  return (
-    <label className="theme-control">
-      <span className="sr-only">Color theme</span>
-      <select aria-label="Color theme" value={theme} onChange={(event) => onChange(event.target.value as Theme)}>
-        <option value="system">System</option>
-        <option value="light">Light</option>
-        <option value="dark">Dark</option>
-      </select>
-    </label>
-  );
+function ThemeControl({ resolved, ready, onChange }: { resolved: 'dark' | 'light'; ready: boolean; onChange: (theme: Theme) => void }) {
+  return <button type="button" className="ph-theme-toggle" disabled={!ready} aria-label={ready ? `Switch to ${resolved === 'dark' ? 'light' : 'dark'} theme` : 'Loading color theme'} onClick={() => onChange(resolved === 'dark' ? 'light' : 'dark')}><ThemeSymbol dark={resolved === 'dark'} /></button>;
 }
 
 const RECENT_KEY = 'phub-docs-recent';
@@ -458,7 +452,7 @@ export function DocsShell({
 }) {
   const pathname = usePathname();
   const current = activePath || pathname || '/docs';
-  const [theme, setTheme] = useTheme();
+  const [theme, setTheme, resolved, themeReady] = useTheme();
   const [navOpen, setNavOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
@@ -535,21 +529,36 @@ export function DocsShell({
         Skip to content
       </a>
 
+      <header className="docs-header" inert={searchOpen}>
+        <Link href="/docs" className="ph-brand">
+          <span className="ph-brand-mark"><BrandSymbol /></span><span className="ph-brand-name">ProxyHubb</span>{' '}<span className="ph-product-label">Docs</span>
+        </Link>
+        <button type="button" className="search-trigger docs-header-search" title="Search documentation" onClick={(event) => { event.currentTarget.focus(); setSearchOpen(true); }}>
+          <SearchSymbol /><span>Search documentation</span><kbd aria-hidden="true">Ctrl / ⌘ K</kbd>
+        </button>
+        <div className="docs-header-actions">
+          <a className="ph-subtle-link docs-explorer-link" href="https://explorer.proxyhubb.com">Explorer <ArrowSymbol /></a>
+          <ThemeControl resolved={resolved} ready={themeReady} onChange={setTheme} />
+          <a className="ph-primary-link" href="https://proxyhubb.com/app">Open workspace <ArrowSymbol /></a>
+        </div>
+      </header>
+
       <header className="mobile-bar">
         <button
           ref={menuRef}
           type="button"
           className="icon-btn"
+          aria-label={navOpen ? 'Close' : 'Menu'}
           aria-expanded={navOpen}
           aria-controls="docs-sidebar"
           onClick={() => setNavOpen((v) => !v)}
         >
-          {navOpen ? 'Close' : 'Menu'}
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true"><path d={navOpen ? 'm6 6 12 12M6 18 18 6' : 'M4 6h16M4 12h16M4 18h16'} /></svg>
         </button>
-        <Link href="/docs" className="mobile-brand">
-          ProxyHubb <span>Docs</span>
+        <Link href="/docs" className="ph-brand">
+          <span className="ph-brand-mark"><BrandSymbol /></span><span className="ph-brand-name">ProxyHubb</span>{' '}<span className="ph-product-label">Docs</span>
         </Link>
-        <span className="mobile-bar-spacer" aria-hidden="true" />
+        <ThemeControl resolved={resolved} ready={themeReady} onChange={setTheme} />
       </header>
 
       {navOpen ? (
@@ -564,7 +573,7 @@ export function DocsShell({
       <aside
         ref={sidebarRef}
         id="docs-sidebar"
-        className={`sidebar${navOpen ? ' open' : ''}`}
+        className={`docs-sidebar${navOpen ? ' open' : ''}`}
         aria-label="Docs navigation"
         role={navOpen ? 'dialog' : undefined}
         aria-modal={navOpen && !searchOpen ? true : undefined}
@@ -572,34 +581,10 @@ export function DocsShell({
       >
         <button type="button" className="docs-nav-close" onClick={() => setNavOpen(false)}>Close navigation</button>
         <div className="brand-block">
-          <Link href="/docs" className="brand">
-            <span className="brand-mark" aria-hidden="true">
-              PH
-            </span>
-            <span className="brand-text">
-              ProxyHubb
-              <span className="brand-sub">Docs</span>
-            </span>
+          <Link href="/docs" className="ph-brand">
+            <span className="ph-brand-mark"><BrandSymbol /></span><span className="ph-brand-name">ProxyHubb</span>{' '}<span className="ph-product-label">Docs</span>
           </Link>
           <p className="brand-tag">Guides & API reference</p>
-        </div>
-
-        <div className="sidebar-tools">
-          <button type="button" className="search-trigger" onClick={(event) => { event.currentTarget.focus(); setSearchOpen(true); }} aria-label="Search documentation">
-            <span>Search</span>
-            <kbd>/</kbd>
-          </button>
-          <ThemeControl theme={theme} onChange={setTheme} />
-        </div>
-
-        <div className="topbar">
-          <a href="https://proxyhubb.com" target="_blank" rel="noopener noreferrer">
-            Workspace
-          </a>
-          <a href="https://explorer.proxyhubb.com" target="_blank" rel="noopener noreferrer">
-            Explorer
-          </a>
-          <Link href="/docs/api">API reference</Link>
         </div>
 
         <nav aria-label="Documentation" className="nav-rail">
@@ -618,6 +603,11 @@ export function DocsShell({
             />
           ))}
         </nav>
+        <div className="docs-sidebar-footer">
+          <a href="https://explorer.proxyhubb.com">Explore the network <ArrowSymbol /></a>
+          <a href="https://proxyhubb.com/app">Open workspace <ArrowSymbol /></a>
+          <button type="button" onClick={() => setTheme('system')} aria-pressed={theme === 'system'}>Use device appearance</button>
+        </div>
       </aside>
 
       <main id="doc-main" className="main" tabIndex={-1} inert={navOpen || searchOpen}>
@@ -633,7 +623,7 @@ export function DocsShell({
         >
           Search
         </button>
-        <ThemeControl theme={theme} onChange={setTheme} />
+        <Link href="/docs/api" className="dock-btn">API reference</Link>
         <a
           className="dock-btn"
           href="https://proxyhubb.com"

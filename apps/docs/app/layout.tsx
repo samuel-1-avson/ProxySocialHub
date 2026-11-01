@@ -1,11 +1,12 @@
 import type { ReactNode } from 'react';
 import type { Metadata } from 'next';
-import { GeistMono } from 'geist/font/mono';
-import { GeistSans } from 'geist/font/sans';
+import localFont from 'next/font/local';
 import { DocsAnalytics } from '@/components/analytics';
 import './globals.css';
 
 const SITE = 'https://docs.proxyhubb.com';
+const sans = localFont({ src: '../../../packages/design-system/fonts/space-grotesk-latin-wght-normal.woff2', variable: '--font-display', weight: '300 700', display: 'swap' });
+const mono = localFont({ src: '../../../packages/design-system/fonts/ibm-plex-mono-latin-400-normal.woff2', variable: '--font-code', weight: '400', display: 'swap', preload: false });
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE),
@@ -36,8 +37,8 @@ export const viewport = {
   width: 'device-width',
   initialScale: 1,
   themeColor: [
-    { media: '(prefers-color-scheme: dark)', color: '#15191f' },
-    { media: '(prefers-color-scheme: light)', color: '#f4f4f9' },
+    { media: '(prefers-color-scheme: dark)', color: '#101612' },
+    { media: '(prefers-color-scheme: light)', color: '#f2f5ef' },
   ],
 };
 
@@ -47,7 +48,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   return (
     <html
       lang="en"
-      className={`${GeistSans.className} ${GeistSans.variable} ${GeistMono.variable}`}
+      className={`${sans.variable} ${mono.variable}`}
       suppressHydrationWarning
     >
       <head>

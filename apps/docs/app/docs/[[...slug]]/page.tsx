@@ -63,6 +63,7 @@ export default async function DocPage(props: Props) {
         className={`doc-layout${toc.length ? ' has-toc' : ''}${isHome ? ' is-home' : ''}${isApi ? ' is-api' : ''}`}
       >
         <article className={`doc-article${isHome ? ' home-article' : ''}`}>
+          {toc.length ? <div className="mobile-toc-slot"><DocToc items={toc} mode="mobile" /></div> : null}
           {showReading ? <ReadingChrome title={doc.title} /> : null}
           <DocBreadcrumb path={path} />
           {!isHome ? (
@@ -75,7 +76,7 @@ export default async function DocPage(props: Props) {
           {isApi ? <OpenApiReference /> : null}
           {!isHome ? <DocPager href={path} /> : null}
         </article>
-        {toc.length ? <DocToc items={toc} /> : null}
+        {toc.length ? <DocToc items={toc} mode="desktop" /> : null}
       </div>
     </DocsShell>
   );

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useState, useRef } from 'react';
 import type { TocItem } from '@/lib/toc';
 
 function TocList({
@@ -29,10 +29,11 @@ function TocList({
   );
 }
 
-export function DocToc({ items }: { items: TocItem[] }) {
+export function DocToc({ items, mode }: { items: TocItem[]; mode: 'mobile' | 'desktop' }) {
   const [active, setActive] = useState<string>('');
   const [sheetOpen, setSheetOpen] = useState(false);
   const titleId = useId();
+  const sheet = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!items.length) return;
@@ -55,29 +56,49 @@ export function DocToc({ items }: { items: TocItem[] }) {
   }, [items]);
 
   useEffect(() => {
+    if (mode === 'desktop') return;
     document.body.classList.toggle('toc-sheet-open', sheetOpen);
     return () => document.body.classList.remove('toc-sheet-open');
+  }, [sheetOpen, mode]);
+
+  useEffect(() => {
+    if (!sheetOpen) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const controls = () => [...(sheet.current?.querySelectorAll<HTMLElement>('a, button') || [])];
+    controls()[0]?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); setSheetOpen(false); }
+      if (event.key !== 'Tab') return;
+      const elements = controls(), first = elements[0], last = elements[elements.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    };
+    const media = window.matchMedia('(min-width: 1201px)');
+    const onResize = () => { if (media.matches) setSheetOpen(false); };
+    document.addEventListener('keydown', onKey);
+    media.addEventListener('change', onResize);
+    return () => { document.removeEventListener('keydown', onKey); media.removeEventListener('change', onResize); previous?.focus(); };
   }, [sheetOpen]);
 
   if (!items.length) return null;
 
   return (
     <>
-      <nav className="toc toc-rail" aria-label="On this page">
+      {mode === 'desktop' && <nav className="toc toc-rail" aria-label="On this page">
         <p className="toc-label">On this page</p>
         <TocList items={items} active={active} />
-      </nav>
+      </nav>}
 
-      <button
+      {mode === 'mobile' && <button
         type="button"
         className="toc-fab"
         aria-expanded={sheetOpen}
-        aria-controls="toc-sheet"
+        aria-controls={sheetOpen ? `${titleId}-sheet` : undefined}
         aria-label="On this page"
         onClick={() => setSheetOpen(true)}
       >
         On this page
-      </button>
+      </button>}
 
       {sheetOpen ? (
         <div className="toc-sheet-root" role="dialog" aria-modal="true" aria-labelledby={titleId}>
@@ -87,7 +108,7 @@ export function DocToc({ items }: { items: TocItem[] }) {
             aria-label="Close table of contents"
             onClick={() => setSheetOpen(false)}
           />
-          <div id="toc-sheet" className="toc-sheet">
+          <div ref={sheet} id={`${titleId}-sheet`} className="toc-sheet">
             <div className="toc-sheet-head">
               <p id={titleId} className="toc-label">
                 On this page

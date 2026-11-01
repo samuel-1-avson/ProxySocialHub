@@ -1,5 +1,5 @@
 import type { MDXComponents } from 'mdx/types';
-import type { ReactNode } from 'react';
+import type { ReactNode, TableHTMLAttributes } from 'react';
 import { CodeBlock } from '@/components/code-block';
 import { extractText, slugify } from '@/lib/slug';
 import { Callout } from './callout';
@@ -67,4 +67,5 @@ export const mdxComponents: MDXComponents = {
   h2: heading(2),
   h3: heading(3),
   pre: Pre,
+  table: ({ children, ...props }: TableHTMLAttributes<HTMLTableElement>) => <div className="doc-table-scroll" role="region" aria-label="Reference table" tabIndex={0}><table {...props}>{children}</table></div>,
 };
