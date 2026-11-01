@@ -81,7 +81,9 @@ export async function buildListingOfferProofInput(
     form: CreateListingRequest,
     providerNodeId: string,
     gatewayNodeId: string | undefined,
-    providerHotkey: string
+    providerHotkey: string,
+    // Offer edits re-sign the merged (current) status; creates always sign 'active'.
+    status: string = 'active'
 ): Promise<{ payloadHash: string; envelope: Omit<ProviderProofEnvelope, 'signature'> }> {
     const canon = canonicalListingFields(form);
     const issuedAt = Math.floor(Date.now() / 1000);
@@ -99,7 +101,7 @@ export async function buildListingOfferProofInput(
         minPurchaseGb: canon.minPurchaseGb,
         availableBandwidthGb: form.available_bandwidth_gb,
         maxConcurrency: canon.maxConcurrency,
-        status: 'active',
+        status,
         expiresAt: form.listing_offer_expires_at ?? 0,
     });
 
@@ -153,13 +155,15 @@ export async function signListingOfferProof(
     providerNodeId: string,
     gatewayNodeId: string | undefined,
     providerHotkey: string,
-    signMessage: SignMessageFn
+    signMessage: SignMessageFn,
+    status: string = 'active'
 ): Promise<ProviderProofEnvelope> {
     const { envelope } = await buildListingOfferProofInput(
         form,
         providerNodeId,
         gatewayNodeId,
-        providerHotkey
+        providerHotkey,
+        status
     );
     const message = buildProviderProofMessage(envelope);
     const encoded = new TextEncoder().encode(message);
@@ -216,7 +220,8 @@ export async function signListingOfferWithSecret(
     form: CreateListingRequest,
     providerNodeId: string,
     gatewayNodeId: string | undefined,
-    secretB58: string
+    secretB58: string,
+    status: string = 'active'
 ): Promise<ProviderProofEnvelope> {
     const { signAsync } = await import('@noble/ed25519');
     const seed = parseProviderSigningSeed(secretB58);
@@ -225,7 +230,8 @@ export async function signListingOfferWithSecret(
         form,
         providerNodeId,
         gatewayNodeId,
-        hotkey
+        hotkey,
+        status
     );
     const encoded = new TextEncoder().encode(buildProviderProofMessage(envelope));
     const sigBytes = await signAsync(encoded, seed);

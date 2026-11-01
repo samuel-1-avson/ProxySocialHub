@@ -122,8 +122,8 @@ func (l *ProxyListing) BeforeCreate(tx *gorm.DB) error {
 
 // BulkDiscount represents a discount tier for bulk purchases
 type BulkDiscount struct {
-	MinGB      float64 `json:"min_gb"`
-	PricePerGB float64 `json:"price_per_gb"`
+	MinGB      float64 `json:"min_gb" binding:"gte=0"`
+	PricePerGB float64 `json:"price_per_gb" binding:"gte=0"`
 }
 
 // SavedListing represents a bookmarked listing
@@ -150,7 +150,7 @@ type CreateListingRequest struct {
 	MinPurchaseGB        float64        `json:"min_purchase_gb" binding:"gte=0"`
 	AvailableBandwidthGB float64        `json:"available_bandwidth_gb" binding:"required,gt=0"`
 	MaxConcurrency       int            `json:"max_concurrency" binding:"gte=1,lte=100"`
-	BulkDiscounts        []BulkDiscount `json:"bulk_discounts"`
+	BulkDiscounts        []BulkDiscount `json:"bulk_discounts" binding:"omitempty,max=32,dive"`
 	ListingOfferExpiresAt int64         `json:"listing_offer_expires_at"`
 	Proof                ProviderProof `json:"proof"`
 }
@@ -163,7 +163,7 @@ type UpdateListingRequest struct {
 	MinPurchaseGB        *float64       `json:"min_purchase_gb" binding:"omitempty,gte=0"`
 	AvailableBandwidthGB *float64       `json:"available_bandwidth_gb" binding:"omitempty,gte=0"`
 	MaxConcurrency       *int           `json:"max_concurrency" binding:"omitempty,gte=1,lte=100"`
-	BulkDiscounts        []BulkDiscount `json:"bulk_discounts"`
+	BulkDiscounts        []BulkDiscount `json:"bulk_discounts" binding:"omitempty,max=32,dive"`
 	Status               *ListingStatus `json:"status" binding:"omitempty,oneof=active paused"`
 	ListingOfferExpiresAt int64         `json:"listing_offer_expires_at"`
 	Proof                ProviderProof `json:"proof"`
