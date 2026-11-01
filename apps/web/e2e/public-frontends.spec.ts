@@ -149,3 +149,23 @@ test('Docs: API reference initializes once in the selected theme', async ({ page
   await page.waitForTimeout(500);
   await expect(instances).toHaveCount(1);
 });
+
+test('Explorer: overview stays concise as live history and transactions grow', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route('**/api/public?**', route => {
+    const resource = new URL(route.request().url()).searchParams.get('resource');
+    const data = resource === 'health-history' ? { history: Array.from({ length: 24 }, (_, i) => ({ timestamp: new Date(Date.UTC(2026, 10, 1, i)).toISOString(), status: 'healthy', active_nodes: 2 })) }
+      : resource === 'transactions' ? { transactions: Array.from({ length: 20 }, (_, i) => ({ tx_hash: `${i}`.padStart(88, '5'), tx_type: 'settlement', status: 'confirmed', amount: .32, currency: 'SOL' })), total: 159 } : {};
+    return route.fulfill({ json: data });
+  });
+  await page.goto(explorer);
+  await expect(page.locator('.explorer-history-item:visible')).toHaveCount(4);
+  await expect(page.getByRole('region', { name: 'Public transactions' }).locator('tbody tr')).toHaveCount(5);
+  await expect(page.getByText('Showing 5 of 159 indexed records')).toBeVisible();
+  await page.getByText('Show 20 earlier observations', { exact: true }).click();
+  await expect(page.locator('.explorer-history-item:visible')).toHaveCount(24);
+  await page.getByRole('link', { name: 'View all transactions' }).click();
+  await expect(page.getByRole('region', { name: 'Public transactions' }).locator('tbody tr')).toHaveCount(20);
+  await expect(page.getByRole('button', { name: 'Next', exact: true })).toBeEnabled();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+});

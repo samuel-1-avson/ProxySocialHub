@@ -442,6 +442,9 @@ body { -webkit-font-smoothing: antialiased; }
 .ui-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
 .ui-surface, .explorer-history { border: 1px solid var(--border); border-radius: 16px; padding: 24px; background: var(--card); box-shadow: none; }
 .ui-surface h2, .explorer-history h2 { margin-top: 0; font-size: 19px; font-weight: 600; letter-spacing: -.035em; }
+.explorer-history-more { margin-top: 16px; }
+.explorer-history-more > .explorer-history-list { margin-top: 16px; }
+.explorer-ledger-preview { gap: 12px; flex-wrap: wrap; }
 .ui-section-heading { align-items: center; gap: 14px; }
 .ui-row { min-width: 0; padding-block: 15px; font-size: 13px; }
 .ui-row > * { min-width: 0; overflow-wrap: anywhere; }

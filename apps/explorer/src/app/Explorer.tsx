@@ -436,12 +436,20 @@ function TrendChart({
     </section>
   );
 }
+function HistoryObservation({ point, index }: { point: Record<string, unknown>; index: number }) {
+  return <div className="explorer-history-item" key={`${String(point.timestamp)}-${index}`}>
+    <span>{observed(point.timestamp)}</span>
+    <Status value={point.status} />
+    <strong>{num(point.active_nodes, 0)} active nodes</strong>
+  </div>;
+}
 function Health({ period = "24h" }: { period?: Period }) {
   const health = usePublic("health");
   const trust = usePublic("trust");
   const historyPeriod = period === "1h" ? "24h" : period;
   const history = usePublic("health-history", undefined, 1, { period: historyPeriod });
-  const historyPoints = records(history.data?.history);
+  const historyPoints = records(history.data?.history).sort((a, b) =>
+    (Date.parse(text(b.timestamp, "")) || 0) - (Date.parse(text(a.timestamp, "")) || 0));
   return (
     <>
       <div className="ui-columns">
@@ -485,15 +493,17 @@ function Health({ period = "24h" }: { period?: Period }) {
         {history.data?.metrics_available === false ? (
           <p className="explorer-chart-empty">{text(history.data.message, "No historical health measurements have been reported yet.")}</p>
         ) : historyPoints.length ? (
-          <div className="explorer-history-list">
-            {historyPoints.map((point, index) => (
-              <div className="explorer-history-item" key={`${String(point.timestamp)}-${index}`}>
-                <span>{observed(point.timestamp)}</span>
-                <Status value={point.status} />
-                <strong>{num(point.active_nodes, 0)} active nodes</strong>
+          <>
+            <div className="explorer-history-list">
+              {historyPoints.slice(0, 4).map((point, index) => <HistoryObservation point={point} index={index} key={index} />)}
+            </div>
+            {historyPoints.length > 4 && <details className="explorer-chart-data explorer-history-more">
+              <summary>Show {historyPoints.length - 4} earlier observations</summary>
+              <div className="explorer-history-list">
+                {historyPoints.slice(4).map((point, index) => <HistoryObservation point={point} index={index} key={index} />)}
               </div>
-            ))}
-          </div>
+            </details>}
+          </>
         ) : !history.loading && !history.error ? (
           <p className="explorer-chart-empty">No historical health measurements have been reported for this window.</p>
         ) : null}
@@ -501,7 +511,7 @@ function Health({ period = "24h" }: { period?: Period }) {
     </>
   );
 }
-function Ledger({ blocks = false }: { blocks?: boolean }) {
+function Ledger({ blocks = false, preview = false }: { blocks?: boolean; preview?: boolean }) {
   const [page, setPage] = useState(1);
   const source = usePublic(blocks ? "blocks" : "transactions", undefined, page);
   const rows = records(source.data?.[blocks ? "blocks" : "transactions"]);
@@ -536,7 +546,7 @@ function Ledger({ blocks = false }: { blocks?: boolean }) {
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => {
+              {(preview ? rows.slice(0, 5) : rows).map((row) => {
                 const id = text(blocks ? row.block_number : row.tx_hash, "");
                 return (
                   <tr key={id}>
@@ -581,7 +591,10 @@ function Ledger({ blocks = false }: { blocks?: boolean }) {
           )}
         </div>
       )}
-      <div className="ui-pagination">
+      {preview ? source.data && <div className="ui-pagination explorer-ledger-preview">
+        <span>Showing {Math.min(rows.length, 5)}{total != null ? ` of ${total}` : ""} indexed records</span>
+        <Link href="/transactions" className="ui-button secondary small">View all transactions <ArrowSymbol /></Link>
+      </div> : <div className="ui-pagination">
         <button
           className="ui-button secondary small"
           onClick={() => setPage((value) => Math.max(1, value - 1))}
@@ -600,7 +613,7 @@ function Ledger({ blocks = false }: { blocks?: boolean }) {
         >
           Next
         </button>
-      </div>
+      </div>}
     </>
   );
 }
@@ -1167,7 +1180,7 @@ export function Explorer({ path = [] }: { path?: string[] }) {
                 <h2 className="explorer-subheading">
                   Recent settlement evidence
                 </h2>
-                <Ledger />
+                <Ledger preview />
               </section>
             </>
           )}
