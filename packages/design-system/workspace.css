@@ -739,6 +739,12 @@ fieldset.ui-choice-group {
   font-size: 15px;
   margin: 14px 0 9px;
 }
+/* Space the parts of a highlighted box (heading, text, buttons, lists) so a
+   button never sits on the paragraph above it. Zero specificity: rules
+   that set their own margins still win. */
+:where(.ui-attention) > :where(* + *) {
+  margin-top: 12px;
+}
 .ui-attention p {
   font-size: 13px;
   color: var(--muted-foreground);

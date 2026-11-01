@@ -47,10 +47,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" data-scroll-behavior="smooth" suppressHydrationWarning>
-      <body
-        className={`${displayFont.variable} ${dataFont.variable} antialiased`}
-      >
+    // The font variables go on <html>: globals.css builds --font-sans and
+    // --font-mono from them at :root, and `font:` shorthands that use those
+    // are dropped entirely when the variables only exist further down.
+    <html
+      lang="en"
+      data-scroll-behavior="smooth"
+      suppressHydrationWarning
+      className={`${displayFont.variable} ${dataFont.variable}`}
+    >
+      <body className="antialiased">
         <SkipLink />
         <ThemeProvider
           attribute="class"
