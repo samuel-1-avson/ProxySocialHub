@@ -89,37 +89,13 @@
   height: 100dvh;
   display: flex;
   flex-direction: column;
-  padding: 25px 17px 18px;
-  background: var(--surface-raised);
+  padding: 15px 17px 18px;
+  background: var(--background);
   border-right: 1px solid var(--border);
   overflow-y: auto;
 }
-.workspace-brand,
-.workspace-mobile-brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 19px;
-  font-weight: 650;
-  letter-spacing: -0.6px;
-  text-decoration: none;
-  color: var(--foreground);
-}
 .workspace-brand {
   margin: 0 10px 24px;
-}
-.workspace-mark {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  border-radius: 9px;
-  background: var(--primary);
-  color: var(--primary-foreground);
-  font-size: 13px;
-  letter-spacing: -1px;
-  font-weight: 600;
-  flex: none;
 }
 .workspace-switcher {
   display: flex;
@@ -181,10 +157,9 @@
   font-weight: 500;
 }
 .workspace-primary a.active {
-  color: var(--primary);
-  background: color-mix(in srgb, var(--primary) 12%, var(--card));
-  box-shadow: inset 2px 0 var(--primary);
-  font-weight: 650;
+  color: var(--foreground);
+  background: var(--secondary);
+  font-weight: 600;
 }
 .workspace-primary a:hover,
 .workspace-secondary a:hover {
@@ -206,11 +181,12 @@
   min-width: 0;
 }
 .workspace-header {
-  min-height: 70px;
+  min-height: 64px;
   padding: 10px 38px;
-  background: color-mix(in srgb, var(--background) 86%, transparent);
+  background: color-mix(in srgb, var(--background) 88%, transparent);
   border-bottom: 1px solid var(--border);
-  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -219,16 +195,31 @@
   top: 0;
   z-index: 30;
 }
-.workspace-mobile-brand {
+.workspace-header .workspace-mobile-brand {
   display: none;
 }
 .workspace-search-trigger {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 12px;
   color: var(--muted-foreground);
   font-size: 13px;
-  min-height: 44px;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.workspace-search-trigger:hover {
+  color: var(--foreground);
+  background: var(--secondary);
+}
+.workspace-search-trigger:focus-visible,
+.workspace-wallet-link:focus-visible,
+.workspace-inbox-link:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
 .workspace-search-trigger kbd {
   font-size: 10px;
@@ -261,23 +252,37 @@
 }
 .workspace-wallet-link,
 .workspace-inbox-link {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: var(--foreground);
-  min-height: 44px;
+  color: var(--muted-foreground);
+  min-height: 40px;
+  padding: 0 10px;
+  border-radius: 8px;
   font-size: 13px;
+  font-weight: 500;
   text-decoration: none;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.workspace-wallet-link:hover,
+.workspace-inbox-link:hover {
+  color: var(--foreground);
+  background: var(--secondary);
 }
 .workspace-account-button {
-  height: 34px;
-  min-width: 34px;
+  height: 36px;
+  min-width: 36px;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--primary) 13%, var(--secondary));
-  color: var(--foreground);
+  background: var(--primary);
+  color: var(--primary-foreground);
   font-size: 11px;
   font-weight: 600;
-  border: 1px solid color-mix(in srgb, var(--primary) 22%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--primary) 62%, var(--border));
+  transition: transform var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
+}
+.workspace-account-button:hover {
+  background: var(--primary-dark);
+  transform: translateY(-1px);
 }
 .workspace-content {
   width: 100%;
@@ -880,14 +885,8 @@
     min-height: 64px;
     gap: 5px;
   }
-  .workspace-mobile-brand {
+  .workspace-header .workspace-mobile-brand {
     display: flex;
-    font-size: 15px;
-    gap: 7px;
-  }
-  .workspace-mobile-brand .workspace-mark {
-    height: 26px;
-    width: 26px;
   }
   .workspace-search-trigger {
     margin-left: auto;
@@ -1047,6 +1046,12 @@
   }
   .ui-note {
     font-size: 11px;
+  }
+}
+
+@media (max-width: 379px) {
+  .workspace-mobile-brand .brand-lockup-name {
+    display: none;
   }
 }
 .ui-button.block {

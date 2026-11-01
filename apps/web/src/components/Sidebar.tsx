@@ -5,6 +5,7 @@ import { Activity, ArrowUpRight, CircleHelp, Globe2, MessageSquareText, Settings
 import { useAuth } from "@/lib/auth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
+import { BrandLockup } from "@/components/BrandLockup";
 import {
   WORKSPACE_DESTINATIONS,
   explorerHref,
@@ -16,17 +17,10 @@ export function Sidebar() {
   const { mode } = useWorkspace();
   return (
     <aside className="workspace-sidebar" aria-label="Workspace navigation">
-      <Link
+      <BrandLockup
         className="workspace-brand"
-        href={
-          isAuthenticated ? (mode === "seller" ? "/provider" : "/app") : "/"
-        }
-      >
-        <span className="workspace-mark" aria-hidden="true">
-          PH
-        </span>
-        ProxyHubb
-      </Link>
+        href={isAuthenticated ? (mode === "seller" ? "/provider" : "/app") : "/"}
+      />
       <WorkspaceSwitcher />
       <p className="workspace-nav-label">Workspace</p>
       <nav className="workspace-primary" aria-label="Primary">
