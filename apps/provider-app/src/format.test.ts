@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { CONSENT_CHECKBOX, CONSENT_POINTS, CONSENT_VERSION } from './consent';
 import {
   canAcceptConsent,
+  formatAgo,
   formatBytes,
   formatCountdown,
   formatDuration,
+  formatRetrySentence,
   noticeForPairingEnd,
   secondsLeft,
 } from './format';
@@ -76,5 +78,26 @@ describe('noticeForPairingEnd', () => {
     expect(noticeForPairingEnd({ outcome: 'expired' })?.body).toMatch(/10 minutes/);
     expect(noticeForPairingEnd({ outcome: 'failed', message: 'no network' })?.body).toBe('no network');
     expect(noticeForPairingEnd({ outcome: 'failed', message: '' })?.body).toMatch(/try again/);
+  });
+});
+describe('retry display', () => {
+  const retry = { active_gateway: 'gw:3128', gateway_index: 0, gateway_total: 2, updated_at_unix: 1000 };
+  it('ages errors in plain words and never goes negative', () => {
+    expect(formatAgo(1000, 1000 * 1000)).toBe('just now');
+    expect(formatAgo(1000, 1012 * 1000)).toBe('12s ago');
+    expect(formatAgo(1000, 1300 * 1000)).toBe('5m ago');
+    expect(formatAgo(2000, 1000 * 1000)).toBe('just now');
+  });
+  it('names the gateway, the rotation slot and the last error', () => {
+    expect(formatRetrySentence(retry, 'boom', 1012 * 1000)).toBe(
+      'Trying gw:3128 (1 of 2). The node retries automatically. Last error 12s ago: boom',
+    );
+  });
+  it('stays calm without an error and without a rotation', () => {
+    expect(formatRetrySentence(retry, null, 1012 * 1000)).toBe(
+      'Trying gw:3128 (1 of 2). The node retries automatically.',
+    );
+    const single = { ...retry, gateway_total: 1 };
+    expect(formatRetrySentence(single, null, 0)).toBe('Trying gw:3128. The node retries automatically.');
   });
 });
