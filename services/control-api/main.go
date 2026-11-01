@@ -751,6 +751,11 @@ func main() {
 		}
 
 		rpcEndpoint := rpcEndpoints[0]
+		// Dedicated endpoint so explorer traffic can be split onto its own
+		// key and never starve deposits, the watcher, or the preflight.
+		if override := strings.TrimSpace(os.Getenv("EXPLORER_INDEXER_RPC_ENDPOINT")); override != "" {
+			rpcEndpoint = override
+		}
 
 		pollInterval := 15 * time.Second
 		if interval := os.Getenv("EXPLORER_INDEXER_POLL_INTERVAL_MS"); interval != "" {
