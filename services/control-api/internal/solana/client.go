@@ -192,7 +192,7 @@ func NewOracleClient(cfg Config) (*OracleClient, error) {
 		signer, err := NewAWSKMSSigner(kmsKeyID, pubKey)
 		if err != nil {
 			env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
-			strict := env == "production" || env == "prod" || env == "staging" ||
+			strict := env == "production" || env == "prod" || env == "staging" || env == "testnet" ||
 				strings.EqualFold(strings.TrimSpace(os.Getenv("PROXYHUB_REQUIRE_AWS_KMS")), "true")
 			if strict {
 				return nil, fmt.Errorf("USE_AWS_KMS=true but KMS init failed in %s: %w", env, err)

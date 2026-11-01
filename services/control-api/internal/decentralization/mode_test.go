@@ -232,6 +232,11 @@ func TestDepositRequireFinalizedDefaults(t *testing.T) {
 		t.Fatal("production default should be true when unset (BC-07)")
 	}
 
+	t.Setenv("APP_ENV", "testnet")
+	if !DepositRequireFinalized() {
+		t.Fatal("testnet default should be true when unset (BC-07)")
+	}
+
 	t.Setenv("APP_ENV", "production")
 	t.Setenv("PROXYHUB_DEPOSIT_REQUIRE_FINALIZED", "false")
 	if DepositRequireFinalized() {

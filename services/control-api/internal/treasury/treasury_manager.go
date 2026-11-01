@@ -150,7 +150,7 @@ func (tm *TreasuryManager) GetThresholds() TreasuryThresholds {
 	if network == "mainnet-beta" || network == "mainnet" || appEnv == "production" || appEnv == "prod" {
 		return MainNetThresholds
 	}
-	if network == "staging" || appEnv == "staging" {
+	if network == "staging" || appEnv == "staging" || appEnv == "testnet" {
 		return StagingThresholds
 	}
 	return DevNetThresholds
