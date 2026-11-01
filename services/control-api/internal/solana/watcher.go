@@ -234,19 +234,19 @@ func (w *Watcher) subscribeToLogs() {
 	log.Printf("[Watcher] Subscribed to program logs")
 
 	for {
-		select {
-		case <-w.ctx.Done():
+		if w.ctx.Err() != nil {
 			return
-		case result, ok := <-sub.Response():
-			if !ok {
-				log.Printf("[Watcher] WebSocket subscription closed")
+		}
+		// solana-go >=1.17 removed the Response/Err channels; Recv is the API.
+		result, err := sub.Recv(w.ctx)
+		if err != nil {
+			if w.ctx.Err() != nil {
 				return
 			}
-			w.processLogResult(result)
-		case err := <-sub.Err():
 			log.Printf("[Watcher] WebSocket error: %v", err)
 			return
 		}
+		w.processLogResult(result)
 	}
 }
 
