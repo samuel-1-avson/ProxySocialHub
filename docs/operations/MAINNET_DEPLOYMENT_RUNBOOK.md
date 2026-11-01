@@ -146,7 +146,7 @@ npx tsx scripts/w12b-permissionless-join.ts \
 Execute the automated pre-flight and live smoke verification:
 ```bash
 # Run automated pre-flight checks
-npx tsx scripts/ops-mainnet-preflight.ts
+(cd services/control-api && APP_ENV=testnet go run ./cmd/preflight -web-env /path/to/web.env)
 
 # Execute end-to-end micro-session settlement test
 npx tsx testing/test_depin_ecosystem.ts

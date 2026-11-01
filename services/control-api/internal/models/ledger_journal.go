@@ -166,10 +166,10 @@ func PostBalancedJournal(tx *gorm.DB, entryType, externalRef, description string
 		return err
 	}
 	if !present {
-		// Soft-skip only outside staging/production (unit tests / pre-migration local).
+		// Soft-skip only outside staging/production/testnet (unit tests / pre-migration local).
 		env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
 		switch env {
-		case "production", "prod", "staging":
+		case "production", "prod", "staging", "testnet":
 			return fmt.Errorf("ledger_journals table missing; run migration 000124+")
 		default:
 			return nil

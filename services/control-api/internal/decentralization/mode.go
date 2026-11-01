@@ -53,7 +53,7 @@ func DepositVaultUIEnabled() bool {
 }
 
 // DepositRequireFinalized switches deposit tx verification to commitment=finalized (BC-07).
-// Explicit env wins. When unset: true for staging/production, false for local/dev.
+// Explicit env wins. When unset: true for staging/production/testnet, false for local/dev.
 func DepositRequireFinalized() bool {
 	raw := strings.TrimSpace(os.Getenv("PROXYHUB_DEPOSIT_REQUIRE_FINALIZED"))
 	if raw != "" {
@@ -61,7 +61,7 @@ func DepositRequireFinalized() bool {
 	}
 	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
 	switch env {
-	case "production", "prod", "staging":
+	case "production", "prod", "staging", "testnet":
 		return true
 	default:
 		return false
