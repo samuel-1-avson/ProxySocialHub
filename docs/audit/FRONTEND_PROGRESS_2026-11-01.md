@@ -10,6 +10,8 @@ The installed and declared Next.js versions are aligned at **16.4.3**. Earlier f
 
 The redesigned frontend is deployed on the existing devnet production site. Follow the [production deployment report](./FRONTEND_PRODUCTION_DEPLOYMENT_2026-11-01.md) for final release-source checks and remaining live-flow acceptance.
 
+The separate `explorer.proxyhubb.com` and `docs.proxyhubb.com` applications now have their own [redesign and release record](./PUBLIC_FRONTENDS_REDESIGN_REPORT_2026-11-01.md), including a [complete public page coverage plan](./PUBLIC_FRONTENDS_IMPLEMENTATION_PLAN_2026-11-01.md). Their revision and verification receipts are separate from the main workspace release above.
+
 ## Delivered in the final continuation
 
 - Rebuilt discussion composer/thread, inbox, public/provider profiles, friends, treasury, Explorer insight and record pages, API-key/referral controls, and architecture/protocol reading layouts.

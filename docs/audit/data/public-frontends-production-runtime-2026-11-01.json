@@ -1,0 +1,87 @@
+{
+  "checkedAt": "2026-11-01T20:20:04.6158692Z",
+  "buildStatus": "SUCCESS",
+  "project": "gen-lang-client-0022105784",
+  "vm": "proxyhubb-testnet",
+  "zone": "us-central1-a",
+  "services": [
+    {
+      "name": "proxyhubb-explorer-1",
+      "containerId": "cd0298b0e12894efdb892780e79eb956985d28e2a3f353dcbc28f25eebcb7678",
+      "image": "proxyhubb-production/explorer:28359480eaae80e8bfcdc39120d2b76381fb5efb",
+      "imageDigest": "sha256:b902138f0b8ca0f0c508e2ef98b4a44b9e2347e552a00881c5e8df5749a7284d",
+      "health": "healthy",
+      "restartCount": 0,
+      "sourceRevision": "28359480eaae80e8bfcdc39120d2b76381fb5efb",
+      "buildId": "03B_H0w8_TiKqv_p02DUY"
+    },
+    {
+      "name": "proxyhubb-docs-1",
+      "containerId": "bde3f3e16ddfaf4555cf174065e071177140552b33eb36fb3d042fa82f1b852e",
+      "image": "proxyhubb-production/docs:7577da13dd72791e62f56e9cdaa7c9dbf4364b42",
+      "imageDigest": "sha256:b3128108eb8e67e05184b51a8496789b4cfe8641735e672dc6b40aef94ea5e08",
+      "health": "healthy",
+      "restartCount": 0,
+      "sourceRevision": "7577da13dd72791e62f56e9cdaa7c9dbf4364b42",
+      "buildId": "dSwuz-ZQW4gv3kCTOOzkm"
+    },
+    {
+      "name": "proxyhubb-web-1",
+      "containerId": "22c9b55498cfe21e4844369ffaa56c4e9ec1c96867e79c4e6189f18ba021886f",
+      "image": "proxyhubb-production/web:10dd9ed3fb63ebfdb85cc5cb30854647506792d2",
+      "imageDigest": "sha256:47128aa1e9be884bf749dbad15bf88c87eb9a8d3f181d0db727f8ce8f1443215",
+      "health": "healthy",
+      "restartCount": 0,
+      "sourceRevision": "10dd9ed3fb63ebfdb85cc5cb30854647506792d2",
+      "buildId": "wSvGQP0DJD2p9zXRoOiGk"
+    }
+  ],
+  "otherProxyhubbContainersUnchanged": true,
+  "unchangedOtherServiceCount": 13,
+  "otherContainersBefore": [
+    "proxyhubb-control-api-1|92408a6e918b|proxyhubb-control-api",
+    "proxyhubb-edge-gateway-a-1|b7c3717c2dfe|proxyhubb-edge-gateway-a",
+    "proxyhubb-edge-gateway-b-1|68fcb2746e99|proxyhubb-edge-gateway-b",
+    "proxyhubb-grafana-1|14245946357a|grafana/grafana:10.2.0",
+    "proxyhubb-groth16-prover-1|3027ddb3efc2|proxyhubb-groth16-prover",
+    "proxyhubb-ipfs-1|121a1f104775|ipfs/kubo:v0.32.1",
+    "proxyhubb-nats-1|1468c6272427|nats:2.10-alpine",
+    "proxyhubb-postgres-1|c4289b9a29b7|postgres:16-alpine",
+    "proxyhubb-prometheus-1|531a1217661b|prom/prometheus:v2.48.0",
+    "proxyhubb-redis-1|1b453eefc2f3|redis:7-alpine",
+    "proxyhubb-redis-exporter-1|9af8c9b273fe|oliver006/redis_exporter:v1.55.0",
+    "proxyhubb-web-1|22c9b55498cf|proxyhubb-production/web:10dd9ed3fb63ebfdb85cc5cb30854647506792d2",
+    "proxyhubb-zk-prover-1|294d47f47edd|proxyhubb-zk-prover"
+  ],
+  "otherContainersAfter": [
+    "proxyhubb-control-api-1|92408a6e918b|proxyhubb-control-api",
+    "proxyhubb-edge-gateway-a-1|b7c3717c2dfe|proxyhubb-edge-gateway-a",
+    "proxyhubb-edge-gateway-b-1|68fcb2746e99|proxyhubb-edge-gateway-b",
+    "proxyhubb-grafana-1|14245946357a|grafana/grafana:10.2.0",
+    "proxyhubb-groth16-prover-1|3027ddb3efc2|proxyhubb-groth16-prover",
+    "proxyhubb-ipfs-1|121a1f104775|ipfs/kubo:v0.32.1",
+    "proxyhubb-nats-1|1468c6272427|nats:2.10-alpine",
+    "proxyhubb-postgres-1|c4289b9a29b7|postgres:16-alpine",
+    "proxyhubb-prometheus-1|531a1217661b|prom/prometheus:v2.48.0",
+    "proxyhubb-redis-1|1b453eefc2f3|redis:7-alpine",
+    "proxyhubb-redis-exporter-1|9af8c9b273fe|oliver006/redis_exporter:v1.55.0",
+    "proxyhubb-web-1|22c9b55498cf|proxyhubb-production/web:10dd9ed3fb63ebfdb85cc5cb30854647506792d2",
+    "proxyhubb-zk-prover-1|294d47f47edd|proxyhubb-zk-prover"
+  ],
+  "rollbackImages": {
+    "explorer": "sha256:2970b3d657e2be557c66bc9b3c3ae275684851a668dfaa8c2255bb46d4200238",
+    "docs": "sha256:b2024f83c4d8e22ee5c630f853b24b0906ddf8f4fc079910000a015eb43cde53"
+  },
+  "sourceRevisions": {
+    "explorer": "28359480eaae80e8bfcdc39120d2b76381fb5efb",
+    "docs": "7577da13dd72791e62f56e9cdaa7c9dbf4364b42"
+  },
+  "cloudBuilds": {
+    "explorer": "3e572f18-d247-462f-8db3-1de9b0c5b030",
+    "docs": "c056428d-ebb6-4739-9650-d9e5588ccde8"
+  },
+  "artifactDirectories": {
+    "explorer": "gs://gen-lang-client-0022105784_cloudbuild/proxyhubb/public-frontend-releases/28359480eaae80e8bfcdc39120d2b76381fb5efb/",
+    "docs": "gs://gen-lang-client-0022105784_cloudbuild/proxyhubb/public-frontend-releases/7577da13dd72791e62f56e9cdaa7c9dbf4364b42/"
+  }
+}

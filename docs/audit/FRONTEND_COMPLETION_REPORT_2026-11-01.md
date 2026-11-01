@@ -28,6 +28,10 @@ Public forum, profile, messaging, treasury, and browsing pages render without wa
 
 Shared cards render their children directly, which makes grid/flex layouts and spacing work consistently. Shared page headings, metric cards, loading panels, contextual errors, empty states, copy feedback, dialogs, and narrow-screen navigation reduce page-by-page visual drift. Programmatically opened dialogs return focus to their originating control, with the workspace main area as a fallback when that control is removed.
 
+## Separate public application follow-up
+
+The independently deployed Explorer and Docs sites are covered by the [public frontends audit and release report](./PUBLIC_FRONTENDS_REDESIGN_REPORT_2026-11-01.md) and [page coverage plan](./PUBLIC_FRONTENDS_IMPLEMENTATION_PLAN_2026-11-01.md). Their separate releases apply the matching navigation, branding, typography, and light/dark design to Explorer's public record families and all 33 Docs content routes. The earlier measurements in this document describe the main web application and retain their original scope.
+
 ## Remaining surfaces completed
 
 | Surface | Implementation and behavior |
