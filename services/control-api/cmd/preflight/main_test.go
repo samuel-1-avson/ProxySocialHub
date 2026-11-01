@@ -93,7 +93,7 @@ func TestBannerConsistent(t *testing.T) {
 		want    status
 	}{
 		{"prod hidden mainnet", "production", "mainnet-beta", "0", statusPass},
-		{"prod visible fails", "production", "mainnet-beta", "", statusFail},
+		{"prod visible fails", "production", "mainnet-beta", "1", statusFail},
 		{"prod wrong network fails", "production", "devnet", "0", statusFail},
 		{"prod alias", "prod", "mainnet", "false", statusPass},
 		{"testnet default visible", "testnet", "devnet", "", statusPass},
