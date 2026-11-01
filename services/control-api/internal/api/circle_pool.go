@@ -555,6 +555,10 @@ func getCircleSessions(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch sessions"})
 		return
 	}
+	for i := range sessions {
+		scrubCounterpartyTaxID(sessions[i].Buyer)
+		scrubCounterpartyTaxID(sessions[i].Provider)
+	}
 
 	c.JSON(http.StatusOK, gin.H{"sessions": sessions})
 }

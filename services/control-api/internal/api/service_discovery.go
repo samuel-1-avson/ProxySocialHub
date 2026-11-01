@@ -78,6 +78,9 @@ func discoverServices(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch services"})
 		return
 	}
+	for i := range listings {
+		scrubPublicSeller(listings[i].Seller)
+	}
 
 	response := gin.H{
 		"services": listings,
@@ -313,6 +316,9 @@ func matchServices(c *gin.Context) {
 		Find(&listings).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to match services"})
 		return
+	}
+	for i := range listings {
+		scrubPublicSeller(listings[i].Seller)
 	}
 
 	response := gin.H{
