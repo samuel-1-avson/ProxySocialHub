@@ -71,7 +71,7 @@ export function WorkspaceHeader() {
           className="workspace-search-trigger"
           onClick={() => setSearchOpen(true)}
           title="Search workspace"
-          aria-label="Search workspace"
+          aria-label="Search workspace Ctrl / ⌘ K"
           aria-keyshortcuts="Control+k Meta+k"
         >
           <Search size={17} aria-hidden="true" />
