@@ -21,7 +21,7 @@ test.describe("focused marketplace purchase", () => {
     await page.getByRole("button", { name: "View details" }).first().click();
     await page.getByRole("button", { name: "Buy bandwidth" }).click();
     await expect(
-      page.getByRole("heading", { name: "Review purchase" }),
+      page.getByRole("heading", { name: "Buy with SOL" }),
     ).toBeVisible({ timeout: 30_000 });
   }
   test("reviews an offer before requesting escrow funding", async ({
@@ -31,9 +31,9 @@ test.describe("focused marketplace purchase", () => {
     await stubMarketplaceBrowse(page);
     await openCheckout(page);
     await expect(page.getByTestId("buy-listing-start-connection")).toHaveText(
-      /Fund escrow/,
+      /Pay with SOL/,
     );
-    await expect(page.getByText("Bandwidth held in escrow")).toBeVisible();
+    await expect(page.getByText("Held safely until you use it")).toBeVisible();
   });
   test("completes mocked escrow flow and opens the real order credentials screen", async ({
     page,
@@ -50,9 +50,8 @@ test.describe("focused marketplace purchase", () => {
       new RegExp(`/app/connections/${e2eOrderId}$`),
       { timeout: 30_000 },
     );
-    await expect(
-      page.getByTestId("marketplace-order-credentials"),
-    ).toContainText(mockProxyCredentials.endpoint);
+    await page.getByTestId("marketplace-order-credentials").getByText("Use in another app or device").click();
+    await expect(page.getByTestId("marketplace-order-credentials")).toContainText(mockProxyCredentials.endpoint.split(":")[0]);
   });
   test("retries an existing order after a failed payment confirmation without creating another", async ({
     page,
