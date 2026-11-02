@@ -339,13 +339,15 @@ export async function captureRegion(input: CaptureInput): Promise<RegionCapture>
     capture.capturedAt = nowIso();
     const page = await newWatchedPage();
     page.on("dialog", (d) => void d.dismiss().catch(() => undefined));
+    // Page events count as evidence only while capturing; closing the page aborts whatever it still had in flight.
     page.on("console", (msg) => {
-      if (msg.type() === "error" && consoleErrors.length < 20) consoleErrors.push(sanitizeLine(msg.text(), 300, secrets));
+      if (state.capturing && msg.type() === "error" && consoleErrors.length < 20) consoleErrors.push(sanitizeLine(msg.text(), 300, secrets));
     });
     page.on("pageerror", (err) => {
-      if (consoleErrors.length < 20) consoleErrors.push(sanitizeLine(`Uncaught: ${err.message}`, 300, secrets));
+      if (state.capturing && consoleErrors.length < 20) consoleErrors.push(sanitizeLine(`Uncaught: ${err.message}`, 300, secrets));
     });
     page.on("requestfailed", (req) => {
+      if (!state.capturing) return;
       const reason = req.failure()?.errorText ?? "failed";
       if (/BLOCKED_?BY_?CLIENT/i.test(reason)) return; // already recorded as blocked by audit policy, not a site failure
       if (failedRequests.length < 40) {
@@ -353,7 +355,7 @@ export async function captureRegion(input: CaptureInput): Promise<RegionCapture>
       }
     });
     page.on("response", (res) => {
-      if (res.status() >= 400 && failedRequests.length < 40 && !res.request().isNavigationRequest()) {
+      if (state.capturing && res.status() >= 400 && failedRequests.length < 40 && !res.request().isNavigationRequest()) {
         failedRequests.push({ url: sanitizeUrl(res.url()), method: res.request().method(), resourceType: res.request().resourceType(), status: res.status(), failure: null });
       }
     });
@@ -448,6 +450,10 @@ export async function captureRegion(input: CaptureInput): Promise<RegionCapture>
       }
     }
     state.capturing = false;
+    // The evidence is complete. Close the page before the exit re-check switches to the echo-only policy:
+    // left open, its scripts keep requesting the site (prefetches, token refreshes), and those requests would
+    // be blocked and reported as the site contacting unapproved destinations.
+    await page.close().catch(() => undefined);
 
     // 4. Re-observe egress: a route change mid-capture must not go unnoticed.
     input.onPhase?.("egress");

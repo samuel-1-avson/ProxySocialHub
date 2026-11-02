@@ -235,6 +235,25 @@ describe("live transport against a simulated authenticating gateway", { skip: ru
     assert.equal(sim.log.length, 0, "the gateway was never contacted");
   });
 
+  it("does not blame the site for its own background requests once capture is over", async () => {
+    // Found on the first real live audit: proxyhubb.com kept prefetching /provider (redirected to /login) while
+    // the worker re-checked the exit, and those same-origin requests were judged by the echo-only policy.
+    const { runner, store } = await setup(sim);
+    const created = await runner.create(OWNER, body(creds(), "/__chatty"));
+    await runner.idle();
+    const job = (await store.get(created.id))!;
+    for (const cap of job.captures) {
+      const where = cap.requestedCountry;
+      assert.equal(cap.route.assurance, "verified", where);
+      assert.equal(cap.page.mainDocumentStatus, 200, where);
+      assert.equal(cap.route.egressObservations.length, 2, `${where}: the exit was still re-checked after capture`);
+      assert.deepEqual(cap.policyViolations, [], `${where}: no violations`);
+      assert.deepEqual(cap.blockedRequests.filter((b) => b.url.includes(SHOP_HOST)), [], `${where}: the site's own origin was never blocked`);
+      assert.deepEqual(cap.failedRequests, [], `${where}: closing the page is not a site failure`);
+      assert.deepEqual(cap.consoleErrors.filter((e) => /BLOCKED_BY_CLIENT/.test(e)), [], `${where}: no blocked-request console noise`);
+    }
+  });
+
   it("detects a redirect to an unapproved HTTPS host; a gateway allow-list stops it before it connects", async () => {
     const restricted = await startLiveSim({
       regions: { GH: { token: TOKENS.GH, ip: IPS.GH }, US: { token: TOKENS.US, ip: IPS.US } },
