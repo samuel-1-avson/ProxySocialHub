@@ -40,9 +40,21 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  // CORS headers for API communication
+  // Baseline security headers for every page, plus CORS headers for API communication.
+  // The site has no iframes or embeddable pages (so clickjacking protection is safe), and
+  // the node-location picker uses browser geolocation (so no blanket Permissions-Policy).
   async headers() {
     return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          // 180 days, no includeSubDomains: the gateway hosts are not browser-facing HTTPS sites.
+          { key: "Strict-Transport-Security", value: "max-age=15552000" },
+        ],
+      },
       {
         source: "/api/:path*",
         headers: [
