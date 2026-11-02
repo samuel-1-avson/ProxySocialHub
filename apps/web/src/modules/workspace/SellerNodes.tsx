@@ -27,6 +27,7 @@ import {
 import { explorerHref } from "@/lib/navigation/workspace";
 import { Modal } from "@/components/patterns/Modal";
 import { CommandBlock } from "@/components/workspace/CommandBlock";
+import { isNodeOnline, lastSeenText, nodeStatusLabel, useNodeClock } from "@/lib/node-status";
 import { CountrySelect } from "@/components/ui/CountrySelect";
 import {
   PageHeading,
@@ -371,8 +372,10 @@ export function NodeConnection({
 
 export function NodeVerification({ nodeId }: { nodeId: string }) {
   const nodes = useSellerNodes();
+  const now = useNodeClock();
   const node = nodes.data?.nodes.find((item) => item.id === nodeId);
-  const verified = node?.status === "online" && node.latest_heartbeat_verified;
+  const online = node ? isNodeOnline(node, now) : false;
+  const verified = online && node?.latest_heartbeat_verified;
   return (
     <section className="ui-surface">
       <div className="ui-section-heading">
@@ -380,11 +383,16 @@ export function NodeVerification({ nodeId }: { nodeId: string }) {
         <Status tone={verified ? "good" : "neutral"}>
           {verified
             ? "Online · signature verified"
-            : node?.status === "online"
+            : online
               ? "Online · signature not verified"
-              : "Waiting for a verified heartbeat"}
+              : node?.status === "online"
+                ? "Offline · no recent heartbeat"
+                : "Waiting for a verified heartbeat"}
         </Status>
       </div>
+      {node && node.last_seen_at && (
+        <p className="ui-note">{lastSeenText(node, now)}</p>
+      )}
       <p className="ui-note">
         The node software reports its own heartbeat. This screen checks the
         server record; it does not send a simulated heartbeat.
@@ -680,6 +688,7 @@ function NodeSettings({ node }: { node: NodeRegistration }) {
 
 export function SellerNodes() {
   const query = useSellerNodes();
+  const now = useNodeClock();
   return (
     <div className="ui-page">
       <PageHeading
@@ -745,10 +754,13 @@ export function SellerNodes() {
                   </td>
                   <td>
                     <Status
-                      tone={node.status === "online" ? "good" : "neutral"}
+                      tone={isNodeOnline(node, now) ? "good" : "neutral"}
                     >
-                      {node.status}
+                      {nodeStatusLabel(node, now)}
                     </Status>
+                    {node.status === "online" && !isNodeOnline(node, now) && (
+                      <p>{lastSeenText(node, now)}</p>
+                    )}
                   </td>
                   <td>
                     {node.latest_heartbeat_verified
