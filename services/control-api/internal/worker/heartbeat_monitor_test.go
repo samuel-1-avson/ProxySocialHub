@@ -13,6 +13,7 @@ import (
 
 func TestRunHeartbeatCheckMarksSilentNodesOffline(t *testing.T) {
 	testutil.SetupTestDB(t)
+	testutil.CleanupTestData(t, "nodes", "provider_nodes", "users")
 	owner := testutil.CreateTestUserID(t, "provider")
 
 	fresh, _ := testutil.CreateTestProviderNode(t, owner)
