@@ -61,11 +61,13 @@ func getListingFacets(c *gin.Context) {
 	}
 
 	active := models.ListingStatusActive
+	// Node-first, like the map and the browse filter: a stale listing country
+	// must not advertise supply in a country the node is not in.
 	var countries []FacetBucket
 	if err := db.DB.Model(&models.ProxyListing{}).
-		Select("country AS value, COUNT(*) AS count").
-		Where("status = ? AND country <> ''", active).
-		Group("country").
+		Select(models.ListingCountrySQL+" AS value, COUNT(*) AS count").
+		Where("status = ? AND "+models.ListingCountrySQL+" <> ''", active).
+		Group(models.ListingCountrySQL).
 		Order("count DESC").
 		Limit(50).
 		Scan(&countries).Error; err != nil {
