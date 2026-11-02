@@ -361,6 +361,38 @@ test.describe("seller workflow migration", () => {
       page.getByRole("button", { name: "Resume offer" }),
     ).toHaveCount(0);
   });
+  test("publishes an offer for several protocols and explains what is missing", async ({
+    page,
+  }) => {
+    const calls = await setup(page);
+    await page.goto(`${base}/provider/listings/new`, {
+      waitUntil: "domcontentloaded",
+    });
+    const title = page.getByRole("textbox", { name: "Offer title" });
+    await title.fill("Abc");
+    await page
+      .getByLabel("Available bandwidth (GB)", { exact: true })
+      .fill("20");
+    await expect(
+      page.getByText("Offer title needs at least 5 characters."),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Review listing" }),
+    ).toBeDisabled();
+    await title.fill("Accra mixed protocols");
+    await page.getByRole("checkbox", { name: "HTTP", exact: true }).uncheck();
+    await expect(page.getByText("Choose at least one protocol.")).toBeVisible();
+    await page.getByRole("checkbox", { name: "All" }).check();
+    await expect(
+      page.getByRole("checkbox", { name: "SOCKS5" }),
+    ).toBeChecked();
+    await page.getByRole("checkbox", { name: "HTTPS" }).uncheck();
+    await page.getByRole("button", { name: "Review listing" }).click();
+    await expect(page.getByText("HTTP · SOCKS5")).toBeVisible();
+    await page.getByRole("button", { name: "Publish offer" }).click();
+    await expect.poll(() => calls.offers.length).toBe(1);
+    expect(calls.offers[0]).toMatchObject({ protocol: "http,socks5" });
+  });
   test("blocks publishing when publication policy cannot be loaded", async ({
     page,
   }) => {

@@ -145,7 +145,7 @@ type CreateListingRequest struct {
 	Protocol             string         `json:"protocol" binding:"required"`
 	RotationType         string         `json:"rotation_type"`
 	Country              string         `json:"country"`
-	ISP                  string         `json:"isp"`
+	ISP                  string         `json:"isp" binding:"max=100"`
 	PricePerGB           float64        `json:"price_per_gb" binding:"required,gt=0"`
 	MinPurchaseGB        float64        `json:"min_purchase_gb" binding:"gte=0"`
 	AvailableBandwidthGB float64        `json:"available_bandwidth_gb" binding:"required,gt=0"`

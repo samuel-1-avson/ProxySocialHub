@@ -681,7 +681,8 @@ WHERE pl.status <> 'deleted'`
 		argN++
 	}
 	if filters.Protocol != "" {
-		query += fmt.Sprintf(" AND LOWER(pl.protocol) = LOWER($%d)", argN)
+		// pl.protocol holds a comma list such as "http,socks5".
+		query += fmt.Sprintf(" AND ',' || REPLACE(LOWER(pl.protocol), ' ', '') || ',' LIKE '%%,' || LOWER($%d) || ',%%'", argN)
 		args = append(args, filters.Protocol)
 		argN++
 	}

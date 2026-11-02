@@ -93,7 +93,7 @@ export default function ReferralsPanel() {
         />
         <Stat
           label="Reward records"
-          value={rewards.data ? amount(rewards.data.length, 0) : "—"}
+          value={rewards.data ? amount(rewards.data.length, 0) : "…"}
           detail="Returned by the rewards service"
         />
       </div>

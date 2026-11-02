@@ -116,8 +116,8 @@ export function ListingSocialPanel({
         <div className="listing-provider-facts">
           <span>
             <Users size={14} aria-hidden="true" />
-            {context.active_sessions_count ?? "—"} active /{" "}
-            {context.total_sessions_count ?? "—"} total sessions
+            {context.active_sessions_count ?? "…"} active /{" "}
+            {context.total_sessions_count ?? "…"} total sessions
           </span>
           {provider.is_online && (
             <span>

@@ -155,7 +155,7 @@ export default function TrustlessPage() {
           </h1>
           <p className="mt-3 max-w-xl text-sm text-muted-foreground">
             Batches are Merkle-committed on Solana and signed by the oracle.
-            On-chain Halo2 verification is not live yet — these are not
+            On-chain Halo2 verification is not live yet, so these are not
             trustless ZK proofs. Marketplace CONNECT usage lives on Usage &
             billing, not this proof queue.
           </p>

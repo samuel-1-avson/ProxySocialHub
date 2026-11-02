@@ -363,7 +363,7 @@ export function SmartMatchWidget() {
                                     <select
                                         value={useCase}
                                         onChange={(e) => setUseCase(e.target.value)}
-                                        className="w-full bg-background border border-border text-xs font-semibold rounded-lg px-4 py-3 outline-none focus:border-primary/40 text-foreground appearance-none cursor-pointer"
+                                        className="ui-select w-full"
                                     >
                                         <option value="web_scraping">Web Scraping</option>
                                         <option value="social_media">Social Media</option>
@@ -388,7 +388,7 @@ export function SmartMatchWidget() {
                                         <select
                                             value={sessionType}
                                             onChange={(e) => setSessionType(e.target.value)}
-                                            className="w-full bg-background border border-border text-xs font-semibold rounded-lg px-4 py-3 outline-none focus:border-primary/40 text-foreground appearance-none cursor-pointer"
+                                            className="ui-select w-full"
                                         >
                                             <option value="rotating">Rotating</option>
                                             <option value="sticky">Sticky</option>
@@ -442,7 +442,7 @@ export function SmartMatchWidget() {
                                     <select
                                         value={requiredTier}
                                         onChange={(e) => setRequiredTier(e.target.value)}
-                                        className="w-full bg-background border border-border text-xs font-semibold rounded-lg px-4 py-3 outline-none focus:border-primary/40 text-foreground appearance-none cursor-pointer"
+                                        className="ui-select w-full"
                                     >
                                         <option value="any">Any Tier</option>
                                         <option value="Bronze">Bronze</option>

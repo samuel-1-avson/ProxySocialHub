@@ -48,7 +48,7 @@ export default function AgentsConsolePage() {
     setActionError(null);
     if (
       !confirm(
-        `Provision ${agent.name}? This is experimental — no wallet charge and jobs cannot run until Docker execution ships.`,
+        `Provision ${agent.name}? This is experimental: no wallet charge and jobs cannot run until Docker execution ships.`,
       )
     ) {
       return;
@@ -99,7 +99,7 @@ export default function AgentsConsolePage() {
           </h1>
           <p className="text-muted-foreground text-xs max-w-xl opacity-70 normal-case tracking-tight leading-relaxed">
             Registry and provisional rent only. Payment, escrow, and job EXECUTE
-            are not live — removed from Market until runtime ships.
+            are not live, so they are hidden from Market until the runtime ships.
           </p>
         </div>
 
@@ -234,7 +234,7 @@ export default function AgentsConsolePage() {
                     </div>
                   </div>
                   <p className="text-xs font-bold normal-case tracking-normal text-muted-foreground/40 md:text-right max-w-xs">
-                    EXECUTE disabled — Docker runtime not implemented
+                    EXECUTE disabled: Docker runtime not implemented
                   </p>
                 </GlassCard>
               ))

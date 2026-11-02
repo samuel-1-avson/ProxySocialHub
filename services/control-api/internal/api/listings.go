@@ -402,9 +402,16 @@ func createListing(c *gin.Context) {
 
 	var req models.CreateListingRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": listingRequestError(err)})
 		return
 	}
+	protocol, problem := normalizeListingProtocols(req.Protocol)
+	if problem != "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": problem, "field": "protocol"})
+		return
+	}
+	// The offer hash and the stored row both use the canonical list.
+	req.Protocol = protocol
 
 	if _, hard := services.ValidateListingPriceUSD(req.PricePerGB, req.Country, string(req.ProxyType)); hard != "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": hard})
@@ -615,7 +622,7 @@ func updateListing(c *gin.Context) {
 
 	var req models.UpdateListingRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": listingRequestError(err)})
 		return
 	}
 
@@ -704,6 +711,22 @@ func updateListing(c *gin.Context) {
 			if req.MaxConcurrency != nil {
 				maxConcurrency = *req.MaxConcurrency
 			}
+			if maxConcurrency <= 0 {
+				maxConcurrency = 5
+			}
+			// Older rows can hold "HTTP" or an empty rotation; sign what the
+			// web canonicalises them to, or edits to those offers never verify.
+			protocol, problem := normalizeListingProtocols(existing.Protocol)
+			if problem != "" {
+				protocol = strings.ToLower(strings.TrimSpace(existing.Protocol))
+				if protocol == "" {
+					protocol = "http"
+				}
+			}
+			rotationType := existing.RotationType
+			if rotationType == "" {
+				rotationType = "static"
+			}
 			status := existing.Status
 			if req.Status != nil {
 				status = *req.Status
@@ -714,8 +737,8 @@ func updateListing(c *gin.Context) {
 				Title:                title,
 				Description:          description,
 				ProxyType:            string(existing.ProxyType),
-				Protocol:             existing.Protocol,
-				RotationType:         existing.RotationType,
+				Protocol:             protocol,
+				RotationType:         rotationType,
 				Country:              existing.Country,
 				ISP:                  existing.ISP,
 				PricePerGB:           pricePerGB,

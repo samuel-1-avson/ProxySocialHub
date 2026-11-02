@@ -295,6 +295,7 @@ function MarketplaceMapContent({ highlightListingId }: { highlightListingId: str
                                 <select aria-label="Protocol" className="ui-select" value={protocol} onChange={e => changeFilter(setProtocol, e.target.value)}>
                                     <option value="">All protocols</option>
                                     <option value="http">HTTP</option>
+                                    <option value="https">HTTPS</option>
                                     <option value="socks5">SOCKS5</option>
                                 </select>
                             </label>
