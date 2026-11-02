@@ -276,6 +276,9 @@ bootstrap-out.txt
 # Offline program upgrade authority (never commit)
 infra/secrets/
 
+# Settlement acceptance run state: buyer/seller/treasury/device keys and tokens (never commit)
+scripts/settlement-acceptance/.local/
+
 # Deploy staging trees and tarball artifacts (may contain env/secrets)
 .deploy-stage*/
 .deploy-*/
