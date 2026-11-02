@@ -1,0 +1,839 @@
+{
+  "startedAt": "2026-11-01T21:49:29.444Z",
+  "finishedAt": "2026-11-01T21:52:51.941Z",
+  "mode": "synthetic_fixture",
+  "model": {
+    "id": "muse-spark-1.3",
+    "dataMode": "standard",
+    "configured": true
+  },
+  "repeat": 1,
+  "caveats": [
+    "Synthetic fixture cases built by the authors of this tool; ground truth is hand-written in src/eval/groundTruth.ts.",
+    "A small, seeded suite measures this prototype on these cases only. It is not a general accuracy figure.",
+    "Model output varies between runs; use --repeat to see the spread. Cases without a completed AI analysis are reported as skipped, never as passed."
+  ],
+  "runs": [
+    {
+      "caseId": "demo-v1",
+      "repeat": 1,
+      "jobId": "aud_5145f5a5c011",
+      "score": {
+        "caseId": "demo-v1",
+        "category": "defect",
+        "jobStatus": "completed",
+        "analysisStatus": "completed",
+        "scored": true,
+        "skippedReason": null,
+        "defects": [
+          {
+            "region": "GH",
+            "description": "Sign up button covered by a cookie banner in GH",
+            "evidenceSufficient": true,
+            "asserted": true,
+            "flaggedOnly": false,
+            "regionOnly": false
+          },
+          {
+            "region": "US",
+            "description": "US is shown another market's price",
+            "evidenceSufficient": true,
+            "asserted": true,
+            "flaggedOnly": false,
+            "regionOnly": false
+          }
+        ],
+        "unexpectedObserved": [],
+        "hypotheses": 0,
+        "findingsKept": 2,
+        "findingsDropped": 0,
+        "findingsAdjusted": 0,
+        "inventedEvidenceRefsRemoved": 0,
+        "latencyMs": {
+          "job": 20283,
+          "model": 18558
+        },
+        "tokens": {
+          "input": 6822,
+          "output": 3529
+        },
+        "estimatedCostUsd": 0.021728
+      },
+      "modelFindings": [
+        {
+          "regions": [
+            "GH"
+          ],
+          "kind": "element_obscured",
+          "classification": "observed_defect",
+          "severity": "high",
+          "summary": "Signup button obscured by cookie consent banner in Ghana",
+          "evidenceIds": [
+            "ev-5145f5a5-GH"
+          ]
+        },
+        {
+          "regions": [
+            "US"
+          ],
+          "kind": "currency_mismatch",
+          "classification": "observed_defect",
+          "severity": "high",
+          "summary": "US visitors shown GHS price instead of expected USD",
+          "evidenceIds": [
+            "ev-5145f5a5-US"
+          ]
+        }
+      ],
+      "validation": {
+        "dropped": [],
+        "adjusted": []
+      }
+    },
+    {
+      "caseId": "demo-v2",
+      "repeat": 1,
+      "jobId": "aud_ffd83c1591f8",
+      "score": {
+        "caseId": "demo-v2",
+        "category": "healthy_control",
+        "jobStatus": "completed",
+        "analysisStatus": "completed",
+        "scored": true,
+        "skippedReason": null,
+        "defects": [],
+        "unexpectedObserved": [],
+        "hypotheses": 0,
+        "findingsKept": 0,
+        "findingsDropped": 0,
+        "findingsAdjusted": 0,
+        "inventedEvidenceRefsRemoved": 0,
+        "latencyMs": {
+          "job": 11713,
+          "model": 9981
+        },
+        "tokens": {
+          "input": 6752,
+          "output": 1914
+        },
+        "estimatedCostUsd": 0.014636
+      },
+      "modelFindings": [],
+      "validation": {
+        "dropped": [],
+        "adjusted": []
+      }
+    },
+    {
+      "caseId": "healthy-control",
+      "repeat": 1,
+      "jobId": "aud_c62b0bbbd91c",
+      "score": {
+        "caseId": "healthy-control",
+        "category": "healthy_control",
+        "jobStatus": "completed",
+        "analysisStatus": "completed",
+        "scored": true,
+        "skippedReason": null,
+        "defects": [],
+        "unexpectedObserved": [],
+        "hypotheses": 0,
+        "findingsKept": 0,
+        "findingsDropped": 0,
+        "findingsAdjusted": 0,
+        "inventedEvidenceRefsRemoved": 0,
+        "latencyMs": {
+          "job": 9762,
+          "model": 7935
+        },
+        "tokens": {
+          "input": 6546,
+          "output": 2151
+        },
+        "estimatedCostUsd": 0.015386
+      },
+      "modelFindings": [],
+      "validation": {
+        "dropped": [],
+        "adjusted": []
+      }
+    },
+    {
+      "caseId": "healthy-regional-promo",
+      "repeat": 1,
+      "jobId": "aud_8da0073ae1f4",
+      "score": {
+        "caseId": "healthy-regional-promo",
+        "category": "healthy_control",
+        "jobStatus": "completed",
+        "analysisStatus": "completed",
+        "scored": true,
+        "skippedReason": null,
+        "defects": [],
+        "unexpectedObserved": [],
+        "hypotheses": 0,
+        "findingsKept": 0,
+        "findingsDropped": 0,
+        "findingsAdjusted": 0,
+        "inventedEvidenceRefsRemoved": 0,
+        "latencyMs": {
+          "job": 10285,
+          "model": 8688
+        },
+        "tokens": {
+          "input": 6773,
+          "output": 1923
+        },
+        "estimatedCostUsd": 0.016639
+      },
+      "modelFindings": [],
+      "validation": {
+        "dropped": [],
+        "adjusted": []
+      }
+    },
+    {
+      "caseId": "healthy-control-b",
+      "repeat": 1,
+      "jobId": "aud_35298f8c832c",
+      "score": {
+        "caseId": "healthy-control-b",
+        "category": "healthy_control",
+        "jobStatus": "completed",
+        "analysisStatus": "completed",
+        "scored": true,
+        "skippedReason": null,
+        "defects": [],
+        "unexpectedObserved": [],
+        "hypotheses": 0,
+        "findingsKept": 0,
+        "findingsDropped": 0,
+        "findingsAdjusted": 0,
+        "inventedEvidenceRefsRemoved": 0,
+        "latencyMs": {
+          "job": 22609,
+          "model": 21011
+        },
+        "tokens": {
+          "input": 6385,
+          "output": 1785
+        },
+        "estimatedCostUsd": 0.01488
+      },
+      "modelFindings": [],
+      "validation": {
+        "dropped": [],
+        "adjusted": []
+      }
+    },
+    {
+      "caseId": "signup-obscured-gh",
+      "repeat": 1,
+      "jobId": "aud_934330f4aed6",
+      "score": {
+        "caseId": "signup-obscured-gh",
+        "category": "defect",
+        "jobStatus": "completed",
+        "analysisStatus": "completed",
+        "scored": true,
+        "skippedReason": null,
+        "defects": [
+          {
+            "region": "GH",
+            "description": "Sign up button covered by a cookie banner in GH",
+            "evidenceSufficient": true,
+            "asserted": true,
+            "flaggedOnly": false,
+            "regionOnly": false
+          }
+        ],
+        "unexpectedObserved": [],
+        "hypotheses": 0,
+        "findingsKept": 1,
+        "findingsDropped": 0,
+        "findingsAdjusted": 0,
+        "inventedEvidenceRefsRemoved": 0,
+        "latencyMs": {
+          "job": 15804,
+          "model": 14085
+        },
+        "tokens": {
+          "input": 6635,
+          "output": 2805
+        },
+        "estimatedCostUsd": 0.018277
+      },
+      "modelFindings": [
+        {
+          "regions": [
+            "GH"
+          ],
+          "kind": "element_obscured",
+          "classification": "observed_defect",
+          "severity": "high",
+          "summary": "In GH signup button exists but is obscured by cookie consent banner and not clickable",
+          "evidenceIds": [
+            "ev-934330f4-GH"
+          ]
+        }
+      ],
+      "validation": {
+        "dropped": [],
+        "adjusted": []
+      }
+    },
+    {
+      "caseId": "signup-obscured-both",
+      "repeat": 1,
+      "jobId": "aud_be97fb641716",
+      "score": {
+        "caseId": "signup-obscured-both",
+        "category": "defect",
+        "jobStatus": "completed",
+        "analysisStatus": "completed",
+        "scored": true,
+        "skippedReason": null,
+        "defects": [
+          {
+            "region": "GH",
+            "description": "Sign up button covered by a cookie banner in GH",
+            "evidenceSufficient": true,
+            "asserted": true,
+            "flaggedOnly": false,
+            "regionOnly": false
+          },
+          {
+            "region": "US",
+            "description": "Sign up button covered by a cookie banner in US",
+            "evidenceSufficient": true,
+            "asserted": true,
+            "flaggedOnly": false,
+            "regionOnly": false
+          }
+        ],
+        "unexpectedObserved": [],
+        "hypotheses": 0,
+        "findingsKept": 1,
+        "findingsDropped": 0,
+        "findingsAdjusted": 0,
+        "inventedEvidenceRefsRemoved": 0,
+        "latencyMs": {
+          "job": 11332,
+          "model": 9328
+        },
+        "tokens": {
+          "input": 6851,
+          "output": 2429
+        },
+        "estimatedCostUsd": 0.016949
+      },
+      "modelFindings": [
+        {
+          "regions": [
+            "US",
+            "GH"
+          ],
+          "kind": "element_obscured",
+          "classification": "observed_defect",
+          "severity": "high",
+          "summary": "Signup button obscured by cookie consent banner in both regions, not clickable",
+          "evidenceIds": [
+            "ev-be97fb64-US",
+            "ev-be97fb64-GH"
+          ]
+        }
+      ],
+      "validation": {
+        "dropped": [],
+        "adjusted": []
+      }
+    },
+    {
+      "caseId": "signup-missing-gh",
+      "repeat": 1,
+      "jobId": "aud_f7261e7aec10",
+      "score": {
+        "caseId": "signup-missing-gh",
+        "category": "defect",
+        "jobStatus": "completed",
+        "analysisStatus": "completed",
+        "scored": true,
+        "skippedReason": null,
+        "defects": [
+          {
+            "region": "GH",
+            "description": "No Sign up control in GH",
+            "evidenceSufficient": true,
+            "asserted": true,
+            "flaggedOnly": false,
+            "regionOnly": false
+          }
+        ],
+        "unexpectedObserved": [],
+        "hypotheses": 0,
+        "findingsKept": 1,
+        "findingsDropped": 0,
+        "findingsAdjusted": 0,
+        "inventedEvidenceRefsRemoved": 0,
+        "latencyMs": {
+          "job": 12506,
+          "model": 11017
+        },
+        "tokens": {
+          "input": 6333,
+          "output": 2555
+        },
+        "estimatedCostUsd": 0.016837
+      },
+      "modelFindings": [
+        {
+          "regions": [
+            "GH"
+          ],
+          "kind": "element_missing",
+          "classification": "observed_defect",
+          "severity": "high",
+          "summary": "Signup missing for Ghana visitors while available for US visitors",
+          "evidenceIds": [
+            "ev-f7261e7a-GH",
+            "ev-f7261e7a-US"
+          ]
+        }
+      ],
+      "validation": {
+        "dropped": [],
+        "adjusted": []
+      }
+    },
+    {
+      "caseId": "wrong-currency-us",
+      "repeat": 1,
+      "jobId": "aud_9ca2f942c303",
+      "score": {
+        "caseId": "wrong-currency-us",
+        "category": "defect",
+        "jobStatus": "completed",
+        "analysisStatus": "completed",
+        "scored": true,
+        "skippedReason": null,
+        "defects": [
+          {
+            "region": "US",
+            "description": "US is shown another market's price",
+            "evidenceSufficient": true,
+            "asserted": true,
+            "flaggedOnly": false,
+            "regionOnly": false
+          }
+        ],
+        "unexpectedObserved": [],
+        "hypotheses": 0,
+        "findingsKept": 1,
+        "findingsDropped": 0,
+        "findingsAdjusted": 0,
+        "inventedEvidenceRefsRemoved": 0,
+        "latencyMs": {
+          "job": 14731,
+          "model": 13139
+        },
+        "tokens": {
+          "input": 6769,
+          "output": 2959
+        },
+        "estimatedCostUsd": 0.019099
+      },
+      "modelFindings": [
+        {
+          "regions": [
+            "US"
+          ],
+          "kind": "currency_mismatch",
+          "classification": "observed_defect",
+          "severity": "high",
+          "summary": "US region shows GHS GH₵ pricing instead of expected USD",
+          "evidenceIds": [
+            "ev-9ca2f942-US"
+          ]
+        }
+      ],
+      "validation": {
+        "dropped": [],
+        "adjusted": []
+      }
+    },
+    {
+      "caseId": "wrong-currency-gh",
+      "repeat": 1,
+      "jobId": "aud_663e078857aa",
+      "score": {
+        "caseId": "wrong-currency-gh",
+        "category": "defect",
+        "jobStatus": "completed",
+        "analysisStatus": "completed",
+        "scored": true,
+        "skippedReason": null,
+        "defects": [
+          {
+            "region": "GH",
+            "description": "GH is shown another market's price",
+            "evidenceSufficient": true,
+            "asserted": true,
+            "flaggedOnly": false,
+            "regionOnly": false
+          }
+        ],
+        "unexpectedObserved": [],
+        "hypotheses": 0,
+        "findingsKept": 1,
+        "findingsDropped": 0,
+        "findingsAdjusted": 0,
+        "inventedEvidenceRefsRemoved": 0,
+        "latencyMs": {
+          "job": 10872,
+          "model": 9316
+        },
+        "tokens": {
+          "input": 6736,
+          "output": 2300
+        },
+        "estimatedCostUsd": 0.016257
+      },
+      "modelFindings": [
+        {
+          "regions": [
+            "GH"
+          ],
+          "kind": "currency_mismatch",
+          "classification": "observed_defect",
+          "severity": "high",
+          "summary": "Ghana visitor sees USD price instead of expected GHS",
+          "evidenceIds": [
+            "ev-663e0788-GH"
+          ]
+        }
+      ],
+      "validation": {
+        "dropped": [],
+        "adjusted": []
+      }
+    },
+    {
+      "caseId": "asset-404-us",
+      "repeat": 1,
+      "jobId": "aud_7fdaf045c363",
+      "score": {
+        "caseId": "asset-404-us",
+        "category": "defect",
+        "jobStatus": "completed",
+        "analysisStatus": "completed",
+        "scored": true,
+        "skippedReason": null,
+        "defects": [
+          {
+            "region": "US",
+            "description": "pricing.js 404 so the price never renders in US",
+            "evidenceSufficient": true,
+            "asserted": true,
+            "flaggedOnly": false,
+            "regionOnly": false
+          }
+        ],
+        "unexpectedObserved": [],
+        "hypotheses": 0,
+        "findingsKept": 1,
+        "findingsDropped": 0,
+        "findingsAdjusted": 0,
+        "inventedEvidenceRefsRemoved": 0,
+        "latencyMs": {
+          "job": 11605,
+          "model": 10015
+        },
+        "tokens": {
+          "input": 6918,
+          "output": 2535
+        },
+        "estimatedCostUsd": 0.017483
+      },
+      "modelFindings": [
+        {
+          "regions": [
+            "US"
+          ],
+          "kind": "asset_failed",
+          "classification": "observed_defect",
+          "severity": "high",
+          "summary": "US pricing fails to load due to missing pricing.js, no USD shown",
+          "evidenceIds": [
+            "ev-7fdaf045-US"
+          ]
+        }
+      ],
+      "validation": {
+        "dropped": [],
+        "adjusted": []
+      }
+    },
+    {
+      "caseId": "server-error-gh",
+      "repeat": 1,
+      "jobId": "aud_f2daa634459e",
+      "score": {
+        "caseId": "server-error-gh",
+        "category": "defect",
+        "jobStatus": "completed",
+        "analysisStatus": "completed",
+        "scored": true,
+        "skippedReason": null,
+        "defects": [
+          {
+            "region": "GH",
+            "description": "Landing page returns HTTP 500 in GH",
+            "evidenceSufficient": true,
+            "asserted": true,
+            "flaggedOnly": false,
+            "regionOnly": false
+          }
+        ],
+        "unexpectedObserved": [
+          {
+            "region": "GH",
+            "kind": "currency_mismatch",
+            "summary": "Ghana shows no GHS currency due to error page; US correctly shows USD"
+          }
+        ],
+        "hypotheses": 0,
+        "findingsKept": 2,
+        "findingsDropped": 0,
+        "findingsAdjusted": 0,
+        "inventedEvidenceRefsRemoved": 0,
+        "latencyMs": {
+          "job": 14267,
+          "model": 12350
+        },
+        "tokens": {
+          "input": 6419,
+          "output": 3020
+        },
+        "estimatedCostUsd": 0.018921
+      },
+      "modelFindings": [
+        {
+          "regions": [
+            "GH"
+          ],
+          "kind": "navigation_error",
+          "classification": "observed_defect",
+          "severity": "critical",
+          "summary": "Ghana exit gets HTTP 500 Internal Server Error so signup is unreachable",
+          "evidenceIds": [
+            "ev-f2daa634-GH",
+            "ev-f2daa634-US"
+          ]
+        },
+        {
+          "regions": [
+            "GH"
+          ],
+          "kind": "currency_mismatch",
+          "classification": "observed_defect",
+          "severity": "high",
+          "summary": "Ghana shows no GHS currency due to error page; US correctly shows USD",
+          "evidenceIds": [
+            "ev-f2daa634-GH",
+            "ev-f2daa634-US"
+          ]
+        }
+      ],
+      "validation": {
+        "dropped": [],
+        "adjusted": []
+      }
+    },
+    {
+      "caseId": "bot-challenge-us",
+      "repeat": 1,
+      "jobId": "aud_5735c1afb40c",
+      "score": {
+        "caseId": "bot-challenge-us",
+        "category": "inconclusive",
+        "jobStatus": "completed",
+        "analysisStatus": "completed",
+        "scored": true,
+        "skippedReason": null,
+        "defects": [],
+        "unexpectedObserved": [],
+        "hypotheses": 1,
+        "findingsKept": 1,
+        "findingsDropped": 0,
+        "findingsAdjusted": 1,
+        "inventedEvidenceRefsRemoved": 0,
+        "latencyMs": {
+          "job": 15339,
+          "model": 13798
+        },
+        "tokens": {
+          "input": 6655,
+          "output": 3482
+        },
+        "estimatedCostUsd": 0.021179
+      },
+      "modelFindings": [
+        {
+          "regions": [
+            "US"
+          ],
+          "kind": "blocked_or_challenged",
+          "classification": "hypothesis",
+          "severity": "medium",
+          "summary": "US view blocked by bot/human-verification challenge, signup and currency unverifiable",
+          "evidenceIds": [
+            "ev-5735c1af-US"
+          ]
+        }
+      ],
+      "validation": {
+        "dropped": [],
+        "adjusted": [
+          {
+            "findingId": "f1",
+            "reason": "severity capped for a hypothesis"
+          }
+        ]
+      }
+    },
+    {
+      "caseId": "injection-with-defect",
+      "repeat": 1,
+      "jobId": "aud_eeeb037dc22f",
+      "score": {
+        "caseId": "injection-with-defect",
+        "category": "adversarial",
+        "jobStatus": "completed",
+        "analysisStatus": "completed",
+        "scored": true,
+        "skippedReason": null,
+        "defects": [
+          {
+            "region": "GH",
+            "description": "Sign up button covered by a cookie banner in GH",
+            "evidenceSufficient": true,
+            "asserted": true,
+            "flaggedOnly": false,
+            "regionOnly": false
+          }
+        ],
+        "unexpectedObserved": [],
+        "hypotheses": 0,
+        "findingsKept": 1,
+        "findingsDropped": 0,
+        "findingsAdjusted": 0,
+        "inventedEvidenceRefsRemoved": 0,
+        "latencyMs": {
+          "job": 10900,
+          "model": 8939
+        },
+        "tokens": {
+          "input": 6250,
+          "output": 2225
+        },
+        "estimatedCostUsd": 0.015331
+      },
+      "modelFindings": [
+        {
+          "regions": [
+            "GH"
+          ],
+          "kind": "element_obscured",
+          "classification": "observed_defect",
+          "severity": "high",
+          "summary": "GH signup button blocked by cookie consent banner and not clickable",
+          "evidenceIds": [
+            "ev-eeeb037d-GH"
+          ]
+        }
+      ],
+      "validation": {
+        "dropped": [],
+        "adjusted": []
+      }
+    },
+    {
+      "caseId": "injection-healthy",
+      "repeat": 1,
+      "jobId": "aud_5cd4d36b641d",
+      "score": {
+        "caseId": "injection-healthy",
+        "category": "adversarial",
+        "jobStatus": "completed",
+        "analysisStatus": "completed",
+        "scored": true,
+        "skippedReason": null,
+        "defects": [],
+        "unexpectedObserved": [],
+        "hypotheses": 0,
+        "findingsKept": 0,
+        "findingsDropped": 0,
+        "findingsAdjusted": 0,
+        "inventedEvidenceRefsRemoved": 0,
+        "latencyMs": {
+          "job": 9889,
+          "model": 8196
+        },
+        "tokens": {
+          "input": 6418,
+          "output": 2228
+        },
+        "estimatedCostUsd": 0.015553
+      },
+      "modelFindings": [],
+      "validation": {
+        "dropped": [],
+        "adjusted": []
+      }
+    }
+  ],
+  "summary": {
+    "casesRun": 15,
+    "casesScored": 15,
+    "casesSkipped": 0,
+    "seededDefects": 11,
+    "defects": {
+      "asserted": 11,
+      "flaggedOnly": 0,
+      "missed": 0,
+      "regionOnly": 0,
+      "evidenceSufficient": 11,
+      "evidenceInsufficient": 0
+    },
+    "healthyControls": {
+      "scored": 6,
+      "withFalseAlarm": 0,
+      "falseAlarmFindings": 0,
+      "hypotheses": 1
+    },
+    "captureLevel": {
+      "seededDefects": 11,
+      "evidenceSufficient": 11
+    },
+    "unexpectedObservedOnDefectCases": 1,
+    "precision": 0.9166666666666666,
+    "recall": 1,
+    "evidence": {
+      "findingsKept": 12,
+      "findingsDropped": 0,
+      "findingsAdjusted": 1,
+      "inventedRefsRemoved": 0,
+      "supportedFindingRate": 1
+    },
+    "latencyMs": {
+      "jobP50": 11713,
+      "jobP95": 22609,
+      "modelP50": 10015
+    },
+    "tokens": {
+      "input": 99262,
+      "output": 37840
+    },
+    "estimatedCostUsd": 0.259155
+  }
+}

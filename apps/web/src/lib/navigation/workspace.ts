@@ -65,7 +65,7 @@ export const WORKSPACE_DESTINATIONS: Record<
       label: "Connections",
       href: "/app/connections",
       icon: Cable,
-      legacyPaths: ["/dashboard/proxy", "/dashboard/sessions"],
+      legacyPaths: ["/dashboard/proxy", "/dashboard/sessions", "/app/audits"],
     },
     {
       label: "Activity",

@@ -13,11 +13,18 @@ import {
   amount,
   shortDate,
 } from "@/components/workspace/Patterns";
+import { AuditLauncher } from "@/modules/audits/AuditLauncher";
+import { AuditsPanel } from "@/modules/audits/Audits";
+import { auditsOffered, useAuditCapabilities } from "@/modules/audits/useAuditCapabilities";
 import { useOrders, useSessions } from "./queries";
 
 export function Connections() {
   const params = useSearchParams();
+  const auditCaps = useAuditCapabilities();
+  const auditsView = params.get("tab") === "audits";
   const sessionsView = params.get("tab") === "sessions";
+  // The Audits tab only appears where the Regional Auditor is deployed (or when someone follows a direct link).
+  const showAuditsTab = auditsView || auditsOffered(auditCaps.data);
   const orders = useOrders();
   const sessions = useSessions();
   const access =
@@ -70,8 +77,8 @@ export function Connections() {
       </section>
       <nav className="ui-tabs" aria-label="Connection views">
         <Link
-          className={!sessionsView ? "active" : ""}
-          aria-current={!sessionsView ? "page" : undefined}
+          className={!sessionsView && !auditsView ? "active" : ""}
+          aria-current={!sessionsView && !auditsView ? "page" : undefined}
           href="/app/connections"
         >
           Access
@@ -83,15 +90,28 @@ export function Connections() {
         >
           Sessions
         </Link>
+        {showAuditsTab && (
+          <Link
+            className={auditsView ? "active" : ""}
+            aria-current={auditsView ? "page" : undefined}
+            href="/app/connections?tab=audits"
+          >
+            Audits
+          </Link>
+        )}
       </nav>
-      <div className="workflow-note">
-        <ShieldCheck size={18} aria-hidden="true" />
-        <p>
-          Access, client setup, and observed traffic have separate states. Use
-          session activity to verify traffic after configuring your client.
-        </p>
-      </div>
-      {sessionsView ? (
+      {!auditsView && (
+        <div className="workflow-note">
+          <ShieldCheck size={18} aria-hidden="true" />
+          <p>
+            Access, client setup, and observed traffic have separate states. Use
+            session activity to verify traffic after configuring your client.
+          </p>
+        </div>
+      )}
+      {auditsView ? (
+        <AuditsPanel />
+      ) : sessionsView ? (
         <>
           {sessions.isLoading && <Loading label="Loading sessions…" />}
           {sessions.isError && (
@@ -223,6 +243,7 @@ export function Connections() {
                   >
                     View order
                   </Link>
+                  <AuditLauncher orderId={order.id} variant="button" />
                 </div>
               </section>
             ))}
