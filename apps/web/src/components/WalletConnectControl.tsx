@@ -15,10 +15,11 @@ import {
   readLastWalletError,
   readRememberedWalletName,
   requestWalletSessionReset,
+  shortWallet,
   writeLastWalletError,
 } from "@/lib/solana-wallet-session";
 import { Modal } from "@/components/patterns/Modal";
-import { shortWallet } from "@/components/UnlockWalletPrompt";
+
 
 type Props = {
   /** Address saved to the account, if any. */
