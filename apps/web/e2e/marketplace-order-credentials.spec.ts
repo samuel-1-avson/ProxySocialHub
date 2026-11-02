@@ -4,6 +4,7 @@ import {
     enableE2EMockBuy,
     mockProxyCredentials,
     mockSessionCapability,
+    openOrderCredentials,
     stubPurchaseApis,
     stubExtensionPairStart,
     mockExtensionHandoff,
@@ -27,7 +28,7 @@ test.describe('marketplace order credentials page', () => {
 
         const credentials = page.getByTestId('marketplace-order-credentials');
         await expect(credentials).toBeVisible({ timeout: 30_000 });
-        await credentials.getByText('Use in another app or device').click();
+        await openOrderCredentials(credentials);
         const [host, port] = mockProxyCredentials.endpoint.split(':');
         await expect(credentials.getByText(host, { exact: true })).toBeVisible();
         await expect(credentials.getByText(port, { exact: true })).toBeVisible();

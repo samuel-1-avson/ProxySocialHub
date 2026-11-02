@@ -38,15 +38,39 @@ async function stubWorkspace(page: Page) {
       });
   });
 }
+// Below 768px the sidebar is hidden: phones navigate with the bottom tab bar
+// and switch workspace from the Account menu.
+function primaryNav(page: Page, isMobile: boolean) {
+  return page.getByRole("navigation", {
+    name: isMobile ? "Mobile primary" : "Primary",
+    exact: true,
+  });
+}
+async function workspaceSwitcher(page: Page, isMobile: boolean) {
+  if (!isMobile) {
+    return page.getByRole("combobox", { name: "Workspace", exact: true }).first();
+  }
+  const switcher = page.getByRole("combobox", { name: "Workspace", exact: true });
+  const menu = page.getByRole("dialog").filter({ has: switcher });
+  // A tap that lands before hydration does nothing, so retry until the menu is open.
+  await expect(async () => {
+    if (!(await menu.isVisible())) {
+      await page.getByRole("button", { name: "Account menu", exact: true }).click();
+    }
+    await expect(menu).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
+  return menu.getByRole("combobox", { name: "Workspace", exact: true });
+}
 test.describe("buyer and seller workspaces", () => {
   test.setTimeout(150_000);
   test("switches between four focused destinations using existing account capability", async ({
     page,
+    isMobile,
   }, testInfo) => {
     await stubWorkspace(page);
     await seedSignedAuth(page, base, "both");
     await page.goto(`${base}/app`, { waitUntil: "domcontentloaded" });
-    const nav = page.getByRole("navigation", { name: "Primary", exact: true });
+    const nav = primaryNav(page, isMobile);
     await expect(nav.getByRole("link")).toHaveText([
       "Overview",
       "Marketplace",
@@ -71,9 +95,7 @@ test.describe("buyer and seller workspaces", () => {
       path: testInfo.outputPath("buyer-workspace.png"),
       fullPage: true,
     });
-    await page
-      .getByRole("combobox", { name: "Workspace", exact: true })
-      .selectOption("seller");
+    await (await workspaceSwitcher(page, isMobile)).selectOption("seller");
     await expect(page).toHaveURL(`${base}/provider`);
     await expect(nav.getByRole("link")).toHaveText([
       "Overview",
@@ -97,32 +119,28 @@ test.describe("buyer and seller workspaces", () => {
       fullPage: true,
     });
     // Shared pages keep the workspace the user last chose.
-    const switcher = page
-      .getByRole("combobox", { name: "Workspace", exact: true })
-      .first();
     await page.goto(`${base}/app/wallet`, { waitUntil: "domcontentloaded" });
+    const switcher = await workspaceSwitcher(page, isMobile);
     await expect(switcher).toHaveValue("seller");
     await switcher.selectOption("buyer");
     await expect(page).toHaveURL(`${base}/app`);
     await page.goto(`${base}/app/wallet`, { waitUntil: "domcontentloaded" });
-    await expect(switcher).toHaveValue("buyer");
+    await expect(await workspaceSwitcher(page, isMobile)).toHaveValue("buyer");
   });
   test("shows Become a provider while applying and switches back to Buyer", async ({
     page,
+    isMobile,
   }) => {
     await stubWorkspace(page);
     await seedSignedAuth(page, base, "buyer");
     await page.goto(`${base}/app`, { waitUntil: "domcontentloaded" });
-    const switcher = page
-      .getByRole("combobox", { name: "Workspace", exact: true })
-      .first();
-    await expect(switcher).toHaveValue("buyer");
-    await switcher.selectOption("apply");
+    await expect(await workspaceSwitcher(page, isMobile)).toHaveValue("buyer");
+    await (await workspaceSwitcher(page, isMobile)).selectOption("apply");
     await expect(page).toHaveURL(`${base}/dashboard/become-provider`);
-    await expect(switcher).toHaveValue("apply");
-    await switcher.selectOption("buyer");
+    await expect(await workspaceSwitcher(page, isMobile)).toHaveValue("apply");
+    await (await workspaceSwitcher(page, isMobile)).selectOption("buyer");
     await expect(page).toHaveURL(`${base}/app`);
-    await expect(switcher).toHaveValue("buyer");
+    await expect(await workspaceSwitcher(page, isMobile)).toHaveValue("buyer");
   });
   test("persists explicit light and dark themes and supports a 320px workspace", async ({
     page,
@@ -174,20 +192,17 @@ test.describe("buyer and seller workspaces", () => {
   });
   test("keeps seller access protected and offers onboarding to buyers", async ({
     page,
+    isMobile,
   }) => {
     await stubWorkspace(page);
     await seedSignedAuth(page, base, "buyer");
     await page.goto(`${base}/app`, { waitUntil: "domcontentloaded" });
-    await expect(
-      page
-        .getByRole("combobox", { name: "Workspace", exact: true })
-        .locator('option[value="seller"]'),
-    ).toHaveCount(0);
-    await expect(
-      page
-        .getByRole("combobox", { name: "Workspace", exact: true })
-        .locator('option[value="apply"]'),
-    ).toHaveCount(1);
+    const switcher = await workspaceSwitcher(page, isMobile);
+    await expect(switcher.locator('option[value="seller"]')).toHaveCount(0);
+    await expect(switcher.locator('option[value="apply"]')).toHaveCount(1);
+    // Leave the app first: its client code can start a redirect to /app while
+    // the next navigation is under way (seen on WebKit).
+    await page.goto("about:blank");
     await page.context().clearCookies({ name: "proxyhubb_e2e_auth" });
     await page.goto(`${base}/provider`, { waitUntil: "domcontentloaded" });
     await expect(page).toHaveURL(/\/403\?policy=provider/);

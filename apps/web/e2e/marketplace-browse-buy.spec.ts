@@ -7,6 +7,7 @@ import {
   e2eOrderId,
   enableE2EMockBuy,
   mockProxyCredentials,
+  openOrderCredentials,
   stubPurchaseApis,
 } from "./fixtures/marketplace-purchase";
 
@@ -50,7 +51,7 @@ test.describe("focused marketplace purchase", () => {
       new RegExp(`/app/connections/${e2eOrderId}$`),
       { timeout: 30_000 },
     );
-    await page.getByTestId("marketplace-order-credentials").getByText("Use in another app or device").click();
+    await openOrderCredentials(page.getByTestId("marketplace-order-credentials"));
     await expect(page.getByTestId("marketplace-order-credentials")).toContainText(mockProxyCredentials.endpoint.split(":")[0]);
   });
   test("retries an existing order after a failed payment confirmation without creating another", async ({
