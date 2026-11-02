@@ -1,6 +1,34 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {resolveListingSigner} from '../src/lib/proofs/listing-offer.ts';
+import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
+import bs58 from 'bs58';
+import ts from 'typescript';
+
+// listing-offer.ts imports through the app's "@/" alias, which plain Node cannot resolve (it broke when
+// listing-protocols was imported at runtime). Transpile it and hand it the two runtime dependencies,
+// the same way geo-hub-guard.test.mjs loads its modules.
+function load(relative, dependencies = {}) {
+  const exports = {};
+  const source = new URL(relative, import.meta.url);
+  const {outputText} = ts.transpileModule(readFileSync(source, 'utf8'), {
+    compilerOptions: {module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022},
+  });
+  vm.runInNewContext(outputText, {
+    exports,
+    require: (name) => {
+      if (!(name in dependencies)) throw new Error(`Unexpected dependency ${name}`);
+      return dependencies[name];
+    },
+  });
+  return exports;
+}
+
+const protocols = load('../src/lib/listing-protocols.ts');
+const {resolveListingSigner} = load('../src/lib/proofs/listing-offer.ts', {
+  bs58: {default: bs58},
+  '@/lib/listing-protocols': protocols,
+});
 
 const HOTKEY = '7uwA2Vz2uEKDx2qQFtBfsJML7p6NBf8z1xWHms42aqiF';
 const WALLET = 'HBr13ei1aLnaJiDvnVpD1MKcn5nwAHJn7swhx9w24kni';
