@@ -193,7 +193,7 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                                 )}
                                 {isFollowing ? "Following" : "Follow"}
                             </button>
-                            <Link href={`/messages?to=${profile.id}`} className="ui-button secondary">
+                            <Link href={`/messages?recipient=${profile.id}`} className="ui-button secondary">
                                 Message
                             </Link>
                             <button

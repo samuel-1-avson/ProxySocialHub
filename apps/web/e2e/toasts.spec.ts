@@ -2,6 +2,10 @@ import { expect, test, type Page } from "@playwright/test";
 
 const base = process.env.TEST_BASE_URL || "http://localhost:4011";
 
+type ToastWindow = Window & {
+  __proxyhubbToast: ToastApi;
+  __retried: number;
+};
 type ToastApi = {
   success: (title: string, message?: string, o?: Record<string, unknown>) => string;
   error: (title: string, message?: string, o?: Record<string, unknown>) => string;
@@ -9,7 +13,7 @@ type ToastApi = {
 };
 async function open(page: Page) {
   await page.goto(`${base}/login`, { waitUntil: "domcontentloaded" });
-  await page.waitForFunction(() => Boolean((window as any).__proxyhubbToast));
+  await page.waitForFunction(() => Boolean((window as unknown as ToastWindow).__proxyhubbToast));
 }
 const toast = (page: Page, fn: (t: ToastApi) => void) =>
   page.evaluate(`(${fn.toString()})(window.__proxyhubbToast)`);
@@ -39,17 +43,17 @@ test.describe("toast notifications", () => {
   test("errors are announced as alerts, and an action dismisses the toast", async ({ page }) => {
     await open(page);
     await page.evaluate(() => {
-      (window as any).__retried = 0;
-      (window as any).__proxyhubbToast.error("Could not save", "Try again.", {
+      (window as unknown as ToastWindow).__retried = 0;
+      (window as unknown as ToastWindow).__proxyhubbToast.error("Could not save", "Try again.", {
         duration: 0,
-        action: { label: "Retry", onClick: () => ((window as any).__retried += 1) },
+        action: { label: "Retry", onClick: () => ((window as unknown as ToastWindow).__retried += 1) },
       });
     });
     const alert = page.getByRole("alert").filter({ hasText: "Could not save" });
     await expect(alert).toBeVisible();
     await alert.getByRole("button", { name: "Retry" }).click();
     await expect(alert).toHaveCount(0);
-    expect(await page.evaluate(() => (window as any).__retried)).toBe(1);
+    expect(await page.evaluate(() => (window as unknown as ToastWindow).__retried)).toBe(1);
   });
 
   test("hovering pauses the timer, and it leaves on its own afterwards", async ({ page }) => {
