@@ -7,6 +7,13 @@
 #
 # Usage:
 #   bash scripts/gcp-ci-deploy.sh [--dry-run] [--services "web docs control-api"]
+#
+# Disk: each build adds several GB of images and build cache to an 80 GB disk.
+# Before building, the script frees space if less than DEPLOY_MIN_FREE_GB
+# (default 10) is free and stops, leaving the running stack untouched, if less
+# than DEPLOY_HARD_MIN_FREE_GB (default 6) is still free. After a verified
+# deploy it removes build cache unused for DEPLOY_PRUNE_CACHE_UNUSED_FOR
+# (default 6h) and old rollout images. Nothing a container uses is removed.
 # ==============================================================================
 
 set -euo pipefail
@@ -43,7 +50,7 @@ echo "⚙️  Dry Run   : $DRY_RUN"
 echo "============================================================"
 
 # 1. Pull latest code from main
-echo "[1/5] Fetching latest commits from origin/main..."
+echo "[1/6] Fetching latest commits from origin/main..."
 if [[ "$DRY_RUN" == "false" ]]; then
   git fetch origin main
   git reset --hard origin/main
@@ -55,7 +62,7 @@ fi
 
 # 2. Synchronize Docs OpenAPI specifications if helper exists
 if [[ -f "$PROJECT_DIR/scripts/sync-docs-openapi.sh" ]]; then
-  echo "[2/5] Synchronizing documentation OpenAPI specs..."
+  echo "[2/6] Synchronizing documentation OpenAPI specs..."
   bash "$PROJECT_DIR/scripts/sync-docs-openapi.sh" || true
 fi
 
@@ -68,18 +75,59 @@ COMPOSE=(
   -f docker-compose.j2-multipod.yml
 )
 
+MIN_FREE_GB=${DEPLOY_MIN_FREE_GB:-10}
+HARD_MIN_FREE_GB=${DEPLOY_HARD_MIN_FREE_GB:-6}
+PRUNE_CACHE_UNUSED_FOR=${DEPLOY_PRUNE_CACHE_UNUSED_FOR:-6h}
+
+# Free GB on /, or empty when df gives no answer.
+free_gb() {
+  df -BG --output=avail / 2>/dev/null | tail -n 1 | tr -dc '0-9' || true
+}
+
+show_gb() {
+  if [[ -n "${1:-}" ]]; then echo "$1 GB"; else echo "unknown"; fi
+}
+
+# Free disk without touching anything in use: `docker rmi` without -f refuses
+# images a container (running or stopped) uses, and prune only takes unused
+# images and cache. Best effort: a cleanup problem never fails the deploy.
+cleanup_docker() {
+  local cache_unused_for="$1" repo ref
+  sudo docker image prune -f >/dev/null 2>&1 || true
+  # gcp-roll-{web,explorer}-image.sh tag one image per revision; keep the newest two as rollbacks.
+  for repo in proxyhubb-production/web proxyhubb-production/explorer proxyhubb-production/docs; do
+    sudo docker images "$repo" --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | tail -n +3 | while read -r ref; do
+      sudo docker rmi "$ref" >/dev/null 2>&1 || true
+    done || true
+  done
+  sudo docker builder prune -f --filter "until=$cache_unused_for" >/dev/null 2>&1 || true
+}
+
 # 4. Build and roll updated microservices
 TARGET_SERVICES=${SERVICES:-"db-migrate control-api web docs"}
 
-echo "[3/5] Building and updating microservices: $TARGET_SERVICES..."
+echo "[3/6] Building and updating microservices: $TARGET_SERVICES..."
+FREE_BEFORE=$(free_gb)
+echo "Free disk: $(show_gb "$FREE_BEFORE")"
 if [[ "$DRY_RUN" == "false" ]]; then
+  if [[ -n "$FREE_BEFORE" ]] && (( FREE_BEFORE < MIN_FREE_GB )); then
+    echo "Less than ${MIN_FREE_GB} GB free: removing build cache unused for 24h and old rollout images first..."
+    cleanup_docker 24h
+    FREE_BEFORE=$(free_gb)
+    echo "Free disk after cleanup: $(show_gb "$FREE_BEFORE")"
+  fi
+  if [[ -n "$FREE_BEFORE" ]] && (( FREE_BEFORE < HARD_MIN_FREE_GB )); then
+    echo "❌ Only ${FREE_BEFORE} GB free (need ${HARD_MIN_FREE_GB} GB to build). Nothing was changed; the running stack is untouched." >&2
+    echo "   Free space on the VM (docker system df, /var/backups, /var/log), then deploy again." >&2
+    exit 1
+  fi
   "${COMPOSE[@]}" up -d --build $TARGET_SERVICES
 else
   echo "[DRY-RUN] ${COMPOSE[*]} up -d --build $TARGET_SERVICES"
 fi
 
 # 5. Healthcheck verification loop
-echo "[4/5] Verifying microservice health..."
+echo "[4/6] Verifying microservice health..."
 if [[ "$DRY_RUN" == "false" ]]; then
   MAX_ATTEMPTS=30
   HEALTHY=false
@@ -107,7 +155,7 @@ if [[ "$DRY_RUN" == "false" ]]; then
 fi
 
 # 6. Local HTTP Smoke Checks
-echo "[5/5] Running local HTTP verification..."
+echo "[5/6] Running local HTTP verification..."
 if [[ "$DRY_RUN" == "false" ]]; then
   CODE_WEB=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:3000/whitepaper" || echo "failed")
   CODE_DOCS=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:3010/docs/whitepaper" || echo "failed")
@@ -125,4 +173,15 @@ if [[ "$DRY_RUN" == "false" ]]; then
     echo "⚠️ Smoke tests returned non-200 status. Review container logs."
     exit 1
   fi
+fi
+
+# 7. Reclaim disk now that the new build is verified (a failed deploy exits
+# above, so the previous images stay available to roll back to)
+echo "[6/6] Freeing disk: build cache unused for ${PRUNE_CACHE_UNUSED_FOR}, old rollout images..."
+if [[ "$DRY_RUN" == "false" ]]; then
+  cleanup_docker "$PRUNE_CACHE_UNUSED_FOR"
+  FREE_AFTER=$(free_gb)
+  echo "Free disk: $(show_gb "$FREE_AFTER") (was $(show_gb "$FREE_BEFORE") before the build)"
+else
+  echo "[DRY-RUN] Would remove unused images and build cache unused for ${PRUNE_CACHE_UNUSED_FOR}"
 fi
