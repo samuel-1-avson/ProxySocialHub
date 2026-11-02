@@ -38,6 +38,7 @@ import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard } from "@/components/ui/glass-card";
 import { getBuyerProxyEndpoint } from "@/lib/proxy-endpoint";
+import { authApiFetch } from "@/lib/api/client";
 
 const PROXY_ENDPOINT = getBuyerProxyEndpoint();
 const SDK_MATRIX = [
@@ -102,9 +103,12 @@ export default function ProxyPage() {
   const [intentError, setIntentError] = useState("");
   const [creating, setCreating] = useState(false);
   const [testing, setTesting] = useState(false);
+  // "api_reachable" only means the control API answered. Only "proxy_verified" means
+  // traffic actually traversed the gateway with a session.
   const [connectionStatus, setConnectionStatus] = useState<
-    "idle" | "testing" | "online" | "offline"
+    "idle" | "testing" | "api_reachable" | "proxy_verified" | "proxy_failed" | "offline"
   >("idle");
+  const [connectionDetail, setConnectionDetail] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
   const [selectedTier, setSelectedTier] = useState<string>("any");
   const [createdIntent, setSessionIntent] =
@@ -238,15 +242,29 @@ export default function ProxyPage() {
   async function testConnection() {
     setTesting(true);
     setConnectionStatus("testing");
+    setConnectionDetail("");
     try {
-      const response = await fetch("/api/proxy/test");
-      if (response.ok) {
-        setConnectionStatus("online");
-      } else {
-        setConnectionStatus("offline");
-      }
+      // With a live session token, send real traffic through the gateway. Without one,
+      // all we can honestly check is that the control API answers.
+      const token = activeIntent?.token;
+      const response = token
+        ? await authApiFetch("/api/proxy/test", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token }),
+          })
+        : await fetch("/api/proxy/test");
+      const body = (await response.json().catch(() => null)) as
+        | { status?: string; message?: string }
+        | null;
+      setConnectionDetail(body?.message ?? "");
+      if (body?.status === "proxy_verified") setConnectionStatus("proxy_verified");
+      else if (body?.status === "proxy_failed") setConnectionStatus("proxy_failed");
+      else if (response.ok && body?.status === "api_reachable") setConnectionStatus("api_reachable");
+      else setConnectionStatus("offline");
     } catch {
       setConnectionStatus("offline");
+      setConnectionDetail("The test could not be completed.");
     } finally {
       setTesting(false);
     }
@@ -410,17 +428,47 @@ export default function ProxyPage() {
             Signal Integrity
           </label>
           <div className="flex items-center gap-4 py-1.5">
-            {connectionStatus === "online" && (
+            {connectionStatus === "proxy_verified" && (
               <>
                 <div className="p-3 bg-emerald-500/10 rounded-xl border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.1)]">
                   <Wifi className="text-emerald-500" size={24} />
                 </div>
                 <div>
                   <span className="text-emerald-500 font-mono text-xl font-semibold normal-case tracking-tighter">
-                    Synchronized
+                    Traffic verified
                   </span>
-                  <p className="text-xs font-mono text-muted-foreground normal-case tracking-normal">
-                    Minimal jitter detected
+                  <p role="status" className="text-xs font-mono text-muted-foreground normal-case tracking-normal">
+                    {connectionDetail}
+                  </p>
+                </div>
+              </>
+            )}
+            {connectionStatus === "api_reachable" && (
+              <>
+                <div className="p-3 bg-amber-500/10 rounded-xl border border-amber-500/20">
+                  <Activity className="text-amber-500" size={24} />
+                </div>
+                <div>
+                  <span className="text-amber-500 font-mono text-xl font-semibold normal-case tracking-tighter">
+                    API reachable
+                  </span>
+                  <p role="status" className="text-xs font-mono text-muted-foreground normal-case tracking-normal">
+                    Proxy traffic not tested. Request a session above, then scan again to send a real request through the gateway.
+                  </p>
+                </div>
+              </>
+            )}
+            {connectionStatus === "proxy_failed" && (
+              <>
+                <div className="p-3 bg-rose-500/10 rounded-xl border border-rose-500/20">
+                  <WifiOff className="text-rose-500" size={24} />
+                </div>
+                <div>
+                  <span className="text-rose-500 font-mono text-xl font-semibold normal-case tracking-tighter">
+                    Proxy test failed
+                  </span>
+                  <p role="alert" className="text-xs font-mono text-muted-foreground normal-case tracking-normal">
+                    {connectionDetail}
                   </p>
                 </div>
               </>
@@ -430,9 +478,16 @@ export default function ProxyPage() {
                 <div className="p-3 bg-rose-500/10 rounded-xl border border-rose-500/20">
                   <WifiOff className="text-rose-500" size={24} />
                 </div>
-                <span className="text-rose-500 font-mono text-xl font-semibold normal-case tracking-tighter">
-                  Connection Lost
-                </span>
+                <div>
+                  <span className="text-rose-500 font-mono text-xl font-semibold normal-case tracking-tighter">
+                    Not reachable
+                  </span>
+                  {connectionDetail && (
+                    <p role="alert" className="text-xs font-mono text-muted-foreground normal-case tracking-normal">
+                      {connectionDetail}
+                    </p>
+                  )}
+                </div>
               </>
             )}
             {connectionStatus === "testing" && (
