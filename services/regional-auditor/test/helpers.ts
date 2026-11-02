@@ -47,7 +47,7 @@ export function capture(country: string, over: Partial<RegionCapture> = {}): Reg
       declaredCountry: { value: country, source: "test", observedAt: "2026-11-01T10:00:00.000Z" },
       observedEgressIp: "198.51.100.23",
       egressObservations: [],
-      geoip: { country, source: "test", lookedUpAt: "2026-11-01T10:00:00.000Z", note: null },
+      geoip: { country, source: "test", lookedUpAt: "2026-11-01T10:00:00.000Z", note: null, network: null, satellite: false },
       matchesWorkerDirectIp: null,
       assurance: "verified",
       assuranceReason: "ok",
