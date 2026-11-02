@@ -22,38 +22,38 @@ import (
 
 // MarketplaceGeoPin is a map-ready listing with resolved coordinates.
 type MarketplaceGeoPin struct {
-	ListingID            string  `json:"listing_id"`
-	Title                string  `json:"title"`
-	SellerID             string  `json:"seller_id"`
-	ProxyType            string  `json:"proxy_type"`
-	Protocol             string  `json:"protocol"`
-	Country              string  `json:"country"`
-	ISP                  string  `json:"isp,omitempty"`
-	City                 string  `json:"city,omitempty"`
-	PricePerGB           float64 `json:"price_per_gb"`
-	AvailableBandwidthGB float64 `json:"available_bandwidth_gb"`
-	Lat                  float64 `json:"lat"`
-	Lon                  float64 `json:"lon"`
-	NodeID               string  `json:"node_id,omitempty"`
-	NodeActive           bool    `json:"node_active"`
-	UptimePercent        float64 `json:"uptime_percent"`
-	LatencyMs            int     `json:"latency_ms"`
-	SLASource            string  `json:"sla_source"` // gateway | explorer | provider | listing
-	GeoResolved          bool    `json:"geo_resolved"`
-	Purchasable          bool    `json:"purchasable"`
-	ActiveSessions       int     `json:"active_sessions,omitempty"`
-	MaxConcurrency       int     `json:"max_concurrency,omitempty"`
-	ListingOfferVerified bool    `json:"listing_offer_verified"`
-	ListingOfferHash     string  `json:"listing_offer_hash,omitempty"`
-	ListingOfferSigner   string  `json:"listing_offer_signer,omitempty"`
-	ListingOfferSignedAt string  `json:"listing_offer_signed_at,omitempty"`
-	ListingOfferError    string  `json:"listing_offer_verification_error,omitempty"`
-	ProviderRegisteredOnChain bool `json:"provider_registered_on_chain,omitempty"`
-	ProviderHasHotkey    bool    `json:"provider_has_hotkey,omitempty"`
-	HeartbeatVerified    bool    `json:"heartbeat_verified,omitempty"`
-	HeartbeatSigner      string  `json:"heartbeat_signer,omitempty"`
-	HeartbeatSignedAt    string  `json:"heartbeat_signed_at,omitempty"`
-	HeartbeatError       string  `json:"heartbeat_verification_error,omitempty"`
+	ListingID                 string  `json:"listing_id"`
+	Title                     string  `json:"title"`
+	SellerID                  string  `json:"seller_id"`
+	ProxyType                 string  `json:"proxy_type"`
+	Protocol                  string  `json:"protocol"`
+	Country                   string  `json:"country"`
+	ISP                       string  `json:"isp,omitempty"`
+	City                      string  `json:"city,omitempty"`
+	PricePerGB                float64 `json:"price_per_gb"`
+	AvailableBandwidthGB      float64 `json:"available_bandwidth_gb"`
+	Lat                       float64 `json:"lat"`
+	Lon                       float64 `json:"lon"`
+	NodeID                    string  `json:"node_id,omitempty"`
+	NodeActive                bool    `json:"node_active"`
+	UptimePercent             float64 `json:"uptime_percent"`
+	LatencyMs                 int     `json:"latency_ms"`
+	SLASource                 string  `json:"sla_source"` // gateway | explorer | provider | listing
+	GeoResolved               bool    `json:"geo_resolved"`
+	Purchasable               bool    `json:"purchasable"`
+	ActiveSessions            int     `json:"active_sessions,omitempty"`
+	MaxConcurrency            int     `json:"max_concurrency,omitempty"`
+	ListingOfferVerified      bool    `json:"listing_offer_verified"`
+	ListingOfferHash          string  `json:"listing_offer_hash,omitempty"`
+	ListingOfferSigner        string  `json:"listing_offer_signer,omitempty"`
+	ListingOfferSignedAt      string  `json:"listing_offer_signed_at,omitempty"`
+	ListingOfferError         string  `json:"listing_offer_verification_error,omitempty"`
+	ProviderRegisteredOnChain bool    `json:"provider_registered_on_chain,omitempty"`
+	ProviderHasHotkey         bool    `json:"provider_has_hotkey,omitempty"`
+	HeartbeatVerified         bool    `json:"heartbeat_verified,omitempty"`
+	HeartbeatSigner           string  `json:"heartbeat_signer,omitempty"`
+	HeartbeatSignedAt         string  `json:"heartbeat_signed_at,omitempty"`
+	HeartbeatError            string  `json:"heartbeat_verification_error,omitempty"`
 }
 
 // RegisterMarketplaceGeoRoutes registers map geo endpoints (call before listing :id routes).
@@ -78,39 +78,39 @@ type MarketplaceGeoResponse struct {
 // Public fields are privacy-hardened: no seller_id, no raw ISP, opaque node ids,
 // approximate geo only, and quality signals without identity.
 type MarketplaceMapPoint struct {
-	ID                   string                        `json:"id"`
-	Kind                 string                        `json:"kind"`
-	Latitude             float64                       `json:"lat"`
-	Longitude            float64                       `json:"lon"`
-	Title                string                        `json:"title"`
-	Country              string                        `json:"country,omitempty"`
-	Region               string                        `json:"region,omitempty"`
-	City                 string                        `json:"city,omitempty"`
-	NetworkClass         string                        `json:"network_class,omitempty"`
-	Status               string                        `json:"status"`
-	Purchasable          bool                          `json:"purchasable"`
-	ListingID            string                        `json:"listing_id,omitempty"`
-	NodeID               string                        `json:"node_id,omitempty"` // opaque public id
-	ProxyType            string                        `json:"proxy_type,omitempty"`
-	Protocol             string                        `json:"protocol,omitempty"`
-	PricePerGB           float64                       `json:"price_per_gb,omitempty"`
-	AvailableBandwidthGB float64                       `json:"available_bandwidth_gb,omitempty"`
-	MaxConcurrency       int                           `json:"max_concurrency,omitempty"`
-	UptimePercent        float64                       `json:"uptime_percent,omitempty"`
-	LatencyMs            int                           `json:"latency_ms,omitempty"`
-	QualityScore         float64                       `json:"quality_score,omitempty"`
-	SuccessRate          float64                       `json:"success_rate,omitempty"`
-	TrustBadge           string                        `json:"trust_badge,omitempty"`
-	TrustLabel           string                        `json:"trust_label,omitempty"`
-	IsValidator          bool                          `json:"is_validator,omitempty"` // legacy; prefer trust_badge
-	ActiveSessions       int                           `json:"active_sessions,omitempty"`
-	SLASource            string                        `json:"sla_source,omitempty"`
-	GeoSource            string                        `json:"geo_source"`
-	Geo                  *geo.MapGeoMeta               `json:"geo,omitempty"`
-	ListingOfferVerified bool                          `json:"listing_offer_verified,omitempty"`
-	ListingOfferHash     string                        `json:"listing_offer_hash,omitempty"`
-	ProviderRegisteredOnChain bool                     `json:"provider_registered_on_chain,omitempty"`
-	CatalogProduct       *models.CatalogProductSummary `json:"catalog_product,omitempty"`
+	ID                        string                        `json:"id"`
+	Kind                      string                        `json:"kind"`
+	Latitude                  float64                       `json:"lat"`
+	Longitude                 float64                       `json:"lon"`
+	Title                     string                        `json:"title"`
+	Country                   string                        `json:"country,omitempty"`
+	Region                    string                        `json:"region,omitempty"`
+	City                      string                        `json:"city,omitempty"`
+	NetworkClass              string                        `json:"network_class,omitempty"`
+	Status                    string                        `json:"status"`
+	Purchasable               bool                          `json:"purchasable"`
+	ListingID                 string                        `json:"listing_id,omitempty"`
+	NodeID                    string                        `json:"node_id,omitempty"` // opaque public id
+	ProxyType                 string                        `json:"proxy_type,omitempty"`
+	Protocol                  string                        `json:"protocol,omitempty"`
+	PricePerGB                float64                       `json:"price_per_gb,omitempty"`
+	AvailableBandwidthGB      float64                       `json:"available_bandwidth_gb,omitempty"`
+	MaxConcurrency            int                           `json:"max_concurrency,omitempty"`
+	UptimePercent             float64                       `json:"uptime_percent,omitempty"`
+	LatencyMs                 int                           `json:"latency_ms,omitempty"`
+	QualityScore              float64                       `json:"quality_score,omitempty"`
+	SuccessRate               float64                       `json:"success_rate,omitempty"`
+	TrustBadge                string                        `json:"trust_badge,omitempty"`
+	TrustLabel                string                        `json:"trust_label,omitempty"`
+	IsValidator               bool                          `json:"is_validator,omitempty"` // legacy; prefer trust_badge
+	ActiveSessions            int                           `json:"active_sessions,omitempty"`
+	SLASource                 string                        `json:"sla_source,omitempty"`
+	GeoSource                 string                        `json:"geo_source"`
+	Geo                       *geo.MapGeoMeta               `json:"geo,omitempty"`
+	ListingOfferVerified      bool                          `json:"listing_offer_verified,omitempty"`
+	ListingOfferHash          string                        `json:"listing_offer_hash,omitempty"`
+	ProviderRegisteredOnChain bool                          `json:"provider_registered_on_chain,omitempty"`
+	CatalogProduct            *models.CatalogProductSummary `json:"catalog_product,omitempty"`
 }
 
 // MarketplaceMapResponse is returned by GET /v1/marketplace/map.
@@ -141,41 +141,41 @@ type marketplaceMapFilters struct {
 }
 
 type marketplaceGeoRow struct {
-	ListingID            string     `gorm:"column:listing_id"`
-	Title                string     `gorm:"column:title"`
-	SellerID             string     `gorm:"column:seller_id"`
-	Status               string     `gorm:"column:status"`
-	ProxyType            string     `gorm:"column:proxy_type"`
-	Protocol             string     `gorm:"column:protocol"`
-	Country              string     `gorm:"column:country"`
-	ISP                  string     `gorm:"column:isp"`
-	City                 string     `gorm:"column:city"`
-	Region               string     `gorm:"column:region"`
-	PricePerGB           float64    `gorm:"column:price_per_gb"`
-	AvailableBandwidthGB float64    `gorm:"column:available_bandwidth_gb"`
-	ActiveSessions       int        `gorm:"column:active_sessions"`
-	MaxConcurrency       int        `gorm:"column:max_concurrency"`
-	Lat                  float64    `gorm:"column:lat"`
-	Lon                  float64    `gorm:"column:lon"`
-	NodeID               string     `gorm:"column:node_id"`
-	NodeActive           bool       `gorm:"column:node_active"`
-	UptimePercent        float64    `gorm:"column:uptime_percent"`
-	LatencyMs            int        `gorm:"column:latency_ms"`
-	QualityScore         float64    `gorm:"column:quality_score"`
-	SuccessRate          float64    `gorm:"column:success_rate"`
-	SLASource            string     `gorm:"column:sla_source"`
-	GeoResolved          bool       `gorm:"column:geo_resolved"`
-	ListingOfferVerified bool       `gorm:"column:listing_offer_verified"`
-	ListingOfferHash     string     `gorm:"column:listing_offer_hash"`
-	ListingOfferSigner   string     `gorm:"column:listing_offer_signer"`
-	ListingOfferSignedAt *time.Time `gorm:"column:listing_offer_signed_at"`
-	ListingOfferError    string     `gorm:"column:listing_offer_verification_error"`
-	ProviderRegisteredOnChain bool  `gorm:"column:provider_registered_on_chain"`
-	ProviderHasHotkey    bool       `gorm:"column:provider_has_hotkey"`
-	HeartbeatVerified    bool       `gorm:"column:heartbeat_verified"`
-	HeartbeatSigner      string     `gorm:"column:heartbeat_signer"`
-	HeartbeatSignedAt    *time.Time `gorm:"column:heartbeat_signed_at"`
-	HeartbeatError       string     `gorm:"column:heartbeat_verification_error"`
+	ListingID                 string     `gorm:"column:listing_id"`
+	Title                     string     `gorm:"column:title"`
+	SellerID                  string     `gorm:"column:seller_id"`
+	Status                    string     `gorm:"column:status"`
+	ProxyType                 string     `gorm:"column:proxy_type"`
+	Protocol                  string     `gorm:"column:protocol"`
+	Country                   string     `gorm:"column:country"`
+	ISP                       string     `gorm:"column:isp"`
+	City                      string     `gorm:"column:city"`
+	Region                    string     `gorm:"column:region"`
+	PricePerGB                float64    `gorm:"column:price_per_gb"`
+	AvailableBandwidthGB      float64    `gorm:"column:available_bandwidth_gb"`
+	ActiveSessions            int        `gorm:"column:active_sessions"`
+	MaxConcurrency            int        `gorm:"column:max_concurrency"`
+	Lat                       float64    `gorm:"column:lat"`
+	Lon                       float64    `gorm:"column:lon"`
+	NodeID                    string     `gorm:"column:node_id"`
+	NodeActive                bool       `gorm:"column:node_active"`
+	UptimePercent             float64    `gorm:"column:uptime_percent"`
+	LatencyMs                 int        `gorm:"column:latency_ms"`
+	QualityScore              float64    `gorm:"column:quality_score"`
+	SuccessRate               float64    `gorm:"column:success_rate"`
+	SLASource                 string     `gorm:"column:sla_source"`
+	GeoResolved               bool       `gorm:"column:geo_resolved"`
+	ListingOfferVerified      bool       `gorm:"column:listing_offer_verified"`
+	ListingOfferHash          string     `gorm:"column:listing_offer_hash"`
+	ListingOfferSigner        string     `gorm:"column:listing_offer_signer"`
+	ListingOfferSignedAt      *time.Time `gorm:"column:listing_offer_signed_at"`
+	ListingOfferError         string     `gorm:"column:listing_offer_verification_error"`
+	ProviderRegisteredOnChain bool       `gorm:"column:provider_registered_on_chain"`
+	ProviderHasHotkey         bool       `gorm:"column:provider_has_hotkey"`
+	HeartbeatVerified         bool       `gorm:"column:heartbeat_verified"`
+	HeartbeatSigner           string     `gorm:"column:heartbeat_signer"`
+	HeartbeatSignedAt         *time.Time `gorm:"column:heartbeat_signed_at"`
+	HeartbeatError            string     `gorm:"column:heartbeat_verification_error"`
 }
 
 type marketplaceMapNodeRow struct {
@@ -329,7 +329,7 @@ SELECT
     pl.status,
     pl.proxy_type,
     pl.protocol,
-    COALESCE(NULLIF(pl.country, ''), NULLIF(pn.country, ''), NULLIF(en.country, ''), NULLIF(gw.country_code, '')) AS country,
+    COALESCE(NULLIF(pn.country, ''), NULLIF(en.country, ''), NULLIF(pl.country, ''), NULLIF(gw.country_code, '')) AS country,
     COALESCE(NULLIF(pl.isp, ''), NULLIF(pn.isp, ''), NULLIF(en.isp, ''), NULLIF(gw.isp, ''), '') AS isp,
     COALESCE(NULLIF(pn.city, ''), NULLIF(en.city, ''), NULLIF(gw.city, ''), '') AS city,
     COALESCE(NULLIF(en.region, ''), NULLIF(pn.region, ''), NULLIF(gw.region, ''), '') AS region,
@@ -449,7 +449,7 @@ WHERE pl.status = 'active'
 	args := []interface{}{}
 	argN := 1
 	if country != "" {
-		query += fmt.Sprintf(" AND COALESCE(NULLIF(pl.country, ''), NULLIF(pn.country, ''), NULLIF(en.country, ''), NULLIF(gw.country_code, '')) = $%d", argN)
+		query += fmt.Sprintf(" AND COALESCE(NULLIF(pn.country, ''), NULLIF(en.country, ''), NULLIF(pl.country, ''), NULLIF(gw.country_code, '')) = $%d", argN)
 		args = append(args, country)
 		argN++
 	}
@@ -483,40 +483,41 @@ WHERE pl.status = 'active'
 		if hasBBox && !geo.PinInBBox(lat, lon, west, south, east, north) {
 			continue
 		}
+		dispCountry, dispCity, _ := geo.SanitizeMapPlace(r.Country, r.City, r.Region)
 		geoResolved := r.GeoResolved || centroidOK
 		pins = append(pins, MarketplaceGeoPin{
-			ListingID:            r.ListingID,
-			Title:                r.Title,
-			SellerID:             r.SellerID,
-			ProxyType:            r.ProxyType,
-			Protocol:             r.Protocol,
-			Country:              r.Country,
-			ISP:                  r.ISP,
-			City:                 r.City,
-			PricePerGB:           r.PricePerGB,
-			AvailableBandwidthGB: r.AvailableBandwidthGB,
-			Lat:                  lat,
-			Lon:                  lon,
-			NodeID:               r.NodeID,
-			NodeActive:           r.NodeActive,
-			UptimePercent:        r.UptimePercent,
-			LatencyMs:            r.LatencyMs,
-			SLASource:            r.SLASource,
-			GeoResolved:          geoResolved || r.GeoResolved,
-			Purchasable:          purchasable,
-			ActiveSessions:       r.ActiveSessions,
-			MaxConcurrency:       r.MaxConcurrency,
-			ListingOfferVerified: r.ListingOfferVerified,
-			ListingOfferHash:     r.ListingOfferHash,
-			ListingOfferSigner:   r.ListingOfferSigner,
-			ListingOfferSignedAt: proofTimeString(r.ListingOfferSignedAt),
-			ListingOfferError:    r.ListingOfferError,
+			ListingID:                 r.ListingID,
+			Title:                     r.Title,
+			SellerID:                  r.SellerID,
+			ProxyType:                 r.ProxyType,
+			Protocol:                  r.Protocol,
+			Country:                   dispCountry,
+			ISP:                       r.ISP,
+			City:                      dispCity,
+			PricePerGB:                r.PricePerGB,
+			AvailableBandwidthGB:      r.AvailableBandwidthGB,
+			Lat:                       lat,
+			Lon:                       lon,
+			NodeID:                    r.NodeID,
+			NodeActive:                r.NodeActive,
+			UptimePercent:             r.UptimePercent,
+			LatencyMs:                 r.LatencyMs,
+			SLASource:                 r.SLASource,
+			GeoResolved:               geoResolved || r.GeoResolved,
+			Purchasable:               purchasable,
+			ActiveSessions:            r.ActiveSessions,
+			MaxConcurrency:            r.MaxConcurrency,
+			ListingOfferVerified:      r.ListingOfferVerified,
+			ListingOfferHash:          r.ListingOfferHash,
+			ListingOfferSigner:        r.ListingOfferSigner,
+			ListingOfferSignedAt:      proofTimeString(r.ListingOfferSignedAt),
+			ListingOfferError:         r.ListingOfferError,
 			ProviderRegisteredOnChain: r.ProviderRegisteredOnChain,
-			ProviderHasHotkey:    r.ProviderHasHotkey,
-			HeartbeatVerified:    r.HeartbeatVerified,
-			HeartbeatSigner:      r.HeartbeatSigner,
-			HeartbeatSignedAt:    proofTimeString(r.HeartbeatSignedAt),
-			HeartbeatError:       r.HeartbeatError,
+			ProviderHasHotkey:         r.ProviderHasHotkey,
+			HeartbeatVerified:         r.HeartbeatVerified,
+			HeartbeatSigner:           r.HeartbeatSigner,
+			HeartbeatSignedAt:         proofTimeString(r.HeartbeatSignedAt),
+			HeartbeatError:            r.HeartbeatError,
 		})
 	}
 
@@ -526,6 +527,10 @@ WHERE pl.status = 'active'
 }
 
 // getMarketplaceMap returns unified marketplace map points.
+// Country coalesces node-first (pn, en, pl, gw): the physical node's
+// resolved country outranks the listing's stored country, which can be a
+// stale value captured when the listing was created (a Ghana node once
+// pinned to Boston under a stale "US" listing country).
 func getMarketplaceMap(c *gin.Context) {
 	filters := buildMarketplaceMapFilters(c)
 	cacheKey := marketplaceMapCacheKey(c, filters)
@@ -549,7 +554,7 @@ SELECT
     pl.status,
     pl.proxy_type,
     pl.protocol,
-    COALESCE(NULLIF(pl.country, ''), NULLIF(pn.country, ''), NULLIF(en.country, ''), NULLIF(gw.country_code, '')) AS country,
+    COALESCE(NULLIF(pn.country, ''), NULLIF(en.country, ''), NULLIF(pl.country, ''), NULLIF(gw.country_code, '')) AS country,
     COALESCE(NULLIF(pl.isp, ''), NULLIF(pn.isp, ''), NULLIF(en.isp, ''), NULLIF(gw.isp, ''), '') AS isp,
     COALESCE(NULLIF(pn.city, ''), NULLIF(en.city, ''), NULLIF(gw.city, ''), '') AS city,
     COALESCE(NULLIF(en.region, ''), NULLIF(pn.region, ''), NULLIF(gw.region, ''), '') AS region,
@@ -671,7 +676,7 @@ WHERE pl.status <> 'deleted'`
 		query += " AND pl.status = 'active' AND pl.available_bandwidth_gb > 0"
 	}
 	if filters.Country != "" {
-		query += fmt.Sprintf(" AND COALESCE(NULLIF(pl.country, ''), NULLIF(pn.country, ''), NULLIF(en.country, ''), NULLIF(gw.country_code, '')) = $%d", argN)
+		query += fmt.Sprintf(" AND COALESCE(NULLIF(pn.country, ''), NULLIF(en.country, ''), NULLIF(pl.country, ''), NULLIF(gw.country_code, '')) = $%d", argN)
 		args = append(args, filters.Country)
 		argN++
 	}
@@ -725,7 +730,7 @@ WHERE pl.status <> 'deleted'`
 			OR (
 				ABS(COALESCE(en.latitude, 0)) <= 0.01
 				AND ABS(COALESCE(en.longitude, 0)) <= 0.01
-				AND COALESCE(NULLIF(pl.country, ''), NULLIF(pn.country, ''), NULLIF(en.country, ''), NULLIF(gw.country_code, ''), '') <> ''
+				AND COALESCE(NULLIF(pn.country, ''), NULLIF(en.country, ''), NULLIF(pl.country, ''), NULLIF(gw.country_code, ''), '') <> ''
 			)
 		)`, argN, argN+1, argN+2, argN+3)
 		args = append(args, ps, pn, pw, pe)
@@ -752,43 +757,46 @@ WHERE pl.status <> 'deleted'`
 			continue
 		}
 		purchasable := r.Status == "active" && r.AvailableBandwidthGB > 0
+		// Display the same sanitized place the pin was resolved from, never
+		// a raw foreign city next to another country's pin.
+		dispCountry, dispCity, dispRegion := geo.SanitizeMapPlace(r.Country, r.City, r.Region)
 		listingGeoSource := marketplaceGeoSource(r, fallbackGeo)
 		listingGeoMeta := geo.BuildMapGeoMeta(listingGeoSource)
 		networkClass := coarseNetworkClass(r.ProxyType, "")
 		badge := mapTrustBadge(r.UptimePercent, r.QualityScore, r.SuccessRate, r.QualityScore >= 90)
 		opaqueNode := mapOpaqueID("node", r.NodeID)
 		pt := MarketplaceMapPoint{
-			ID:                   "listing:" + r.ListingID,
-			Kind:                 "listing",
-			Latitude:             lat,
-			Longitude:            lon,
-			Title:                sanitizeListingMapTitle(r.Title),
-			Country:              r.Country,
-			City:                 r.City,
-			Region:               r.Region,
-			NetworkClass:         networkClass,
-			Status:               r.Status,
-			Purchasable:          purchasable,
-			ListingID:            r.ListingID,
-			NodeID:               opaqueNode,
-			ProxyType:            r.ProxyType,
-			Protocol:             r.Protocol,
-			PricePerGB:           r.PricePerGB,
-			AvailableBandwidthGB: r.AvailableBandwidthGB,
-			MaxConcurrency:       r.MaxConcurrency,
-			UptimePercent:        r.UptimePercent,
-			LatencyMs:            r.LatencyMs,
-			QualityScore:         r.QualityScore,
-			SuccessRate:          r.SuccessRate,
-			TrustBadge:           badge,
-			TrustLabel:           mapTrustLabel(badge),
-			IsValidator:          false,
-			ActiveSessions:       r.ActiveSessions,
-			SLASource:            r.SLASource,
-			GeoSource:            listingGeoSource,
-			Geo:                  &listingGeoMeta,
-			ListingOfferVerified: r.ListingOfferVerified,
-			ListingOfferHash:     r.ListingOfferHash,
+			ID:                        "listing:" + r.ListingID,
+			Kind:                      "listing",
+			Latitude:                  lat,
+			Longitude:                 lon,
+			Title:                     sanitizeListingMapTitle(r.Title),
+			Country:                   dispCountry,
+			City:                      dispCity,
+			Region:                    dispRegion,
+			NetworkClass:              networkClass,
+			Status:                    r.Status,
+			Purchasable:               purchasable,
+			ListingID:                 r.ListingID,
+			NodeID:                    opaqueNode,
+			ProxyType:                 r.ProxyType,
+			Protocol:                  r.Protocol,
+			PricePerGB:                r.PricePerGB,
+			AvailableBandwidthGB:      r.AvailableBandwidthGB,
+			MaxConcurrency:            r.MaxConcurrency,
+			UptimePercent:             r.UptimePercent,
+			LatencyMs:                 r.LatencyMs,
+			QualityScore:              r.QualityScore,
+			SuccessRate:               r.SuccessRate,
+			TrustBadge:                badge,
+			TrustLabel:                mapTrustLabel(badge),
+			IsValidator:               false,
+			ActiveSessions:            r.ActiveSessions,
+			SLASource:                 r.SLASource,
+			GeoSource:                 listingGeoSource,
+			Geo:                       &listingGeoMeta,
+			ListingOfferVerified:      r.ListingOfferVerified,
+			ListingOfferHash:          r.ListingOfferHash,
 			ProviderRegisteredOnChain: r.ProviderRegisteredOnChain,
 		}
 		points = append(points, pt)

@@ -5,6 +5,17 @@ import type { RegionalHub } from '@/lib/geo/regional-hubs-types';
 
 export type { RegionalHub } from '@/lib/geo/regional-hubs-types';
 
+/**
+ * Bounds coordinate-to-hub snapping (mirrors maxRegionalHubSnapKm in
+ * services/control-api/internal/geo/regional_hubs.go — keep in sync).
+ * Coordinates are evidence of the real exit; a declared country is a claim.
+ * If the closest hub in the claimed country is farther than this, the two
+ * disagree (a Ghana node once snapped to Boston via a stale "US" listing
+ * country), so no hub is returned and callers fall back instead of pinning
+ * the wrong continent. Text (city/region) matches are not distance-bound.
+ */
+export const MAX_REGIONAL_HUB_SNAP_KM = 2500;
+
 const COUNTRY_ALIASES: Record<string, string> = {
     GHANA: 'GH',
     GHA: 'GH',
@@ -185,6 +196,7 @@ export function resolveRegionalHub(
     }
     if (Math.abs(lat) > 0.01 || Math.abs(lon) > 0.01) {
         const hub = nearestHub(hubs, lat, lon);
+        if (haversineKm(lat, lon, hub.lat, hub.lon) > MAX_REGIONAL_HUB_SNAP_KM) return undefined;
         return { name: hub.name, lat: hub.lat, lon: hub.lon };
     }
     return undefined;
