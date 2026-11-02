@@ -2,6 +2,7 @@
 import { useRouter } from "next/navigation";
 import { ArrowLeftRight } from "lucide-react";
 import { useWorkspace } from "@/hooks/useWorkspace";
+import { ROUTES } from "@/lib/navigation/routes";
 import type { WorkspaceMode } from "@/lib/store/workspace-store";
 export function WorkspaceSwitcher({
   isCollapsed = false,
@@ -11,7 +12,7 @@ export function WorkspaceSwitcher({
   onSwitch?: () => void;
 }) {
   const router = useRouter();
-  const { mode, canSell, setPreferredWorkspace } = useWorkspace();
+  const { selected, canSell, setPreferredWorkspace } = useWorkspace();
   return (
     <label className="workspace-switcher">
       <ArrowLeftRight size={16} aria-hidden="true" />
@@ -19,23 +20,25 @@ export function WorkspaceSwitcher({
       <select
         aria-label="Workspace"
         title={isCollapsed ? "Workspace" : undefined}
-        value={mode}
+        value={selected}
         onChange={(event) => {
           const next = event.target.value;
           onSwitch?.();
           if (next === "apply") {
-            router.push("/dashboard/become-provider");
+            router.push(ROUTES.dashboardBecomeProvider);
             return;
           }
           setPreferredWorkspace(next as WorkspaceMode);
-          router.push(next === "seller" ? "/provider" : "/app");
+          router.push(next === "seller" ? ROUTES.seller : ROUTES.workspace);
         }}
       >
         <option value="buyer">Buyer workspace</option>
         {canSell ? (
           <option value="seller">Provider workspace</option>
         ) : (
-          <option value="apply">Become a provider…</option>
+          <option value="apply">
+            {selected === "apply" ? "Become a provider" : "Become a provider…"}
+          </option>
         )}
       </select>
     </label>

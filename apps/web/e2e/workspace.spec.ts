@@ -96,6 +96,33 @@ test.describe("buyer and seller workspaces", () => {
       path: testInfo.outputPath("seller-workspace.png"),
       fullPage: true,
     });
+    // Shared pages keep the workspace the user last chose.
+    const switcher = page
+      .getByRole("combobox", { name: "Workspace", exact: true })
+      .first();
+    await page.goto(`${base}/app/wallet`, { waitUntil: "domcontentloaded" });
+    await expect(switcher).toHaveValue("seller");
+    await switcher.selectOption("buyer");
+    await expect(page).toHaveURL(`${base}/app`);
+    await page.goto(`${base}/app/wallet`, { waitUntil: "domcontentloaded" });
+    await expect(switcher).toHaveValue("buyer");
+  });
+  test("shows Become a provider while applying and switches back to Buyer", async ({
+    page,
+  }) => {
+    await stubWorkspace(page);
+    await seedSignedAuth(page, base, "buyer");
+    await page.goto(`${base}/app`, { waitUntil: "domcontentloaded" });
+    const switcher = page
+      .getByRole("combobox", { name: "Workspace", exact: true })
+      .first();
+    await expect(switcher).toHaveValue("buyer");
+    await switcher.selectOption("apply");
+    await expect(page).toHaveURL(`${base}/dashboard/become-provider`);
+    await expect(switcher).toHaveValue("apply");
+    await switcher.selectOption("buyer");
+    await expect(page).toHaveURL(`${base}/app`);
+    await expect(switcher).toHaveValue("buyer");
   });
   test("persists explicit light and dark themes and supports a 320px workspace", async ({
     page,
