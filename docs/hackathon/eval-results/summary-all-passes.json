@@ -1,0 +1,59 @@
+{
+  "note": "Aggregate of the raw pass-*.json files in this directory. Ground truth is src/eval/groundTruth.ts and is not part of these files. Synthetic fixture suite; not a general accuracy claim.",
+  "model": {
+    "id": "muse-spark-1.3",
+    "dataMode": "standard",
+    "configured": true
+  },
+  "passes": [
+    "pass-1-single-run.json",
+    "pass-2-3-two-repeats.json",
+    "pass-4-final-frozen-code.json"
+  ],
+  "casesPerPass": 15,
+  "runs": 60,
+  "summary": {
+    "casesRun": 60,
+    "casesScored": 60,
+    "casesSkipped": 0,
+    "seededDefects": 44,
+    "defects": {
+      "asserted": 44,
+      "flaggedOnly": 0,
+      "missed": 0,
+      "regionOnly": 0,
+      "evidenceSufficient": 44,
+      "evidenceInsufficient": 0
+    },
+    "healthyControls": {
+      "scored": 24,
+      "withFalseAlarm": 0,
+      "falseAlarmFindings": 0,
+      "hypotheses": 6
+    },
+    "captureLevel": {
+      "seededDefects": 44,
+      "evidenceSufficient": 44
+    },
+    "unexpectedObservedOnDefectCases": 1,
+    "precision": 0.9777777777777777,
+    "recall": 1,
+    "evidence": {
+      "findingsKept": 50,
+      "findingsDropped": 0,
+      "findingsAdjusted": 4,
+      "inventedRefsRemoved": 0,
+      "supportedFindingRate": 1
+    },
+    "latencyMs": {
+      "jobP50": 10872,
+      "jobP95": 15339,
+      "modelP50": 9165
+    },
+    "tokens": {
+      "input": 399189,
+      "output": 150189
+    },
+    "estimatedCostUsd": 1.023911
+  }
+}

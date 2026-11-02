@@ -1,0 +1,4 @@
+node_modules/
+# Job documents and screenshots written by the worker in development.
+.data/
+*.log
