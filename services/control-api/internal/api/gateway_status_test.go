@@ -37,6 +37,7 @@ func TestGatewayStatusUpdates(t *testing.T) {
 
 func TestGatewayOfflineReportDoesNotRefreshLastSeen(t *testing.T) {
 	testutil.SetupTestDB(t)
+	testutil.CleanupTestData(t, "nodes", "provider_nodes", "users")
 	owner := testutil.CreateTestUserID(t, "provider")
 	node, _ := testutil.CreateTestProviderNode(t, owner)
 	earlier := time.Now().Add(-4 * time.Minute).Truncate(time.Second)
