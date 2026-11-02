@@ -118,7 +118,7 @@ export async function captureRegion(input: CaptureInput): Promise<RegionCapture>
       declaredCountry: regionRoute.declaredCountry,
       observedEgressIp: null,
       egressObservations: [],
-      geoip: { country: null, source: "not looked up", lookedUpAt: null, note: null },
+      geoip: { country: null, source: "not looked up", lookedUpAt: null, note: null, network: null, satellite: false },
       matchesWorkerDirectIp: null,
       assurance: "unavailable",
       assuranceReason: "Egress was not observed.",
@@ -321,7 +321,10 @@ export async function captureRegion(input: CaptureInput): Promise<RegionCapture>
     });
     capture.route.observedEgressIp = before.ip;
     capture.route.egressObservations = [...egress];
-    if (beforeSample.geoip) capture.route.geoip = { ...beforeSample.geoip };
+    if (beforeSample.geoip) {
+      const g = beforeSample.geoip;
+      capture.route.geoip = { country: g.country, source: g.source, lookedUpAt: g.lookedUpAt, note: g.note, network: g.network ?? null, satellite: g.satellite ?? false };
+    }
     capture.route.assurance = firstVerdict.assurance;
     capture.route.assuranceReason = firstVerdict.reason;
     capture.route.matchesWorkerDirectIp = firstVerdict.matchesWorkerDirectIp;

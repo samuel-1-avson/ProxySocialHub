@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { evaluateAssurance } from "../src/geo.ts";
+import { evaluateAssurance, isSatelliteNetwork } from "../src/geo.ts";
 import { parseEchoIp, parseHttpResponse, probeThroughProxy } from "../src/probe.ts";
 import { maskProxyUrl, redact } from "../src/redact.ts";
 
@@ -30,6 +30,23 @@ describe("assurance", () => {
       ownDirectIp: "198.51.100.9",
     });
     assert.equal(r.assurance, "direct_egress");
+  });
+
+  it("unverified (never verified) on a satellite network, even when the estimate matches", () => {
+    const r = evaluateAssurance({
+      requestedCountry: "US",
+      observedIp: "98.97.0.1",
+      geoip: { ...geo("US"), network: "Space Exploration Technologies Corporation (AS14593)", satellite: true },
+    });
+    assert.equal(r.assurance, "unverified");
+    assert.match(r.reason, /satellite network/);
+  });
+
+  it("recognises satellite operators but not ordinary ISPs", () => {
+    assert.equal(isSatelliteNetwork({ asn: 14593, isp: "SpaceX Services, Inc." }), true);
+    assert.equal(isSatelliteNetwork({ isp: "Space Exploration Technologies Corporation" }), true);
+    assert.equal(isSatelliteNetwork({ asn: 15169, isp: "Google LLC" }), false);
+    assert.equal(isSatelliteNetwork(null), false);
   });
 });
 

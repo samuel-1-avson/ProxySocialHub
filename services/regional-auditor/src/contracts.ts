@@ -198,6 +198,10 @@ export const RouteEvidence = z.object({
     source: shortText(120),
     lookedUpAt: IsoTime.nullable(),
     note: shortText(240).nullable(),
+    /** The IP's network ("Google LLC (AS15169)"). Defaults keep audits stored before this field readable. */
+    network: shortText(160).nullable().default(null),
+    /** A satellite network: its GeoIP country cannot confirm where the exit is. */
+    satellite: z.boolean().default(false),
   }),
   /** True/false when the worker's own direct egress IP could be learned; null when unknown. */
   matchesWorkerDirectIp: z.boolean().nullable(),
