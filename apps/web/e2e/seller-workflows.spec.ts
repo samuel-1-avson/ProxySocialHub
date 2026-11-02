@@ -501,6 +501,40 @@ test.describe("seller workflow migration", () => {
     expect(proof.provider_hotkey).toBe(calls.nodeKey!.hotkey);
     expect(proof.signature).toBeTruthy();
   });
+  test("create flow moves on right after a key replaces a wrong one, without reloading", async ({
+    page,
+  }) => {
+    const calls = await setup(page, { boundOffer: true, proofRequired: true });
+    // Another node's key was saved last, so it sits in the legacy global slot.
+    await page.addInitScript(() =>
+      localStorage.setItem(
+        "proxyhubb_provider_signing_key",
+        "3" + "1".repeat(43),
+      ),
+    );
+    await page.goto(`${base}/provider/listings/new`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page
+      .getByRole("textbox", { name: "Offer title" })
+      .fill("Accra recovered key");
+    await page
+      .getByLabel("Available bandwidth (GB)", { exact: true })
+      .fill("20");
+    await page.getByRole("button", { name: "Review listing" }).click();
+    const publish = page.getByRole("button", { name: "Publish offer" });
+    // That other key does not belong to this node, so signing is blocked.
+    await expect(publish).toBeDisabled();
+    await page
+      .getByPlaceholder("Paste provider_signing_key from provider.toml")
+      .fill(calls.nodeKey!.secret);
+    await page.getByRole("button", { name: "Save key in this browser" }).click();
+    await expect(publish).toBeEnabled();
+    await publish.click();
+    await expect.poll(() => calls.offers.length).toBe(1);
+    const proof = calls.offers[0].proof as Record<string, unknown>;
+    expect(proof.provider_hotkey).toBe(calls.nodeKey!.hotkey);
+  });
   test("revokes credentials only after the in-app review and clears stale connection tokens", async ({
     page,
   }) => {

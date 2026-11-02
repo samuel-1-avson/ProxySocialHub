@@ -157,7 +157,9 @@ export function ListingEditor() {
         isp: canon.isp,
       };
       const required = policy.data.required;
-      const secret = loadProviderSigningKey(selectedNode.id);
+      const secret = loadProviderSigningKey(selectedNode.id, {
+        allowLegacyFallback: false,
+      });
       const freshDeviceHotkey = secret
         ? await publicKeyFromProviderSecret(secret)
         : "";
