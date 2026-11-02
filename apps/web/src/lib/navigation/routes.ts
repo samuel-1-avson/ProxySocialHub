@@ -2,6 +2,8 @@ export const ROUTES = {
     workspace: "/app",
     workspaceConnections: "/app/connections",
     workspaceActivity: "/app/activity",
+    workspaceAudits: "/app/audits",
+    workspaceAudit: (id: string) => `/app/audits/${encodeURIComponent(id)}`,
     workspaceWallet: "/app/wallet",
     workspaceSettings: "/app/settings",
     workspaceSession: (id: string) => `/app/connections/sessions/${encodeURIComponent(id)}`,
@@ -151,6 +153,7 @@ export interface RouteLabel {
 
 export const ROUTE_LABELS: Record<string, RouteLabel> = {
     [ROUTES.home]: { label: "Home", breadcrumb: "Home" },
+    [ROUTES.workspaceAudits]: { label: "Regional audits", breadcrumb: "Audits" },
     [ROUTES.marketplace]: { label: "Discover", breadcrumb: "Discover" },
     [ROUTES.network]: { label: "Network", breadcrumb: "Network" },
     [ROUTES.marketplaceMap]: { label: "Marketplace map", breadcrumb: "Map" },

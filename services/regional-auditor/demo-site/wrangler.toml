@@ -1,0 +1,9 @@
+# Cloudflare Worker config for the controlled demo site. Not deployed by this repository.
+name = "proxyhubb-regional-auditor-demo"
+main = "worker.ts"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+[vars]
+# demo-v1 = site with the two seeded defects; demo-v2 = the fixed site. Change this value and redeploy to "fix" it.
+SCENARIO = "demo-v1"
