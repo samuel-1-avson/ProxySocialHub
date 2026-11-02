@@ -6,10 +6,12 @@ const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:4011';
 const API_URL = process.env.TEST_API_URL || 'http://localhost:18080';
 
 async function expectWalletEntryState(page: Parameters<typeof test>[0]['page']) {
+    // The wallet panel shows a "Connect wallet" button (WalletConnectControl), or a loading
+    // state while the wallet adapter hydrates.
     await expect.poll(async () => {
-        const selectWalletVisible = await page.getByRole('button', { name: /select wallet/i }).isVisible().catch(() => false);
+        const connectVisible = await page.getByRole('button', { name: /connect wallet/i }).isVisible().catch(() => false);
         const loadingVisible = await page.getByText(/initializing wallet access/i).isVisible().catch(() => false);
-        return selectWalletVisible || loadingVisible;
+        return connectVisible || loadingVisible;
     }, {
         timeout: 10000,
     }).toBe(true);
@@ -101,10 +103,10 @@ test.describe('Wallet Authentication Flow', () => {
         await page.goto(`${BASE_URL}/register`);
 
         // Verify the register page heading
-        await expect(page.getByText(/initialize account/i).first()).toBeVisible({ timeout: 10000 });
+        await expect(page.getByRole('heading', { level: 1, name: /create your account/i })).toBeVisible({ timeout: 10000 });
 
         // Verify wallet connect button is present
-        await expect(page.getByRole('button', { name: /select wallet/i })).toBeVisible({ timeout: 10000 });
+        await expect(page.getByRole('button', { name: /connect wallet/i })).toBeVisible({ timeout: 10000 });
 
         // Verify NO email/password form
         await expect(page.locator('input[type="email"]')).not.toBeVisible();
