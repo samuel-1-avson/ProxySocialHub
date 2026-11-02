@@ -98,7 +98,7 @@ func Apply(query *gorm.DB, q Query) *gorm.DB {
 		country = q.TargetCountries[0]
 	}
 	if country != "" {
-		query = query.Where("LOWER(proxy_listings.country) = LOWER(?)", country)
+		query = query.Where("LOWER("+models.ListingCountrySQL+") = LOWER(?)", country)
 	} else if len(q.TargetCountries) > 1 {
 		lowered := make([]string, 0, len(q.TargetCountries))
 		for _, c := range q.TargetCountries {
@@ -108,7 +108,7 @@ func Apply(query *gorm.DB, q Query) *gorm.DB {
 			lowered = append(lowered, strings.ToLower(c))
 		}
 		if len(lowered) > 0 {
-			query = query.Where("LOWER(proxy_listings.country) IN ?", lowered)
+			query = query.Where("LOWER("+models.ListingCountrySQL+") IN ?", lowered)
 		}
 	}
 
