@@ -25,6 +25,7 @@ import { FollowProviderButton } from '@/components/social/FollowProviderButton';
 import { useAuth } from '@/lib/auth';
 import { formatListingPricePerGB } from '@/lib/listing-price';
 import { fetchListingSocialContext, type ListingSocialContext } from '@/lib/api/listing-social';
+import { LOCATION_SHARED_LATER, isMaskedLocation, visibleCountry } from '@/lib/listing-display';
 
 interface ListingCardEnhancedProps {
     listing: Listing;
@@ -181,7 +182,7 @@ export function ListingCardEnhanced({ listing, onSelect }: ListingCardEnhancedPr
                     <div className="flex items-center gap-5 text-xs font-semibold text-muted-foreground">
                         <div className="flex items-center gap-2">
                             <Globe size={10} className="text-primary/40" />
-                            {listing.country || 'Global'}
+                            {isMaskedLocation(listing.country) ? LOCATION_SHARED_LATER : listing.country || 'Global'}
                         </div>
                         <div className="flex items-center gap-2">
                             <Wifi size={10} className="text-primary/40" />
@@ -266,7 +267,7 @@ export function ListingCardEnhanced({ listing, onSelect }: ListingCardEnhancedPr
                 providerAvatar={provider?.avatar_url}
                 providerOnline={isOnline}
                 pricePerGb={listing.price_per_gb}
-                location={listing.country}
+                location={visibleCountry(listing.country)}
             />
         </>
     );

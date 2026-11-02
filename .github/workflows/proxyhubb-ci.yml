@@ -307,6 +307,7 @@ jobs:
         npm run test:listing-display
         npm run test:order-status
         npm run test:node-status
+        npm run test:listing-masking
         npm run test:wallet-session
         npm run test:explorer-redirects
         npm run test:dependency-compat

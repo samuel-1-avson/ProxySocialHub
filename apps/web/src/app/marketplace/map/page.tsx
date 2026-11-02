@@ -27,6 +27,7 @@ import type { NodeGeoPoint } from '@/lib/services/explorer';
 import type { MarketplaceListingMapPin } from '@/lib/map/marketplace-map-adapters';
 import { geoSourceLabel } from '@/lib/map/geo-labels';
 import type { ExplorerListingPin } from '@/components/map/types';
+import { visibleCountry } from '@/lib/listing-display';
 
 const ProxyMapCanvas = dynamic(
     () => import('@/components/map/ProxyMapCanvas'),
@@ -373,7 +374,7 @@ function MarketplaceMapContent({ highlightListingId }: { highlightListingId: str
                                 <div>
                                     <dt>Location</dt>
                                     <dd>
-                                        {[selectedPin.city, selectedPin.country].filter(Boolean).join(', ') || 'Not reported'}
+                                        {[selectedPin.city, visibleCountry(selectedPin.country)].filter(Boolean).join(', ') || 'Location shared after purchase'}
                                         <span className="ui-note" style={{ display: 'block' }}>{geoSourceLabel(selectedPin)}</span>
                                     </dd>
                                 </div>
@@ -410,7 +411,7 @@ function MarketplaceMapContent({ highlightListingId }: { highlightListingId: str
                                 listingId={selectedPin.listing_id}
                                 listingTitle={selectedPin.title}
                                 pricePerGb={selectedPin.price_per_gb}
-                                location={[selectedPin.city, selectedPin.country].filter(Boolean).join(', ')}
+                                location={[selectedPin.city, visibleCountry(selectedPin.country)].filter(Boolean).join(', ')}
                                 compact
                             />
                             <ListingQASection listingId={selectedPin.listing_id} compact />
@@ -453,7 +454,7 @@ function MarketplaceMapContent({ highlightListingId }: { highlightListingId: str
                                     >
                                         <span>{p.title}</span>
                                         <small>
-                                            {[p.city, p.country].filter(Boolean).join(', ') || p.country || 'Location not reported'}
+                                            {[p.city, visibleCountry(p.country)].filter(Boolean).join(', ') || 'Location shared after purchase'}
                                             {' · '}{measured(p.price_per_gb, 4, 'USD / GB')}
                                         </small>
                                     </button>
