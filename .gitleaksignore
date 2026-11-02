@@ -23,53 +23,53 @@ docs/ops/evidence/W4_1_groth16_fail_closed_20260811.md:generic-api-key:14
 
 
 # docs/audit/WALLET_SYSTEM_DEEP_AUDIT_2026-10-25.md - audit prose scored as a generic key on entropy alone
-b5f45309f66891fd87b99ef2ae0b3d6b5b0d44f9:docs/audit/WALLET_SYSTEM_DEEP_AUDIT_2026-10-25.md:generic-api-key:618
+39497230258f0a0f29d81f5577a714790c01eda0:docs/audit/WALLET_SYSTEM_DEEP_AUDIT_2026-10-25.md:generic-api-key:618
 
 # docs/audits/verification-tools/run-go-tests.ps1 - local test-run script with the CI placeholder values (test-...)
-b5f45309f66891fd87b99ef2ae0b3d6b5b0d44f9:docs/audits/verification-tools/run-go-tests.ps1:generic-api-key:25
+39497230258f0a0f29d81f5577a714790c01eda0:docs/audits/verification-tools/run-go-tests.ps1:generic-api-key:25
 
 # docs/audits/BASELINE_2026-10-25.md - docker run example with the CI placeholder values (test-...)
-1c1f29b658a500322d3b4f4bc4fe5d0483c7fb87:docs/audits/BASELINE_2026-10-25.md:generic-api-key:28
+01f43363dd3271c39817bc52d73aaefae895d343:docs/audits/BASELINE_2026-10-25.md:generic-api-key:28
 
 # .github/workflows/deploy-gcp-testnet.yml - a default SSH username string, not a credential (since replaced by secrets.GCP_VM_USER)
-d228b4ceea2f973c22d351a611ae58fc02ccefd7:.github/workflows/deploy-gcp-testnet.yml:generic-api-key:55
+4a7f1cf0577bd2fbeaca749063b16814f2485e33:.github/workflows/deploy-gcp-testnet.yml:generic-api-key:55
 
 # testing/test_provider_cli_contract.ts - test fixture api_key
-7635bc9d861abd7dd367aeb4b382a1939b111a5c:testing/test_provider_cli_contract.ts:generic-api-key:42
-7635bc9d861abd7dd367aeb4b382a1939b111a5c:testing/test_provider_cli_contract.ts:generic-api-key:44
+68d5c82d09238526642e81f5356a6d92d23e45ee:testing/test_provider_cli_contract.ts:generic-api-key:42
+68d5c82d09238526642e81f5356a6d92d23e45ee:testing/test_provider_cli_contract.ts:generic-api-key:44
 
 # .github/workflows/ci.yml - CI test-only ENCRYPTION_KEY placeholder
-c7be3c6741745ab9b00c3d15c9f15a67a0f1c0e5:.github/workflows/ci.yml:generic-api-key:125
-cc03126bdee2df93404055028db75743bfc67fc1:.github/workflows/ci.yml:generic-api-key:125
+0742fade17bcddfaa69c314ae925ad38e38a106d:.github/workflows/ci.yml:generic-api-key:125
+a63d4a3c484ac6cceeeaf45a0419caaeae7f21ec:.github/workflows/ci.yml:generic-api-key:125
 
 # docs/DECENTRALIZED_AUTH_ARCHITECTURE.md - truncated example token in a design doc
-fc26364019b0a4b19e7ee8c55ce784707b4ea362:docs/DECENTRALIZED_AUTH_ARCHITECTURE.md:generic-api-key:771
+416a0c61f5fa48e322b6fc64856138226898bcba:docs/DECENTRALIZED_AUTH_ARCHITECTURE.md:generic-api-key:771
 
 # PROVIDER_SYSTEM_ANALYSIS_REPORT.md - example token in an analysis report
-5cccdb8002197c0f3f3fe277f6798607dce8824d:PROVIDER_SYSTEM_ANALYSIS_REPORT.md:generic-api-key:597
+1be400608928e4be611c279127a47971c541a8bc:PROVIDER_SYSTEM_ANALYSIS_REPORT.md:generic-api-key:597
 
 # REMOVE_MOCK_DATA_GUIDE.md - curl example with a placeholder bearer token
-5cccdb8002197c0f3f3fe277f6798607dce8824d:REMOVE_MOCK_DATA_GUIDE.md:curl-auth-header:103
+1be400608928e4be611c279127a47971c541a8bc:REMOVE_MOCK_DATA_GUIDE.md:curl-auth-header:103
 
 # docker-compose.test.yml - test-only JWT_SECRET placeholder
-5cccdb8002197c0f3f3fe277f6798607dce8824d:docker-compose.test.yml:generic-api-key:29
-5cccdb8002197c0f3f3fe277f6798607dce8824d:docker-compose.test.yml:generic-api-key:31
+1be400608928e4be611c279127a47971c541a8bc:docker-compose.test.yml:generic-api-key:29
+1be400608928e4be611c279127a47971c541a8bc:docker-compose.test.yml:generic-api-key:31
 
 # docs/PROVIDER_SYSTEM_ANALYSIS_REPORT.md - example token in an analysis report
-5cccdb8002197c0f3f3fe277f6798607dce8824d:docs/PROVIDER_SYSTEM_ANALYSIS_REPORT.md:generic-api-key:597
+1be400608928e4be611c279127a47971c541a8bc:docs/PROVIDER_SYSTEM_ANALYSIS_REPORT.md:generic-api-key:597
 
 # docs/REMOVE_MOCK_DATA_GUIDE.md - curl example with a placeholder bearer token
-5cccdb8002197c0f3f3fe277f6798607dce8824d:docs/REMOVE_MOCK_DATA_GUIDE.md:curl-auth-header:103
+1be400608928e4be611c279127a47971c541a8bc:docs/REMOVE_MOCK_DATA_GUIDE.md:curl-auth-header:103
 
 # services/control-api/cmd/provider-cli/README.md - truncated example jwt_token in a README
-5cccdb8002197c0f3f3fe277f6798607dce8824d:services/control-api/cmd/provider-cli/README.md:generic-api-key:122
+1be400608928e4be611c279127a47971c541a8bc:services/control-api/cmd/provider-cli/README.md:generic-api-key:122
 
 # README.md - curl example with the literal placeholder YOUR_JWT_TOKEN
-bbd14f320c84ba5e5e77fa64aacaaae45ddc9e74:README.md:curl-auth-header:481
+8eeb39b5943590f1e3bc467438ac5c9e7c558cff:README.md:curl-auth-header:481
 
 # docs/ENVIRONMENT.md - Supabase ANON key: public by design (ships in the client; access is enforced by RLS)
-bbd14f320c84ba5e5e77fa64aacaaae45ddc9e74:docs/ENVIRONMENT.md:generic-api-key:195
-bbd14f320c84ba5e5e77fa64aacaaae45ddc9e74:docs/ENVIRONMENT.md:generic-api-key:196
+8eeb39b5943590f1e3bc467438ac5c9e7c558cff:docs/ENVIRONMENT.md:generic-api-key:195
+8eeb39b5943590f1e3bc467438ac5c9e7c558cff:docs/ENVIRONMENT.md:generic-api-key:196
 
 # docker-compose.dev.yml - Supabase ANON key: public by design
 669170f79f9272370cacb9aaa9017f35ce9dbb96:docker-compose.dev.yml:jwt:83
@@ -92,19 +92,19 @@ bbd14f320c84ba5e5e77fa64aacaaae45ddc9e74:docs/ENVIRONMENT.md:generic-api-key:196
 
 
 # docs/PROVIDER_CLI_AND_NODE_MANUAL.md - LOW R8 - provider_signing_key in a manual; confirm it is a sample
-7635bc9d861abd7dd367aeb4b382a1939b111a5c:docs/PROVIDER_CLI_AND_NODE_MANUAL.md:generic-api-key:139
+68d5c82d09238526642e81f5356a6d92d23e45ee:docs/PROVIDER_CLI_AND_NODE_MANUAL.md:generic-api-key:139
 
 # apps/web/test-results/results.json - HIGH R2 - Playwright report with a full environment dump (OPENROUTER_API_KEY, ANTHROPIC_AUTH_TOKEN)
-0b9852a845c0a253aa73c2cbea1710cf90e44874:apps/web/test-results/results.json:generic-api-key:129
-0b9852a845c0a253aa73c2cbea1710cf90e44874:apps/web/test-results/results.json:generic-api-key:148
-0b9852a845c0a253aa73c2cbea1710cf90e44874:apps/web/test-results/results.json:generic-api-key:188
+87e1a9a19053e052946e2d15a551ca35d99e28da:apps/web/test-results/results.json:generic-api-key:129
+87e1a9a19053e052946e2d15a551ca35d99e28da:apps/web/test-results/results.json:generic-api-key:148
+87e1a9a19053e052946e2d15a551ca35d99e28da:apps/web/test-results/results.json:generic-api-key:188
 
 # cli/provider.toml - LOW R7 - control-api provider session JWT (expired)
-850fe0efa0e6c20a2788a35c606c413fd6e628fe:cli/provider.toml:jwt:2
-fb83d5f8d475b91a2ff6ea4f48f0202c2e232e82:cli/provider.toml:jwt:2
+2e2c9553e9338df96d3dedf4d3bbf20eefaa5365:cli/provider.toml:jwt:2
+c31141c854ef3d803eab8cc28bf68027485c33e8:cli/provider.toml:jwt:2
 
 # gen_token.go - MEDIUM R5 - HMAC secret hard-coded in a token helper
-fc26364019b0a4b19e7ee8c55ce784707b4ea362:gen_token.go:generic-api-key:11
+416a0c61f5fa48e322b6fc64856138226898bcba:gen_token.go:generic-api-key:11
 
 # infra/oracle-keypair.json - CRITICAL R1 - working signing key for the live oracle/admin identity 8P4uu...Kii2
 3cc998ba3860def69e13c18b8ce71791c9ef28ca:infra/oracle-keypair.json:proxyhubb-solana-keypair-json:1

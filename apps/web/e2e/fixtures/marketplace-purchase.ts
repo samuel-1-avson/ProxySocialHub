@@ -315,5 +315,18 @@ export async function mockExtensionHandoff(page: import('@playwright/test').Page
     });
 }
 
-
-
+/**
+ * Open the order credentials panel. It opens itself on browsers the extension
+ * can't run in (Safari, Android Chrome), where clicking its summary would close
+ * it again, and that auto-open can land just after mount. So click only while
+ * it is closed, and retry until it stays open.
+ */
+export async function openOrderCredentials(panel: import('@playwright/test').Locator) {
+    await expect(panel).toBeVisible({ timeout: 30_000 });
+    await expect(async () => {
+        if (!(await panel.evaluate((el) => (el as HTMLDetailsElement).open))) {
+            await panel.locator('summary').first().click();
+        }
+        await expect(panel).toHaveJSProperty('open', true);
+    }).toPass({ timeout: 15_000 });
+}

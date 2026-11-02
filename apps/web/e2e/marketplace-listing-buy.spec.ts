@@ -7,6 +7,7 @@ import {
 import {
     enableE2EMockBuy,
     mockProxyCredentials,
+    openOrderCredentials,
     stubPurchaseApis,
 } from './fixtures/marketplace-purchase';
 
@@ -54,7 +55,7 @@ test.describe('marketplace listing detail buy', () => {
         await expect(page.getByTestId('buy-listing-modal-success')).toBeVisible({ timeout: 20000 });
         await expect(page.getByTestId('extension-connect-card')).toBeVisible();
         const credentials = page.getByTestId('marketplace-order-credentials');
-        await credentials.getByText('Use in another app or device').click();
+        await openOrderCredentials(credentials);
         await expect(credentials.getByText(mockProxyCredentials.endpoint.split(':')[0], { exact: true })).toBeVisible();
         await expect(credentials.getByText(mockProxyCredentials.username).first()).toBeVisible();
     });

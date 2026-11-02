@@ -114,7 +114,7 @@ export function exportHtml(job: AuditJob, screenshots: Map<string, Buffer>): str
 <p class="muted">${esc(ORIGIN_LABEL[c.origin])} · captured ${esc(c.capturedAt)} · evidence <code>${esc(c.evidenceId)}</code></p>
 <dl>
 <dt>Observed egress IP</dt><dd>${esc(c.route.observedEgressIp ?? "not observed")}</dd>
-<dt>GeoIP estimate</dt><dd>${esc(c.route.geoip.country ?? "unknown")} — ${esc(c.route.geoip.source)}${c.route.geoip.lookedUpAt ? ` (${esc(c.route.geoip.lookedUpAt)})` : ""}</dd>
+<dt>GeoIP estimate</dt><dd>${esc(c.route.geoip.country ?? "unknown")} — ${esc(c.route.geoip.source)}${c.route.geoip.lookedUpAt ? ` (${esc(c.route.geoip.lookedUpAt)})` : ""}${c.route.geoip.network ? ` · network: ${esc(c.route.geoip.network)}${c.route.geoip.satellite ? " (satellite)" : ""}` : ""}</dd>
 <dt>Provider-declared</dt><dd>${esc(c.route.declaredCountry.value ?? "not available")} — ${esc(c.route.declaredCountry.source)}</dd>
 <dt>Assurance</dt><dd>${esc(c.route.assuranceReason)}</dd>
 <dt>Page</dt><dd>${esc(c.page.loadState)} · HTTP ${esc(c.page.mainDocumentStatus ?? "n/a")} · ${esc(c.page.title ?? "no title")}</dd>

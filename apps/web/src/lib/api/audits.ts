@@ -58,7 +58,7 @@ export interface Capture {
     declaredCountry: { value: string | null; source: string; observedAt: string | null };
     observedEgressIp: string | null;
     egressObservations: Array<{ phase: "before" | "after"; ip: string | null; at: string; elapsedMs: number; error: string | null }>;
-    geoip: { country: string | null; source: string; lookedUpAt: string | null; note: string | null };
+    geoip: { country: string | null; source: string; lookedUpAt: string | null; note: string | null; network?: string | null; satellite?: boolean };
     assurance: Assurance;
     assuranceReason: string;
   };

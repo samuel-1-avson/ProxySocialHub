@@ -9,7 +9,7 @@ evidence-backed report you can inspect, rerun after a fix, and export.
 > | | State |
 > | --- | --- |
 > | **Core feature (fixture + replay + real Meta analysis)** | **Complete and verified locally** (details in [§11](#11-checks-actually-run)). |
-> | **Live acceptance** (new captures through two real ProxyHubb regional exits) | **Not done.** It needs a signed-in account on a running deployment, an authorized HTTPS target, and usable sessions. Exact prerequisites in [§13](#13-outstanding-live-prerequisites). Nothing in this repository claims otherwise. |
+> | **Live acceptance** (new captures through two real ProxyHubb regional exits) | **One region done, two not yet.** On 2026-11-02 audit `aud_a397dd463c47` captured `https://proxyhubb.com/` through the user's own Ghana marketplace order on the testnet gateway, with a verified exit and a real Meta analysis ([§13.0](#130-first-real-live-audit-2026-11-02)). A two-region comparison still needs an active order in a second country. |
 
 The audit is **read-only**: it never logs in, submits forms, buys anything or
 changes state on the audited site.
@@ -522,6 +522,29 @@ after that change. Model output varies run to run, which is why several passes a
 reported and the raw files are included.
 
 ## 13. Outstanding live prerequisites
+
+### 13.0 First real live audit (2026-11-02)
+
+The user signed in to the local web app (against `https://api.proxyhubb.com`, the testnet API, then running
+main as of #124, deployed 2026-11-01) and ran audits over their own Ghana marketplace order:
+
+| Audit | Result |
+| --- | --- |
+| `aud_428b30228d2a` (13:50 UTC) | GH `unavailable` · `order_not_ready`: the control API answered that the order's proxy credentials were not ready yet. Nothing was captured and no model call was made. |
+| `aud_a397dd463c47` (13:56 UTC) | **completed.** Exit IP observed through the audit browser before and after capture, unchanged; GeoIP (`ipwho.is`) and the seller-declared listing country both say GH, so the route is `verified`. Main document HTTP 200, two screenshots, 2 model calls on `muse-spark-1.3-contributor` (7,468 in / 2,644 out tokens, estimated $0.0013). Expectations: page loads **met**; signup **unclear** (the site says "Get started"/"Sign in", and clicking was not tested); prices in the expected currency **not met**. One finding: the homepage shows no pricing and no currency for GH. |
+
+What this settles from the list below: the credentialed tunnel through the **real** gateway works with a
+marketplace order's per-session username and HMAC password; signing in through a local web app against the
+remote API works; the target is reachable from that exit, and that order's exit is in the country its listing
+declares (GeoIP estimate). Still open: a second region, and the `session-intent` path (blocked by escrow).
+
+The same run exposed a defect, now fixed: after capturing, the worker re-checks the exit under an echo-only
+request policy but had left the target page open. proxyhubb.com kept prefetching (`/provider`, redirected to
+`/login`), so 15 of its own same-origin requests were blocked and two were reported as policy violations with
+the false reason "origin https://proxyhubb.com is not approved", and that noise was part of the model's input.
+The page is now closed before the re-check and page events stop counting once capture ends
+(`test/livepath.test.ts`, "does not blame the site for its own background requests"). The stored report for
+`aud_a397dd463c47` still carries that noise; a rerun produces a clean one.
 
 Live acceptance (real captures through two real regional exits) still needs these. They are the user's to
 provide or authorize; none were available to me:

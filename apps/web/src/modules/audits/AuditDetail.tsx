@@ -322,6 +322,17 @@ function RegionCard({ audit, country }: { audit: Audit; country: string }) {
             <dd>
               {capture.route.geoip.country ?? "unknown"} <span className="ui-muted ui-small">· {capture.route.geoip.source}{capture.route.geoip.lookedUpAt ? ` · ${formatTime(capture.route.geoip.lookedUpAt)}` : ""}. An estimate for the IP, not proof of physical location.</span>
             </dd>
+            {capture.route.geoip.network && (
+              <>
+                <dt>Network</dt>
+                <dd>
+                  {capture.route.geoip.network}
+                  {capture.route.geoip.satellite && (
+                    <span className="ui-muted ui-small"> · satellite: its country estimate does not show where the exit is</span>
+                  )}
+                </dd>
+              </>
+            )}
             <dt>Provider declared</dt>
             <dd>
               {capture.route.declaredCountry.value ?? "not provided"} <span className="ui-muted ui-small">· {capture.route.declaredCountry.source}</span>
