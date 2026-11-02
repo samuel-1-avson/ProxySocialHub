@@ -114,7 +114,7 @@ export function MarketplaceFunnelDashboard({ mode, enabled }: Props) {
                     <select
                         value={collection}
                         onChange={(e) => setCollection(e.target.value)}
-                        className="block mt-1 px-3 py-2 rounded-lg bg-secondary border border-border text-sm text-foreground min-w-[10rem]"
+                        className="ui-select block mt-1 min-w-[10rem]"
                     >
                         {COLLECTIONS.map((c) => (
                             <option key={c.value || "all"} value={c.value}>
@@ -128,7 +128,7 @@ export function MarketplaceFunnelDashboard({ mode, enabled }: Props) {
                     <select
                         value={country}
                         onChange={(e) => setCountry(e.target.value)}
-                        className="block mt-1 px-3 py-2 rounded-lg bg-secondary border border-border text-sm text-foreground min-w-[8rem]"
+                        className="ui-select block mt-1 min-w-[8rem]"
                     >
                         <option value="">All countries</option>
                         {(data?.countries ?? []).map((c) => (

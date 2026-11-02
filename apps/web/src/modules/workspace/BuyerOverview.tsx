@@ -118,7 +118,7 @@ export function BuyerOverview() {
         <Stat
           icon={<Cable size={18} />}
           label="Active orders"
-          value={orders.isSuccess ? active.length : "—"}
+          value={orders.isSuccess ? active.length : "…"}
           detail="Purchased access with an active order"
         />
         <Stat
@@ -127,7 +127,7 @@ export function BuyerOverview() {
           value={
             usage.isSuccess && usage.data.total_gb != null
               ? amount(usage.data.total_gb) + " GB"
-              : "—"
+              : "None yet"
           }
           detail="Reported account usage"
         />
@@ -137,7 +137,7 @@ export function BuyerOverview() {
           value={
             usage.isSuccess && usage.data.total_cost_sol != null
               ? amount(usage.data.total_cost_sol, 4) + " SOL"
-              : "—"
+              : "None yet"
           }
           detail="From the account usage record"
         />

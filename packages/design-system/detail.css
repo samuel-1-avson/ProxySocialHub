@@ -918,7 +918,7 @@
 }
 .proposal-status select {
   padding: 13px 0;
-  background: var(--card);
+  background-color: var(--card);
   color: var(--foreground);
   font-size: 14px;
 }

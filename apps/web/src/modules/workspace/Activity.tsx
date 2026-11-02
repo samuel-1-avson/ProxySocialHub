@@ -70,7 +70,7 @@ export function Activity() {
             <Stat
               icon={<ShoppingBag size={18} />}
               label="Orders shown"
-              value={orders.isSuccess ? orders.data.length : "—"}
+              value={orders.isSuccess ? orders.data.length : "…"}
               detail="Orders in your account history"
             />
             <Stat
@@ -80,7 +80,7 @@ export function Activity() {
                 orders.isSuccess
                   ? orders.data.filter((order) => order.status === "active")
                       .length
-                  : "—"
+                  : "…"
               }
               detail="Purchased orders with active access"
             />
@@ -94,7 +94,7 @@ export function Activity() {
                         order.status,
                       ),
                     ).length
-                  : "—"
+                  : "…"
               }
               detail="Payment, provisioning, or dispute status"
             />
@@ -164,7 +164,7 @@ export function Activity() {
                       <td>
                         {order.total_price != null || order.price_total != null
                           ? `$${amount(order.total_price ?? order.price_total, 4)}`
-                          : "—"}
+                          : "Unknown"}
                       </td>
                       <td>
                         <Link
@@ -191,7 +191,7 @@ export function Activity() {
               value={
                 usage.data?.total_gb != null
                   ? `${amount(usage.data.total_gb)} GB`
-                  : "—"
+                  : "None yet"
               }
               detail="Reported account usage"
             />
@@ -201,7 +201,7 @@ export function Activity() {
               value={
                 usage.data?.total_cost_sol != null
                   ? `${amount(usage.data.total_cost_sol, 4)} SOL`
-                  : "—"
+                  : "None yet"
               }
               detail="Account usage record"
             />

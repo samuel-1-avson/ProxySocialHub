@@ -186,7 +186,7 @@ export default function FriendsPage() {
             <div className="ui-section-heading">
               <h2>Your friends</h2>
               <span className="ui-subtle">
-                {friends.data?.friends.length ?? "—"} connections
+                {friends.data?.friends.length ?? "…"} connections
               </span>
             </div>
             <label className="ui-field">

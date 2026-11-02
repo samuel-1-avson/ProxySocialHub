@@ -24,6 +24,7 @@ import {
     displayListingTitle,
     listingShowsCatalogSubtitle,
 } from '@/lib/listing-display';
+import { listingProtocolLabel } from '@/lib/listing-protocols';
 
 function isPurchasable(listing: Listing) {
     return listing.status === 'active' && listing.available_bandwidth_gb > 0;
@@ -282,7 +283,7 @@ function ListingDetailContent() {
                             </div>
                             <div className="flex justify-between text-xs font-mono">
                                 <span className="text-muted-foreground">Protocol</span>
-                                <span className="font-bold">{listing.protocol}</span>
+                                <span className="font-bold">{listingProtocolLabel(listing.protocol)}</span>
                             </div>
                         </div>
 

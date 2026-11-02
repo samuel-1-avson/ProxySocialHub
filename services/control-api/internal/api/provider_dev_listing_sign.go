@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/mr-tron/base58"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
@@ -37,16 +36,15 @@ func signListingOfferDev(c *gin.Context) {
 		return
 	}
 
-	currentUserID, ok := c.Get("user_id")
+	userID, ok := currentUserID(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
-	userID := currentUserID.(uuid.UUID)
 
 	var req models.CreateListingRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": listingRequestError(err)})
 		return
 	}
 
@@ -92,9 +90,10 @@ func signListingOfferDev(c *gin.Context) {
 	if maxConcurrency <= 0 {
 		maxConcurrency = 5
 	}
-	protocol := strings.ToLower(strings.TrimSpace(req.Protocol))
-	if protocol == "" {
-		protocol = "http"
+	protocol, problem := normalizeListingProtocols(req.Protocol)
+	if problem != "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": problem, "field": "protocol"})
+		return
 	}
 
 	country := req.Country

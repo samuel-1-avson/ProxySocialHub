@@ -128,7 +128,7 @@ export default function Home() {
               <Link href={ROUTES.marketplace}>
                 Browse marketplace <ArrowRight size={16} aria-hidden="true" />
               </Link>
-              <span className="landing-card-index">01 — BUYER WORKSPACE</span>
+              <span className="landing-card-index">01 · BUYER WORKSPACE</span>
             </article>
             <article className="landing-audience-card landing-provider-card">
               <p className="landing-section-kicker">For providers / publish supply</p>
@@ -138,7 +138,7 @@ export default function Home() {
               <Link href={ROUTES.seller}>
                 Explore provider tools <ArrowRight size={16} aria-hidden="true" />
               </Link>
-              <span className="landing-card-index">02 — PROVIDER WORKSPACE</span>
+              <span className="landing-card-index">02 · PROVIDER WORKSPACE</span>
             </article>
           </div>
         </section>

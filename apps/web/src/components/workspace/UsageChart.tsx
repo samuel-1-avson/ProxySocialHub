@@ -60,7 +60,7 @@ export function UsageChart({ points }: { points: UsagePoint[] }) {
                   }
                 >
                   <span className="usage-chart-value">
-                    {point.gb == null ? "—" : amount(point.gb, 3)}
+                    {point.gb == null ? "No data" : amount(point.gb, 3)}
                   </span>
                   <div className="usage-chart-track">
                     <span

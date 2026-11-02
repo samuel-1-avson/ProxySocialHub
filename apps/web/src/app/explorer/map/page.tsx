@@ -565,10 +565,10 @@ export default function NodeMapPage() {
                                     { label: 'Node ID', value: `${selectedNode.node_id.slice(0, 14)}…`, mono: true },
                                     { label: 'Status', value: selectedNode.is_active ? '● Active' : '○ Offline', color: selectedNode.is_active ? 'text-emerald-400' : 'text-rose-400' },
                                     { label: 'Type', value: selectedNode.is_validator ? '⬡ Validator' : '◎ Proxy', color: selectedNode.is_validator ? 'text-purple-400' : 'text-blue-400' },
-                                    { label: 'Country', value: selectedNode.country || '—' },
-                                    { label: 'Region', value: selectedNode.region || '—' },
-                                    { label: 'City', value: selectedNode.city || '—' },
-                                    { label: 'ISP', value: selectedNode.isp || '—' },
+                                    { label: 'Country', value: selectedNode.country || 'Unknown' },
+                                    { label: 'Region', value: selectedNode.region || 'Unknown' },
+                                    { label: 'City', value: selectedNode.city || 'Unknown' },
+                                    { label: 'ISP', value: selectedNode.isp || 'Unknown' },
                                     { label: 'Uptime', value: `${(selectedNode.uptime_percent || 0).toFixed(2)}%` },
                                     { label: 'Sessions', value: String(selectedNode.active_sessions || 0) },
                                     {
@@ -747,12 +747,12 @@ export default function NodeMapPage() {
                                                 <div className="flex items-center gap-1.5">
                                                     <MapPin size={8} className="text-muted-foreground flex-shrink-0" />
                                                     <span className="text-[9px] text-muted-foreground">
-                                                        {[n.city, n.country || n.region].filter(Boolean).join(', ') || '—'}
+                                                        {[n.city, n.country || n.region].filter(Boolean).join(', ') || 'Unknown'}
                                                     </span>
                                                 </div>
                                             </td>
                                             <td className="px-5 py-2.5">
-                                                <span className="text-[9px] text-muted-foreground">{n.isp || '—'}</span>
+                                                <span className="text-[9px] text-muted-foreground">{n.isp || 'Unknown'}</span>
                                             </td>
                                             <td className="px-5 py-2.5 text-right font-mono text-[10px] font-black text-foreground">
                                                 {(n.uptime_percent || 0).toFixed(1)}%

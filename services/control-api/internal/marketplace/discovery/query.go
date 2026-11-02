@@ -86,7 +86,8 @@ func Apply(query *gorm.DB, q Query) *gorm.DB {
 		query = query.Where("proxy_listings.proxy_type = ?", q.ProxyType)
 	}
 	if q.Protocol != "" {
-		query = query.Where("LOWER(proxy_listings.protocol) = LOWER(?)", q.Protocol)
+		// A listing's protocol column holds a comma list such as "http,socks5".
+		query = query.Where("',' || REPLACE(LOWER(proxy_listings.protocol), ' ', '') || ',' LIKE '%,' || LOWER(?) || ',%'", q.Protocol)
 	}
 	if q.RotationType != "" {
 		query = query.Where("LOWER(proxy_listings.rotation_type) = LOWER(?)", q.RotationType)

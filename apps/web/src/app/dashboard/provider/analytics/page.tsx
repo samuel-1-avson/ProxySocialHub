@@ -171,11 +171,11 @@ export default function ProviderAnalyticsPage() {
                 </div>
               </div>
               <div className="text-2xl font-semibold font-mono text-emerald-400">
-                {totalEarned != null ? totalEarned.toFixed(4) : "—"}{" "}
+                {totalEarned != null ? totalEarned.toFixed(4) : "Not available"}{" "}
                 <span className="text-sm text-emerald-400/60">SOL</span>
               </div>
               <p className="text-xs text-muted-foreground mt-1">
-                Pending {earnings?.pending_sol != null ? earnings.pending_sol.toFixed(4) : "—"} SOL ·{" "}
+                Pending {earnings?.pending_sol != null ? earnings.pending_sol.toFixed(4) : "Not available"} SOL ·{" "}
                 <Link
                   href="/dashboard/provider/earnings"
                   className="text-primary hover:underline"
@@ -255,7 +255,7 @@ export default function ProviderAnalyticsPage() {
                 </div>
               </div>
               <div className="text-2xl font-semibold font-mono">
-                {avgUptime !== null ? `${avgUptime.toFixed(1)}%` : "—"}
+                {avgUptime !== null ? `${avgUptime.toFixed(1)}%` : "Not measured"}
               </div>
               <p className="text-xs text-muted-foreground mt-1">
                 Across all reporting nodes
@@ -272,7 +272,7 @@ export default function ProviderAnalyticsPage() {
                 </div>
               </div>
               <div className="text-2xl font-semibold font-mono">
-                {avgLatency !== null ? `${avgLatency.toFixed(0)}` : "—"}
+                {avgLatency !== null ? `${avgLatency.toFixed(0)}` : "Not measured"}
                 {avgLatency !== null && (
                   <span className="text-sm text-muted-foreground"> ms</span>
                 )}
@@ -292,7 +292,7 @@ export default function ProviderAnalyticsPage() {
                 </div>
               </div>
               <div className="text-2xl font-semibold font-mono">
-                {totalSessions !== null ? totalSessions.toLocaleString() : "—"}
+                {totalSessions !== null ? totalSessions.toLocaleString() : "None yet"}
               </div>
               <p className="text-xs text-muted-foreground mt-1">
                 Lifetime, from earnings
@@ -348,10 +348,10 @@ export default function ProviderAnalyticsPage() {
                       <span>
                         {uptimePercent !== null
                           ? `${uptimePercent.toFixed(1)}%`
-                          : "—"}
+                          : "Not measured"}
                       </span>
                       <span>
-                        {latency !== null ? `${latency.toFixed(0)}ms` : "—"}
+                        {latency !== null ? `${latency.toFixed(0)}ms` : "Not measured"}
                       </span>
                       {uptime?.current_status && (
                         <span className="normal-case">

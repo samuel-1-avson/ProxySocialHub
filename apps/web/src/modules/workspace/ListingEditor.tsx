@@ -35,8 +35,22 @@ import {
   amount,
   countryName,
 } from "@/components/workspace/Patterns";
+import {
+  LISTING_PROTOCOLS,
+  listingProtocolLabel,
+  type ListingProtocol,
+} from "@/lib/listing-protocols";
 import { useSellerNodes } from "./SellerNodes";
 import { NodeKeyImport, useListingSigner } from "./NodeKeyImport";
+
+// Limits the control API applies to a new listing (models.CreateListingRequest).
+const LIMITS = {
+  titleMin: 5,
+  title: 200,
+  description: 2000,
+  isp: 100,
+  concurrency: 100,
+} as const;
 
 export function ListingEditor() {
   const router = useRouter();
@@ -53,9 +67,10 @@ export function ListingEditor() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [type, setType] = useState("residential");
-  const [protocol, setProtocol] = useState("http");
+  const [protocols, setProtocols] = useState<ListingProtocol[]>(["http"]);
   const [rotation, setRotation] = useState("sticky");
-  const [country, setCountry] = useState("");
+  // null until the seller types, so the node's country is only a default.
+  const [country, setCountry] = useState<string | null>(null);
   const [isp, setIsp] = useState("");
   const [price, setPrice] = useState(
     String(defaultListingPricePerGB("residential")),
@@ -69,7 +84,7 @@ export function ListingEditor() {
   const selectedId =
     nodeId || (nodes.data?.nodes.length === 1 ? nodes.data.nodes[0].id : "");
   const selectedNode = nodes.data?.nodes.find((node) => node.id === selectedId);
-  const region = country || selectedNode?.country || "";
+  const region = country ?? selectedNode?.country ?? "";
   const nodeHotkey = selectedNode?.hotkey?.trim() ?? "";
   const walletHotkey =
     wallet.connected && wallet.publicKey ? wallet.publicKey.toBase58() : "";
@@ -89,17 +104,39 @@ export function ListingEditor() {
     type,
     suggestion.data?.suggested_price,
   );
-  const valid = Boolean(
-    title.trim() &&
-      selectedNode &&
-      Number(price) > 0 &&
-      !guidance.overHardCap &&
-      Number(capacity) > 0 &&
-      Number(minimum) > 0 &&
-      Number(minimum) <= Number(capacity) &&
-      Number.isInteger(Number(concurrency)) &&
-      Number(concurrency) > 0 &&
-      (!region || /^[A-Z]{2}$/.test(region)),
+  // Same limits the control API enforces, so a review never fails on publish.
+  const problems: string[] = [];
+  if (title.trim().length < LIMITS.titleMin)
+    problems.push(`Offer title needs at least ${LIMITS.titleMin} characters.`);
+  if (!selectedNode) problems.push("Choose the node that supplies this offer.");
+  if (description.length > LIMITS.description)
+    problems.push(`Description can be at most ${LIMITS.description} characters.`);
+  if (!protocols.length) problems.push("Choose at least one protocol.");
+  if (region && !/^[A-Z]{2}$/.test(region))
+    problems.push("Country code must be two letters, for example GH.");
+  if (isp.trim().length > LIMITS.isp)
+    problems.push(`Internet provider can be at most ${LIMITS.isp} characters.`);
+  const connections = Number(concurrency);
+  if (
+    !Number.isInteger(connections) ||
+    connections < 1 ||
+    connections > LIMITS.concurrency
+  )
+    problems.push(
+      `Concurrent connections must be a whole number from 1 to ${LIMITS.concurrency}.`,
+    );
+  if (!(Number(price) > 0)) problems.push("Enter a price per GB.");
+  else if (guidance.overHardCap)
+    problems.push("The maximum allowed price is $50 / GB.");
+  if (!(Number(capacity) > 0)) problems.push("Enter the bandwidth you can supply.");
+  if (!(Number(minimum) > 0)) problems.push("Enter a minimum purchase.");
+  else if (Number(capacity) > 0 && Number(minimum) > Number(capacity))
+    problems.push("Minimum purchase cannot be more than the available bandwidth.");
+  const valid = problems.length === 0;
+  // With signatures enforced, a node that never connected has no key to sign
+  // with, and the API refuses the offer. Say so before the seller tries.
+  const nodeNotConnected = Boolean(
+    policy.data?.required && selectedNode && !nodeHotkey,
   );
   const publish = useMutation({
     retry: false,
@@ -182,7 +219,7 @@ export function ListingEditor() {
       description: description.trim(),
       provider_node_id: selectedId,
       proxy_type: type,
-      protocol,
+      protocol: protocols.join(","),
       rotation_type: rotation,
       country: region,
       isp: isp.trim(),
@@ -249,7 +286,8 @@ export function ListingEditor() {
             <div>
               <dt>Connection</dt>
               <dd>
-                {review.proxy_type} · {review.protocol} · {review.rotation_type}
+                {review.proxy_type} · {listingProtocolLabel(review.protocol)}{" "}
+                · {review.rotation_type}
               </dd>
             </div>
             <div>
@@ -268,13 +306,23 @@ export function ListingEditor() {
             <p className="ui-note">
               Offer signature:{" "}
               {signerKind === "local-secret"
-                ? "this browser&apos;s stored node key."
+                ? "this browser’s stored node key."
                 : signerKind === "wallet"
                   ? "your connected wallet. You will approve it there."
                   : "the configured development signature."}
             </p>
           )}
-          {policy.isSuccess &&
+          {nodeNotConnected && (
+            <div className="ui-attention" role="alert">
+              <p>
+                <strong>This node has not connected yet.</strong> Start it once
+                with <code>provider-node start</code> so it registers its
+                signing key, then publish this offer.
+              </p>
+            </div>
+          )}
+          {!nodeNotConnected &&
+            policy.isSuccess &&
             needsProof &&
             signerKind === "none" &&
             !devicePending &&
@@ -316,6 +364,7 @@ export function ListingEditor() {
               disabled={
                 publish.isPending ||
                 !policy.isSuccess ||
+                nodeNotConnected ||
                 (needsProof && signerKind === "none" && !devicePending)
               }
               onClick={() => publish.mutate()}
@@ -340,11 +389,13 @@ export function ListingEditor() {
                 <input
                   className="ui-input"
                   required
-                  maxLength={200}
+                  minLength={LIMITS.titleMin}
+                  maxLength={LIMITS.title}
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="A clear name for your capacity"
                 />
+                <small>At least {LIMITS.titleMin} characters.</small>
               </label>
               <label className="ui-field">
                 Supply node
@@ -368,11 +419,14 @@ export function ListingEditor() {
               <textarea
                 className="ui-input"
                 rows={4}
-                maxLength={5000}
+                maxLength={LIMITS.description}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Describe the service and any operating limits."
               />
+              <small>
+                {description.length} / {LIMITS.description} characters
+              </small>
             </label>
             {selectedNode && (
               <p className="ui-note">
@@ -402,18 +456,44 @@ export function ListingEditor() {
                   <option value="datacenter">Datacenter</option>
                 </select>
               </label>
-              <label className="ui-field">
-                Protocol
-                <select
-                  className="ui-select"
-                  value={protocol}
-                  onChange={(e) => setProtocol(e.target.value)}
-                >
-                  <option value="http">HTTP</option>
-                  <option value="https">HTTPS</option>
-                  <option value="socks5">SOCKS5</option>
-                </select>
-              </label>
+              <fieldset className="ui-field ui-choice-group">
+                <legend>Protocols</legend>
+                <div className="ui-choice-row">
+                  <label className="ui-choice">
+                    <input
+                      type="checkbox"
+                      checked={protocols.length === LISTING_PROTOCOLS.length}
+                      onChange={(e) =>
+                        setProtocols(
+                          e.target.checked
+                            ? LISTING_PROTOCOLS.map((p) => p.value)
+                            : [],
+                        )
+                      }
+                    />
+                    All
+                  </label>
+                  {LISTING_PROTOCOLS.map((p) => (
+                    <label key={p.value} className="ui-choice">
+                      <input
+                        type="checkbox"
+                        checked={protocols.includes(p.value)}
+                        onChange={(e) =>
+                          setProtocols((current) =>
+                            LISTING_PROTOCOLS.map((x) => x.value).filter((v) =>
+                              v === p.value
+                                ? e.target.checked
+                                : current.includes(v),
+                            ),
+                          )
+                        }
+                      />
+                      {p.label}
+                    </label>
+                  ))}
+                </div>
+                <small>Buyers can connect with any protocol you tick.</small>
+              </fieldset>
               <label className="ui-field">
                 Session behavior
                 <select
@@ -441,7 +521,7 @@ export function ListingEditor() {
                 Internet provider
                 <input
                   className="ui-input"
-                  maxLength={120}
+                  maxLength={LIMITS.isp}
                   value={isp}
                   onChange={(e) => setIsp(e.target.value)}
                   placeholder="Optional"
@@ -453,6 +533,7 @@ export function ListingEditor() {
                   className="ui-input"
                   type="number"
                   min="1"
+                  max={LIMITS.concurrency}
                   step="1"
                   required
                   value={concurrency}
@@ -547,6 +628,18 @@ export function ListingEditor() {
             <p className="ui-note" role="status">
               Loading publication requirements…
             </p>
+          )}
+          {!valid && Boolean(title || capacity || description) && (
+            <div className="ui-attention" role="status">
+              <p>
+                <strong>Before you can review this offer:</strong>
+              </p>
+              <ul className="ui-problem-list">
+                {problems.map((problem) => (
+                  <li key={problem}>{problem}</li>
+                ))}
+              </ul>
+            </div>
           )}
         </form>
       )}

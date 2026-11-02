@@ -138,28 +138,28 @@ export default function ProviderRelationshipsPage() {
         {[
           {
             label: "Total Customers",
-            value: stats?.total_relationships ?? "—",
+            value: stats?.total_relationships ?? "None yet",
             icon: Users,
             color: "text-blue-500",
             bg: "bg-blue-500/10",
           },
           {
             label: "Total Bandwidth Sold",
-            value: stats?.total_bandwidth_sold_gb != null ? `${stats.total_bandwidth_sold_gb.toFixed(1)} GB` : "—",
+            value: stats?.total_bandwidth_sold_gb != null ? `${stats.total_bandwidth_sold_gb.toFixed(1)} GB` : "None yet",
             icon: Wifi,
             color: "text-emerald-500",
             bg: "bg-emerald-500/10",
           },
           {
             label: "Total Revenue",
-            value: stats?.total_revenue != null ? `${stats.total_revenue.toFixed(6)} SOL` : "—",
+            value: stats?.total_revenue != null ? `${stats.total_revenue.toFixed(6)} SOL` : "None yet",
             icon: Coins,
             color: "text-amber-500",
             bg: "bg-amber-500/10",
           },
           {
             label: "Avg Sessions/Buyer",
-            value: stats?.avg_sessions_per_buyer != null ? stats.avg_sessions_per_buyer.toFixed(1) : "—",
+            value: stats?.avg_sessions_per_buyer != null ? stats.avg_sessions_per_buyer.toFixed(1) : "None yet",
             icon: TrendingUp,
             color: "text-primary",
             bg: "bg-violet-500/10",

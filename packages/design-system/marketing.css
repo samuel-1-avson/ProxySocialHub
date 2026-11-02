@@ -1010,6 +1010,14 @@
   box-shadow: var(--shadow-raise);
 }
 
+/* Wallet buttons match the full-width Google button above them: same
+   width, height and pill shape. "Choose wallet" stacks underneath. */
+.auth-card .wallet-connect-control .ui-actions > .ui-button {
+  width: 100%;
+  min-height: 40px;
+  border-radius: 999px;
+}
+
 .auth-referral-note {
   display: flex;
   align-items: center;

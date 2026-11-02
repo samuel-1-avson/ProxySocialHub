@@ -132,7 +132,7 @@ export function NetworkMapEmbed() {
                 )}
             </div>
             <p className="absolute bottom-3 left-3 z-[1000] max-w-[240px] rounded-lg border border-white/10 bg-black/60 px-2 py-1 text-[8px] font-mono text-white/40 backdrop-blur">
-                Preview — filters, Q&amp;A, and wallet checkout on the marketplace map.
+                Preview: filters, Q&amp;A, and wallet checkout on the marketplace map.
             </p>
         </div>
     );

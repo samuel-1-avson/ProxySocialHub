@@ -443,19 +443,19 @@ export default function HealthPage() {
                       <span>
                         {(hist?.uptime_percent ?? node.uptime_percent)?.toFixed(
                           1,
-                        ) ?? "—"}
+                        ) ?? "Not measured"}
                         %
                       </span>
                     </div>
                     <div className="flex items-center gap-1">
                       <Wifi size={10} />
                       <span>
-                        {node.latency_ms != null ? `${node.latency_ms}ms` : "—"}
+                        {node.latency_ms != null ? `${node.latency_ms}ms` : "Not measured"}
                       </span>
                     </div>
                     <div className="flex items-center gap-1">
                       <BarChart3 size={10} />
-                      <span>{node.quality_score?.toFixed(0) ?? "—"}</span>
+                      <span>{node.quality_score?.toFixed(0) ?? "Not measured"}</span>
                     </div>
                     <div className="flex items-center gap-1">
                       <Cpu size={10} />
@@ -502,7 +502,7 @@ export default function HealthPage() {
             )}
             {offlineNodes.length > 0 && (
               <p>
-                • {offlineNodes.length} node(s) offline/pending — open My nodes
+                • {offlineNodes.length} node(s) offline or pending. Open My nodes
                 → Connect and start the CLI.
               </p>
             )}

@@ -38,7 +38,7 @@ export function Connections() {
         <Stat
           icon={<Cable size={18} />}
           label="Active access"
-          value={orders.isSuccess ? access.length : "—"}
+          value={orders.isSuccess ? access.length : "…"}
           detail="Active purchased orders"
         />
         <Stat
@@ -48,7 +48,7 @@ export function Connections() {
             sessions.isSuccess
               ? sessions.data.filter((session) => session.status === "active")
                   .length
-              : "—"
+              : "…"
           }
           detail="Service state, not verified client routing"
         />
@@ -63,7 +63,7 @@ export function Connections() {
                     0,
                   ),
                 ) + " GB"
-              : "—"
+              : "…"
           }
           detail="Across your active orders"
         />

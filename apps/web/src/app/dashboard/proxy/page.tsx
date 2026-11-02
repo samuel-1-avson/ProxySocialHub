@@ -400,7 +400,7 @@ export default function ProxyPage() {
             </button>
           </div>
           <p className="mt-2 text-xs font-mono text-muted-foreground normal-case tracking-wide">
-            HTTP CONNECT / SOCKS5 only — see docs/buyer-proxy.md
+            HTTP CONNECT / SOCKS5 only. See docs/buyer-proxy.md
           </p>
         </GlassCard>
 

@@ -1,11 +1,14 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { applyForProvider, getProviderStatus, type ProviderApplicationResponse } from '@/lib/api/provider';
 import { getWallet } from '@/lib/api/wallet';
 import { ApiError } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth';
+import { ROUTES } from '@/lib/navigation/routes';
+import { useWorkspaceStore } from '@/lib/store/workspace-store';
 import { GlassCard } from './ui/glass-card';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
@@ -20,6 +23,8 @@ export function ProviderApplicationForm({
 } = {}) {
     const { user, refreshUser } = useAuth();
     const qc = useQueryClient();
+    const router = useRouter();
+    const setPreferredWorkspace = useWorkspaceStore((state) => state.setPreferredWorkspace);
     const [bandwidth, setBandwidth] = useState('');
 
     const { data: wallet, isLoading: walletLoading } = useQuery({
@@ -66,6 +71,10 @@ export function ProviderApplicationForm({
 
             if (onApplied) {
                 await onApplied(result);
+            } else if (result.application.status === 'approved' && !embedded) {
+                // Approved straight away: switch the workspace to Provider.
+                setPreferredWorkspace('seller');
+                router.push(ROUTES.seller);
             }
         },
         onError: async (error) => {
