@@ -15,6 +15,7 @@ import {
 import { explorerHref } from "@/lib/navigation/workspace";
 import { MarketplaceOrderCredentials } from "@/components/marketplace/MarketplaceOrderCredentials";
 import { ExtensionConnectCard } from "@/components/marketplace/ExtensionConnectCard";
+import { AuditLauncher } from "@/modules/audits/AuditLauncher";
 import { OrderRecovery } from '@/modules/workspace/OrderRecovery';
 import {
   PageHeading,
@@ -173,6 +174,9 @@ export function MarketplaceOrderDetailView({
                 />
               )}
               <MarketplaceOrderCredentials credentials={credentials.data} />
+              {order.status === "active" && (
+                <AuditLauncher orderId={order.id} />
+              )}
             </>
           )}
           {!eligible && (

@@ -7,6 +7,8 @@ export const ROUTE_POLICIES: Record<RouteKey, RoutePolicy> = {
     workspace: "authenticated",
     workspaceConnections: "authenticated",
     workspaceActivity: "authenticated",
+    workspaceAudits: "authenticated",
+    workspaceAudit: "authenticated",
     workspaceWallet: "authenticated",
     workspaceSettings: "authenticated",
     workspaceSession: "authenticated",
