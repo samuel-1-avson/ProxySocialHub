@@ -78,7 +78,7 @@ func (r *SmartMatchRepository) FindBestProviders(ctx context.Context, req FindPr
 
 	// Geo filter
 	if req.GeoCountry != "" {
-		query = query.Where("proxy_listings.country = ?", req.GeoCountry)
+		query = query.Where(models.ListingCountrySQL+" = ?", req.GeoCountry)
 	}
 
 	// Price filter (price_per_gb)

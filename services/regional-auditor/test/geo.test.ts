@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { StaticGeoIpProvider, evaluateAssurance, parseEchoIp, worseAssurance } from "../src/geo.ts";
+import { StaticGeoIpProvider, describeNetwork, evaluateAssurance, isSatelliteNetwork, parseEchoIp, worseAssurance } from "../src/geo.ts";
 
 const geo = (country: string | null, note: string | null = null) => ({ country, source: "test", lookedUpAt: "2026-11-01T00:00:00.000Z", note });
 const base = { requested: "GH", declaredCountry: null as string | null, workerDirectIp: "198.18.5.5" };
@@ -71,6 +71,15 @@ describe("evaluateAssurance", () => {
     assert.match(r.reason, /changed during capture/);
   });
 
+  it("never verifies a satellite exit, even when GeoIP and the listing agree", () => {
+    // The live case: a Ghana Starlink node whose stale listing says US and whose IP geolocates to the US.
+    const starlink = { ...geo("US"), network: "Space Exploration Technologies Corporation (AS14593)", satellite: true };
+    const r = evaluateAssurance({ ...base, requested: "US", declaredCountry: "US", samples: [{ ip: "98.97.0.1", geoip: starlink }] });
+    assert.equal(r.assurance, "unverified");
+    assert.match(r.reason, /satellite network \(Space Exploration Technologies Corporation \(AS14593\)\)/);
+    assert.ok(r.reason.length <= 400, "fits the stored reason limit");
+  });
+
   it("orders assurance by severity", () => {
     assert.equal(worseAssurance("verified", "unverified"), "unverified");
     assert.equal(worseAssurance("mismatch", "unavailable"), "mismatch");
@@ -89,6 +98,28 @@ describe("parseEchoIp", () => {
     assert.equal(parseEchoIp('{"ip":"hello"}'), null);
     assert.equal(parseEchoIp(""), null);
     assert.equal(parseEchoIp("x".repeat(5000)), null);
+  });
+});
+
+describe("satellite networks", () => {
+  it("recognises satellite operators by ASN or name", () => {
+    assert.equal(isSatelliteNetwork({ asn: 14593, isp: "SpaceX Services, Inc." }), true);
+    assert.equal(isSatelliteNetwork({ asn: 99999, isp: "Space Exploration Technologies Corporation" }), true);
+    assert.equal(isSatelliteNetwork({ org: "Starlink" }), true);
+    assert.equal(isSatelliteNetwork({ isp: "Viasat, Inc." }), true);
+    assert.equal(isSatelliteNetwork({ isp: "Hughes Network Systems" }), true);
+  });
+
+  it("does not flag ordinary networks", () => {
+    assert.equal(isSatelliteNetwork({ asn: 15169, isp: "Google LLC", org: "Google LLC" }), false);
+    assert.equal(isSatelliteNetwork({ asn: 30986, isp: "Scancom [MTNGhana] Mobile Subscribers" }), false);
+    assert.equal(isSatelliteNetwork(null), false);
+  });
+
+  it("describes a network compactly", () => {
+    assert.equal(describeNetwork({ asn: 15169, isp: "Google LLC" }), "Google LLC (AS15169)");
+    assert.equal(describeNetwork({ org: "Example" }), "Example");
+    assert.equal(describeNetwork({}), null);
   });
 });
 

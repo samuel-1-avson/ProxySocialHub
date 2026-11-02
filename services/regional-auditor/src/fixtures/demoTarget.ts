@@ -55,6 +55,15 @@ export async function startDemoTarget(options: { port?: number; scenario?: strin
       const n = Number(url.searchParams.get("n") ?? "0");
       return send(302, "text/plain", "looping", { location: n > 0 ? `/__loop?n=${n - 1}` : "/" });
     }
+    if (url.pathname === "/__chatty") {
+      // Keeps requesting its own origin after load, partly through a redirect, the way a framework prefetches links.
+      return send(
+        200,
+        "text/html",
+        '<!doctype html><title>Chatty</title><h1>Chatty page</h1><p>Visible text.</p><script>setInterval(function () { fetch("/__redirect?to=%2F__pong").catch(function () {}); }, 40);</script>',
+      );
+    }
+    if (url.pathname === "/__pong") return send(200, "text/plain", "pong");
     if (url.pathname === "/__offsite") {
       return send(200, "text/html", '<!doctype html><title>Offsite</title><h1>Offsite resources</h1><img alt="" src="http://127.0.0.1:47999/pixel.png"><p>Visible text.</p>');
     }

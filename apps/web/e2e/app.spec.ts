@@ -81,23 +81,22 @@ test.describe('Authentication', () => {
     await page.goto(`${BASE_URL}/login`);
 
     // Allow dynamic import to complete on slow engines
-    await expect(page.getByRole('heading', { name: /connect wallet/i })).toBeVisible({ timeout: 15000 });
-    await expect(page.getByRole('button', { name: /select wallet|initializing/i }).first()).toBeVisible();
-    await expect(page.getByText(/self-custodial/i)).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: 'Sign in' })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('link', { name: 'Create an account' })).toBeVisible();
   });
 
   test('should display register page', async ({ page }) => {
     await page.goto(`${BASE_URL}/register`);
 
-    await expect(page.getByRole('heading', { name: /initialize account/i })).toBeVisible({ timeout: 15000 });
-    await expect(page.getByText(/connect your solana wallet/i)).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: /create your account/i })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(/connect a solana wallet to create your proxyhubb account/i)).toBeVisible();
   });
 
   test('should navigate from register to login page', async ({ page }) => {
     await page.goto(`${BASE_URL}/register`);
 
-    await page.click('text=/connect & login/i');
-    await expect(page).toHaveURL(/login/);
+    await page.getByRole('link', { name: 'Sign in', exact: true }).click();
+    await expect(page).toHaveURL(/\/login/);
   });
 });
 
@@ -114,8 +113,8 @@ test.describe('Dashboard', () => {
   test('should display dashboard after login', async ({ page }) => {
     await page.goto(`${BASE_URL}/dashboard`);
 
-    // Check for dashboard elements
-    await expect(page.getByRole('heading', { name: /welcome back/i })).toBeVisible({ timeout: 15000 });
+    // /dashboard is the legacy path of the buyer workspace overview
+    await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible({ timeout: 15000 });
   });
 
   test('should display wallet balance', async ({ page }) => {
@@ -128,16 +127,17 @@ test.describe('Dashboard', () => {
   test('should navigate to wallet page', async ({ page, isMobile }) => {
     test.skip(isMobile, 'Skip mobile navigation test');
 
-    // Pre-warm route compilation
+    // The old wallet path still lands on the workspace wallet (also pre-warms its compile)
     await page.goto(`${BASE_URL}/dashboard/wallet`);
+    await expect(page).toHaveURL(/\/app\/wallet/, { timeout: 30000 });
     await page.goto(`${BASE_URL}/dashboard`);
 
-    // Target the specific dashboard wallet navigation item
-    const walletLink = page.locator('a[href="/dashboard/wallet"]').first();
-    await expect(walletLink).toBeVisible();
+    // The workspace header's Wallet link
+    const walletLink = page.locator('a.workspace-wallet-link');
+    await expect(walletLink).toBeVisible({ timeout: 15000 });
     await walletLink.click();
-    await page.waitForURL('**/dashboard/wallet', { timeout: 30000 });
-    await expect(page).toHaveURL(/\/dashboard\/wallet/, { timeout: 30000 });
+    await page.waitForURL('**/app/wallet', { timeout: 30000 });
+    await expect(page.getByRole('heading', { level: 1, name: 'Wallet' })).toBeVisible({ timeout: 15000 });
   });
 });
 
@@ -164,7 +164,7 @@ test.describe('Landing Page', () => {
   test('should display hero section', async ({ page }) => {
     await page.goto(`${BASE_URL}`);
 
-    await expect(page.getByRole('heading', { name: /proxies made social/i })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('heading', { level: 1, name: /clear routes/i })).toBeVisible({ timeout: 15000 });
   });
 
   test('should have call-to-action buttons', async ({ page }) => {

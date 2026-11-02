@@ -16,6 +16,37 @@ export interface GeoIpResult {
   source: string;
   lookedUpAt: string | null;
   note: string | null;
+  /** The IP's network as the provider names it, e.g. "Google LLC (AS15169)". Null when unknown. */
+  network?: string | null;
+  /** True when that network is a satellite operator, whose addresses GeoIP cannot place reliably. */
+  satellite?: boolean;
+}
+
+// Satellite operators assign addresses by ground station or registration, not by where the
+// terminal is, so their GeoIP country says nothing about the exit's real location (a Ghana
+// Starlink dish has geolocated to the US). Names are the main signal; the ASN list is a small,
+// known set (14593 = SpaceX Starlink).
+const SATELLITE_NAME = /\b(starlink|spacex|space exploration technologies|viasat|hughes ?net|hughes network|oneweb|inmarsat|project kuiper)\b/i;
+const SATELLITE_ASNS = new Set([14593]);
+
+export interface NetworkInfo {
+  asn?: number | null;
+  isp?: string | null;
+  org?: string | null;
+}
+
+export function isSatelliteNetwork(info: NetworkInfo | null | undefined): boolean {
+  if (!info) return false;
+  if (typeof info.asn === "number" && SATELLITE_ASNS.has(info.asn)) return true;
+  return [info.isp, info.org].some((name) => typeof name === "string" && SATELLITE_NAME.test(name));
+}
+
+export function describeNetwork(info: NetworkInfo | null | undefined): string | null {
+  if (!info) return null;
+  const name = (info.isp || info.org || "").trim().slice(0, 120);
+  const asn = typeof info.asn === "number" ? `AS${info.asn}` : "";
+  if (!name && !asn) return null;
+  return name && asn ? `${name} (${asn})` : name || asn;
 }
 
 export interface GeoIpProvider {
@@ -58,14 +89,23 @@ export class IpWhoIsProvider implements GeoIpProvider {
 
     const source = "ipwho.is (GeoIP estimate)";
     try {
-      const res = await fetch(`https://ipwho.is/${encodeURIComponent(ip)}?fields=success,country_code,message`, {
+      const res = await fetch(`https://ipwho.is/${encodeURIComponent(ip)}?fields=success,country_code,message,connection`, {
         signal: signal ?? AbortSignal.timeout(6000),
         headers: { accept: "application/json" },
       });
-      const body = (await res.json().catch(() => null)) as { success?: boolean; country_code?: string; message?: string } | null;
+      const body = (await res.json().catch(() => null)) as
+        | { success?: boolean; country_code?: string; message?: string; connection?: NetworkInfo }
+        | null;
       let value: GeoIpResult;
       if (res.ok && body?.success && typeof body.country_code === "string" && /^[A-Za-z]{2}$/.test(body.country_code)) {
-        value = { country: body.country_code.toUpperCase(), source, lookedUpAt: nowIso(), note: null };
+        value = {
+          country: body.country_code.toUpperCase(),
+          source,
+          lookedUpAt: nowIso(),
+          note: null,
+          network: describeNetwork(body.connection),
+          satellite: isSatelliteNetwork(body.connection),
+        };
       } else {
         value = {
           country: null,
@@ -168,6 +208,12 @@ function evaluateSample(input: AssuranceInput, sample: EgressSample): { assuranc
     return {
       assurance: "mismatch",
       reason: `The observed egress IP geolocates to ${country}, not the requested ${requested}.`,
+    };
+  }
+  if (sample.geoip?.satellite) {
+    return {
+      assurance: "unverified",
+      reason: `The exit is on a satellite network (${sample.geoip.network ?? "unknown operator"}). GeoIP places such addresses by the operator's ground station or registration, not where the terminal is, so the ${country} estimate does not confirm the exit's location.`,
     };
   }
   if (declaredCountry && declaredCountry !== requested) {

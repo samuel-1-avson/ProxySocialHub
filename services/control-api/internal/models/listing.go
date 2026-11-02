@@ -112,6 +112,14 @@ func (ProxyListing) TableName() string {
 	return "proxy_listings"
 }
 
+// ListingCountrySQL is a listing's effective country in SQL: its provider
+// node's country first, then the listing's stored one. The stored value is
+// captured at creation and can go stale (a Ghana node was once listed as
+// US); the marketplace map ranks the node first for the same reason. It
+// names the proxy_listings table directly, so use it where that table is
+// not aliased.
+const ListingCountrySQL = `COALESCE(NULLIF((SELECT pn_c.country FROM provider_nodes pn_c WHERE pn_c.id = proxy_listings.provider_node_id AND pn_c.deleted_at IS NULL), ''), proxy_listings.country)`
+
 // BeforeCreate generates a UUID if not set
 func (l *ProxyListing) BeforeCreate(tx *gorm.DB) error {
 	if l.ID == uuid.Nil {
