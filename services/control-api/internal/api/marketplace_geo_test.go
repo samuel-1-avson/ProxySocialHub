@@ -232,6 +232,65 @@ func TestGetMarketplaceMap_UsesProviderGeoWhenListingGeoBlank(t *testing.T) {
 	}
 }
 
+// Regression: a stale "US" listing country must not outrank the physical
+// node's country — it once pinned a Ghana (Cape Coast) node to Boston.
+func TestGetMarketplaceMap_NodeCountryOutranksStaleListingCountry(t *testing.T) {
+	testutil.SetupTestDB(t)
+	testutil.CleanupTestData(t, "users", "proxy_listings", "provider_nodes", "explorer_nodes")
+
+	provider := testutil.CreateTestUser(t, testutil.UniqueEmail("provider_stale_country"), "provider")
+	nodeID := uuid.New()
+	node := models.ProviderNode{
+		ID:      nodeID,
+		UserID:  provider.ID,
+		Name:    "Cape Coast Provider Node",
+		Country: "GH",
+		City:    "Cape Coast",
+		ISP:     "MTN Ghana",
+		Status:  models.NodeOnline,
+	}
+	mustCreateProviderNode(t, node)
+	listing := models.ProxyListing{
+		SellerID:             provider.ID,
+		ProviderNodeID:       &nodeID,
+		Title:                "Stale Country Listing",
+		Country:              "US",
+		ProxyType:            models.ProxyTypeResidential,
+		Protocol:             "http",
+		PricePerGB:           1,
+		AvailableBandwidthGB: 50,
+		Status:               models.ListingStatusActive,
+	}
+	if err := db.DB.Create(&listing).Error; err != nil {
+		t.Fatalf("failed to create listing fixture: %v", err)
+	}
+
+	r := setupTestRouter()
+	r.GET("/marketplace/map", getMarketplaceMap)
+
+	req := httptest.NewRequest(http.MethodGet, "/marketplace/map", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp MarketplaceMapResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.Total != 1 {
+		t.Fatalf("expected 1 point, got total=%d points=%#v", resp.Total, resp.Points)
+	}
+	point := resp.Points[0]
+	if point.Country != "GH" || point.City != "Cape Coast" {
+		t.Fatalf("expected node geo GH/Cape Coast, got country=%q city=%q", point.Country, point.City)
+	}
+	if point.Latitude != 5.1053 || point.Longitude != -1.2466 {
+		t.Fatalf("expected Cape Coast hub coords, got lat=%v lon=%v", point.Latitude, point.Longitude)
+	}
+}
+
 func TestGetMarketplaceMap_BBoxFiltersResolvedPoints(t *testing.T) {
 	testutil.SetupTestDB(t)
 	testutil.CleanupTestData(t, "users", "proxy_listings")

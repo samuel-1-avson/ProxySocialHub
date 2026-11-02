@@ -61,6 +61,7 @@ import { Modal } from '@/components/patterns/Modal';
 import { Button } from '@/components/ui/button';
 import { MoneyRailHint } from '@/components/MoneyRailHint';
 import { UnlockWalletPrompt } from '@/components/UnlockWalletPrompt';
+import { WalletBoundary } from '@/providers/WalletBoundary';
 import { ExtensionConnectCard } from '@/components/marketplace/ExtensionConnectCard';
 import { MarketplaceOrderCredentials } from '@/components/marketplace/MarketplaceOrderCredentials';
 
@@ -467,7 +468,23 @@ interface BuyListingModalProps {
   surface?: MarketplaceFunnelSurface | string;
 }
 
-export function BuyListingModal({
+/**
+ * Buy dialog. Pays from the browser wallet (or the managed Paystack flow),
+ * so it must always mount inside a wallet provider no matter which route
+ * opened it. Layout-level wallet allowlists previously left this dialog on
+ * the disconnected default wallet context for signed-in buyers; wrapping
+ * here removes that failure mode for every present and future caller
+ * (WalletBoundary is a no-op when a provider already exists above).
+ */
+export function BuyListingModal(props: BuyListingModalProps) {
+  return (
+    <WalletBoundary>
+      <BuyListingModalInner {...props} />
+    </WalletBoundary>
+  );
+}
+
+function BuyListingModalInner({
   listing,
   existingOrder,
   onClose,
@@ -478,6 +495,9 @@ export function BuyListingModal({
   const wallet = useAnchorWallet();
   const { user } = useAuth();
   const managedWallet = !!user?.managed_wallet?.address;
+  // The API forbids self-purchase (self_purchase_forbidden). Say so up front
+  // instead of letting the buyer connect a wallet and fail at order creation.
+  const isOwnListing = Boolean(user?.id && listing.seller_id && listing.seller_id === user.id);
   const toast = useToast();
   const queryClient = useQueryClient();
   const [loading, setLoading] = useState(false);
@@ -667,6 +687,10 @@ export function BuyListingModal({
   };
 
   const handleConnect = async () => {
+    if (isOwnListing) {
+      setError("This is your own listing. Sign in with a different (buyer) wallet to buy it, or open someone else's listing.");
+      return;
+    }
     if (managedFlow) {
       await handleManagedConnect();
       return;
@@ -907,7 +931,7 @@ export function BuyListingModal({
             type="button"
             data-testid="buy-listing-start-connection"
             onClick={() => void handleConnect()}
-            disabled={loading}
+            disabled={loading || isOwnListing}
             isLoading={loading}
             className="w-full"
           >
@@ -923,7 +947,17 @@ export function BuyListingModal({
       }
     >
       <div className="space-y-5">
-        {!publicKey && <UnlockWalletPrompt compact />}
+        {isOwnListing ? (
+          <div
+            className="flex items-center gap-2 rounded-[var(--radius-md)] border border-[color-mix(in_srgb,var(--warning)_30%,var(--border))] bg-[color-mix(in_srgb,var(--warning)_8%,transparent)] p-3 text-sm text-[var(--warning)]"
+            role="note"
+          >
+            <AlertCircle size={16} aria-hidden />
+            <span>This is your own listing — you can&apos;t buy it with this account. Use a different buyer wallet to test a purchase.</span>
+          </div>
+        ) : !publicKey ? (
+          <UnlockWalletPrompt compact expectedAddress={user?.wallet_address ?? null} />
+        ) : null}
         <div className="flex gap-4 rounded-[var(--radius-md)] border border-border bg-secondary p-4">
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-primary font-mono text-sm font-semibold text-primary-foreground">
             {listing.proxy_type?.[0]?.toUpperCase() ?? 'P'}

@@ -235,7 +235,10 @@ func syncProviderNodeListings(node models.ProviderNode, country, isp string) {
 	if country != "" {
 		if err := db.DB.Model(&models.ProxyListing{}).
 			Where("provider_node_id = ?", node.ID).
-			Where("country IS NULL OR country = '' OR country = 'verify-smoke'").
+			// A listing's country is the node's exit country; a stale value
+			// captured at creation must not outlive an owner-set correction;
+			// (a stale "US" once pinned a Ghana node to Boston).
+			Where("(country IS NULL OR country = '' OR country = 'verify-smoke') OR (? AND country <> ?)", node.LocationUserSet, country).
 			Update("country", country).Error; err != nil {
 			log.Printf("[GeoIP] provider listing country sync %s: %v", node.ID.String(), err)
 		}
