@@ -7,7 +7,7 @@ import dynamic from 'next/dynamic';
 import { useQuery } from '@tanstack/react-query';
 import { Loader2, Search, X } from 'lucide-react';
 import { BuyListingModal } from '@/components/BuyListingModal';
-import { PageHeading } from '@/components/workspace/Patterns';
+import { PageHeading, countryName } from '@/components/workspace/Patterns';
 import { measured } from '@/lib/measurements';
 import { CatalogProductBadge } from '@/components/marketplace/CatalogProductBadge';
 import { ListingSocialPanel } from '@/components/marketplace/ListingSocialPanel';
@@ -302,7 +302,7 @@ function MarketplaceMapContent({ highlightListingId }: { highlightListingId: str
                             <label className="ui-field">Country
                                 <select aria-label="Country" className="ui-select" value={country} onChange={e => changeFilter(setCountry, e.target.value)}>
                                     <option value="">All countries</option>
-                                    {countries.map(c => <option key={c} value={c}>{c}</option>)}
+                                    {countries.map(c => <option key={c} value={c}>{countryName(c)} ({c})</option>)}
                                 </select>
                             </label>
                             <div className="grid grid-cols-2 gap-2">

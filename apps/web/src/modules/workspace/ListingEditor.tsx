@@ -40,6 +40,7 @@ import {
   listingProtocolLabel,
   type ListingProtocol,
 } from "@/lib/listing-protocols";
+import { CountrySelect } from "@/components/ui/CountrySelect";
 import { useSellerNodes } from "./SellerNodes";
 import { NodeKeyImport, useListingSigner } from "./NodeKeyImport";
 
@@ -508,17 +509,14 @@ export function ListingEditor() {
                   <option value="static">Static</option>
                 </select>
               </label>
-              <label className="ui-field">
-                Country code
-                <input
-                  className="ui-input"
-                  maxLength={2}
-                  pattern="[A-Za-z]{2}"
+              <div className="ui-field">
+                <span>Country</span>
+                <CountrySelect
                   value={region}
-                  onChange={(e) => setCountry(e.target.value.toUpperCase())}
-                  placeholder="e.g. GH"
+                  onChange={setCountry}
+                  placeholder="Search countries"
                 />
-              </label>
+              </div>
               <label className="ui-field">
                 Internet provider
                 <input

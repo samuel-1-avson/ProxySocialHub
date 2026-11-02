@@ -251,9 +251,11 @@ test.describe("seller workflow migration", () => {
     await page
       .getByRole("textbox", { name: "Node name", exact: true })
       .fill("Accra supply");
-    await page
-      .getByRole("textbox", { name: "Country code", exact: true })
-      .fill("GH");
+    // Type to search, then pick from the list.
+    const country = page.getByRole("combobox", { name: "Country", exact: true });
+    await country.fill("gha");
+    await page.getByRole("option", { name: /^Ghana/ }).click();
+    await expect(country).toHaveValue("Ghana");
     await page
       .getByRole("button", { name: "Register node & continue" })
       .click();
@@ -392,6 +394,39 @@ test.describe("seller workflow migration", () => {
     await page.getByRole("button", { name: "Publish offer" }).click();
     await expect.poll(() => calls.offers.length).toBe(1);
     expect(calls.offers[0]).toMatchObject({ protocol: "http,socks5" });
+  });
+  test("picks a country from the list or by searching, and can clear it", async ({
+    page,
+  }) => {
+    const calls = await setup(page);
+    await page.goto(`${base}/provider/listings/new`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page
+      .getByRole("textbox", { name: "Offer title" })
+      .fill("Country picker offer");
+    await page
+      .getByLabel("Available bandwidth (GB)", { exact: true })
+      .fill("20");
+    const country = page.getByRole("combobox", { name: "Country", exact: true });
+    // The node's country is the default.
+    await expect(country).toHaveValue("Ghana");
+    await country.click();
+    const options = page.getByRole("listbox", { name: "Country" }).getByRole("option");
+    await expect(options).toHaveCount(249);
+    await country.fill("côte");
+    await expect(options).toHaveCount(1);
+    await country.fill("kenya");
+    await page.keyboard.press("Enter");
+    await expect(country).toHaveValue("Kenya");
+    await country.fill("zzzz");
+    await expect(page.getByText("No country matches")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(country).toHaveValue("Kenya");
+    await page.getByRole("button", { name: "Review listing" }).click();
+    await page.getByRole("button", { name: "Publish offer" }).click();
+    await expect.poll(() => calls.offers.length).toBe(1);
+    expect(calls.offers[0]).toMatchObject({ country: "KE" });
   });
   test("blocks publishing when publication policy cannot be loaded", async ({
     page,

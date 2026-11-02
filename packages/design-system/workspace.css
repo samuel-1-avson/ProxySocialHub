@@ -516,6 +516,86 @@ select option:disabled {
 .ui-select {
   padding-right: 38px;
 }
+/* Searchable country picker (CountrySelect). */
+.ui-combobox {
+  position: relative;
+  min-width: 0;
+}
+.ui-combobox-input {
+  width: 100%;
+  padding-right: 40px;
+}
+.ui-combobox-chevron {
+  position: absolute;
+  right: 13px;
+  top: 14px;
+  color: var(--accent);
+  pointer-events: none;
+}
+.ui-combobox-clear {
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.ui-combobox-clear:hover {
+  color: var(--foreground);
+  background: var(--surface-hover);
+}
+.ui-combobox-list {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: min(320px, 50vh);
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: var(--shadow-pop);
+}
+.ui-combobox-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.ui-combobox-option > span:first-child {
+  flex: 1;
+  min-width: 0;
+}
+.ui-combobox-option.active {
+  background: var(--surface-hover);
+}
+.ui-combobox-option[aria-selected="true"] {
+  font-weight: 600;
+  color: var(--accent);
+}
+.ui-combobox-code {
+  font: 12px var(--font-mono);
+  color: var(--muted-foreground);
+}
+.ui-combobox-empty {
+  padding: 12px 10px;
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
 .ui-field {
   display: flex;
   flex-direction: column;
