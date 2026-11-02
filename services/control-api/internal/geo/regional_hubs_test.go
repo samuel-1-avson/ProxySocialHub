@@ -91,6 +91,29 @@ func TestResolveRegionalHubUnsupportedCountry(t *testing.T) {
 	}
 }
 
+// Regression: a Ghana node's coordinates under a stale "US" country must
+// not snap to the nearest US hub (Boston). The snap refuses, so callers
+// fall back instead of publishing a wrong-continent pin.
+func TestResolveRegionalHubRejectsCrossContinentSnap(t *testing.T) {
+	name, _, _, ok := ResolveRegionalHub("US", "", "", 5.1053, -1.2466) // Cape Coast coords
+	if ok {
+		t.Fatalf("got hub %q for Ghana coords claimed as US, want no hub", name)
+	}
+	// The full map path must not report Boston for the same conflict.
+	lat, lon, src := ApplyMapCoords(5.1053, -1.2466, "US", "Cape Coast", "", "node:test")
+	if src == "region_hub" && lat == 42.3601 && lon == -71.0589 {
+		t.Fatalf("ApplyMapCoords pinned Cape Coast coords to Boston (src=%q)", src)
+	}
+}
+
+// In-country coordinate snaps still work under the distance bound.
+func TestResolveRegionalHubUSBostonNearest(t *testing.T) {
+	name, _, _, ok := ResolveRegionalHub("US", "", "", 42.4, -71.1)
+	if !ok || name != "Boston" {
+		t.Fatalf("got %q ok=%v, want Boston for Boston-area coords", name, ok)
+	}
+}
+
 func TestRegionalHubsByCountryHasMajorMarkets(t *testing.T) {
 	for _, cc := range []string{"US", "NG", "CN", "GB", "DE", "FR", "GH", "IN", "JP", "BR"} {
 		if len(regionalHubsByCountry[cc]) == 0 {

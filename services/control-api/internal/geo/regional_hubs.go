@@ -5,6 +5,15 @@ import (
 	"strings"
 )
 
+// maxRegionalHubSnapKm bounds coordinate-to-hub snapping. Coordinates are
+// evidence about where a node really exits; a declared country is a claim.
+// When the closest hub in the claimed country is farther than this, the two
+// disagree (classic failure: a Ghana node's coordinates snapped to the
+// nearest US hub, Boston, because a stale listing country said "US").
+// Refusing the snap lets callers fall back instead of publishing a pin on
+// the wrong continent. Text (city/region) matches are not distance-bound.
+const maxRegionalHubSnapKm = 2500
+
 // regionalHub is a map anchor for provider/validator density (city-region level, not street GPS).
 type regionalHub struct {
 	Name    string
@@ -96,8 +105,16 @@ func matchRegionalHubByText(hubs []regionalHub, raw string) (regionalHub, bool) 
 }
 
 func nearestRegionalHub(hubs []regionalHub, lat, lon float64) (regionalHub, bool) {
-	if len(hubs) == 0 {
+	hub, distKm, ok := nearestRegionalHubWithDistance(hubs, lat, lon)
+	if !ok || distKm > maxRegionalHubSnapKm {
 		return regionalHub{}, false
+	}
+	return hub, true
+}
+
+func nearestRegionalHubWithDistance(hubs []regionalHub, lat, lon float64) (regionalHub, float64, bool) {
+	if len(hubs) == 0 {
+		return regionalHub{}, 0, false
 	}
 	best := hubs[0]
 	bestDist := haversineKm(lat, lon, best.Lat, best.Lon)
@@ -107,7 +124,7 @@ func nearestRegionalHub(hubs []regionalHub, lat, lon float64) (regionalHub, bool
 			bestDist = d
 		}
 	}
-	return best, true
+	return best, bestDist, true
 }
 
 func normalizePlaceKey(s string) string {
