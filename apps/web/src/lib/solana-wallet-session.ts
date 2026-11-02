@@ -1,3 +1,11 @@
+/** Truncate a base58 address for inline hints. */
+export function shortWallet(address: string | null | undefined, head = 4, tail = 4): string {
+  const a = (address || "").trim();
+  if (!a) return "";
+  if (a.length <= head + tail + 1) return a;
+  return `${a.slice(0, head)}…${a.slice(-tail)}`;
+}
+
 /** Raised by clearSolanaWalletAdapterSession() once storage is cleared. */
 export const WALLET_SESSION_CLEAR_EVENT = 'proxyhubb:wallet-session-clear';
 /** Raised by logout() after it has cleared the wallet session. */
