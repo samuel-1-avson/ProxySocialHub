@@ -27,6 +27,7 @@ import {
 import { explorerHref } from "@/lib/navigation/workspace";
 import { Modal } from "@/components/patterns/Modal";
 import { CommandBlock } from "@/components/workspace/CommandBlock";
+import { CountrySelect } from "@/components/ui/CountrySelect";
 import {
   PageHeading,
   Loading,
@@ -157,22 +158,17 @@ export function SellerNodeSetup() {
                 placeholder="e.g. Accra home node"
               />
             </label>
-            <label className="ui-field">
-              Country code
-              <input
-                className="ui-input"
-                aria-label="Country code"
-                maxLength={2}
-                pattern="[A-Za-z]{2}"
+            <div className="ui-field">
+              <span>Country</span>
+              <CountrySelect
                 value={country}
-                onChange={(e) => setCountry(e.target.value.toUpperCase())}
-                aria-describedby="setup-country-help"
-                placeholder="e.g. GH"
+                onChange={setCountry}
+                describedBy="setup-country-help"
               />
               <small id="setup-country-help">
-                Optional ISO country code. Live location is verified separately.
+                Optional. Live location is verified separately.
               </small>
-            </label>
+            </div>
             <label className="ui-field">
               City
               <input
@@ -600,17 +596,10 @@ function NodeSettings({ node }: { node: NodeRegistration }) {
               onChange={(e) => setName(e.target.value)}
             />
           </label>
-          <label className="ui-field">
-            Country code
-            <input
-              className="ui-input"
-              pattern="[A-Za-z]{2}"
-              aria-label="Country code"
-              maxLength={2}
-              value={country}
-              onChange={(e) => setCountry(e.target.value.toUpperCase())}
-            />
-          </label>
+          <div className="ui-field">
+            <span>Country</span>
+            <CountrySelect value={country} onChange={setCountry} />
+          </div>
           <label className="ui-field">
             City
             <input
