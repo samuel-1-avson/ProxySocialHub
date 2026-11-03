@@ -9,6 +9,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // ErrorResponse represents a JSON error response
@@ -36,6 +37,7 @@ func RegisterFriendRoutes(r *gin.RouterGroup) {
 	}
 
 	r.GET("/discover/people", getPeopleYouMayKnow)
+	r.POST("/discover/people/:userId/dismiss", dismissSuggestion)
 	r.GET("/users/:id/mutual-friends", getMutualFriends)
 }
 
@@ -460,7 +462,12 @@ func summarizeFriendUser(user models.User) friendUserSummary {
 	}
 }
 
-// getPeopleYouMayKnow returns friend suggestions excluding current friends and pending requests.
+// getPeopleYouMayKnow returns friend suggestions ranked by evidence the UI
+// can honestly state (F10): mutual-friend count first, then account
+// newness — never raw popularity. Mutual counts are computed in the query
+// (no per-candidate loop), exclusions are subqueries (friends, pending
+// requests, dismissed suggestions, blocked counterparties, suspended or
+// banned accounts), and results are paginated.
 func getPeopleYouMayKnow(c *gin.Context) {
 	userID, ok := GetUserID(c)
 	if !ok {
@@ -468,74 +475,122 @@ func getPeopleYouMayKnow(c *gin.Context) {
 		return
 	}
 
+	page := getPageParam(c, 1)
 	limit := getLimitParam(c, 10)
-	excluded := []uuid.UUID{userID}
-
-	var friendships []models.Friendship
-	if err := db.Social().Where("user_id = ?", userID).Find(&friendships).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load friends"})
-		return
-	}
-	for _, friendship := range friendships {
-		excluded = append(excluded, friendship.FriendID)
-	}
-
-	var pending []models.FriendRequest
-	if err := db.Social().
-		Where("(sender_id = ? OR receiver_id = ?) AND status = ?", userID, userID, models.FriendRequestPending).
-		Find(&pending).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load pending requests"})
-		return
-	}
-	for _, req := range pending {
-		if req.SenderID == userID {
-			excluded = append(excluded, req.ReceiverID)
-		} else {
-			excluded = append(excluded, req.SenderID)
-		}
-	}
 
 	blockedIDs, err := blockedCounterpartyIDs(userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load blocked users"})
 		return
 	}
-	excluded = append(excluded, blockedIDs...)
 
-	var users []models.User
-	if err := db.Social().
-		Where("id NOT IN ?", excluded).
-		Where("status NOT IN ?", []models.UserStatus{models.UserStatusSuspended, models.UserStatusBanned}).
-		Order("followers_count DESC, created_at DESC").
-		Limit(limit).
-		Find(&users).Error; err != nil {
+	social := db.Social()
+	friendsSub := social.Model(&models.Friendship{}).Select("friend_id").Where("user_id = ?", userID)
+	pendingOutSub := social.Model(&models.FriendRequest{}).Select("receiver_id").
+		Where("sender_id = ? AND status = ?", userID, models.FriendRequestPending)
+	pendingInSub := social.Model(&models.FriendRequest{}).Select("sender_id").
+		Where("receiver_id = ? AND status = ?", userID, models.FriendRequestPending)
+	dismissedSub := social.Model(&models.SuggestionDismissal{}).Select("dismissed_user_id").
+		Where("user_id = ?", userID)
+
+	eligible := func(q *gorm.DB) *gorm.DB {
+		q = q.Where("p.id <> ?", userID).
+			Where("p.status NOT IN ?", []models.UserStatus{models.UserStatusSuspended, models.UserStatusBanned}).
+			Where("p.id NOT IN (?)", friendsSub).
+			Where("p.id NOT IN (?)", pendingOutSub).
+			Where("p.id NOT IN (?)", pendingInSub).
+			Where("p.id NOT IN (?)", dismissedSub)
+		if len(blockedIDs) > 0 {
+			q = q.Where("p.id NOT IN ?", blockedIDs)
+		}
+		return q
+	}
+
+	var total int64
+	if err := eligible(social.Table("profiles AS p")).Count(&total).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch suggestions"})
 		return
 	}
 
-	suggestions := make([]suggestedUserResponse, 0, len(users))
-	myFriends := db.Social().Model(&models.Friendship{}).Select("friend_id").Where("user_id = ?", userID)
-	for _, user := range users {
-		var mutualCount int64
-		db.Social().Model(&models.Friendship{}).
-			Where("user_id = ? AND friend_id IN (?)", user.ID, myFriends).
-			Count(&mutualCount)
+	type suggestionRow struct {
+		models.User
+		MutualCount int64 `gorm:"column:mutual_count"`
+		IsFollowing bool  `gorm:"column:is_following"`
+	}
+	var rows []suggestionRow
+	listQ := eligible(social.Table("profiles AS p")).
+		Select(`p.*, COALESCE(m.mutual_count, 0) AS mutual_count,
+			EXISTS (SELECT 1 FROM follows WHERE follower_id = ? AND following_id = p.id) AS is_following`, userID).
+		Joins(`LEFT JOIN (
+			SELECT f2.user_id AS candidate_id, COUNT(*) AS mutual_count
+			FROM friendships f1
+			JOIN friendships f2 ON f2.friend_id = f1.friend_id
+			WHERE f1.user_id = ?
+			GROUP BY f2.user_id
+		) m ON m.candidate_id = p.id`, userID).
+		Order("mutual_count DESC, p.created_at DESC, p.id DESC").
+		Offset((page - 1) * limit).Limit(limit)
+	if err := listQ.Scan(&rows).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch suggestions"})
+		return
+	}
 
-		reason := "suggested"
-		if mutualCount > 0 {
+	suggestions := make([]suggestedUserResponse, 0, len(rows))
+	for _, row := range rows {
+		reason := "new_member"
+		if row.MutualCount > 0 {
 			reason = "mutual_friends"
 		}
-
 		suggestions = append(suggestions, suggestedUserResponse{
-			friendUserSummary: summarizeFriendUser(user),
+			friendUserSummary: summarizeFriendUser(row.User),
 			Reason:            reason,
-			Score:             mutualCount,
-			MutualCount:       mutualCount,
-			IsFollowing:       false,
+			Score:             row.MutualCount,
+			MutualCount:       row.MutualCount,
+			IsFollowing:       row.IsFollowing,
 		})
 	}
 
-	c.JSON(http.StatusOK, gin.H{"suggestions": suggestions})
+	c.JSON(http.StatusOK, gin.H{
+		"suggestions": suggestions,
+		"total":       total,
+		"page":        page,
+		"limit":       limit,
+		"has_more":    int64(page*limit) < total,
+	})
+}
+
+// dismissSuggestion persists a people-suggestion dismissal (F10) so the
+// person is not suggested again on any device. Idempotent.
+func dismissSuggestion(c *gin.Context) {
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	targetID, err := uuid.Parse(c.Param("userId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+	if targetID == userID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot dismiss yourself"})
+		return
+	}
+
+	var target models.User
+	if err := db.Social().First(&target, "id = ?", targetID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	dismissal := models.SuggestionDismissal{UserID: userID, DismissedUserID: targetID}
+	if err := db.Social().Clauses(clause.OnConflict{DoNothing: true}).Create(&dismissal).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to dismiss suggestion"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"dismissed": true})
 }
 
 // getMutualFriends returns friends shared by the current user and target user.
