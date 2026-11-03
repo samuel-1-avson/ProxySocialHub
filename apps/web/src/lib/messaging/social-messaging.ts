@@ -67,14 +67,19 @@ export async function sendMessageNormalized(
     conversationId: string,
     content: string,
     replyToId?: string,
+    clientMsgId?: string,
 ): Promise<Message> {
-    const payload = replyToId ? { content, reply_to_id: replyToId } : { content };
+    const payload = {
+        content,
+        ...(replyToId ? { reply_to_id: replyToId } : {}),
+        ...(clientMsgId ? { client_msg_id: clientMsgId } : {}),
+    };
     const message = await apiPost<ApiMessage>(`/v1/conversations/${conversationId}/messages`, payload);
     return mapApiMessage(message);
 }
 
-export async function startConversationNormalized(recipientId: string, message: string): Promise<Conversation> {
-    const started = await postStartConversation(recipientId, message);
+export async function startConversationNormalized(recipientId: string, message: string, clientMsgId?: string): Promise<Conversation> {
+    const started = await postStartConversation(recipientId, message, clientMsgId);
     const conversationId = started.conversation_id || started.id;
     // The first message is already accepted. A failed preview refresh must not
     // turn that successful write into a retryable send failure.
