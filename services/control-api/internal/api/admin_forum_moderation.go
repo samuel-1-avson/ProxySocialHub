@@ -13,6 +13,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/middleware"
 	"github.com/proxyhubb/control-api/internal/models"
+	"gorm.io/gorm"
 )
 
 // RegisterAdminForumModerationRoutes registers forum report + content actions for admin JWT sessions.
@@ -343,7 +344,7 @@ func patchForumThreadModeration(c *gin.Context) {
 	audit.Log(c, models.AuditAdminAction, "forum_thread", threadID.String(),
 		"Forum thread moderation update", updates)
 
-	c.JSON(http.StatusOK, thread)
+	c.JSON(http.StatusOK, forumThreadDTOFrom(thread))
 }
 
 func deleteForumThreadModeration(c *gin.Context) {
@@ -402,14 +403,24 @@ func patchForumPostModeration(c *gin.Context) {
 		updates["is_hidden"] = *req.IsHidden
 	}
 	if req.IsSolution != nil {
-		if *req.IsSolution {
-			_ = db.Social().Model(&models.ForumPost{}).
-				Where("thread_id = ? AND is_solution = true", post.ThreadID).
-				Update("is_solution", false).Error
-		}
 		updates["is_solution"] = *req.IsSolution
 	}
-	if err := db.Social().Model(&post).Updates(updates).Error; err != nil {
+	// Solution changes go through the same atomic helper as the public
+	// endpoint, in the same transaction as any visibility change (F11).
+	if err := db.Social().Transaction(func(tx *gorm.DB) error {
+		if req.IsSolution != nil {
+			if err := applySolutionInTx(tx, post, *req.IsSolution); err != nil {
+				return err
+			}
+		}
+		if req.IsHidden != nil {
+			return tx.Model(&models.ForumPost{}).Where("id = ?", post.ID).Updates(map[string]interface{}{
+				"is_hidden":  *req.IsHidden,
+				"updated_at": time.Now().UTC(),
+			}).Error
+		}
+		return nil
+	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update post"})
 		return
 	}
@@ -418,7 +429,7 @@ func patchForumPostModeration(c *gin.Context) {
 	audit.Log(c, models.AuditAdminAction, "forum_post", postID.String(),
 		"Forum post moderation update", updates)
 
-	c.JSON(http.StatusOK, post)
+	c.JSON(http.StatusOK, forumPostDTOFrom(post))
 }
 
 func deleteForumPostModeration(c *gin.Context) {

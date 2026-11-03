@@ -11,6 +11,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // RegisterForumPublicRoutes registers read-only community forum routes.
@@ -122,19 +123,41 @@ func getCategoryThreads(c *gin.Context) {
 		return
 	}
 
-	var threads []models.ForumThread
-	q := db.Social().Preload("Author").Preload("LastReplier").
+	page := getPageParam(c, 1)
+	limit := getLimitParam(c, 20)
+
+	countQ := db.Social().Model(&models.ForumThread{}).Where("category_id = ?", category.ID)
+	listQ := db.Social().Preload("Author").Preload("LastReplier").
 		Where("category_id = ?", category.ID)
 	if !isPlatformModerator(c) {
-		q = q.Where("is_hidden = ?", false)
+		countQ = countQ.Where("is_hidden = ?", false)
+		listQ = listQ.Where("is_hidden = ?", false)
 	}
-	q.Order("is_pinned DESC, last_reply_at DESC NULLS LAST, created_at DESC").
-		Limit(50).
-		Find(&threads)
+
+	var total int64
+	if err := countQ.Count(&total).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch threads"})
+		return
+	}
+
+	var threads []models.ForumThread
+	if err := listQ.Order("is_pinned DESC, last_reply_at DESC NULLS LAST, created_at DESC, id DESC").
+		Offset((page - 1) * limit).Limit(limit).
+		Find(&threads).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch threads"})
+		return
+	}
+	if threads == nil {
+		threads = []models.ForumThread{}
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"category": category,
-		"threads":  threads,
+		"threads":  forumThreadDTOs(threads),
+		"total":    total,
+		"page":     page,
+		"limit":    limit,
+		"has_more": int64(page*limit) < total,
 	})
 }
 
@@ -197,7 +220,7 @@ func getThreadPosts(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"posts": posts,
+		"posts": forumPostDTOs(posts),
 		"total": totalPosts,
 		"page":  page,
 		"limit": limit,
@@ -223,12 +246,32 @@ func renderThreadWithPosts(c *gin.Context, thread models.ForumThread, incrementV
 		return
 	}
 
+	// The accepted answer must be reachable even when it sits beyond the
+	// loaded reply page (F07); clients pin it until its page arrives.
+	var solutionPost *models.ForumPost
+	solutionQ := db.Social().Preload("Author").
+		Where("thread_id = ? AND is_solution = true", thread.ID)
+	if !isPlatformModerator(c) {
+		solutionQ = solutionQ.Where("is_hidden = ?", false)
+	}
+	var foundSolution models.ForumPost
+	if err := solutionQ.First(&foundSolution).Error; err == nil {
+		solutionPost = &foundSolution
+	}
+
+	var solutionDTO *forumPostDTO
+	if solutionPost != nil {
+		dto := forumPostDTOFrom(*solutionPost)
+		solutionDTO = &dto
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"thread":      thread,
-		"posts":       posts,
-		"total_posts": totalPosts,
-		"page":        page,
-		"limit":       limit,
+		"thread":        forumThreadDTOFrom(thread),
+		"posts":         forumPostDTOs(posts),
+		"total_posts":   totalPosts,
+		"page":          page,
+		"limit":         limit,
+		"solution_post": solutionDTO,
 	})
 }
 
@@ -252,7 +295,7 @@ func loadThreadPosts(c *gin.Context, threadID uuid.UUID) ([]models.ForumPost, in
 		listQ = listQ.Where("is_hidden = ?", false)
 	}
 	var posts []models.ForumPost
-	if err := listQ.Order("created_at ASC").Offset(offset).Limit(limit).Find(&posts).Error; err != nil {
+	if err := listQ.Order("created_at ASC, id ASC").Offset(offset).Limit(limit).Find(&posts).Error; err != nil {
 		return nil, 0, 0, 0, err
 	}
 
@@ -334,7 +377,7 @@ func createThread(c *gin.Context) {
 		PublishFeedEvent(*feedEvent)  // Real-time + Cache
 	}()
 
-	c.JSON(http.StatusCreated, thread)
+	c.JSON(http.StatusCreated, forumThreadDTOFrom(thread))
 }
 
 type CreatePostRequest struct {
@@ -427,7 +470,7 @@ func createPost(c *gin.Context) {
 		})
 	}
 
-	c.JSON(http.StatusCreated, post)
+	c.JSON(http.StatusCreated, forumPostDTOFrom(post))
 }
 
 type UpdatePostRequest struct {
@@ -486,7 +529,7 @@ func updatePost(c *gin.Context) {
 	}
 
 	db.Social().Preload("Author").First(&post, "id = ?", post.ID)
-	c.JSON(http.StatusOK, post)
+	c.JSON(http.StatusOK, forumPostDTOFrom(post))
 }
 
 // deletePost deletes a post owned by the current user.
@@ -542,6 +585,36 @@ func deletePost(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Post deleted"})
 }
 
+// setPostSolution flips a post's solution flag atomically (F11): the thread
+// row is locked so concurrent markers serialize, any previous solution is
+// cleared in the same transaction, and every write is checked — a failure
+// can never clear the old solution and then report success. The partial
+// unique index from migration 000177 backstops the invariant in the schema.
+func setPostSolution(post models.ForumPost, isSolution bool) error {
+	return db.Social().Transaction(func(tx *gorm.DB) error {
+		return applySolutionInTx(tx, post, isSolution)
+	})
+}
+
+func applySolutionInTx(tx *gorm.DB, post models.ForumPost, isSolution bool) error {
+	var thread models.ForumThread
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		First(&thread, "id = ?", post.ThreadID).Error; err != nil {
+		return err
+	}
+	if isSolution {
+		if err := tx.Model(&models.ForumPost{}).
+			Where("thread_id = ? AND is_solution = true AND id <> ?", post.ThreadID, post.ID).
+			Update("is_solution", false).Error; err != nil {
+			return err
+		}
+	}
+	return tx.Model(&models.ForumPost{}).Where("id = ?", post.ID).Updates(map[string]interface{}{
+		"is_solution": isSolution,
+		"updated_at":  time.Now().UTC(),
+	}).Error
+}
+
 type markSolutionRequest struct {
 	IsSolution bool `json:"is_solution"`
 }
@@ -579,20 +652,12 @@ func markPostSolution(c *gin.Context) {
 		return
 	}
 
-	if req.IsSolution {
-		_ = db.Social().Model(&models.ForumPost{}).
-			Where("thread_id = ? AND is_solution = true", post.ThreadID).
-			Update("is_solution", false).Error
-	}
-	if err := db.Social().Model(&post).Updates(map[string]interface{}{
-		"is_solution": req.IsSolution,
-		"updated_at":  time.Now().UTC(),
-	}).Error; err != nil {
+	if err := setPostSolution(post, req.IsSolution); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update solution"})
 		return
 	}
 	db.Social().Preload("Author").First(&post, "id = ?", postID)
-	c.JSON(http.StatusOK, post)
+	c.JSON(http.StatusOK, forumPostDTOFrom(post))
 }
 
 type VoteRequest struct {
@@ -763,43 +828,61 @@ func voteThread(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"upvotes": thread.Upvotes, "downvotes": thread.Downvotes})
 }
 
+// listForumThreads serves one paginated, stably ordered thread collection.
+func listForumThreads(c *gin.Context, order string, applyFilter func(*gorm.DB) *gorm.DB) {
+	page := getPageParam(c, 1)
+	limit := getLimitParam(c, 20)
+
+	countQ := db.Social().Model(&models.ForumThread{})
+	listQ := db.Social().Preload("Author").Preload("Category")
+	if applyFilter != nil {
+		countQ = applyFilter(countQ)
+		listQ = applyFilter(listQ)
+	}
+	if !isPlatformModerator(c) {
+		countQ = countQ.Where("is_hidden = ?", false)
+		listQ = listQ.Where("is_hidden = ?", false)
+	}
+
+	var total int64
+	if err := countQ.Count(&total).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch threads"})
+		return
+	}
+
+	var threads []models.ForumThread
+	if err := listQ.Order(order).Offset((page - 1) * limit).Limit(limit).Find(&threads).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch threads"})
+		return
+	}
+	if threads == nil {
+		threads = []models.ForumThread{}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"threads":  forumThreadDTOs(threads),
+		"total":    total,
+		"page":     page,
+		"limit":    limit,
+		"has_more": int64(page*limit) < total,
+	})
+}
+
 // getRecentThreads returns recent forum activity
 func getRecentThreads(c *gin.Context) {
-	limit := getLimitParam(c, 20)
-	var threads []models.ForumThread
-	q := db.Social().Preload("Author").Preload("Category")
-	if !isPlatformModerator(c) {
-		q = q.Where("is_hidden = ?", false)
-	}
-	q.Order("created_at DESC").Limit(limit).Find(&threads)
-
-	c.JSON(http.StatusOK, gin.H{"threads": threads})
+	listForumThreads(c, "created_at DESC, id DESC", nil)
 }
 
 // getPopularThreads returns most voted threads
 func getPopularThreads(c *gin.Context) {
-	limit := getLimitParam(c, 20)
-	var threads []models.ForumThread
-	q := db.Social().Preload("Author").Preload("Category")
-	if !isPlatformModerator(c) {
-		q = q.Where("is_hidden = ?", false)
-	}
-	q.Order("(upvotes - downvotes) DESC, created_at DESC").Limit(limit).Find(&threads)
-
-	c.JSON(http.StatusOK, gin.H{"threads": threads})
+	listForumThreads(c, "(upvotes - downvotes) DESC, created_at DESC, id DESC", nil)
 }
 
 // getUnansweredThreads returns threads with no replies
 func getUnansweredThreads(c *gin.Context) {
-	limit := getLimitParam(c, 20)
-	var threads []models.ForumThread
-	q := db.Social().Preload("Author").Preload("Category").Where("replies_count = ?", 0)
-	if !isPlatformModerator(c) {
-		q = q.Where("is_hidden = ?", false)
-	}
-	q.Order("created_at DESC").Limit(limit).Find(&threads)
-
-	c.JSON(http.StatusOK, gin.H{"threads": threads})
+	listForumThreads(c, "created_at DESC, id DESC", func(q *gorm.DB) *gorm.DB {
+		return q.Where("replies_count = ?", 0)
+	})
 }
 
 func slugify(s string) string {
@@ -845,7 +928,7 @@ func searchForum(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"threads": threads,
+		"threads": forumThreadDTOs(threads),
 		"total":   total,
 		"page":    page,
 		"limit":   limit,
@@ -880,7 +963,7 @@ func getMyPosts(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"posts": posts,
+		"posts": forumPostDTOs(posts),
 		"total": total,
 		"page":  page,
 		"limit": limit,
@@ -914,7 +997,7 @@ func getMyThreads(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"threads": threads,
+		"threads": forumThreadDTOs(threads),
 		"total":   total,
 		"page":    page,
 		"limit":   limit,

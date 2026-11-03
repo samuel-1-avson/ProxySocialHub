@@ -186,12 +186,18 @@ export function saveProviderSigningKey(key: string, nodeId?: string | null) {
     }
 }
 
-export function loadProviderSigningKey(nodeId?: string | null): string | null {
+export function loadProviderSigningKey(
+    nodeId?: string | null,
+    options: { allowLegacyFallback?: boolean } = {},
+): string | null {
     if (typeof window === 'undefined') return null;
     try {
         if (nodeId) {
             const perNode = localStorage.getItem(signingStorageKey(nodeId));
             if (perNode) return perNode;
+            // Offer signing must use this node's own key. The legacy global key
+            // is whichever key was saved last, so it can belong to another node.
+            if (options.allowLegacyFallback === false) return null;
         }
         const fromLocal = localStorage.getItem(SIGNING_KEY_STORAGE_KEY);
         if (fromLocal) return fromLocal;

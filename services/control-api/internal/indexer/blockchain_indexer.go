@@ -5,13 +5,16 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
+	"github.com/gagliardetto/solana-go/rpc/jsonrpc"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
@@ -40,6 +43,7 @@ type BlockchainIndexer struct {
 	pollInterval    time.Duration
 	batchSize       int
 	lastSlot        uint64
+	slotFailures    map[uint64]int // retryable failures per slot not yet passed
 	mu              sync.RWMutex
 	ctx             context.Context
 	cancel          context.CancelFunc
@@ -223,33 +227,72 @@ func (bi *BlockchainIndexer) indexNewSlots() error {
 		Uint64("end", endSlot).
 		Msg("[BlockchainIndexer] Indexing slots")
 
-	for slot := startSlot; slot <= endSlot; slot++ {
-		if err := bi.indexSlot(slot); err != nil {
-			if isIndexerRPCQuotaError(err) {
-				// Abort the batch: the watermark stays at the last
-				// indexed slot and the loop-level 60s backoff engages.
-				// Without this the indexer fires the full batch into
-				// a throttled endpoint every poll and burns the quota.
-				return err
+	return bi.indexSlotRange(startSlot, endSlot, bi.indexSlot)
+}
+
+// maxSlotAttempts bounds how often one slot is retried after an error that is neither a
+// rate limit nor known to be permanent, so a single bad slot cannot hold the watermark.
+const maxSlotAttempts = 3
+
+// indexSlotRange indexes start..end in order and moves bi.lastSlot past every slot that is
+// done with: indexed, permanently unindexable, or failed maxSlotAttempts times.
+//
+// Before this, a slot that failed was retried until a later slot succeeded. When every
+// slot of a batch failed (devnet blocks with v1 transactions, from about 2026-10-31), the
+// same batch was refetched each poll for days, which also drew the RPC's rate limit.
+func (bi *BlockchainIndexer) indexSlotRange(start, end uint64, index func(uint64) error) error {
+	for slot := start; slot <= end; slot++ {
+		err := index(slot)
+		switch {
+		case err == nil:
+		case isIndexerRPCQuotaError(err):
+			// Abort the batch: the watermark stays at the last indexed slot and the
+			// loop-level 60s backoff engages. Without this the indexer fires the full
+			// batch into a throttled endpoint every poll and burns the quota.
+			return err
+		case isIndexerPermanentSlotError(err):
+			logging.Warn().Err(err).Uint64("slot", slot).Msg("[BlockchainIndexer] Skipping slot that cannot be indexed")
+		default:
+			if bi.slotFailures == nil {
+				bi.slotFailures = make(map[uint64]int)
 			}
-			logging.Error(err).Uint64("slot", slot).Msg("[BlockchainIndexer] Failed to index slot")
-			continue
+			bi.slotFailures[slot]++
+			if bi.slotFailures[slot] < maxSlotAttempts {
+				logging.Error(err).Uint64("slot", slot).Msg("[BlockchainIndexer] Failed to index slot")
+				continue
+			}
+			logging.Warn().Err(err).Uint64("slot", slot).Int("attempts", maxSlotAttempts).Msg("[BlockchainIndexer] Giving up on slot after repeated failures")
 		}
 		bi.lastSlot = slot
+		for s := range bi.slotFailures {
+			if s <= slot {
+				delete(bi.slotFailures, s)
+			}
+		}
 	}
-
 	return nil
+}
+
+// maxSupportedTxVersion is the newest transaction version getBlock may return. Devnet
+// blocks have carried v1 (SIMD-0385) transactions since about 2026-10-31; with 0 here,
+// getBlock refuses every such block with -32015 and nothing gets indexed.
+// solana-go v1.25 decodes v1 messages.
+const maxSupportedTxVersion uint64 = 1
+
+func blockRequestOpts() *rpc.GetBlockOpts {
+	maxVersion := maxSupportedTxVersion
+	return &rpc.GetBlockOpts{
+		Commitment:                     rpc.CommitmentConfirmed,
+		TransactionDetails:             rpc.TransactionDetailsFull,
+		Rewards:                        new(bool), // false
+		MaxSupportedTransactionVersion: &maxVersion,
+	}
 }
 
 // indexSlot indexes a single slot (block)
 func (bi *BlockchainIndexer) indexSlot(slot uint64) error {
 	// Get block with encoded transaction data
-	blockResult, err := bi.rpcClient.GetBlockWithOpts(bi.ctx, slot, &rpc.GetBlockOpts{
-		Commitment:                     rpc.CommitmentConfirmed,
-		TransactionDetails:             rpc.TransactionDetailsFull,
-		Rewards:                        new(bool), // false
-		MaxSupportedTransactionVersion: new(uint64),
-	})
+	blockResult, err := bi.rpcClient.GetBlockWithOpts(bi.ctx, slot, blockRequestOpts())
 	if err != nil {
 		return fmt.Errorf("failed to get block %d: %w", slot, err)
 	}
@@ -728,10 +771,48 @@ func (bi *BlockchainIndexer) IndexHistoricalTransactions(address string, limit i
 	return nil
 }
 
+// JSON-RPC error codes that retrying the same slot cannot fix.
+const (
+	rpcErrSlotSkipped          = -32007 // the slot was skipped: there is no block
+	rpcErrSlotMissing          = -32009 // skipped, or missing in long-term storage
+	rpcErrUnsupportedTxVersion = -32015 // a transaction is newer than maxSupportedTxVersion
+)
+
+// quotaCodeRE finds a 429 / -32429 status in text-only errors. It needs a "code" label:
+// the error text also carries the slot number, and a bare "429" matched any slot whose
+// number contains those digits (e.g. 518429001), freezing the indexer as if throttled.
+var quotaCodeRE = regexp.MustCompile(`(?i)\bcode\b\s*:?\s*(?:\(int\)\s*)?-?(?:32)?429\b`)
+
+func rpcErrorCode(err error) (int, bool) {
+	var rpcErr *jsonrpc.RPCError
+	if errors.As(err, &rpcErr) && rpcErr != nil {
+		return rpcErr.Code, true
+	}
+	return 0, false
+}
+
 func isIndexerRPCQuotaError(err error) bool {
 	if err == nil {
 		return false
 	}
+	if code, ok := rpcErrorCode(err); ok && (code == 429 || code == -32429) {
+		return true
+	}
 	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "max usage reached") || strings.Contains(msg, "too many requests") || strings.Contains(msg, "32429") || strings.Contains(msg, "429")
+	return strings.Contains(msg, "max usage reached") || strings.Contains(msg, "too many requests") ||
+		strings.Contains(msg, "rate limit") || quotaCodeRE.MatchString(msg)
+}
+
+// isIndexerPermanentSlotError reports a slot the RPC will never return, so the indexer
+// moves past it instead of retrying.
+func isIndexerPermanentSlotError(err error) bool {
+	code, ok := rpcErrorCode(err)
+	if !ok {
+		return false
+	}
+	switch code {
+	case rpcErrSlotSkipped, rpcErrSlotMissing, rpcErrUnsupportedTxVersion:
+		return true
+	}
+	return false
 }

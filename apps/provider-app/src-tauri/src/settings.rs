@@ -27,6 +27,11 @@ pub struct Settings {
     /// alone, so the next launch resumes what they had.
     #[serde(default)]
     pub sharing_wanted: bool,
+    /// The person pressed Pause and the node has not been seen stopped since. Until then the app
+    /// neither restarts the node nor takes a running one as a wish to share, even across a
+    /// restart. Cleared on Resume, on a new pairing, and once the node is seen stopped.
+    #[serde(default)]
+    pub pause_pending: bool,
 }
 
 impl Settings {
@@ -48,8 +53,14 @@ impl Settings {
 pub fn load(dir: &Path) -> Settings {
     std::fs::read_to_string(dir.join(FILE_NAME))
         .ok()
-        .and_then(|text| serde_json::from_str(&text).ok())
+        .and_then(|text| serde_json::from_str(strip_bom(&text)).ok())
         .unwrap_or_default()
+}
+
+/// Notepad and some other editors start a file with a byte-order mark. serde_json rejects it,
+/// which would read as "no consent" and ask the person again, so a hand-edited file still loads.
+fn strip_bom(text: &str) -> &str {
+    text.strip_prefix('\u{feff}').unwrap_or(text)
 }
 
 /// Write settings atomically: a crash mid-write must not leave a half file that reads as
@@ -118,6 +129,7 @@ mod tests {
         let mut s = Settings::default();
         s.accept_consent(1_700_000_000);
         s.sharing_wanted = true;
+        s.pause_pending = true;
         save(&dir.0, &s).unwrap();
         assert_eq!(load(&dir.0), s);
         assert!(load(&dir.0).consent_is_current());
@@ -131,6 +143,7 @@ mod tests {
                 accepted_at_unix: 1,
             }),
             sharing_wanted: true,
+            pause_pending: false,
         };
         assert!(!s.consent_is_current(), "a bumped version must re-ask");
     }
@@ -144,6 +157,7 @@ mod tests {
                 accepted_at_unix: 1,
             }),
             sharing_wanted: false,
+            pause_pending: false,
         };
         assert!(!s.consent_is_current());
     }
@@ -169,6 +183,18 @@ mod tests {
         std::fs::create_dir_all(&dir.0).unwrap();
         std::fs::write(dir.0.join(FILE_NAME), r#"{"from_the_future": 1}"#).unwrap();
         assert_eq!(load(&dir.0), Settings::default());
+    }
+
+    #[test]
+    fn a_file_saved_with_a_byte_order_mark_still_loads() {
+        let dir = TempDir::new("bom");
+        std::fs::create_dir_all(&dir.0).unwrap();
+        let mut s = Settings::default();
+        s.accept_consent(7);
+        s.sharing_wanted = true;
+        let body = serde_json::to_string_pretty(&s).unwrap();
+        std::fs::write(dir.0.join(FILE_NAME), format!("\u{feff}{body}")).unwrap();
+        assert_eq!(load(&dir.0), s);
     }
 
     #[test]
