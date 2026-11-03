@@ -1,6 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 const port = Number(process.env.EXPLORER_TEST_PORT || 4026);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid Explorer test port');
+const upstreamPort = Number(process.env.EXPLORER_TEST_UPSTREAM_PORT || 4027);
+if (!Number.isInteger(upstreamPort) || upstreamPort < 1 || upstreamPort > 65535) throw new Error('Invalid Explorer test upstream port');
 export default defineConfig({
   testDir: './e2e',
   workers: 1,
@@ -15,5 +17,7 @@ export default defineConfig({
     command: `node node_modules/next/dist/bin/next start -H 127.0.0.1 -p ${port}`,
     url: `http://127.0.0.1:${port}`,
     timeout: 90_000,
+    // The adapter's upstream; adapter-cache.spec.ts starts a counting stand-in on this port.
+    env: { API_URL: `http://127.0.0.1:${upstreamPort}` },
   },
 });
