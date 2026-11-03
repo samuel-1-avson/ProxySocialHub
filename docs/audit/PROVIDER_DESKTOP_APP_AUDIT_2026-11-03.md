@@ -2,7 +2,7 @@
 
 Date: 2026-11-03. Status: **the work in this report is on `main`** (see the status section below). The report itself was written before any change was made; the decisions in section 8 were approved as recommended.
 
-## Status (updated 2026-11-03, end of session)
+## Status (updated 2026-11-03, later the same day)
 
 **On `main`:**
 - Reconnect-loop fix: a server error (for example HTTP 502) no longer stops the node; only the control API's own key refusal does (#152).
@@ -10,19 +10,22 @@ Date: 2026-11-03. Status: **the work in this report is on `main`** (see the stat
 - Phase B: "On ProxyHubb" status, earnings, live numbers, "Check my connection", "Save support details", and `provider-node account --json` (#157).
 - Phase C: Restart node, Disconnect this computer (the key is not revoked by the app), read-only node settings, a newer-version notice, and `provider-node unpair`, `config show` and `latest-release` (#157).
 - Phase D: 52 screen tests (Vitest) with three pinned dev dependencies, and a note on the web "Set up a node" page pointing to the app (#156).
+- Hygiene (#159): `key_was_refused` in the app's diagnosis and `provider-node account` now use the shared `ip::is_key_refusal`, and the clippy finding at `services/provider-node/src/tui/dashboard.rs` is fixed.
+- Version 0.1.3 for the app (#160).
+
+**Checked since then, without Docker:** the real debug app (0.1.3) with the bundled `provider-node` 1.0.11, in an isolated scratch folder with no real node or app running. Resume then pause: 7 of 7 checks passed. Hidden start and single instance: 5 of 5 checks passed. (Running the second one on its own, `E2E_ONLY=hidden`, is added in #161.)
 
 **Left to do:**
-1. **End-to-end run** (`apps/provider-app/e2e/run.mjs`). Not run against the current code. It needs Docker running and the user's installed node stopped, and the script refuses to run otherwise.
+1. **Pairing end-to-end scenarios** (happy path, denied, cancelled; `apps/provider-app/e2e/run.mjs` with no `E2E_ONLY`). Not run against the current code. They need a Postgres database and the control-api pairing handlers (two containers, not the whole system) and the user's installed node stopped; the script refuses to run otherwise. Held back because the build machine has little disk space and Docker freezes it.
 2. **Clicked tray pass** (`apps/provider-app/e2e/tray-pass.ps1`, without `-Auto`). Needs a person at the keyboard.
-3. **New desktop installer.** Rebuild with `npm run build:app` (this also rebuilds the bundled node, which now has the new commands), and publish it with a version above 0.1.2. The app's update notice compares against the published version, so users on 0.1.2 will not see a notice until a higher version is published.
+3. **Publish the installer.** `ProxyHubb Provider_0.1.3_x64-setup.exe` (4,780,940 bytes, sha256 `e6f90276f002c1139fad35c5c21776545ac783e0885b96d43e09e2bd9477b958`) was built from `main` with the new bundled node. It is unsigned and not published anywhere. Publishing means signing it (item 5) and uploading it by hand as the `desktop` package at 0.1.3. The app's update notice compares against the published version, so users on 0.1.2 will not see a notice until that is done.
 4. **Logo** for the tray and window (decision D7). Needs the logo file.
 5. **Code signing** for the installer and the node (Azure Artifact Signing and Apple). Needs the accounts (decision D6).
 6. **Legal review** of the draft consent text (`apps/provider-app/src/consent.ts`).
-7. **Duplicate refusal check.** `key_was_refused` in `services/provider-node/src/account.rs` should use `ip::is_key_refusal` (the shared check added with the reconnect-loop fix).
-8. **CI.** GitHub Actions is off, so none of the PRs above had an automated run. `cargo clippy -- -D warnings` on the node already fails on `main` at `services/provider-node/src/tui/dashboard.rs:476`; that finding predates this work.
-9. **Cleanup.** The remote branches `feat/provider-app-phase-a` to `-d` and `fix/provider-fatal-auth` can be deleted now that their code is on `main`. The local worktrees under `C:/Users/samue/wt-*` are not needed once that is done.
+7. **CI.** GitHub Actions is off, so none of the PRs above had an automated run; every check was run by hand.
+8. **Cleanup.** The remote branches `fix/provider-app-phase-a`, `feat/provider-app-phase-b`, `-c`, `-d`, `fix/provider-fatal-auth`, `docs/provider-desktop-app-audit`, `fix/provider-node-hygiene` and `chore/provider-app-0.1.3` are merged and can be deleted.
 
-Scope: `apps/provider-app`, plus the parts of `services/provider-node`, `services/control-api` and `apps/web` the app depends on. Code baseline: `origin/main` (db47f32b). The app's code is identical to main in this checkout.
+Scope: `apps/provider-app`, plus the parts of `services/provider-node`, `services/control-api` and `apps/web` the app depends on. Code baseline: `origin/main` (db47f32b) when the audit was written; the status above is as of `origin/main` 2c2a6a94.
 
 ---
 
