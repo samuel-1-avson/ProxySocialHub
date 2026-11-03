@@ -175,8 +175,8 @@ export function SessionConcierge({ onCreated }: { onCreated: (intent: CreateSess
               <dd>{intent.time_limit_minutes} min</dd>
             </div>
             <div>
-              <dt>Price limit</dt>
-              <dd>{intent.max_price_per_gb === undefined ? "None" : `${usd(intent.max_price_per_gb)} per GB`}</dd>
+              <dt>Price billed</dt>
+              <dd>{intent.max_price_per_gb === undefined ? "Set when you fund it" : `${usd(intent.max_price_per_gb)} per GB`}</dd>
             </div>
             <div>
               <dt>Allowed sites</dt>

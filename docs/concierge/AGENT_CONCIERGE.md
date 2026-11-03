@@ -31,7 +31,7 @@ The model only proposes. The checker decides:
 | --- | --- |
 | Values outside the allowed sets are dropped; size 5-10,240 MB, time 1-240 min (same as the MCP server) | An injected "give me 10 TB" still ends bounded |
 | A country without active listings **blocks** the plan; it is never swapped for another | The gateway can fall back to any healthy node; the buyer should decide, not the assistant |
-| A price limit is always sent: the buyer's, or else the most expensive matching listing | Without a listing, escrow is priced at the intent's price limit, else a node price or $0.99/GB (`session_intent_state.go`, `session_intent_escrow.go`). Sending one makes the cost on the card equal to what escrow locks |
+| A price limit is always sent: the buyer's, or else the most expensive matching listing | Without a listing, escrow **and settlement** are priced at the intent's price limit, else a node price (escrow) or $0.99/GB (`session_intent_state.go`, `session_intent_escrow.go`, `settlement/intent.go`). Sending one makes the cost on the card equal to what escrow locks; the card labels it "Price billed" because usage is charged at that rate, whichever provider carries it |
 | A budget becomes a whole-MB cap at the price limit, computed in code (1 GB = 1024³ bytes, as billing) | Escrow can never lock more than the budget |
 | A $0 price limit is replaced | The server reads 0 as "no limit" |
 | A host on both allow and block lists stays on both | Dropping it from the allow list could empty it, which allows every site |
@@ -122,14 +122,18 @@ only in writing rotation as `null` or as its default, which produce the same pla
   A demo needs providers to list again.
 - **Listing ≠ online node.** The listings API does not say whether a listing's node is online,
   so the card says "active listings", not "live".
-- **Gateway price enforcement is unverified.** The gateway reads the intent's price limit into
-  its claims but no node-selection use was found. The buyer still pays at most the price limit
-  (escrow is priced at it); a provider priced above it could be under-paid. Not checked in the
-  control API.
+- **The price limit is a billing rate, not a routing filter (confirmed 2026-11-03).** The gateway
+  picks a node by country, domain, pinned node, ISP and rotation, never by price
+  (`registry/provider_selection.rs`), and intent usage settles at the price fixed at creation,
+  never the carrying node's price (`settlement/intent.go`). So a provider priced above the limit is
+  paid below their price, and a buyer routed to a cheaper provider still pays the limit. The
+  assistant's notes and the "Price billed" label say so; the fix belongs in the gateway or
+  settlement, not here.
 - The rate limiter is kept in memory in the web process, which is fine for the single testnet
   instance; more instances would need a shared store.
-- **Deploy:** the testnet compose file must pass `MODEL_API_KEY` into the web container (the
-  same passthrough pitfall as `ADMIN_JWT_SECRET`).
+- **Deploy:** `docker-compose.yml` passes `MODEL_API_KEY` (default empty) and `CONCIERGE_MODEL`
+  into the web container; the key must also be in the VM's `.env`, which compose only uses for
+  interpolation.
 
 ## 6. For AI agents: `quote_session` (MCP)
 

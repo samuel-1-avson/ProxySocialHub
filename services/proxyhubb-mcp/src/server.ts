@@ -103,7 +103,7 @@ server.registerTool(
   {
     title: "Check and price a session before creating it",
     description:
-      "Dry run: checks the same caps create_agent_session takes, plus an optional budget, against today's active listings, and creates nothing. Returns status (ok or blocked), notes explaining every change, max_escrow_usd (the most the session can lock), matching_listings, and create_args to pass to create_agent_session for exactly this session. A budget becomes a bandwidth cap at the price limit; without a price limit, the most expensive matching listing's price is used so the escrow figure is exact. A country without active listings blocks the quote; it is never swapped for another.",
+      "Dry run: checks the same caps create_agent_session takes, plus an optional budget, against today's active listings, and creates nothing. Returns status (ok or blocked), notes explaining every change, max_escrow_usd (the most the session can lock), matching_listings, and create_args to pass to create_agent_session for exactly this session. A budget becomes a bandwidth cap at the price limit; without a price limit, the most expensive matching listing's price is used so the escrow figure is exact. Usage is billed at that price per GB, whichever provider carries the traffic. A country without active listings blocks the quote; it is never swapped for another.",
     inputSchema: {
       country: z.string().optional().describe("Desired exit country (two-letter code). Omit for any country with active listings."),
       session_type: z.enum(["rotating", "sticky"]).optional().describe("rotating: many exits; sticky: one stable exit (default rotating)"),
