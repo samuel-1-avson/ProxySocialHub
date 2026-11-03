@@ -26,6 +26,7 @@ import { Modal } from "@/components/patterns/Modal";
 import { BrandLockup } from "@/components/BrandLockup";
 import { ModeToggle } from "@/components/ModeToggle";
 import { ThemeSelect } from "./ThemeSelect";
+import { NotificationCenter } from "@/components/NotificationCenter";
 export function WorkspaceHeader() {
   const { user, logout } = useAuth();
   const { isAdmin } = useRole();
@@ -89,6 +90,7 @@ export function WorkspaceHeader() {
             <Inbox size={17} aria-hidden="true" />
             <span>Inbox</span>
           </Link>
+          <NotificationCenter />
           <button
             className="workspace-account-button"
             aria-label="Account menu"

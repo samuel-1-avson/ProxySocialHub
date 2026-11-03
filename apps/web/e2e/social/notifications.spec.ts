@@ -38,12 +38,8 @@ async function stubNotificationCenter(page: Page) {
   return calls;
 }
 
-// The NotificationCenter bell is not mounted in any shipped layout (the
-// workspace shell has no bell), so the center tests are skipped until the
-// component is wired in or removed — that is a product decision. The
-// settings tests below cover the shipped notification UI.
+// The NotificationCenter bell is mounted in WorkspaceHeader.
 test.describe("Notification center", () => {
-  test.skip(true, "NotificationCenter is not mounted in the current app shell");
   test.setTimeout(120000);
 
   test("bell shows the unread count, opens the menu, and Escape closes it", async ({ page }) => {
@@ -55,7 +51,7 @@ test.describe("Notification center", () => {
     await expect(bell).toBeVisible({ timeout: 30000 });
     await bell.click();
     await expect(page.getByRole("menu")).toBeVisible();
-    await expect(page.getByText("New friend request")).toBeVisible();
+    await expect(page.getByText("Ron Asker wants to connect")).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(page.getByRole("menu")).toHaveCount(0);
   });
