@@ -54,7 +54,7 @@ export const ASSURANCE_LABEL: Record<Assurance, string> = {
   verified: "Verified: GeoIP estimate matches the request",
   unverified: "Unverified: exit country could not be confirmed",
   mismatch: "Mismatch: the exit is in a different country",
-  direct_egress: "Direct connection detected (not proxied)",
+  direct_egress: "Not trusted: exit IP is this machine's own (bypass or same connection)",
   unavailable: "Egress was not observed",
 };
 
