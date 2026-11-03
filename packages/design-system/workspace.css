@@ -942,6 +942,17 @@ fieldset.ui-choice-group {
 .ui-row:last-child {
   border-bottom: 0;
 }
+.ui-row > :first-child {
+  min-width: 0;
+}
+.ui-truncate-id {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
 .ui-row h3 {
   font-size: 14px;
   font-weight: 600;
