@@ -141,7 +141,7 @@ requested country and nothing contradicts it.
 | `verified` | GeoIP matches (and any declared country agrees) | captured and interpreted |
 | `unverified` | country unknown, or declared and estimated countries conflict | page is captured for inspection, **not** sent to the model, not counted as the region's behaviour |
 | `mismatch` | GeoIP says another country, or the exit changed to one during capture | target page is **never loaded** (or, if it changed mid-run, the result is withheld) |
-| `direct_egress` | observed IP equals the worker's own direct IP | treated as a proxy bypass; not loaded |
+| `direct_egress` | observed IP equals the worker's own direct IP (a bypass, or an exit node on the worker's own connection: the two look identical) | treated as a proxy bypass; not loaded |
 | `unavailable` | no egress observed, or no session could be obtained | region fails; says nothing about your site |
 
 A failed or unavailable region can never produce a clean report: the job is
@@ -597,7 +597,7 @@ was or was not interpreted, findings, usage). It reads only the local job store,
 | `failed` · `egress_probe_failed` | the gateway rejected the session, the exit has no route, or the echo host is not reachable through it (for example excluded by `allowed_domains`) | `npm run inspect`; try with `AUDITOR_RESTRICT_INTENT_DOMAINS` unset; check the echo URL |
 | `mismatch` | the exit's IP geolocates to another country than requested: a real finding about that supply, not a bug | rerun (a different node may be chosen) or pick another listing |
 | `unverified` | no GeoIP answer for the exit, or declared and estimated countries conflict | retry later (GeoIP rate limits) or set another provider; the page is kept but not interpreted |
-| `failed` · `direct_egress` | the observed IP equals the worker's own IP: the request did not leave through the proxy | stop and investigate before trusting any run |
+| `failed` · `direct_egress` | the observed IP equals the worker's own IP: either the request did not leave through the proxy, or the exit node is on the same internet connection as the worker (for example your own node on your own line; seen on 2026-11-03) | compare with the worker machine's own IP (`curl https://api.ipify.org`); if they match, run the worker and the node on different connections. Never weaken the check: from the worker's side the two cases are indistinguishable |
 | `captured`, and a "blocked or challenged" hypothesis | the site served a bot challenge to that exit | not a site defect by itself; allow the exit or test another |
 | `captured`, but results differ from what the site's own geo logic should do | the site classifies the visitor's IP differently from the auditor's GeoIP source | expected sometimes; the report shows what the site actually served |
 
