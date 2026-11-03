@@ -45,6 +45,15 @@ function displayDate(value: string | undefined, time = false) {
       : date.toLocaleDateString(undefined, { month: "short", day: "numeric" })
     : "";
 }
+// One idempotency key per draft text: retrying the identical send reuses
+// the key so the API dedupes it; editing the draft mints a fresh one (F05).
+type DraftSendKey = { current: { text: string; key: string } | null };
+function draftSendKey(ref: DraftSendKey, text: string) {
+  if (!ref.current || ref.current.text !== text) {
+    ref.current = { text, key: crypto.randomUUID() };
+  }
+  return ref.current.key;
+}
 function name(conversation: Conversation) {
   return (
     conversation.other_participant?.display_name ||
@@ -291,11 +300,20 @@ function ConversationThread({
     queryKey: key,
     queryFn: () => getMessages(conversation.id),
   });
+  const sendKeyRef = useRef<{ text: string; key: string } | null>(null);
   const send = useMutation({
     retry: false,
-    mutationFn: ({ id, content }: { id: string; content: string }) =>
-      sendMessage(id, content),
+    mutationFn: ({
+      id,
+      content,
+      clientMsgId,
+    }: {
+      id: string;
+      content: string;
+      clientMsgId: string;
+    }) => sendMessage(id, content, undefined, clientMsgId),
     onSuccess: (message) => {
+      sendKeyRef.current = null;
       client.setQueryData<{ messages: Message[] }>(key, (previous) => ({
         messages: [
           ...(previous?.messages ?? []).filter(
@@ -317,7 +335,12 @@ function ConversationThread({
   function submit(event?: React.FormEvent) {
     event?.preventDefault();
     if (!draft.trim() || send.isPending) return;
-    send.mutate({ id: conversation.id, content: draft.trim() });
+    const text = draft.trim();
+    send.mutate({
+      id: conversation.id,
+      content: text,
+      clientMsgId: draftSendKey(sendKeyRef, text),
+    });
   }
   const profile =
     conversation.other_participant?.username ||
@@ -451,10 +474,19 @@ function NewConversation({
     enabled: !!initialRecipient,
   });
   const [content, setContent] = useState("");
+  const startKeyRef = useRef<{ text: string; key: string } | null>(null);
   const start = useMutation({
     retry: false,
-    mutationFn: () => startConversation(recipient, content.trim()),
-    onSuccess: onStarted,
+    mutationFn: () =>
+      startConversation(
+        recipient,
+        content.trim(),
+        draftSendKey(startKeyRef, content.trim()),
+      ),
+    onSuccess: (conversation) => {
+      startKeyRef.current = null;
+      onStarted(conversation);
+    },
   });
   return (
     <form

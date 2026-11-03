@@ -1,7 +1,9 @@
 package api
 
 import (
+	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -10,6 +12,8 @@ import (
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/privacy"
 	"github.com/proxyhubb/control-api/internal/ws"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // RegisterMessagingRoutes registers messaging-related routes
@@ -26,6 +30,114 @@ func RegisterMessagingRoutes(rg *gin.RouterGroup) {
 	rg.POST("/messages/:messageId/reactions", addReaction)
 	rg.DELETE("/messages/:messageId/reactions/:emoji", removeReaction)
 	rg.GET("/conversations/:id/search", searchMessages)
+}
+
+var errIdempotentReplay = errors.New("idempotent replay")
+
+// resolveClientMsgID returns the idempotency key for a send: the
+// Idempotency-Key header wins over the client_msg_id body field (same
+// convention as clientIdempotencyKey). valid is false when a supplied key
+// exceeds the stored column width, so callers can 400 instead of silently
+// sending without idempotency.
+func resolveClientMsgID(c *gin.Context, bodyKey string) (key string, valid bool) {
+	raw := strings.TrimSpace(c.GetHeader("Idempotency-Key"))
+	if raw == "" {
+		raw = strings.TrimSpace(bodyKey)
+	}
+	if len(raw) > 128 {
+		return "", false
+	}
+	return raw, true
+}
+
+func findMessageByClientKey(convID, senderID uuid.UUID, clientKey string) (models.Message, error) {
+	var msg models.Message
+	err := db.Social().Where(
+		"conversation_id = ? AND sender_id = ? AND client_msg_id = ?",
+		convID, senderID, clientKey,
+	).First(&msg).Error
+	return msg, err
+}
+
+// createMessageChecked inserts a message and bumps the conversation's
+// last_message_at in one checked transaction (F05). When clientKey is set
+// and a message with that key already exists, it returns the stored
+// message with created=false and writes nothing, so an ambiguous retry
+// can neither duplicate the message nor re-deliver it.
+func createMessageChecked(convID, senderID uuid.UUID, content string, replyToID *uuid.UUID, clientKey string) (msg models.Message, created bool, err error) {
+	if clientKey != "" {
+		existing, ferr := findMessageByClientKey(convID, senderID, clientKey)
+		if ferr == nil {
+			return existing, false, nil
+		}
+		if !errors.Is(ferr, gorm.ErrRecordNotFound) {
+			return models.Message{}, false, ferr
+		}
+	}
+
+	msg = models.Message{
+		ConversationID: convID,
+		SenderID:       senderID,
+		Content:        content,
+		ReplyToID:      replyToID,
+	}
+	if clientKey != "" {
+		msg.ClientMsgID = &clientKey
+	}
+
+	err = db.Social().Transaction(func(tx *gorm.DB) error {
+		q := tx
+		if clientKey != "" {
+			q = tx.Clauses(clause.OnConflict{DoNothing: true})
+		}
+		res := q.Create(&msg)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return errIdempotentReplay
+		}
+		created = true
+		return tx.Model(&models.Conversation{}).
+			Where("id = ?", convID).
+			Update("last_message_at", time.Now()).Error
+	})
+	if errors.Is(err, errIdempotentReplay) {
+		existing, ferr := findMessageByClientKey(convID, senderID, clientKey)
+		if ferr != nil {
+			return models.Message{}, false, ferr
+		}
+		return existing, false, nil
+	}
+	if err != nil {
+		return models.Message{}, false, err
+	}
+	return msg, created, nil
+}
+
+// deliverNewMessage emits the realtime + notification side effects for a
+// message that has already committed. Callers must only invoke it for
+// freshly created messages, never for idempotent replays.
+func deliverNewMessage(c *gin.Context, conv models.Conversation, msg models.Message, senderID uuid.UUID) {
+	recipientID := conv.GetOtherParticipant(senderID)
+	ws.BroadcastToUser(recipientID.String(), ws.MsgTypeNewMessage, gin.H{
+		"conversation_id": conv.ID,
+		"message":         msg,
+	})
+	convID := conv.ID
+	actorID := senderID
+	dispatchUserNotification(c.Request.Context(), userNotification{
+		UserID:     recipientID,
+		Type:       models.NotificationMessage,
+		Title:      "New message",
+		Body:       truncate(msg.Content, 160),
+		ActionURL:  "/messages?conversation=" + convID.String(),
+		ActionType: "open_conversation",
+		ActorID:    &actorID,
+		TargetType: "conversation",
+		TargetID:   &convID,
+		Dedupe:     true,
+	})
 }
 
 // getConversations returns the current user's conversations
@@ -156,6 +268,15 @@ func startConversation(c *gin.Context) {
 		return
 	}
 
+	clientKey, valid := resolveClientMsgID(c, req.ClientMsgID)
+	if !valid {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "client_msg_id is too long"})
+		return
+	}
+	// First messages go through the same masking + delivery rules as
+	// subsequent sends (F05).
+	safeContent := privacy.MaskPII(req.Message)
+
 	// Check if conversation exists (in either direction)
 	var existingConv models.Conversation
 	err := db.Social().Where(
@@ -163,49 +284,53 @@ func startConversation(c *gin.Context) {
 		userID, req.RecipientID, req.RecipientID, userID,
 	).First(&existingConv).Error
 
-	tx := db.Social().Begin()
-
 	if err == nil {
-		// Conversation exists, just send message
-		msg := models.Message{
-			ConversationID: existingConv.ID,
-			SenderID:       userID,
-			Content:        req.Message,
+		msg, created, cerr := createMessageChecked(existingConv.ID, userID, safeContent, nil, clientKey)
+		if cerr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send message"})
+			return
 		}
-		tx.Create(&msg)
-		tx.Model(&existingConv).Update("last_message_at", time.Now())
-		tx.Commit()
-
 		db.Social().Preload("User1").Preload("User2").First(&existingConv, "id = ?", existingConv.ID)
+		if created {
+			db.Social().Preload("Sender").First(&msg, "id = ?", msg.ID)
+			deliverNewMessage(c, existingConv, msg, userID)
+		}
 		c.JSON(http.StatusOK, existingConv)
 		return
 	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to look up conversation"})
+		return
+	}
 
-	// Create new conversation
+	// Create the conversation and its first message atomically.
 	conv := models.Conversation{
 		Participant1:  userID,
 		Participant2:  req.RecipientID,
 		ListingID:     req.ListingID,
 		LastMessageAt: time.Now(),
 	}
-
-	if err := tx.Create(&conv).Error; err != nil {
-		tx.Rollback()
+	msg := models.Message{
+		SenderID: userID,
+		Content:  safeContent,
+	}
+	if clientKey != "" {
+		msg.ClientMsgID = &clientKey
+	}
+	if err := db.Social().Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&conv).Error; err != nil {
+			return err
+		}
+		msg.ConversationID = conv.ID
+		return tx.Create(&msg).Error
+	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create conversation"})
 		return
 	}
 
-	// Send first message
-	msg := models.Message{
-		ConversationID: conv.ID,
-		SenderID:       userID,
-		Content:        req.Message,
-	}
-	tx.Create(&msg)
-
-	tx.Commit()
-
 	db.Social().Preload("User1").Preload("User2").First(&conv, "id = ?", conv.ID)
+	db.Social().Preload("Sender").First(&msg, "id = ?", msg.ID)
+	deliverNewMessage(c, conv, msg, userID)
 	c.JSON(http.StatusCreated, conv)
 }
 
@@ -276,8 +401,9 @@ func sendMessage(c *gin.Context) {
 	}
 
 	var req struct {
-		Content   string     `json:"content" binding:"required"`
-		ReplyToID *uuid.UUID `json:"reply_to_id"`
+		Content     string     `json:"content" binding:"required"`
+		ReplyToID   *uuid.UUID `json:"reply_to_id"`
+		ClientMsgID string     `json:"client_msg_id" binding:"omitempty,max=128"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -310,44 +436,26 @@ func sendMessage(c *gin.Context) {
 		}
 	}
 
+	clientKey, valid := resolveClientMsgID(c, req.ClientMsgID)
+	if !valid {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "client_msg_id is too long"})
+		return
+	}
+
 	// Apply Privacy Shield (Phase 15)
 	safeContent := privacy.MaskPII(req.Content)
 
-	msg := models.Message{
-		ConversationID: convID,
-		SenderID:       userID,
-		Content:        safeContent,
-		ReplyToID:      req.ReplyToID,
+	msg, created, err := createMessageChecked(convID, userID, safeContent, req.ReplyToID, clientKey)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send message"})
+		return
 	}
-
-	tx := db.Social().Begin()
-	tx.Create(&msg)
-	tx.Model(&conv).Update("last_message_at", time.Now())
-	tx.Commit()
 
 	db.Social().Preload("Sender").First(&msg, "id = ?", msg.ID)
 
-	// Broadcast to recipient via WebSocket
-	recipientID := conv.Participant1
-	if recipientID == userID {
-		recipientID = conv.Participant2
+	if created {
+		deliverNewMessage(c, conv, msg, userID)
 	}
-	ws.BroadcastToUser(recipientID.String(), ws.MsgTypeNewMessage, gin.H{
-		"conversation_id": convID,
-		"message":         msg,
-	})
-	dispatchUserNotification(c.Request.Context(), userNotification{
-		UserID:     recipientID,
-		Type:       models.NotificationMessage,
-		Title:      "New message",
-		Body:       truncate(safeContent, 160),
-		ActionURL:  "/messages?conversation=" + convID.String(),
-		ActionType: "open_conversation",
-		ActorID:    &userID,
-		TargetType: "conversation",
-		TargetID:   &convID,
-		Dedupe:     true,
-	})
 
 	c.JSON(http.StatusCreated, msg)
 }
