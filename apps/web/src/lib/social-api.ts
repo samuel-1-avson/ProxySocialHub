@@ -295,8 +295,13 @@ export async function getListingReviews(listingId: string, page = 1): Promise<{ 
 
 // ============== Messaging API (canonical transport: @/lib/api/social) ==============
 export {
+    getConversationNormalized as getConversation,
     getConversationsNormalized as getConversations,
     getMessagesNormalized as getMessages,
+    markConversationReadNormalized as markConversationRead,
+    mergeMessages,
+    messageRecipientHref,
+    type MessageThread,
     sendMessageNormalized as sendMessage,
     startConversationNormalized as startConversation,
 } from '@/lib/messaging/social-messaging';

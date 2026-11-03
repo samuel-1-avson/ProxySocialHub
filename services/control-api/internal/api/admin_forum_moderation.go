@@ -344,7 +344,7 @@ func patchForumThreadModeration(c *gin.Context) {
 	audit.Log(c, models.AuditAdminAction, "forum_thread", threadID.String(),
 		"Forum thread moderation update", updates)
 
-	c.JSON(http.StatusOK, thread)
+	c.JSON(http.StatusOK, forumThreadDTOFrom(thread))
 }
 
 func deleteForumThreadModeration(c *gin.Context) {
@@ -429,7 +429,7 @@ func patchForumPostModeration(c *gin.Context) {
 	audit.Log(c, models.AuditAdminAction, "forum_post", postID.String(),
 		"Forum post moderation update", updates)
 
-	c.JSON(http.StatusOK, post)
+	c.JSON(http.StatusOK, forumPostDTOFrom(post))
 }
 
 func deleteForumPostModeration(c *gin.Context) {
