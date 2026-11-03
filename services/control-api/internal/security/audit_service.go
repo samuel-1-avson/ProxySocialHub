@@ -18,12 +18,22 @@ type AuditService struct {
 
 // NewAuditService creates a new audit service
 func NewAuditService() *AuditService {
-	return &AuditService{db: db.DB}
+	return &AuditService{}
+}
+
+// conn returns the database handle. The api package builds this service in
+// init(), before main connects the database, so db.DB is read on each call
+// instead of being copied at construction (a copy would stay nil forever).
+func (a *AuditService) conn() *gorm.DB {
+	if a.db != nil {
+		return a.db
+	}
+	return db.DB
 }
 
 // LogEvent records an audit event
 func (a *AuditService) LogEvent(event models.AuditLog) error {
-	return a.db.Create(&event).Error
+	return a.conn().Create(&event).Error
 }
 
 // LogAuth logs authentication-related events
@@ -131,7 +141,7 @@ func (a *AuditService) LogSecurityEvent(
 // GetUserAuditLogs retrieves audit logs for a user
 func (a *AuditService) GetUserAuditLogs(userID uuid.UUID, limit int) ([]models.AuditLog, error) {
 	var logs []models.AuditLog
-	err := a.db.Where("actor_id = ?", userID).
+	err := a.conn().Where("actor_id = ?", userID).
 		Order("created_at DESC").
 		Limit(limit).
 		Find(&logs).Error
@@ -141,7 +151,7 @@ func (a *AuditService) GetUserAuditLogs(userID uuid.UUID, limit int) ([]models.A
 // GetSecurityAlerts retrieves security-related events
 func (a *AuditService) GetSecurityAlerts(since time.Time) ([]models.AuditLog, error) {
 	var logs []models.AuditLog
-	err := a.db.Where("severity IN (?, ?) AND created_at > ?",
+	err := a.conn().Where("severity IN (?, ?) AND created_at > ?",
 		models.AuditSeverityWarning, models.AuditSeverityCritical, since).
 		Order("created_at DESC").
 		Find(&logs).Error
@@ -157,9 +167,16 @@ type AnomalyDetector struct {
 // NewAnomalyDetector creates a new anomaly detector
 func NewAnomalyDetector(auditService *AuditService) *AnomalyDetector {
 	return &AnomalyDetector{
-		db:           db.DB,
 		auditService: auditService,
 	}
+}
+
+// conn returns the database handle; see AuditService.conn.
+func (d *AnomalyDetector) conn() *gorm.DB {
+	if d.db != nil {
+		return d.db
+	}
+	return db.DB
 }
 
 // AnomalyCheckResult contains detection results
@@ -181,7 +198,7 @@ func (d *AnomalyDetector) CheckLogin(userID uuid.UUID, ip, userAgent, country, c
 
 	// Get recent sessions for comparison
 	var recentSessions []models.UserSession
-	d.db.Where("user_id = ? AND created_at > ?", userID, time.Now().Add(-30*24*time.Hour)).
+	d.conn().Where("user_id = ? AND created_at > ?", userID, time.Now().Add(-30*24*time.Hour)).
 		Order("created_at DESC").
 		Limit(10).
 		Find(&recentSessions)
@@ -288,7 +305,7 @@ func (d *AnomalyDetector) checkDeviceAnomaly(sessions []models.UserSession, newU
 func (d *AnomalyDetector) checkVelocity(userID uuid.UUID) float64 {
 	// Count logins in last hour
 	var count int64
-	d.db.Model(&models.UserSession{}).
+	d.conn().Model(&models.UserSession{}).
 		Where("user_id = ? AND created_at > ?", userID, time.Now().Add(-1*time.Hour)).
 		Count(&count)
 
@@ -338,7 +355,7 @@ func (d *AnomalyDetector) recordAnomaly(
 	})
 	anomaly.Details = string(details)
 
-	if err := d.db.Create(&anomaly).Error; err != nil {
+	if err := d.conn().Create(&anomaly).Error; err != nil {
 		log.Printf("[ANOMALY] Failed to record: %v", err)
 	}
 
@@ -360,7 +377,7 @@ func (d *AnomalyDetector) recordAnomaly(
 // GetUserAnomalies returns anomalies for a user
 func (d *AnomalyDetector) GetUserAnomalies(userID uuid.UUID, limit int) ([]models.SecurityAnomaly, error) {
 	var anomalies []models.SecurityAnomaly
-	err := d.db.Where("user_id = ?", userID).
+	err := d.conn().Where("user_id = ?", userID).
 		Order("created_at DESC").
 		Limit(limit).
 		Find(&anomalies).Error
@@ -370,7 +387,7 @@ func (d *AnomalyDetector) GetUserAnomalies(userID uuid.UUID, limit int) ([]model
 // ResolveAnomaly marks an anomaly as resolved
 func (d *AnomalyDetector) ResolveAnomaly(anomalyID, resolvedBy uuid.UUID, resolution string) error {
 	now := time.Now()
-	return d.db.Model(&models.SecurityAnomaly{}).
+	return d.conn().Model(&models.SecurityAnomaly{}).
 		Where("id = ?", anomalyID).
 		Updates(map[string]interface{}{
 			"is_resolved": true,
