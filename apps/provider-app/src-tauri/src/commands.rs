@@ -16,8 +16,12 @@ use tauri::{AppHandle, Emitter, Manager, State, Wry};
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_opener::OpenerExt as _;
 
+use crate::app_update::UpdateNotice;
+use crate::diagnosis::Diagnosis;
+use crate::disconnect::DisconnectResult;
 use crate::engine::AppCore;
 use crate::node::{is_allowed_link, locate_sidecar, Sidecar};
+use crate::node_settings::NodeSettings;
 use crate::state::{tooltip_for, tray_view_for, AppState, TrayView};
 
 pub type Core = AppCore<Sidecar>;
@@ -68,12 +72,22 @@ pub const TRAY_ID: &str = "main-tray";
 /// Events the UI listens for.
 pub const STATE_EVENT: &str = "app://state";
 pub const PAIRING_ENDED_EVENT: &str = "app://pairing-ended";
+/// A newer installer was found (payload: the notice) or none is newer (payload: null).
+pub const UPDATE_EVENT: &str = "app://update";
 
 /// Where "Open my dashboard" goes. Fixed: not an argument.
 const DASHBOARD_URL: &str = "https://proxyhubb.com/dashboard/provider";
+/// Where a disconnected computer's key is revoked ("Paired: <computer>"). Fixed, as above.
+const TOKENS_URL: &str = "https://proxyhubb.com/dashboard/provider/tokens";
+/// Where the newest installer is. Fixed, as above.
+const DOWNLOAD_URL: &str = "https://proxyhubb.com/dashboard/provider/cli#desktop-app";
 
 /// How often the node is checked and the window refreshed.
 const SUPERVISE_INTERVAL: Duration = Duration::from_secs(5);
+
+/// How often the refresher looks at whether ProxyHubb's servers are due to be asked. The ask
+/// itself is rate-limited by the engine; this only sets how soon after sharing starts it happens.
+const REMOTE_CHECK_INTERVAL: Duration = Duration::from_secs(15);
 
 /// Environment variable that pins the folder the app keeps its settings in. Tauri resolves the
 /// config folder through the Windows Known Folder API, which ignores `%APPDATA%`, so without
@@ -126,6 +140,21 @@ pub fn spawn_supervisor(app: AppHandle, core: Arc<Core>) {
         let state = core.tick();
         publish(&app, state);
         thread::sleep(SUPERVISE_INTERVAL);
+    });
+}
+
+/// Ask ProxyHubb's servers about this computer when it is due, for the life of the app. A
+/// separate thread from the supervisor: an ask waits on the network for up to a minute, and the
+/// node must not go unwatched meanwhile.
+pub fn spawn_remote_refresher(app: AppHandle, core: Arc<Core>) {
+    thread::spawn(move || loop {
+        if core.refresh_update() {
+            let _ = app.emit(UPDATE_EVENT, core.update_notice());
+        }
+        if core.refresh_remote(false) {
+            emit_state(&app, &core);
+        }
+        thread::sleep(REMOTE_CHECK_INTERVAL);
     });
 }
 
@@ -202,6 +231,93 @@ pub async fn set_sharing(
         result
     })
     .await?
+}
+
+/// The Refresh button: ask ProxyHubb's servers now (no more often than every few seconds).
+#[tauri::command]
+pub async fn refresh_account(app: AppHandle, core: State<'_, Arc<Core>>) -> Result<(), String> {
+    let core = Arc::clone(&core);
+    blocking(move || {
+        if core.refresh_remote(true) {
+            emit_state(&app, &core);
+        }
+    })
+    .await
+}
+
+/// "Check my connection": the node's checks, in plain words.
+#[tauri::command]
+pub async fn run_diagnosis(core: State<'_, Arc<Core>>) -> Result<Diagnosis, String> {
+    let core = Arc::clone(&core);
+    blocking(move || core.diagnose()).await?
+}
+
+/// "Save support details": write the support file and show it in its folder. Returns where it
+/// is. The window never supplies a path; failing to open the folder does not undo the save.
+#[tauri::command]
+pub async fn save_support_details(
+    app: AppHandle,
+    core: State<'_, Arc<Core>>,
+) -> Result<String, String> {
+    let core = Arc::clone(&core);
+    blocking(move || {
+        let file = core.save_support_details()?;
+        let _ = app.opener().reveal_item_in_dir(&file);
+        Ok(file.display().to_string())
+    })
+    .await?
+}
+
+/// Restart a node the app started (not one started elsewhere: that is stopped only after the
+/// person confirmed, by `stop_outside_node`).
+#[tauri::command]
+pub async fn restart_node(app: AppHandle, core: State<'_, Arc<Core>>) -> Result<(), String> {
+    let core = Arc::clone(&core);
+    blocking(move || {
+        let result = core.restart_node();
+        emit_state(&app, &core);
+        result
+    })
+    .await?
+}
+
+/// Disconnect this computer from its account. The window asks the person to confirm first, and
+/// tells them the key still has to be revoked in the dashboard.
+#[tauri::command]
+pub async fn disconnect_computer(
+    app: AppHandle,
+    core: State<'_, Arc<Core>>,
+) -> Result<DisconnectResult, String> {
+    let core = Arc::clone(&core);
+    blocking(move || {
+        let result = core.disconnect();
+        emit_state(&app, &core);
+        result
+    })
+    .await?
+}
+
+/// This computer's node settings, for reading. Nothing here can change them.
+#[tauri::command]
+pub async fn get_node_settings(core: State<'_, Arc<Core>>) -> Result<NodeSettings, String> {
+    let core = Arc::clone(&core);
+    blocking(move || core.node_settings()).await?
+}
+
+/// The notice about a newer installer, if there is one. Cheap: it reads what was last found.
+#[tauri::command]
+pub fn get_update_notice(core: State<'_, Arc<Core>>) -> Option<UpdateNotice> {
+    core.update_notice()
+}
+
+#[tauri::command]
+pub fn open_tokens_page(app: AppHandle) -> Result<(), String> {
+    open_checked(&app, TOKENS_URL)
+}
+
+#[tauri::command]
+pub fn open_download_page(app: AppHandle) -> Result<(), String> {
+    open_checked(&app, DOWNLOAD_URL)
 }
 
 /// Stop a node the app did not start. The window asks the person to confirm first; a plain

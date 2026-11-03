@@ -3,25 +3,70 @@
 //! It reaches the node only through `NodeControl`, so every behaviour here is tested with a
 //! fake; the real `provider-node` is exercised by the end-to-end run.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::Receiver;
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 
+use crate::account::{AccountFacts, AccountSnapshot};
+use crate::app_update::{update_notice_for, UpdateNotice};
+use crate::diagnosis::Diagnosis;
+use crate::disconnect::DisconnectResult;
 use crate::node::{PairEvent, PairingProcess, Sidecar};
+use crate::node_settings::NodeSettings;
 use crate::settings::{self, Settings};
-use crate::state::{derive_state, AppState, NodeFacts, PairingView};
+use crate::state::{derive_state, with_remote, AppState, NodeFacts, PairingView};
 
 /// After a failed start, wait this long before trying again.
 const START_RETRY_COOLDOWN: Duration = Duration::from_secs(30);
+
+/// How often ProxyHubb's servers are asked about this computer and its earnings. Every ask
+/// exchanges the node's key for a token, which the server records, so this is minutes, not
+/// seconds; the Refresh button covers the person who wants it now.
+const REMOTE_INTERVAL: Duration = Duration::from_secs(5 * 60);
+/// After an ask that failed or found the servers unreachable, try again sooner.
+const REMOTE_RETRY: Duration = Duration::from_secs(60);
+/// The least time between two presses of Refresh.
+const REMOTE_FORCE_GAP: Duration = Duration::from_secs(20);
+/// Support files kept; older ones are deleted when a new one is made.
+const SUPPORT_FILES_KEPT: usize = 5;
+const SUPPORT_PREFIX: &str = "support-details-";
+
+/// This app's own version, compared with the newest published installer.
+const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+/// How often the newest published version is looked up, and how soon after a failed lookup.
+const UPDATE_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
+const UPDATE_RETRY: Duration = Duration::from_secs(30 * 60);
+/// Between stopping the node and starting it again, so the old process lets go of its port and
+/// PID file (the node's own restart waits the same).
+const RESTART_PAUSE: Duration = Duration::from_millis(500);
 
 pub trait NodeControl: Send + Sync + 'static {
     fn status(&self) -> Result<NodeFacts, String>;
     fn start(&self) -> Result<(), String>;
     fn stop(&self) -> Result<(), String>;
     fn pair(&self) -> Result<(PairingProcess, Receiver<PairEvent>), String>;
+    /// What ProxyHubb's servers say about this computer. Asks the network; slow.
+    fn account(&self) -> Result<AccountFacts, String>;
+    /// The node's own checks, in plain words. Asks the network; slow.
+    fn diagnose(&self) -> Result<Diagnosis, String>;
+    /// Write the support file to `output`.
+    fn support_bundle(&self, output: &Path) -> Result<(), String>;
+    /// Stop the node and move this computer's settings aside. Slow.
+    fn unpair(&self) -> Result<DisconnectResult, String>;
+    /// This computer's node settings, for reading.
+    fn settings(&self) -> Result<NodeSettings, String>;
+    /// The version of the newest published installer. Asks the network; slow.
+    fn latest_release(&self) -> Result<String, String>;
+}
+
+fn unix_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 impl NodeControl for Sidecar {
@@ -36,6 +81,24 @@ impl NodeControl for Sidecar {
     }
     fn pair(&self) -> Result<(PairingProcess, Receiver<PairEvent>), String> {
         Sidecar::pair(self)
+    }
+    fn account(&self) -> Result<AccountFacts, String> {
+        Sidecar::account(self)
+    }
+    fn diagnose(&self) -> Result<Diagnosis, String> {
+        Sidecar::diagnose(self)
+    }
+    fn support_bundle(&self, output: &Path) -> Result<(), String> {
+        Sidecar::support_bundle(self, output)
+    }
+    fn unpair(&self) -> Result<DisconnectResult, String> {
+        Sidecar::unpair(self)
+    }
+    fn settings(&self) -> Result<NodeSettings, String> {
+        Sidecar::settings(self)
+    }
+    fn latest_release(&self) -> Result<String, String> {
+        Sidecar::latest_release(self)
     }
 }
 
@@ -70,6 +133,21 @@ struct Inner {
     /// to its owner. Set when a start is issued from stopped, cleared on failure and
     /// whenever the node is seen stopped.
     started_by_app: bool,
+    /// The last answer from ProxyHubb's servers (kept when a later ask fails).
+    remote: Option<AccountSnapshot>,
+    remote_attempt_at: Option<Instant>,
+    /// An ask is running; a second one waits for it instead of starting another process.
+    remote_in_flight: bool,
+    /// The last ask got an answer, so the next one waits the long interval, not the short one.
+    remote_ok: bool,
+    /// The last state derived was Sharing. The servers are only asked about a node that is.
+    sharing_seen: bool,
+    /// A newer installer than this app exists (the last answer; kept when a later lookup fails).
+    update: Option<UpdateNotice>,
+    update_attempt_at: Option<Instant>,
+    update_in_flight: bool,
+    /// The last lookup got an answer, so the next waits the long interval, not the short one.
+    update_ok: bool,
 }
 
 pub struct AppCore<N: NodeControl> {
@@ -146,7 +224,15 @@ impl<N: NodeControl> AppCore<N> {
                     inner.started_by_app = false;
                 }
                 facts.externally_started = facts.process_running && !inner.started_by_app;
-                derive_state(true, wanted, None, &facts)
+                let state = derive_state(true, wanted, None, &facts);
+                let sharing = matches!(state, AppState::Sharing { .. });
+                if sharing && !inner.sharing_seen {
+                    // Sharing has just begun (or begun again): whatever was fetched earlier is
+                    // old, so ask now instead of waiting out the interval.
+                    inner.remote_attempt_at = None;
+                }
+                inner.sharing_seen = sharing;
+                with_remote(state, inner.remote.as_ref())
             }
             Err(reason) => AppState::Problem { reason },
         }
@@ -220,6 +306,10 @@ impl<N: NodeControl> AppCore<N> {
                 inner.settings.sharing_wanted = true;
                 inner.settings.pause_pending = false;
                 inner.start_failed = None;
+                // A new pairing is a different computer on the server; what was fetched about the
+                // old one is not about this.
+                inner.remote = None;
+                inner.remote_attempt_at = None;
                 // The credentials are already on disk; a failed settings write only means the
                 // intent is not remembered, and the node still starts below.
                 let _ = self.save(&inner.settings);
@@ -407,6 +497,220 @@ impl<N: NodeControl> AppCore<N> {
         }
     }
 
+    fn require_consent(&self) -> Result<(), String> {
+        if self.lock().settings.consent_is_current() {
+            Ok(())
+        } else {
+            Err("Please read and accept the consent first.".to_string())
+        }
+    }
+
+    /// Ask ProxyHubb's servers about this computer, if it is time (or `force`: the person pressed
+    /// Refresh). Returns whether an ask ran, so the caller knows the window has something new.
+    /// Does nothing unless the node is sharing: there is nothing to say about a paused one.
+    pub fn refresh_remote(&self, force: bool) -> bool {
+        self.refresh_remote_at(Instant::now(), unix_now(), force)
+    }
+
+    fn refresh_remote_at(&self, now: Instant, unix: u64, force: bool) -> bool {
+        {
+            let mut inner = self.lock();
+            if !inner.settings.consent_is_current() || !inner.sharing_seen || inner.remote_in_flight
+            {
+                return false;
+            }
+            let gap = if force {
+                REMOTE_FORCE_GAP
+            } else if inner.remote_ok {
+                REMOTE_INTERVAL
+            } else {
+                REMOTE_RETRY
+            };
+            if let Some(last) = inner.remote_attempt_at {
+                if now.duration_since(last) < gap {
+                    return false;
+                }
+            }
+            inner.remote_in_flight = true;
+            inner.remote_attempt_at = Some(now);
+        }
+        // The ask runs a process and waits on the network: never under the lock.
+        let result = self.node.account();
+        let mut inner = self.lock();
+        inner.remote_in_flight = false;
+        match result {
+            Ok(facts) => {
+                inner.remote_ok = facts.reachable;
+                inner.remote = Some(AccountSnapshot {
+                    facts,
+                    fetched_unix: unix,
+                });
+            }
+            // The process failed: keep the last answer and try again soon.
+            Err(_) => inner.remote_ok = false,
+        }
+        true
+    }
+
+    /// "Check my connection": the node's checks, in plain words.
+    pub fn diagnose(&self) -> Result<Diagnosis, String> {
+        self.require_consent()?;
+        self.node.diagnose()
+    }
+
+    /// Write the support file into the app's own folder and return where it is. The newest few
+    /// are kept.
+    pub fn save_support_details(&self) -> Result<PathBuf, String> {
+        self.require_consent()?;
+        let dir = self.settings_dir.join("support");
+        std::fs::create_dir_all(&dir)
+            .map_err(|_| "The support file could not be made.".to_string())?;
+        let file = dir.join(format!("{SUPPORT_PREFIX}{}.json", unix_now()));
+        self.node.support_bundle(&file)?;
+        prune_support_files(&dir, SUPPORT_FILES_KEPT);
+        Ok(file)
+    }
+
+    /// Stop the node and start it again (the Restart button, for a node stuck connecting).
+    ///
+    /// Only a node this app started: one started elsewhere belongs to its owner, and stopping it
+    /// is a separate, confirmed step (`stop_outside_node`). A restart is a wish to share, so it
+    /// also ends a pending pause.
+    pub fn restart_node(&self) -> Result<(), String> {
+        self.require_consent()?;
+        let facts = self.node.status()?;
+        if !facts.config_present {
+            return Err("This computer is not connected to an account yet.".to_string());
+        }
+        if facts.process_running && !self.lock().started_by_app {
+            return Err(
+                "This node was started outside this app, so the app will not restart it. Stop it first, then press Resume sharing."
+                    .to_string(),
+            );
+        }
+        {
+            let mut inner = self.lock();
+            inner.settings.sharing_wanted = true;
+            inner.settings.pause_pending = false;
+            inner.start_failed = None;
+            // Optimistic, as in `start_node_at`, so a Pause landing mid-restart still stops it.
+            inner.started_by_app = true;
+            self.save(&inner.settings)?;
+        }
+        // One hold across both steps: a Pause arriving between them waits, and the supervisor
+        // cannot start a second node in the gap.
+        let result = {
+            let _one_at_a_time = self.node_ops.lock().unwrap_or_else(|e| e.into_inner());
+            let stopped = self.node.stop();
+            std::thread::sleep(RESTART_PAUSE);
+            stopped.and_then(|()| self.node.start())
+        };
+        let mut inner = self.lock();
+        inner.last_start_attempt = Some(Instant::now());
+        inner.start_failed = result.as_ref().err().cloned();
+        if result.is_err() {
+            inner.started_by_app = false;
+        }
+        result
+    }
+
+    /// Disconnect this computer from its account: the node is stopped and its settings are moved
+    /// aside (kept, not deleted). The key is NOT revoked: a node cannot do that, so the caller
+    /// tells the person to revoke the token in the dashboard.
+    ///
+    /// The wish to share is turned off first so the supervisor does not start the node again
+    /// meanwhile. If the disconnect fails nothing was disconnected, and the wish goes back to
+    /// what it was.
+    pub fn disconnect(&self) -> Result<DisconnectResult, String> {
+        self.require_consent()?;
+        let was_wanted = {
+            let mut inner = self.lock();
+            let was = inner.settings.sharing_wanted;
+            inner.settings.sharing_wanted = false;
+            inner.settings.pause_pending = true;
+            self.save(&inner.settings)?;
+            was
+        };
+        let result = {
+            let _one_at_a_time = self.node_ops.lock().unwrap_or_else(|e| e.into_inner());
+            self.node.unpair()
+        };
+        let mut inner = self.lock();
+        inner.settings.pause_pending = false;
+        match result {
+            Ok(done) => {
+                inner.started_by_app = false;
+                inner.start_failed = None;
+                // Whatever was fetched was about the account this computer just left.
+                inner.remote = None;
+                inner.remote_attempt_at = None;
+                let _ = self.save(&inner.settings);
+                Ok(done)
+            }
+            Err(reason) => {
+                inner.settings.sharing_wanted = was_wanted;
+                let _ = self.save(&inner.settings);
+                Err(reason)
+            }
+        }
+    }
+
+    /// This computer's node settings, for reading.
+    pub fn node_settings(&self) -> Result<NodeSettings, String> {
+        self.require_consent()?;
+        self.node.settings()
+    }
+
+    /// The notice to show, if a newer installer than this app exists.
+    pub fn update_notice(&self) -> Option<UpdateNotice> {
+        self.lock().update.clone()
+    }
+
+    /// Look up the newest published installer, if it is time (at start, then every few hours).
+    /// Returns whether the notice changed, so the caller knows to tell the window.
+    pub fn refresh_update(&self) -> bool {
+        self.refresh_update_at(Instant::now(), APP_VERSION)
+    }
+
+    fn refresh_update_at(&self, now: Instant, current: &str) -> bool {
+        {
+            let mut inner = self.lock();
+            if !inner.settings.consent_is_current() || inner.update_in_flight {
+                return false;
+            }
+            let gap = if inner.update_ok {
+                UPDATE_INTERVAL
+            } else {
+                UPDATE_RETRY
+            };
+            if let Some(last) = inner.update_attempt_at {
+                if now.duration_since(last) < gap {
+                    return false;
+                }
+            }
+            inner.update_in_flight = true;
+            inner.update_attempt_at = Some(now);
+        }
+        // The lookup runs a process and waits on the network: never under the lock.
+        let result = self.node.latest_release();
+        let mut inner = self.lock();
+        inner.update_in_flight = false;
+        match result {
+            Ok(latest) => {
+                inner.update_ok = true;
+                let notice = update_notice_for(current, &latest);
+                let changed = notice != inner.update;
+                inner.update = notice;
+                changed
+            }
+            // The lookup failed: keep what was known and try again in a while.
+            Err(_) => {
+                inner.update_ok = false;
+                false
+            }
+        }
+    }
+
     /// The app is closing: stop a node the app itself started, and stop waiting on any
     /// pairing. A node started elsewhere (the CLI) keeps running for its owner. The saved
     /// intent is left alone, so the next launch resumes what the person had.
@@ -415,6 +719,28 @@ impl<N: NodeControl> AppCore<N> {
         if self.lock().started_by_app {
             let _ = self.node_stop();
         }
+    }
+}
+
+/// Delete all but the newest `keep` support files in `dir`. Their names carry the time they were
+/// made (equal-width seconds), so name order is time order. Nothing else in the folder is touched.
+fn prune_support_files(dir: &Path, keep: usize) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut files: Vec<PathBuf> = entries
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with(SUPPORT_PREFIX) && n.ends_with(".json"))
+        })
+        .collect();
+    files.sort();
+    let excess = files.len().saturating_sub(keep);
+    for old in files.into_iter().take(excess) {
+        let _ = std::fs::remove_file(old);
     }
 }
 
@@ -437,6 +763,20 @@ mod tests {
         events: Mutex<Vec<&'static str>>,
         /// How long a start takes to return.
         start_delay: Mutex<Duration>,
+        account_result: Mutex<Result<AccountFacts, String>>,
+        accounts: AtomicUsize,
+        diagnosis_result: Mutex<Result<Diagnosis, String>>,
+        bundle_result: Mutex<Result<(), String>>,
+        bundles: AtomicUsize,
+        unpair_result: Mutex<Result<DisconnectResult, String>>,
+        unpairs: AtomicUsize,
+        /// Where the app's settings.json is, so `unpair` can record what it said at that moment.
+        watch_dir: Mutex<Option<PathBuf>>,
+        /// (sharing_wanted, pause_pending) as saved while `unpair` was running.
+        seen_during_unpair: Mutex<Option<(bool, bool)>>,
+        settings_result: Mutex<Result<NodeSettings, String>>,
+        latest_result: Mutex<Result<String, String>>,
+        latest_calls: AtomicUsize,
     }
 
     impl FakeNode {
@@ -451,8 +791,35 @@ mod tests {
                 pairs: AtomicUsize::new(0),
                 events: Mutex::new(Vec::new()),
                 start_delay: Mutex::new(Duration::ZERO),
+                account_result: Mutex::new(Ok(online_account())),
+                accounts: AtomicUsize::new(0),
+                diagnosis_result: Mutex::new(Ok(Diagnosis { findings: vec![] })),
+                bundle_result: Mutex::new(Ok(())),
+                bundles: AtomicUsize::new(0),
+                unpair_result: Mutex::new(Ok(DisconnectResult {
+                    archived_config: Some("C:/p/provider.toml.disconnected-1".into()),
+                })),
+                unpairs: AtomicUsize::new(0),
+                watch_dir: Mutex::new(None),
+                seen_during_unpair: Mutex::new(None),
+                settings_result: Mutex::new(Ok(crate::node_settings::parse_node_settings(
+                    r#"{"gateways":["gw:3128"],"transport":"yamux","use_tls":true,
+                        "max_connections":500,"bandwidth_limit_mbps":100,
+                        "allowed_ports":[80,443],"connection_type":"residential"}"#,
+                )
+                .unwrap())),
+                latest_result: Mutex::new(Ok("0.1.2".into())),
+                latest_calls: AtomicUsize::new(0),
             }
         }
+    }
+
+    fn online_account() -> AccountFacts {
+        crate::account::parse_account(
+            r#"{"reachable":true,"node":{"status":"online"},
+                "earnings":{"last_7_days_sol":0.1,"last_30_days_sol":0.4,"pending_sol":0.25,"paid_sol":1.0}}"#,
+        )
+        .unwrap()
     }
 
     impl NodeControl for std::sync::Arc<FakeNode> {
@@ -482,6 +849,38 @@ mod tests {
             // Keep the sender alive so the stream stays open like a real process.
             std::mem::forget(tx);
             Ok((PairingProcess::detached(), rx))
+        }
+        fn account(&self) -> Result<AccountFacts, String> {
+            self.accounts.fetch_add(1, Ordering::SeqCst);
+            self.account_result.lock().unwrap().clone()
+        }
+        fn diagnose(&self) -> Result<Diagnosis, String> {
+            self.diagnosis_result.lock().unwrap().clone()
+        }
+        fn support_bundle(&self, output: &Path) -> Result<(), String> {
+            self.bundles.fetch_add(1, Ordering::SeqCst);
+            let result = self.bundle_result.lock().unwrap().clone();
+            if result.is_ok() {
+                std::fs::write(output, "{}").map_err(|e| e.to_string())?;
+            }
+            result
+        }
+        fn unpair(&self) -> Result<DisconnectResult, String> {
+            self.unpairs.fetch_add(1, Ordering::SeqCst);
+            self.events.lock().unwrap().push("unpair");
+            if let Some(dir) = self.watch_dir.lock().unwrap().clone() {
+                let s = settings::load(&dir);
+                *self.seen_during_unpair.lock().unwrap() =
+                    Some((s.sharing_wanted, s.pause_pending));
+            }
+            self.unpair_result.lock().unwrap().clone()
+        }
+        fn settings(&self) -> Result<NodeSettings, String> {
+            self.settings_result.lock().unwrap().clone()
+        }
+        fn latest_release(&self) -> Result<String, String> {
+            self.latest_calls.fetch_add(1, Ordering::SeqCst);
+            self.latest_result.lock().unwrap().clone()
         }
     }
 
@@ -1103,6 +1502,477 @@ mod tests {
         let state = c.tick_at(Instant::now() + Duration::from_secs(60));
         assert_eq!(node.starts.load(Ordering::SeqCst), before + 1);
         assert!(matches!(state, AppState::Connecting { .. }), "{state:?}");
+    }
+
+    // ── what ProxyHubb's servers say (earnings, "online") ─────────────────────
+
+    fn sharing_core(label: &str) -> (Core, std::sync::Arc<FakeNode>, TempDir) {
+        let (c, node, d) = consented(label);
+        *node.facts.lock().unwrap() = Ok(paired_facts(true, true));
+        c.tick(); // the engine now knows the node is sharing
+        (c, node, d)
+    }
+
+    fn server_of(state: &AppState) -> crate::account::ServerView {
+        match state {
+            AppState::Sharing { details, .. } => details.remote.server,
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_servers_are_asked_only_about_a_node_that_is_sharing() {
+        let (c, node, _d) = consented("remote-paused");
+        *node.facts.lock().unwrap() = Ok(paired_facts(false, false));
+        c.tick();
+        assert!(!c.refresh_remote_at(Instant::now(), 1, false));
+        assert!(
+            !c.refresh_remote_at(Instant::now(), 1, true),
+            "not even on request"
+        );
+        assert_eq!(node.accounts.load(Ordering::SeqCst), 0);
+
+        *node.facts.lock().unwrap() = Ok(paired_facts(true, true));
+        c.tick();
+        assert!(c.refresh_remote_at(Instant::now(), 1, false));
+        assert_eq!(node.accounts.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn the_answer_shows_on_the_sharing_state_and_before_it_the_window_says_checking() {
+        use crate::account::ServerView;
+        let (c, _node, _d) = sharing_core("remote-shows");
+        assert_eq!(server_of(&c.state()), ServerView::Checking);
+
+        assert!(c.refresh_remote_at(Instant::now(), 1_700_000_000, false));
+        match c.state() {
+            AppState::Sharing { details, .. } => {
+                assert_eq!(details.remote.server, ServerView::Online);
+                assert_eq!(details.remote.updated_at_unix, Some(1_700_000_000));
+                assert_eq!(details.remote.earnings.unwrap().pending_sol, 0.25);
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_servers_are_asked_again_only_after_the_interval() {
+        let (c, node, _d) = sharing_core("remote-interval");
+        let t0 = Instant::now();
+        assert!(c.refresh_remote_at(t0, 1, false));
+        assert!(!c.refresh_remote_at(t0 + Duration::from_secs(299), 2, false));
+        assert!(c.refresh_remote_at(t0 + Duration::from_secs(300), 3, false));
+        assert_eq!(node.accounts.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn a_failed_ask_keeps_the_last_answer_and_is_retried_after_a_minute() {
+        use crate::account::ServerView;
+        let (c, node, _d) = sharing_core("remote-fail");
+        let t0 = Instant::now();
+        assert!(c.refresh_remote_at(t0, 1, false));
+        *node.account_result.lock().unwrap() = Err("could not run provider-node".into());
+
+        let t1 = t0 + Duration::from_secs(300);
+        assert!(c.refresh_remote_at(t1, 2, false));
+        assert_eq!(
+            server_of(&c.state()),
+            ServerView::Online,
+            "the old answer stays"
+        );
+        assert!(!c.refresh_remote_at(t1 + Duration::from_secs(59), 3, false));
+        assert!(c.refresh_remote_at(t1 + Duration::from_secs(60), 4, false));
+    }
+
+    #[test]
+    fn servers_that_could_not_be_reached_are_asked_again_after_a_minute_not_five() {
+        use crate::account::ServerView;
+        let (c, node, _d) = sharing_core("remote-unreachable");
+        *node.account_result.lock().unwrap() =
+            Ok(crate::account::parse_account(r#"{"reachable":false}"#).unwrap());
+        let t0 = Instant::now();
+        assert!(c.refresh_remote_at(t0, 1, false));
+        assert_eq!(server_of(&c.state()), ServerView::Unreachable);
+        assert!(!c.refresh_remote_at(t0 + Duration::from_secs(59), 2, false));
+        assert!(c.refresh_remote_at(t0 + Duration::from_secs(60), 3, false));
+    }
+
+    #[test]
+    fn refresh_can_be_pressed_early_but_not_in_quick_succession() {
+        let (c, _node, _d) = sharing_core("remote-force");
+        let t0 = Instant::now();
+        assert!(c.refresh_remote_at(t0, 1, false));
+        assert!(
+            !c.refresh_remote_at(t0 + Duration::from_secs(5), 2, true),
+            "too soon"
+        );
+        assert!(
+            c.refresh_remote_at(t0 + Duration::from_secs(25), 3, true),
+            "well before 5 min"
+        );
+    }
+
+    #[test]
+    fn sharing_that_begins_again_asks_at_once_instead_of_showing_hours_old_numbers() {
+        let (c, node, _d) = sharing_core("remote-resume");
+        let t0 = Instant::now();
+        assert!(c.refresh_remote_at(t0, 1, false));
+
+        *node.facts.lock().unwrap() = Ok(paired_facts(false, false)); // paused
+        c.tick();
+        *node.facts.lock().unwrap() = Ok(paired_facts(true, true)); // resumed
+        c.tick();
+        assert!(
+            c.refresh_remote_at(t0 + Duration::from_secs(10), 2, false),
+            "ten seconds is far inside the interval, but this is a new stretch of sharing"
+        );
+    }
+
+    #[test]
+    fn the_servers_are_never_asked_without_consent() {
+        let (c, node, _d) = core("remote-noconsent");
+        *node.facts.lock().unwrap() = Ok(paired_facts(true, true));
+        c.tick();
+        assert!(!c.refresh_remote_at(Instant::now(), 1, true));
+        assert_eq!(node.accounts.load(Ordering::SeqCst), 0);
+    }
+
+    /// Consent is checked on its own, not only through "is it sharing": withdrawn (or outdated)
+    /// after sharing was seen, the servers are still not asked.
+    #[test]
+    fn the_servers_are_not_asked_once_consent_is_no_longer_current() {
+        let (c, node, _d) = sharing_core("remote-consent-withdrawn");
+        c.lock().settings.consent = None;
+        assert!(!c.refresh_remote_at(Instant::now(), 1, false));
+        assert!(!c.refresh_remote_at(Instant::now(), 1, true));
+        assert_eq!(node.accounts.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn a_new_pairing_forgets_what_was_fetched_about_the_old_computer() {
+        use crate::account::ServerView;
+        let (c, node, _d) = sharing_core("remote-repair");
+        assert!(c.refresh_remote_at(Instant::now(), 1, false));
+        assert_eq!(server_of(&c.state()), ServerView::Online);
+
+        let (id, _rx) = c.begin_pairing().unwrap().unwrap();
+        c.handle_pair_event(
+            id,
+            PairEvent::Approved {
+                node_id: "n".into(),
+            },
+        );
+        *node.facts.lock().unwrap() = Ok(paired_facts(true, true));
+        assert_eq!(server_of(&c.state()), ServerView::Checking);
+    }
+
+    #[test]
+    fn checking_the_connection_returns_the_findings_and_needs_consent() {
+        use crate::diagnosis::{Finding, Level};
+        let (c, node, _d) = consented("diagnose");
+        *node.diagnosis_result.lock().unwrap() = Ok(Diagnosis {
+            findings: vec![Finding {
+                level: Level::Problem,
+                text: "x".into(),
+            }],
+        });
+        assert_eq!(c.diagnose().unwrap().findings.len(), 1);
+
+        let (c, _node, _d) = core("diagnose-noconsent");
+        assert!(c.diagnose().is_err());
+    }
+
+    #[test]
+    fn support_details_go_into_the_apps_folder_and_only_the_newest_few_are_kept() {
+        let (c, _node, d) = consented("support");
+        let dir = d.0.join("support");
+        std::fs::create_dir_all(&dir).unwrap();
+        for n in 1..=7u64 {
+            std::fs::write(dir.join(format!("{SUPPORT_PREFIX}{:010}.json", n)), "{}").unwrap();
+        }
+        std::fs::write(dir.join("notes.txt"), "mine").unwrap();
+
+        let file = c.save_support_details().unwrap();
+        assert!(file.starts_with(&dir) && file.is_file());
+
+        let mut names: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert!(
+            names.contains(&"notes.txt".to_string()),
+            "other files are left alone"
+        );
+        let kept: Vec<_> = names
+            .iter()
+            .filter(|n| n.starts_with(SUPPORT_PREFIX))
+            .collect();
+        assert_eq!(kept.len(), SUPPORT_FILES_KEPT);
+        assert!(kept.contains(&&file.file_name().unwrap().to_string_lossy().into_owned()));
+        assert!(
+            !kept.iter().any(|n| n.contains("0000000001")),
+            "the oldest went"
+        );
+    }
+
+    #[test]
+    fn a_support_file_that_could_not_be_made_says_so_and_deletes_nothing() {
+        let (c, node, d) = consented("support-fail");
+        let dir = d.0.join("support");
+        std::fs::create_dir_all(&dir).unwrap();
+        for n in 1..=6u64 {
+            std::fs::write(dir.join(format!("{SUPPORT_PREFIX}{:010}.json", n)), "{}").unwrap();
+        }
+        *node.bundle_result.lock().unwrap() = Err("The support file could not be made.".into());
+        assert!(c.save_support_details().is_err());
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 6);
+    }
+
+    #[test]
+    fn support_details_need_consent() {
+        let (c, node, _d) = core("support-noconsent");
+        assert!(c.save_support_details().is_err());
+        assert_eq!(node.bundles.load(Ordering::SeqCst), 0);
+    }
+
+    // ── restart ────────────────────────────────────────────────────────────────
+
+    /// A core whose node the app started itself and which is now running.
+    fn running_core(label: &str) -> (Core, std::sync::Arc<FakeNode>, TempDir) {
+        let (c, node, d) = consented(label);
+        *node.facts.lock().unwrap() = Ok(paired_facts(false, false));
+        c.set_sharing(true).unwrap(); // the app starts it
+        *node.facts.lock().unwrap() = Ok(paired_facts(true, false)); // and it is connecting
+        node.events.lock().unwrap().clear();
+        (c, node, d)
+    }
+
+    #[test]
+    fn restarting_stops_the_node_and_starts_it_again_in_that_order() {
+        let (c, node, d) = running_core("restart");
+        c.restart_node().unwrap();
+        assert_eq!(
+            *node.events.lock().unwrap(),
+            vec!["stop", "start-begin", "start-end"]
+        );
+        assert!(settings::load(&d.0).sharing_wanted);
+    }
+
+    /// A node started elsewhere belongs to its owner: the app stops it only after the person
+    /// confirmed (`stop_outside_node`), never as a side effect of Restart.
+    #[test]
+    fn a_node_started_outside_the_app_is_not_restarted() {
+        let (c, node, _d) = consented("restart-outside");
+        *node.facts.lock().unwrap() = Ok(paired_facts(true, true));
+        let err = c.restart_node().unwrap_err();
+        assert!(err.contains("started outside this app"), "{err}");
+        assert!(
+            node.events.lock().unwrap().is_empty(),
+            "nothing was stopped or started"
+        );
+    }
+
+    #[test]
+    fn restarting_needs_consent_and_a_connected_account() {
+        let (c, node, _d) = core("restart-noconsent");
+        *node.facts.lock().unwrap() = Ok(paired_facts(false, false));
+        assert!(c.restart_node().is_err());
+
+        let (c, node, _d) = consented("restart-noconfig");
+        *node.facts.lock().unwrap() = Ok(NodeFacts::default());
+        assert!(c.restart_node().unwrap_err().contains("not connected"));
+        assert!(node.events.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_restart_is_a_wish_to_share_so_it_ends_a_pending_pause() {
+        let (c, node, d) = running_core("restart-after-pause");
+        c.set_sharing(false).unwrap();
+        assert!(settings::load(&d.0).pause_pending);
+        *node.facts.lock().unwrap() = Ok(paired_facts(true, false));
+        c.restart_node().unwrap();
+        let s = settings::load(&d.0);
+        assert!(s.sharing_wanted && !s.pause_pending);
+    }
+
+    #[test]
+    fn a_restart_whose_start_fails_shows_the_problem_and_keeps_the_wish() {
+        let (c, node, d) = running_core("restart-fails");
+        *node.start_result.lock().unwrap() = Err("could not start".into());
+        assert!(c.restart_node().is_err());
+        *node.facts.lock().unwrap() = Ok(paired_facts(false, false));
+        assert_eq!(
+            c.state(),
+            AppState::Problem {
+                reason: "could not start".into()
+            }
+        );
+        assert!(
+            settings::load(&d.0).sharing_wanted,
+            "the supervisor will try again"
+        );
+    }
+
+    /// The stop and the start are one hold: a Pause arriving in between waits for the start and
+    /// then stops the node, so it is never left running after the person paused.
+    #[test]
+    fn a_pause_during_a_restart_waits_and_then_stops_the_node() {
+        let (c, node, d) = running_core("restart-pause");
+        *node.start_delay.lock().unwrap() = Duration::from_millis(400);
+        std::thread::scope(|s| {
+            let restart = s.spawn(|| c.restart_node().unwrap());
+            std::thread::sleep(Duration::from_millis(150));
+            c.set_sharing(false).unwrap();
+            restart.join().unwrap();
+        });
+        assert_eq!(
+            *node.events.lock().unwrap(),
+            vec!["stop", "start-begin", "start-end", "stop"]
+        );
+        assert!(!settings::load(&d.0).sharing_wanted);
+    }
+
+    // ── disconnect ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn disconnecting_turns_the_wish_off_before_the_node_is_touched_and_reports_the_kept_file() {
+        let (c, node, d) = running_core("disconnect");
+        *node.watch_dir.lock().unwrap() = Some(d.0.clone());
+
+        let done = c.disconnect().unwrap();
+        assert_eq!(
+            done.archived_config.as_deref(),
+            Some("C:/p/provider.toml.disconnected-1")
+        );
+        assert_eq!(
+            *node.seen_during_unpair.lock().unwrap(),
+            Some((false, true)),
+            "while the node was being stopped the supervisor must already see 'not wanted'"
+        );
+        let s = settings::load(&d.0);
+        assert!(
+            !s.sharing_wanted && !s.pause_pending,
+            "settled once it is done"
+        );
+    }
+
+    #[test]
+    fn a_failed_disconnect_changes_nothing_the_wish_goes_back() {
+        let (c, node, d) = running_core("disconnect-fails");
+        assert!(settings::load(&d.0).sharing_wanted);
+        *node.unpair_result.lock().unwrap() = Err("The node did not stop in time.".into());
+
+        assert_eq!(
+            c.disconnect().unwrap_err(),
+            "The node did not stop in time."
+        );
+        let s = settings::load(&d.0);
+        assert!(s.sharing_wanted, "still sharing as before");
+        assert!(!s.pause_pending);
+    }
+
+    #[test]
+    fn disconnecting_needs_consent() {
+        let (c, node, _d) = core("disconnect-noconsent");
+        assert!(c.disconnect().is_err());
+        assert_eq!(node.unpairs.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn what_was_fetched_about_the_account_left_behind_is_forgotten() {
+        use crate::account::ServerView;
+        let (c, node, _d) = sharing_core("disconnect-forgets");
+        assert!(c.refresh_remote_at(Instant::now(), 1, false));
+        assert_eq!(server_of(&c.state()), ServerView::Online);
+
+        c.disconnect().unwrap();
+        *node.facts.lock().unwrap() = Ok(paired_facts(true, true)); // connected to the next account
+        assert_eq!(server_of(&c.state()), ServerView::Checking);
+    }
+
+    #[test]
+    fn a_disconnected_computer_is_not_started_again_by_the_supervisor() {
+        let (c, node, _d) = running_core("disconnect-stays-off");
+        c.disconnect().unwrap();
+        *node.facts.lock().unwrap() = Ok(NodeFacts::default()); // no settings file any more
+        let starts = node.starts.load(Ordering::SeqCst);
+        for _ in 0..3 {
+            c.supervise_at(Instant::now() + Duration::from_secs(60));
+        }
+        assert_eq!(node.starts.load(Ordering::SeqCst), starts);
+        assert_eq!(c.state(), AppState::NeedsPairing);
+    }
+
+    // ── settings and the update notice ────────────────────────────────────────
+
+    #[test]
+    fn the_settings_can_be_read_with_consent_only() {
+        let (c, _node, _d) = consented("settings");
+        assert_eq!(c.node_settings().unwrap().max_connections, 500);
+        let (c, _node, _d) = core("settings-noconsent");
+        assert!(c.node_settings().is_err());
+    }
+
+    #[test]
+    fn a_newer_installer_makes_a_notice_and_an_equal_one_does_not() {
+        let (c, node, _d) = consented("update");
+        *node.latest_result.lock().unwrap() = Ok("0.1.3".into());
+        assert!(
+            c.refresh_update_at(Instant::now(), "0.1.2"),
+            "the notice changed"
+        );
+        let n = c.update_notice().unwrap();
+        assert_eq!((n.latest.as_str(), n.current.as_str()), ("0.1.3", "0.1.2"));
+
+        let (c, node, _d) = consented("update-current");
+        *node.latest_result.lock().unwrap() = Ok("0.1.2".into());
+        assert!(!c.refresh_update_at(Instant::now(), "0.1.2"));
+        assert_eq!(c.update_notice(), None);
+        *node.latest_result.lock().unwrap() = Ok("not a version".into());
+        let t = Instant::now() + UPDATE_INTERVAL;
+        assert!(!c.refresh_update_at(t, "0.1.2"));
+        assert_eq!(c.update_notice(), None, "garbage is never an update");
+    }
+
+    #[test]
+    fn the_newest_version_is_looked_up_only_every_few_hours() {
+        let (c, node, _d) = consented("update-interval");
+        let t0 = Instant::now();
+        c.refresh_update_at(t0, "0.1.2");
+        c.refresh_update_at(t0 + UPDATE_INTERVAL - Duration::from_secs(1), "0.1.2");
+        assert_eq!(node.latest_calls.load(Ordering::SeqCst), 1);
+        c.refresh_update_at(t0 + UPDATE_INTERVAL, "0.1.2");
+        assert_eq!(node.latest_calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn a_failed_lookup_keeps_the_notice_and_is_retried_in_half_an_hour() {
+        let (c, node, _d) = consented("update-fail");
+        *node.latest_result.lock().unwrap() = Ok("0.1.3".into());
+        let t0 = Instant::now();
+        c.refresh_update_at(t0, "0.1.2");
+
+        *node.latest_result.lock().unwrap() = Err("no network".into());
+        let t1 = t0 + UPDATE_INTERVAL;
+        assert!(!c.refresh_update_at(t1, "0.1.2"));
+        assert!(c.update_notice().is_some(), "what was known stays");
+
+        c.refresh_update_at(t1 + UPDATE_RETRY - Duration::from_secs(1), "0.1.2");
+        assert_eq!(node.latest_calls.load(Ordering::SeqCst), 2, "not yet");
+        c.refresh_update_at(t1 + UPDATE_RETRY, "0.1.2");
+        assert_eq!(
+            node.latest_calls.load(Ordering::SeqCst),
+            3,
+            "after half an hour"
+        );
+    }
+
+    #[test]
+    fn nothing_is_looked_up_before_consent() {
+        let (c, node, _d) = core("update-noconsent");
+        assert!(!c.refresh_update_at(Instant::now(), "0.1.2"));
+        assert_eq!(node.latest_calls.load(Ordering::SeqCst), 0);
     }
 
     #[test]

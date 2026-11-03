@@ -3,6 +3,8 @@
 
 use serde::Serialize;
 
+use crate::account::{remote_view, AccountSnapshot, RemoteView};
+
 /// Where a reconnecting node stands in its gateway rotation, so the UI can say
 /// "retrying" with the gateway and the error age instead of a bare failure.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
@@ -42,6 +44,14 @@ pub struct Metrics {
     pub bytes_up: u64,
     pub bytes_down: u64,
     pub active_connections: i32,
+    /// Current speed, in kilobits per second.
+    pub rate_up_kbps: u32,
+    pub rate_down_kbps: u32,
+    /// Connections served since the node was first set up, and how many of them failed.
+    pub total_connections: u64,
+    pub failed_connections: u64,
+    /// Round trip to the gateway.
+    pub latency_ms: u64,
 }
 
 /// A pairing in progress, with the code the person has to approve.
@@ -52,7 +62,20 @@ pub struct PairingView {
     pub expires_in: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+/// What the Sharing screen shows beyond the headline numbers: the node's speed and delay, and
+/// what ProxyHubb's servers say (filled in from the last fetch, see `with_remote`).
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct SharingDetails {
+    pub rate_up_kbps: u32,
+    pub rate_down_kbps: u32,
+    pub total_connections: u64,
+    pub failed_connections: u64,
+    pub latency_ms: u64,
+    pub remote: RemoteView,
+}
+
+// Not `Eq`: the earnings inside `details` are amounts of SOL, which are floats.
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AppState {
     /// First run, or the consent wording changed since they agreed.
@@ -78,6 +101,7 @@ pub enum AppState {
         active_connections: i32,
         /// The node was started outside the app. Pause does not stop it; stopping it asks first.
         managed_externally: bool,
+        details: SharingDetails,
     },
     Paused,
     Problem {
@@ -116,6 +140,14 @@ pub fn derive_state(
                 bytes_down: m.bytes_down,
                 active_connections: m.active_connections,
                 managed_externally: facts.externally_started,
+                details: SharingDetails {
+                    rate_up_kbps: m.rate_up_kbps,
+                    rate_down_kbps: m.rate_down_kbps,
+                    total_connections: m.total_connections,
+                    failed_connections: m.failed_connections,
+                    latency_ms: m.latency_ms,
+                    remote: RemoteView::default(),
+                },
             };
         }
         return AppState::Connecting {
@@ -139,6 +171,15 @@ pub fn derive_state(
         };
     }
     AppState::Paused
+}
+
+/// Add what ProxyHubb's servers said (the last fetch, if any) to a Sharing state. Other states
+/// are returned as they are: the server view is only shown while sharing.
+pub fn with_remote(mut state: AppState, snapshot: Option<&AccountSnapshot>) -> AppState {
+    if let AppState::Sharing { details, .. } = &mut state {
+        details.remote = remote_view(snapshot);
+    }
+    state
 }
 
 /// The tray icon's hover text: one plain phrase for what the app is doing.
@@ -292,6 +333,11 @@ mod tests {
             bytes_up: 1,
             bytes_down: 2,
             active_connections: 3,
+            rate_up_kbps: 400,
+            rate_down_kbps: 9_000,
+            total_connections: 120,
+            failed_connections: 4,
+            latency_ms: 35,
         });
         assert_eq!(
             derive_state(true, true, None, &facts),
@@ -301,6 +347,14 @@ mod tests {
                 bytes_down: 2,
                 active_connections: 3,
                 managed_externally: false,
+                details: SharingDetails {
+                    rate_up_kbps: 400,
+                    rate_down_kbps: 9_000,
+                    total_connections: 120,
+                    failed_connections: 4,
+                    latency_ms: 35,
+                    remote: RemoteView::default(),
+                },
             }
         );
     }
@@ -315,6 +369,7 @@ mod tests {
                 bytes_down: 0,
                 active_connections: 0,
                 managed_externally: false,
+                details: SharingDetails::default(),
             }
         );
     }
@@ -381,6 +436,7 @@ mod tests {
             bytes_down: 0,
             active_connections: 0,
             managed_externally: false,
+            details: SharingDetails::default(),
         };
         assert_eq!(tooltip_for(&sharing), "ProxyHubb Provider: sharing");
         assert_eq!(tooltip_for(&AppState::Paused), "ProxyHubb Provider: paused");
@@ -480,6 +536,7 @@ mod tests {
             bytes_down: 0,
             active_connections: n,
             managed_externally: outside,
+            details: SharingDetails::default(),
         };
 
         let mine = tray_view_for(&sharing(3, false));
@@ -518,5 +575,50 @@ mod tests {
                 ("Not set up yet", false, false)
             );
         }
+    }
+
+    fn snapshot(text: &str) -> AccountSnapshot {
+        AccountSnapshot {
+            facts: crate::account::parse_account(text).unwrap(),
+            fetched_unix: 1_700_000_000,
+        }
+    }
+
+    #[test]
+    fn what_the_servers_said_is_added_to_a_sharing_state_and_to_nothing_else() {
+        use crate::account::ServerView;
+        let sharing = derive_state(true, true, None, &running(true));
+        let seen = snapshot(r#"{"reachable":true,"node":{"status":"online"}}"#);
+
+        match with_remote(sharing.clone(), Some(&seen)) {
+            AppState::Sharing { details, .. } => {
+                assert_eq!(details.remote.server, ServerView::Online);
+                assert_eq!(details.remote.updated_at_unix, Some(1_700_000_000));
+            }
+            other => panic!("{other:?}"),
+        }
+        // Before the first fetch the window says it is checking.
+        match with_remote(sharing, None) {
+            AppState::Sharing { details, .. } => {
+                assert_eq!(details.remote.server, ServerView::Checking)
+            }
+            other => panic!("{other:?}"),
+        }
+        // A state that is not Sharing is returned untouched.
+        for state in [
+            AppState::Paused,
+            AppState::NeedsPairing,
+            AppState::Problem { reason: "x".into() },
+        ] {
+            assert_eq!(with_remote(state.clone(), Some(&seen)), state);
+        }
+    }
+
+    #[test]
+    fn sharing_serializes_its_details_for_the_window() {
+        let json = serde_json::to_value(derive_state(true, true, None, &running(true))).unwrap();
+        assert_eq!(json["kind"], "sharing");
+        assert_eq!(json["details"]["remote"]["server"], "checking");
+        assert_eq!(json["details"]["rate_down_kbps"], 0);
     }
 }
