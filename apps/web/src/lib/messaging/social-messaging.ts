@@ -4,8 +4,10 @@
  */
 
 import {
+    findConversation as fetchConversation,
     getConversations as fetchConversations,
     getMessages as fetchMessages,
+    markConversationRead as postMarkRead,
     startConversation as postStartConversation,
     type ConversationWithPreview,
     type Message as ApiMessage,
@@ -25,15 +27,19 @@ function toSocialUser(summary?: SocialUserSummary): Conversation['other_particip
 }
 
 export function mapApiConversation(row: ConversationWithPreview): Conversation {
+    // The server's own last_message_at is when the conversation last moved
+    // (including a message that was since deleted); fall back to the preview.
     const updatedAt =
+        row.last_message_at ||
         row.last_message?.created_at ||
         row.conversation?.updated_at ||
-        row.conversation?.created_at;
+        row.conversation?.created_at ||
+        row.created_at;
 
     return {
         id: row.id,
-        participant1: row.conversation?.participants?.[0] ?? "",
-        participant2: row.conversation?.participants?.[1] ?? "",
+        participant1: row.participant1 ?? row.conversation?.participants?.[0] ?? "",
+        participant2: row.participant2 ?? row.conversation?.participants?.[1] ?? "",
         last_message_at: updatedAt,
         other_participant: toSocialUser(row.other_participant),
         other_participant_name: row.other_participant_name,
@@ -50,6 +56,11 @@ export function mapApiMessage(message: ApiMessage): Message {
         content: message.content,
         read_at: message.read_at,
         created_at: message.created_at,
+        type: message.type as Message['type'],
+        reply_to_id: message.reply_to_id,
+        edited_at: message.edited_at,
+        is_deleted: message.is_deleted,
+        reactions: message.reactions,
     };
 }
 
@@ -58,9 +69,38 @@ export async function getConversationsNormalized(): Promise<{ conversations: Con
     return { conversations: rows.map(mapApiConversation) };
 }
 
-export async function getMessagesNormalized(conversationId: string): Promise<{ messages: Message[] }> {
-    const messages = await fetchMessages(conversationId);
-    return { messages: messages.map(mapApiMessage) };
+/** A thread: its messages oldest first, and whether older ones can still be loaded. */
+export interface MessageThread {
+    messages: Message[];
+    page: number;
+    hasMore: boolean;
+}
+
+export async function getMessagesNormalized(conversationId: string, page = 1): Promise<MessageThread> {
+    const result = await fetchMessages(conversationId, page);
+    return {
+        messages: result.messages.map(mapApiMessage),
+        page: result.page,
+        hasMore: result.page * result.limit < result.total,
+    };
+}
+
+/** Add messages to a thread without duplicating any, keeping time order. */
+export function mergeMessages(...lists: Message[][]): Message[] {
+    const byId = new Map<string, Message>();
+    for (const list of lists) for (const message of list) byId.set(message.id, message);
+    return [...byId.values()].sort(
+        (a, b) => Date.parse(a.created_at) - Date.parse(b.created_at),
+    );
+}
+
+export async function getConversationNormalized(id: string): Promise<Conversation | undefined> {
+    const row = await fetchConversation(id);
+    return row ? mapApiConversation(row) : undefined;
+}
+
+export async function markConversationReadNormalized(conversationId: string): Promise<void> {
+    await postMarkRead(conversationId);
 }
 
 export async function sendMessageNormalized(

@@ -19,10 +19,25 @@ export interface Message {
     content: string;
     read_at?: string;
     created_at: string;
+    type?: string;
+    reply_to_id?: string;
+    edited_at?: string;
+    is_deleted?: boolean;
+    reactions?: Array<{
+        message_id?: string;
+        user_id: string;
+        emoji: string;
+        created_at: string;
+    }>;
 }
 
 export interface ConversationWithPreview {
     id: string;
+    /** The API sends these on the row itself, not under `conversation`. */
+    participant1?: string;
+    participant2?: string;
+    last_message_at?: string;
+    created_at?: string;
     conversation: {
         id: string;
         participants?: string[];
@@ -88,7 +103,7 @@ function normalizeUserSummary(value: unknown, fallbackName = 'Unknown'): SocialU
 
     return {
         id,
-        display_name: displayName ?? fallbackName,
+        display_name: displayName ?? username ?? fallbackName,
         username,
         avatar_url: avatarUrl,
     };
@@ -107,6 +122,10 @@ function normalizeConversation(conversation: RawConversation): ConversationWithP
 
     return {
         id: conversationId,
+        participant1: conversation.participant1,
+        participant2: conversation.participant2,
+        last_message_at: conversation.last_message_at,
+        created_at: conversation.created_at,
         conversation: {
             id: conversationId,
             participants: conversation.conversation?.participants,
@@ -167,18 +186,51 @@ export async function getFeed() {
 /**
  * List active user conversations
  */
-export async function getConversations() {
-    const data = await apiGet<{ conversations?: RawConversation[] } | RawConversation[]>('/v1/conversations');
+export async function getConversations(page = 1) {
+    const data = await apiGet<{ conversations?: RawConversation[]; total?: number; limit?: number } | RawConversation[]>(
+        '/v1/conversations',
+        page > 1 ? { page: String(page) } : undefined,
+    );
     const conversations = Array.isArray(data) ? data : data.conversations || [];
     return conversations.map(normalizeConversation);
 }
 
+/** Conversations come 20 to a page; this is how far a link to one looks. */
+const CONVERSATION_PAGE_SIZE = 20;
+const MAX_CONVERSATION_PAGES = 10;
+
+/** Find one conversation by id, however far down the list it is. */
+export async function findConversation(id: string) {
+    for (let page = 1; page <= MAX_CONVERSATION_PAGES; page += 1) {
+        const rows = await getConversations(page);
+        const found = rows.find((row) => row.id === id);
+        if (found) return found;
+        if (rows.length < CONVERSATION_PAGE_SIZE) return undefined;
+    }
+    return undefined;
+}
+
 /**
- * Fetch messages from a specific conversation
+ * Fetch one page of messages. The API sends the newest first; they come back
+ * oldest first, the order a thread reads in.
  */
-export async function getMessages(conversationId: string) {
-    const data = await apiGet<{ messages: Message[] }>(`/v1/conversations/${conversationId}/messages`);
-    return data.messages || [];
+export async function getMessages(conversationId: string, page = 1): Promise<MessagesPage> {
+    const data = await apiGet<{ messages?: Message[]; total?: number; page?: number; limit?: number }>(
+        `/v1/conversations/${conversationId}/messages`,
+        page > 1 ? { page: String(page) } : undefined,
+    );
+    const messages = [...(data.messages || [])].reverse();
+    return {
+        messages,
+        total: Number(data.total ?? messages.length),
+        page: Number(data.page ?? page),
+        limit: Number(data.limit ?? 50),
+    };
+}
+
+/** Mark everything the other person sent in a conversation as read. */
+export async function markConversationRead(conversationId: string) {
+    await apiPost<unknown>(`/v1/conversations/${conversationId}/read`, {});
 }
 
 /**

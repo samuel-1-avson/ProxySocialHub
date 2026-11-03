@@ -5,8 +5,10 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
@@ -15,6 +17,21 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
+
+// tombstoneDeleted clears the content of soft-deleted messages so ordinary
+// read paths return a content-free tombstone (F03). The stored row is
+// untouched; retention of the original text is a product/policy decision.
+func tombstoneDeleted(m *models.Message) {
+	if m != nil && m.IsDeleted {
+		m.Content = ""
+	}
+}
+
+func tombstoneDeletedAll(messages []models.Message) {
+	for i := range messages {
+		tombstoneDeleted(&messages[i])
+	}
+}
 
 // RegisterMessagingRoutes registers messaging-related routes
 func RegisterMessagingRoutes(rg *gin.RouterGroup) {
@@ -115,31 +132,6 @@ func createMessageChecked(convID, senderID uuid.UUID, content string, replyToID 
 	return msg, created, nil
 }
 
-// deliverNewMessage emits the realtime + notification side effects for a
-// message that has already committed. Callers must only invoke it for
-// freshly created messages, never for idempotent replays.
-func deliverNewMessage(c *gin.Context, conv models.Conversation, msg models.Message, senderID uuid.UUID) {
-	recipientID := conv.GetOtherParticipant(senderID)
-	ws.BroadcastToUser(recipientID.String(), ws.MsgTypeNewMessage, gin.H{
-		"conversation_id": conv.ID,
-		"message":         msg,
-	})
-	convID := conv.ID
-	actorID := senderID
-	dispatchUserNotification(c.Request.Context(), userNotification{
-		UserID:     recipientID,
-		Type:       models.NotificationMessage,
-		Title:      "New message",
-		Body:       truncate(msg.Content, 160),
-		ActionURL:  "/messages?conversation=" + convID.String(),
-		ActionType: "open_conversation",
-		ActorID:    &actorID,
-		TargetType: "conversation",
-		TargetID:   &convID,
-		Dedupe:     true,
-	})
-}
-
 // getConversations returns the current user's conversations
 func getConversations(c *gin.Context) {
 	userID, ok := GetUserID(c)
@@ -170,7 +162,7 @@ func getConversations(c *gin.Context) {
 	results := make([]models.ConversationWithPreview, len(conversations))
 	if len(conversations) == 0 {
 		c.JSON(http.StatusOK, gin.H{
-			"conversations": results,
+			"conversations": conversationWithPreviewDTOs(results),
 			"total":         total,
 			"page":          page,
 			"limit":         limit,
@@ -193,6 +185,7 @@ func getConversations(c *gin.Context) {
 		ORDER BY conversation_id, created_at DESC
 	`, convIDs).Scan(&lastMsgs).Error; err == nil {
 		for _, m := range lastMsgs {
+			tombstoneDeleted(&m)
 			lastByConv[m.ConversationID] = m
 		}
 	}
@@ -235,7 +228,7 @@ func getConversations(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"conversations": results,
+		"conversations": conversationWithPreviewDTOs(results),
 		"total":         total,
 		"page":          page,
 		"limit":         limit,
@@ -252,9 +245,17 @@ func startConversation(c *gin.Context) {
 
 	var req models.StartConversationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": messageRequestError(err)})
 		return
 	}
+	// Same rules as a normal send: no blank messages, and personal details
+	// are masked before anything is stored.
+	req.Message = strings.TrimSpace(req.Message)
+	if req.Message == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Write a message first."})
+		return
+	}
+	safeContent := privacy.MaskPII(req.Message)
 
 	if req.RecipientID == userID {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot start conversation with yourself"})
@@ -268,14 +269,17 @@ func startConversation(c *gin.Context) {
 		return
 	}
 
+	if rejectIfBlocked(c, userID, req.RecipientID) {
+		return
+	}
+
+	// First messages go through the same checked, idempotent send path
+	// as subsequent sends (F05).
 	clientKey, valid := resolveClientMsgID(c, req.ClientMsgID)
 	if !valid {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "client_msg_id is too long"})
 		return
 	}
-	// First messages go through the same masking + delivery rules as
-	// subsequent sends (F05).
-	safeContent := privacy.MaskPII(req.Message)
 
 	// Check if conversation exists (in either direction)
 	var existingConv models.Conversation
@@ -290,12 +294,12 @@ func startConversation(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send message"})
 			return
 		}
-		db.Social().Preload("User1").Preload("User2").First(&existingConv, "id = ?", existingConv.ID)
 		if created {
 			db.Social().Preload("Sender").First(&msg, "id = ?", msg.ID)
-			deliverNewMessage(c, existingConv, msg, userID)
+			announceMessage(c, userID, existingConv.ID, req.RecipientID, msg)
 		}
-		c.JSON(http.StatusOK, existingConv)
+		db.Social().Preload("User1").Preload("User2").First(&existingConv, "id = ?", existingConv.ID)
+		c.JSON(http.StatusOK, conversationDTOFrom(existingConv))
 		return
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -328,10 +332,11 @@ func startConversation(c *gin.Context) {
 		return
 	}
 
-	db.Social().Preload("User1").Preload("User2").First(&conv, "id = ?", conv.ID)
 	db.Social().Preload("Sender").First(&msg, "id = ?", msg.ID)
-	deliverNewMessage(c, conv, msg, userID)
-	c.JSON(http.StatusCreated, conv)
+	announceMessage(c, userID, conv.ID, req.RecipientID, msg)
+
+	db.Social().Preload("User1").Preload("User2").First(&conv, "id = ?", conv.ID)
+	c.JSON(http.StatusCreated, conversationDTOFrom(conv))
 }
 
 // getMessages returns messages in a conversation
@@ -377,9 +382,17 @@ func getMessages(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch messages"})
 		return
 	}
+	tombstoneDeletedAll(messages)
+
+	for i := range messages {
+		if messages[i].IsDeleted {
+			messages[i].Content = ""
+			messages[i].Reactions = nil
+		}
+	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"messages": messages,
+		"messages": messageDTOs(messages),
 		"total":    total,
 		"page":     page,
 		"limit":    limit,
@@ -406,7 +419,16 @@ func sendMessage(c *gin.Context) {
 		ClientMsgID string     `json:"client_msg_id" binding:"omitempty,max=128"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": messageRequestError(err)})
+		return
+	}
+	req.Content = strings.TrimSpace(req.Content)
+	if req.Content == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Write a message first."})
+		return
+	}
+	if utf8.RuneCountInString(req.Content) > maxMessageRunes {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Messages can be at most 2000 characters."})
 		return
 	}
 
@@ -419,6 +441,10 @@ func sendMessage(c *gin.Context) {
 
 	if conv.Participant1 != userID && conv.Participant2 != userID {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
+	if rejectIfBlocked(c, userID, conv.GetOtherParticipant(userID)) {
 		return
 	}
 
@@ -453,11 +479,56 @@ func sendMessage(c *gin.Context) {
 
 	db.Social().Preload("Sender").First(&msg, "id = ?", msg.ID)
 
+	// Delivery side effects run only after the checked write commits,
+	// and never for an idempotent replay (F05).
 	if created {
-		deliverNewMessage(c, conv, msg, userID)
+		announceMessage(c, userID, convID, conv.GetOtherParticipant(userID), msg)
 	}
 
-	c.JSON(http.StatusCreated, msg)
+	c.JSON(http.StatusCreated, messageDTOFrom(msg))
+}
+
+// maxMessageRunes is the longest message a person can send.
+const maxMessageRunes = 2000
+
+// messageRequestError says what is wrong with a message request in words a
+// person can act on, instead of the validator's own text.
+func messageRequestError(err error) string {
+	var verrs validator.ValidationErrors
+	if errors.As(err, &verrs) && len(verrs) > 0 {
+		switch verrs[0].Field() {
+		case "Message", "Content":
+			if verrs[0].Tag() == "max" {
+				return "Messages can be at most 2000 characters."
+			}
+			return "Write a message first."
+		case "RecipientID":
+			return "Choose who to message."
+		}
+	}
+	return "The message could not be read. Check it and try again."
+}
+
+// announceMessage tells the recipient about a new message: live over the
+// WebSocket, and as a notification that opens the conversation. It does
+// not write the HTTP response; each handler writes its own, exactly once.
+func announceMessage(c *gin.Context, senderID, convID, recipientID uuid.UUID, msg models.Message) {
+	ws.BroadcastToUser(recipientID.String(), ws.MsgTypeNewMessage, gin.H{
+		"conversation_id": convID,
+		"message":         messageDTOFrom(msg),
+	})
+	dispatchUserNotification(c.Request.Context(), userNotification{
+		UserID:     recipientID,
+		Type:       models.NotificationMessage,
+		Title:      "New message",
+		Body:       truncate(msg.Content, 160),
+		ActionURL:  "/messages?conversation=" + convID.String(),
+		ActionType: "open_conversation",
+		ActorID:    &senderID,
+		TargetType: "conversation",
+		TargetID:   &convID,
+		Dedupe:     true,
+	})
 }
 
 // markAsRead marks all messages as read
@@ -534,6 +605,11 @@ func editMessage(c *gin.Context) {
 		return
 	}
 
+	if msg.IsDeleted {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Message has been deleted"})
+		return
+	}
+
 	// Check edit window (5 minutes)
 	if time.Since(msg.CreatedAt) > 5*time.Minute {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Edit window expired"})
@@ -552,7 +628,7 @@ func editMessage(c *gin.Context) {
 	}
 
 	db.Social().Preload("Sender").First(&msg, "id = ?", msg.ID)
-	c.JSON(http.StatusOK, msg)
+	c.JSON(http.StatusOK, messageDTOFrom(msg))
 }
 
 // deleteMessage soft-deletes a message
@@ -603,6 +679,11 @@ func deleteMessage(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	ws.BroadcastToUser(conv.GetOtherParticipant(userID).String(), ws.MsgTypeMessageDeleted, gin.H{
+		"conversation_id": convID,
+		"message_id":      msgID,
+	})
 
 	c.JSON(http.StatusOK, gin.H{"message": "Message deleted"})
 }
@@ -735,7 +816,7 @@ func searchMessages(c *gin.Context) {
 		Find(&messages)
 
 	c.JSON(http.StatusOK, gin.H{
-		"messages": messages,
+		"messages": messageDTOs(messages),
 		"query":    query,
 	})
 }

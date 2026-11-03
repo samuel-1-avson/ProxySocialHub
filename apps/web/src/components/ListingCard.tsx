@@ -25,6 +25,7 @@ import { CatalogProductBadge } from '@/components/marketplace/CatalogProductBadg
 import { ListingSlaBadge } from '@/components/marketplace/ListingSlaBadge';
 import { formatListingPricePerGB } from '@/lib/listing-price';
 import { displayListingTitle } from '@/lib/listing-display';
+import { LOCATION_SHARED_LATER, isMaskedLocation } from '@/lib/listing-display';
 
 interface ListingCardProps {
     listing: Listing;
@@ -158,7 +159,7 @@ export function ListingCard({ listing, onSelect }: ListingCardProps) {
                 <div className="flex items-center gap-5 text-xs font-semibold text-muted-foreground">
                     <div className="flex items-center gap-2">
                         <Globe size={10} className="text-primary/40" />
-                        {listing.country || 'Global'}
+                        {isMaskedLocation(listing.country) ? LOCATION_SHARED_LATER : listing.country || 'Global'}
                     </div>
                     <div className="flex items-center gap-2">
                         <ShieldCheck size={10} className="text-primary/40" />
