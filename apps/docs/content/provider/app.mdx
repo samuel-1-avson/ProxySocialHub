@@ -35,8 +35,9 @@ The app asks you to read this before it does anything, and to confirm that you o
 | You do this | What happens |
 |-------------|--------------|
 | Press **Pause sharing** | The node stops. It stays stopped, even after a restart, until you press **Resume sharing**. |
+| Press **Stop this node…** (only shown for a node started outside the app) | The app asks you to confirm. If you confirm, the node stops and stays stopped until you press **Resume sharing**. |
 | Close the window | The window hides to the tray. **Sharing keeps going.** |
-| Right-click the tray icon and choose **Quit (stops sharing)** | The node stops and the app closes. The next time you open the app, or sign in with *Start when I sign in* ticked, sharing resumes if it was on. |
+| Right-click the tray icon and choose **Quit (stops sharing)** | The node the app started stops and the app closes. A node started outside the app keeps running; the menu says so. The next time you open the app, or sign in with *Start when I sign in* ticked, sharing resumes if it was on. |
 
 The tray icon's hover text tells you the state: sharing, connecting, paused, or needs attention. *Start when I sign in to Windows* is a checkbox on the main screen; it adds the app to Windows Startup, where you can also turn it off under **Task Manager → Startup apps**.
 
@@ -44,7 +45,7 @@ The tray icon's hover text tells you the state: sharing, connecting, paused, or 
 
 The app and the [Provider CLI](/docs/provider/cli) share one node, so they always agree. If you paired with the app you can also run `provider-node status` in a terminal, and the other way round.
 
-If a node was already running when you opened the app (you started it with the CLI or the website's setup script), the app picks it up, shows it as sharing, and from then on treats it as yours to keep running, including after a restart. Stop it with **Pause sharing** in the app. Stopping it from a terminal while the app is open only makes the app start it again within a few seconds.
+If a node was already running when you opened the app (you started it with the CLI or the website's setup script), the app picks it up and shows it as sharing, marked as started outside the app. The app does not stop a node it did not start unless you ask: press **Stop this node…** and confirm. Pause sharing is not offered for it. Stopping it from a terminal while the app is open only makes the app start it again within a few seconds, because the app keeps your wish to share.
 
 | What | Where |
 |------|-------|
