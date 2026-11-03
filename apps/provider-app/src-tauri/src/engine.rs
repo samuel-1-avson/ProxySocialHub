@@ -65,10 +65,6 @@ struct Inner {
     next_pairing_id: u64,
     start_failed: Option<String>,
     last_start_attempt: Option<Instant>,
-    /// The person pressed Pause and the node has not been seen stopped yet. While it is set, a
-    /// node that is still running is not read as a wish to share (see `remember_running_node`).
-    /// In memory only: it only bridges the moment between saving the pause and the stop landing.
-    pause_requested: bool,
     /// The app itself started the running node this session. A node that was already running
     /// (the CLI, a service) is adopted, shown, but never stopped: Pause and Quit leave it
     /// to its owner. Set when a start is issued from stopped, cleared on failure and
@@ -123,6 +119,12 @@ impl<N: NodeControl> AppCore<N> {
 
     /// What to show right now. Reads the node, never changes it.
     pub fn state(&self) -> AppState {
+        self.state_given(|| self.node.status())
+    }
+
+    /// `state`, with the node's facts supplied by `read` (called only when the node has to be
+    /// looked at), so a caller that already has them does not start another process.
+    fn state_given(&self, read: impl FnOnce() -> Result<NodeFacts, String>) -> AppState {
         let (consent, wanted, view, start_failed) = {
             let inner = self.lock();
             (
@@ -136,7 +138,7 @@ impl<N: NodeControl> AppCore<N> {
         if !consent || view.is_some() {
             return derive_state(consent, wanted, view.as_ref(), &NodeFacts::default());
         }
-        match self.node.status() {
+        match read() {
             Ok(mut facts) => {
                 facts.start_failed = start_failed;
                 let mut inner = self.lock();
@@ -216,7 +218,7 @@ impl<N: NodeControl> AppCore<N> {
             PairEvent::Approved { .. } => {
                 inner.pairing = None;
                 inner.settings.sharing_wanted = true;
-                inner.pause_requested = false;
+                inner.settings.pause_pending = false;
                 inner.start_failed = None;
                 // The credentials are already on disk; a failed settings write only means the
                 // intent is not remembered, and the node still starts below.
@@ -248,7 +250,9 @@ impl<N: NodeControl> AppCore<N> {
                 return Err("Please read and accept the consent first.".to_string());
             }
             inner.settings.sharing_wanted = on;
-            inner.pause_requested = !on;
+            // Saved to disk, so a Pause that has not taken effect yet (or cannot, for a node
+            // that is not the app's) is still a Pause after a restart.
+            inner.settings.pause_pending = !on;
             if on {
                 inner.start_failed = None;
             }
@@ -261,18 +265,61 @@ impl<N: NodeControl> AppCore<N> {
             self.node_stop()
         } else {
             // An adopted node belongs to its owner; the wish is saved, the node untouched.
+            // Stopping it is a separate, explicit step: `stop_outside_node`.
             Ok(())
         }
+    }
+
+    /// Stop the node whoever started it. The window only offers this after the person has
+    /// confirmed, for a node the app did not start; a Pause never reaches such a node. The wish
+    /// is turned off first, so the supervisor does not start it again.
+    pub fn stop_outside_node(&self) -> Result<(), String> {
+        {
+            let mut inner = self.lock();
+            if !inner.settings.consent_is_current() {
+                return Err("Please read and accept the consent first.".to_string());
+            }
+            inner.settings.sharing_wanted = false;
+            inner.settings.pause_pending = true;
+            self.save(&inner.settings)?;
+        }
+        self.node_stop()
     }
 
     /// One pass of "keep the node running if the person wants it": called at launch and then
     /// every few seconds. Does nothing without consent or a config. Without the wish to share it
     /// starts nothing, but it does notice a node the person started themselves.
+    #[cfg(test)]
     pub fn supervise_once(&self) {
         self.supervise_at(Instant::now());
     }
 
+    /// One pass of the supervisor followed by the state to show, from a single look at the node.
+    /// The background loop used to run `status` twice per tick (once to supervise, once for the
+    /// window); this reads it once. Without consent the node is not looked at at all.
+    pub fn tick(&self) -> AppState {
+        self.tick_at(Instant::now())
+    }
+
+    fn tick_at(&self, now: Instant) -> AppState {
+        if !self.lock().settings.consent_is_current() {
+            return self.state();
+        }
+        let read = self.node.status();
+        self.supervise_given(now, &read);
+        self.state_given(|| read)
+    }
+
+    #[cfg(test)]
     fn supervise_at(&self, now: Instant) {
+        if !self.lock().settings.consent_is_current() {
+            return;
+        }
+        let read = self.node.status();
+        self.supervise_given(now, &read);
+    }
+
+    fn supervise_given(&self, now: Instant, read: &Result<NodeFacts, String>) {
         {
             let inner = self.lock();
             if !inner.settings.consent_is_current() {
@@ -280,7 +327,7 @@ impl<N: NodeControl> AppCore<N> {
             }
             if !inner.settings.sharing_wanted {
                 drop(inner);
-                self.remember_running_node();
+                self.remember_running_node(read);
                 return;
             }
             if let Some(last) = inner.last_start_attempt {
@@ -289,7 +336,7 @@ impl<N: NodeControl> AppCore<N> {
                 }
             }
         }
-        let Ok(facts) = self.node.status() else {
+        let Ok(facts) = read else {
             return;
         };
         if !facts.config_present {
@@ -310,17 +357,19 @@ impl<N: NodeControl> AppCore<N> {
     ///
     /// Only with consent (checked again under the lock, since the status call runs outside it),
     /// only for a running node with a config the app can see, and never while a Pause is still
-    /// taking effect: Pause saves "not wanted" before the node has stopped, and that moment
-    /// must not read as a wish to share.
-    fn remember_running_node(&self) {
-        let Ok(facts) = self.node.status() else {
+    /// pending: Pause saves "not wanted" before the node has stopped (or, for a node the app did
+    /// not start, without stopping it), and that must not read as a wish to share, not even after
+    /// the app restarts. The pause is over once the node is seen stopped.
+    fn remember_running_node(&self, read: &Result<NodeFacts, String>) {
+        let Ok(facts) = read else {
             return;
         };
         let mut inner = self.lock();
-        if inner.pause_requested {
-            // The pause has landed once the node is seen stopped; until then leave it alone.
+        if inner.settings.pause_pending {
             if !facts.process_running {
-                inner.pause_requested = false;
+                inner.settings.pause_pending = false;
+                // A failed write only means the pause is still pending after a restart.
+                let _ = self.save(&inner.settings);
             }
             return;
         }
@@ -644,6 +693,25 @@ mod tests {
         assert!(!settings::load(&d.0).sharing_wanted);
     }
 
+    /// A Pause whose stop did not land (the node is still running afterwards) must survive a
+    /// relaunch. Before the fix, the relaunched app read the running node as a wish to share and
+    /// turned the pause back on, so the window said "Sharing is on" after the person paused.
+    #[test]
+    fn a_pause_whose_stop_did_not_land_survives_a_relaunch() {
+        let (c, node, d) = consented("pause-survives");
+        *node.facts.lock().unwrap() = Ok(paired_facts(false, false));
+        c.set_sharing(true).unwrap(); // the app starts the node
+        *node.facts.lock().unwrap() = Ok(paired_facts(true, true)); // it comes up
+        c.set_sharing(false).unwrap(); // Pause; the node is still running afterwards
+
+        let relaunched = AppCore::new(node.clone(), d.0.clone());
+        relaunched.supervise_once();
+        assert!(
+            !settings::load(&d.0).sharing_wanted,
+            "the relaunch must not turn the pause back on"
+        );
+    }
+
     /// A Pause that arrives while a start is still in flight must wait for it and then stop the
     /// node. Without the guard it ran first, found nothing to stop, and the node came up just
     /// after the person had paused.
@@ -871,6 +939,7 @@ mod tests {
                     accepted_at_unix: 1,
                 }),
                 sharing_wanted: true,
+                pause_pending: false,
             },
         )
         .unwrap();
@@ -944,6 +1013,96 @@ mod tests {
         *node.facts.lock().unwrap() = Ok(paired_facts(true, true));
         c.supervise_once();
         assert!(settings::load(&d.0).sharing_wanted);
+    }
+
+    /// The pause is over once the node has been seen stopped, and that is remembered too: a node
+    /// the person starts by hand after that is adopted again, even in a later launch.
+    #[test]
+    fn a_pause_that_has_landed_is_forgotten_on_disk_too() {
+        let (c, node, d) = consented("pause-lands");
+        *node.facts.lock().unwrap() = Ok(paired_facts(true, true));
+        c.set_sharing(true).unwrap();
+        c.set_sharing(false).unwrap();
+        assert!(settings::load(&d.0).pause_pending, "pending until it lands");
+
+        *node.facts.lock().unwrap() = Ok(paired_facts(false, false));
+        c.supervise_once();
+        assert!(!settings::load(&d.0).pause_pending, "landed");
+
+        let relaunched = AppCore::new(node.clone(), d.0.clone());
+        *node.facts.lock().unwrap() = Ok(paired_facts(true, true));
+        relaunched.supervise_once();
+        assert!(settings::load(&d.0).sharing_wanted, "adopted again");
+    }
+
+    #[test]
+    fn resuming_clears_a_pending_pause() {
+        let (c, node, d) = consented("resume-clears");
+        *node.facts.lock().unwrap() = Ok(paired_facts(true, true));
+        c.set_sharing(false).unwrap();
+        assert!(settings::load(&d.0).pause_pending);
+        c.set_sharing(true).unwrap();
+        let s = settings::load(&d.0);
+        assert!(s.sharing_wanted && !s.pause_pending);
+    }
+
+    /// A Pause never stops a node the app did not start; this is the explicit way to do it.
+    #[test]
+    fn stopping_a_node_started_outside_the_app_stops_it_and_keeps_it_stopped() {
+        let (c, node, d) = consented("stop-outside");
+        *node.facts.lock().unwrap() = Ok(paired_facts(true, true));
+        c.supervise_once(); // adopts the running node: the wish is now on
+        assert!(settings::load(&d.0).sharing_wanted);
+
+        c.stop_outside_node().unwrap();
+        assert_eq!(node.stops.load(Ordering::SeqCst), 1);
+        let s = settings::load(&d.0);
+        assert!(!s.sharing_wanted && s.pause_pending);
+
+        // The node is still shutting down: it is neither restarted nor adopted again.
+        for _ in 0..3 {
+            c.supervise_once();
+        }
+        assert_eq!(node.starts.load(Ordering::SeqCst), 0);
+        assert!(!settings::load(&d.0).sharing_wanted);
+    }
+
+    #[test]
+    fn stopping_an_outside_node_needs_consent() {
+        let (c, node, _d) = core("stop-outside-noconsent");
+        *node.facts.lock().unwrap() = Ok(paired_facts(true, true));
+        assert!(c.stop_outside_node().is_err());
+        assert_eq!(node.stops.load(Ordering::SeqCst), 0);
+    }
+
+    /// The background loop used to ask the node twice per tick: once to supervise and once for
+    /// the window. One look serves both.
+    #[test]
+    fn a_tick_looks_at_the_node_once_and_returns_what_the_window_shows() {
+        let (c, node, _d) = consented("tick-once");
+        *node.facts.lock().unwrap() = Ok(paired_facts(true, true));
+        let before = node.status_calls.load(Ordering::SeqCst);
+        let state = c.tick();
+        assert_eq!(node.status_calls.load(Ordering::SeqCst) - before, 1);
+        assert!(matches!(state, AppState::Sharing { .. }));
+    }
+
+    #[test]
+    fn a_tick_without_consent_does_not_look_at_the_node() {
+        let (c, node, _d) = core("tick-noconsent");
+        assert_eq!(c.tick(), AppState::NeedsConsent);
+        assert_eq!(node.status_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn a_tick_still_resumes_a_wanted_node_that_is_not_running() {
+        let (c, node, _d) = consented("tick-resume");
+        *node.facts.lock().unwrap() = Ok(paired_facts(false, false));
+        c.set_sharing(true).unwrap();
+        let before = node.starts.load(Ordering::SeqCst);
+        let state = c.tick_at(Instant::now() + Duration::from_secs(60));
+        assert_eq!(node.starts.load(Ordering::SeqCst), before + 1);
+        assert!(matches!(state, AppState::Connecting { .. }), "{state:?}");
     }
 
     #[test]
