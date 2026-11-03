@@ -121,3 +121,9 @@ test("pagination stays bounded and does not accept arbitrary endpoint paths", ()
     "/v1/explorer/blocks?page=1000000&page_size=20&chain=solana",
   );
 });
+
+test("the metrics projection does not pass on the average block time", () => {
+  const result = projectPublicData("metrics", { block_height: 7, avg_block_time_ms: 7524 });
+  assert.equal(result.block_height, 7);
+  assert.equal(Object.hasOwn(result, "avg_block_time_ms"), false);
+});
