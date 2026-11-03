@@ -1,6 +1,6 @@
 {
   "name": "proxyhubb-provider-app",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "type": "module",
   "description": "ProxyHubb Provider: a tray app that runs the provider node",
