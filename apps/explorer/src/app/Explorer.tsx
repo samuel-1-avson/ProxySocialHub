@@ -123,12 +123,20 @@ function usePeriod() {
   };
   return [period, update] as const;
 }
+const periodLabels: Record<Period, string> = {
+  "1h": "Last hour",
+  "24h": "Last 24 hours",
+  "7d": "Last 7 days",
+  "30d": "Last 30 days",
+};
 function PeriodSelect({
   value,
   onChange,
+  options = periods,
 }: {
   value: Period;
   onChange: (value: Period) => void;
+  options?: Period[];
 }) {
   return (
     <label className="ui-control">
@@ -139,10 +147,11 @@ function PeriodSelect({
         value={value}
         onChange={(event) => onChange(event.target.value as Period)}
       >
-        <option value="1h">Last hour</option>
-        <option value="24h">Last 24 hours</option>
-        <option value="7d">Last 7 days</option>
-        <option value="30d">Last 30 days</option>
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {periodLabels[option]}
+          </option>
+        ))}
       </select>
     </label>
   );
@@ -307,7 +316,7 @@ function MetricSummary() {
         <Stat
           label="Active nodes"
           value={num(metrics.data?.active_nodes, 0)}
-          detail="Reported network population"
+          detail="Only nodes whose owners chose to be listed"
         />
         <Stat
           label="Indexed transactions"
@@ -315,13 +324,13 @@ function MetricSummary() {
           detail="Public indexer aggregate"
         />
         <Stat
-          label="Reported bandwidth"
+          label="Node traffic, last 24 h"
           value={
             metrics.data?.total_bandwidth_gb != null
               ? `${num(metrics.data.total_bandwidth_gb)} GB`
               : "Not available"
           }
-          detail="Cumulative indexed bandwidth"
+          detail="Sum of each listed node's 24-hour total"
         />
         <Stat
           label="Latest indexed block"
@@ -342,10 +351,12 @@ function TrendChart({
   title,
   unit,
   points,
+  note,
 }: {
   title: string;
   unit: string;
   points: Data[];
+  note?: string;
 }) {
   const values = points
     .map((point) => ({
@@ -410,6 +421,7 @@ function TrendChart({
             {num(min)}–{num(max)} {unit} across the selected window. Values are
             reported by the public metrics source.
           </p>
+          {note && <p className="ui-note">{note}</p>}
           <details className="explorer-chart-data">
             <summary>Show measurement values</summary>
             <div className="ui-table-wrap" role="region" aria-label={`${title} values`} tabIndex={0}>
@@ -439,15 +451,13 @@ function TrendChart({
 function HistoryObservation({ point, index }: { point: Record<string, unknown>; index: number }) {
   return <div className="explorer-history-item" key={`${String(point.timestamp)}-${index}`}>
     <span>{observed(point.timestamp)}</span>
-    <Status value={point.status} />
     <strong>{num(point.active_nodes, 0)} active nodes</strong>
   </div>;
 }
 function Health({ period = "24h" }: { period?: Period }) {
   const health = usePublic("health");
   const trust = usePublic("trust");
-  const historyPeriod = period === "1h" ? "24h" : period;
-  const history = usePublic("health-history", undefined, 1, { period: historyPeriod });
+  const history = usePublic("health-history", undefined, 1, { period });
   const historyPoints = records(history.data?.history).sort((a, b) =>
     (Date.parse(text(b.timestamp, "")) || 0) - (Date.parse(text(a.timestamp, "")) || 0));
   return (
@@ -486,8 +496,8 @@ function Health({ period = "24h" }: { period?: Period }) {
       </div>
       <section className="explorer-history">
         <div className="ui-section-heading">
-          <div><h2>Network history</h2><p className="ui-note">Reported active nodes and health by observation window.</p></div>
-          <span className="explorer-chart-count">{historyPeriod === "24h" && period === "1h" ? "last 24h" : historyPeriod}</span>
+          <div><h2>Network history</h2><p className="ui-note">Active nodes reported in each observation window.</p></div>
+          <span className="explorer-chart-count">{period}</span>
         </div>
         <SourceState source={history} />
         {history.data?.metrics_available === false ? (
@@ -540,7 +550,7 @@ function Ledger({ blocks = false, preview = false }: { blocks?: boolean; preview
             <thead>
               <tr>
                 <th>{blocks ? "Block" : "Transaction"}</th>
-                <th>{blocks ? "Transactions" : "State"}</th>
+                <th>{blocks ? "On-chain transactions" : "State"}</th>
                 <th>{blocks ? "Observed" : "Amount"}</th>
                 <th></th>
               </tr>
@@ -561,7 +571,7 @@ function Ledger({ blocks = false, preview = false }: { blocks?: boolean; preview
                       </Link>
                       {!blocks && <p>{text(row.tx_type).replace(/_/g, " ")}</p>}
                     </td>
-                    <td data-label={blocks ? "Transactions" : "State"}>
+                    <td data-label={blocks ? "On-chain transactions" : "State"}>
                       {blocks ? (
                         num(row.transaction_count, 0)
                       ) : (
@@ -591,6 +601,11 @@ function Ledger({ blocks = false, preview = false }: { blocks?: boolean; preview
           )}
         </div>
       )}
+      {blocks && source.data && (
+        <p className="ui-note">
+          Counts every transaction the chain recorded in the block. This Explorer indexes only ProxyHub transactions, so a block can list fewer.
+        </p>
+      )}
       {preview ? source.data && <div className="ui-pagination explorer-ledger-preview">
         <span>Showing {Math.min(rows.length, 5)}{total != null ? ` of ${total}` : ""} indexed records</span>
         <Link href="/transactions" className="ui-button secondary small">View all transactions <ArrowSymbol /></Link>
@@ -604,7 +619,11 @@ function Ledger({ blocks = false, preview = false }: { blocks?: boolean; preview
         </button>
         <span>
           Page {page}
-          {total != null ? ` · ${total} records` : ""}
+          {total != null
+            ? blocks
+              ? ` · ${total >= 10_000 ? "about " : ""}${num(total, 0)} blocks`
+              : ` · ${num(total, 0)} records`
+            : ""}
         </span>
         <button
           className="ui-button secondary small"
@@ -699,25 +718,31 @@ function NodeRankings({
   }, []);
   const source = usePublic("leaderboard", undefined, 1, { category, period });
   const rows = records(source.data?.entries);
-  const valueLabel = category === "bandwidth" ? "Reported bandwidth" : category === "sessions" ? "Active sessions" : "Reported uptime";
+  const valueLabel = category === "bandwidth" ? "Reported bandwidth" : category === "sessions" ? "Session count" : "Last-seen score";
+  const meaning = category === "uptime"
+    ? "Last-seen score: 100% means the node reported in the last 5 minutes, falling to 0% over 24 hours. It is not measured uptime."
+    : category === "sessions"
+      ? "Per-node session counts are not published. Nodes are ordered by their sessions in the selected window."
+      : "";
   return (
     <section className="ui-surface">
       <div className="ui-section-heading"><div><h2>Measured node rankings</h2><p className="ui-note">Ranked by the selected public metric; scores are not buying recommendations.</p></div><PeriodSelect value={period} onChange={onPeriodChange} /></div>
       <div className="explorer-toolbar" role="group" aria-label="Ranking metric">
-        {([["uptime", "Uptime"], ["bandwidth", "Bandwidth"], ["sessions", "Sessions"]] as const).map(([key, label]) => (
+        {([["uptime", "Last seen"], ["bandwidth", "Bandwidth"], ["sessions", "Sessions"]] as const).map(([key, label]) => (
           <button key={key} className={`ui-button small ${category === key ? "" : "secondary"}`} aria-pressed={category === key} onClick={() => { setCategory(key); updateQuery({ metric: key }); }}>{label}</button>
         ))}
       </div>
       <SourceState source={source} />
+      {meaning && <p className="ui-note explorer-source-note">{meaning}</p>}
       {typeof source.data?.note === "string" && <p className="ui-note explorer-source-note">{text(source.data.note)}</p>}
       {source.data && (
         <div className="ui-table-wrap" role="region" aria-label={`${valueLabel} ranking`} tabIndex={0}>
           <table className="ui-table">
-            <thead><tr><th>Rank</th><th>Node</th><th>Region</th><th>{valueLabel}</th><th>Status</th></tr></thead>
+            <thead><tr><th>Rank</th><th>Node</th><th>Region</th><th>{valueLabel}</th><th>Quality</th></tr></thead>
             <tbody>{rows.map((row) => {
               const id = text(row.node_id, "");
-              const value = category === "bandwidth" ? `${num(row.bandwidth_gb)} GB` : category === "sessions" ? num(row.active_sessions, 0) : `${num(row.uptime_percent)}%`;
-              return <tr key={id}><td>#{num(row.rank, 0)}</td><td><Link className="ui-link" href={`/nodes/${encodeURIComponent(id)}`}>{text(row.name, id.slice(0, 14))}</Link></td><td>{text(row.country, text(row.region))}</td><td>{value}</td><td><Status value={row.is_validator === true ? "Validator" : "Node"} /></td></tr>;
+              const value = category === "bandwidth" ? `${num(row.bandwidth_gb)} GB` : category === "sessions" ? "Not published" : `${num(row.uptime_percent)}%`;
+              return <tr key={id}><td>#{num(row.rank, 0)}</td><td><Link className="ui-link" href={`/nodes/${encodeURIComponent(id)}`}>{text(row.name, id.slice(0, 14))}</Link></td><td>{text(row.country, text(row.region))}</td><td>{value}</td><td><Status value={row.is_validator === true ? "High quality" : "Standard"} /></td></tr>;
             })}</tbody>
           </table>
           {!rows.length && <p className="ui-note">No ranking data has been reported.</p>}
@@ -782,7 +807,7 @@ function Nodes() {
           {source.data && (
             <div className="ui-table-wrap" role="region" aria-label={view === "compare" ? "Select nodes to compare" : "Public nodes"} tabIndex={0}>
               <table className="ui-table">
-                <thead><tr>{view === "compare" && <th>Compare</th>}<th>Node</th><th>Region</th><th>Reported state</th><th>Uptime</th><th>Latency</th><th>Last heartbeat</th></tr></thead>
+                <thead><tr>{view === "compare" && <th>Compare</th>}<th>Node</th><th>Region</th><th>Reported state</th><th>Last-seen score</th><th>Last heartbeat</th></tr></thead>
                 <tbody>{visibleRows.map((row) => {
                   const id = text(row.node_id, "");
                   const checked = selected.includes(id);
@@ -793,7 +818,6 @@ function Nodes() {
                       <td>{text(row.country, text(row.region))}</td>
                       <td><Status value={row.is_active === true ? "Active" : row.is_active === false ? "Offline" : "Unknown"} /></td>
                       <td>{typeof row.uptime_percent === "number" ? `${num(row.uptime_percent)}%` : "Not reported"}</td>
-                      <td>{typeof row.latency_ms === "number" ? `${num(row.latency_ms, 0)} ms` : "Not reported"}</td>
                       <td>{observed(row.last_heartbeat)}</td>
                     </tr>
                   );
@@ -804,9 +828,9 @@ function Nodes() {
           )}
           {view === "compare" && selected.length > 0 && (
             <section className="ui-surface explorer-compare">
-              <div className="ui-section-heading"><div><h2>Node comparison</h2><p className="ui-note">Only reported values are shown.</p></div><button className="ui-button small secondary" onClick={() => setSelected([])}>Clear selection</button></div>
+              <div className="ui-section-heading"><div><h2>Node comparison</h2><p className="ui-note">Only reported values are shown. Per-node traffic and session counts are not published.</p></div><button className="ui-button small secondary" onClick={() => setSelected([])}>Clear selection</button></div>
               <div className="ui-table-wrap" role="region" aria-label="Compared node metrics" tabIndex={0}><table className="ui-table"><thead><tr><th>Measure</th>{selected.map((id) => <th key={id}>{text(rows.find((row) => text(row.node_id) === id)?.name, id.slice(0, 12))}</th>)}</tr></thead><tbody>
-                {([["Region", (row: Data) => text(row.country, text(row.region))], ["Status", (row: Data) => row.is_active === true ? "Active" : row.is_active === false ? "Offline" : "Not reported"], ["Uptime", (row: Data) => typeof row.uptime_percent === "number" ? `${num(row.uptime_percent)}%` : "Not reported"], ["Bandwidth", (row: Data) => typeof row.bandwidth_gb === "number" ? `${num(row.bandwidth_gb)} GB` : "Not reported"], ["Active sessions", (row: Data) => typeof row.active_sessions === "number" ? num(row.active_sessions, 0) : "Not reported"], ["Last heartbeat", (row: Data) => observed(row.last_heartbeat)]] as Array<[string, (row: Data) => string]>).map(([label, read]) => <tr key={label}><th>{label}</th>{selected.map((id) => <td key={id}>{read(rows.find((row) => text(row.node_id) === id) || {})}</td>)}</tr>)}
+                {([["Region", (row: Data) => text(row.country, text(row.region))], ["Status", (row: Data) => row.is_active === true ? "Active" : row.is_active === false ? "Offline" : "Not reported"], ["Last-seen score", (row: Data) => typeof row.uptime_percent === "number" ? `${num(row.uptime_percent)}%` : "Not reported"], ["Last heartbeat", (row: Data) => observed(row.last_heartbeat)]] as Array<[string, (row: Data) => string]>).map(([label, read]) => <tr key={label}><th>{label}</th>{selected.map((id) => <td key={id}>{read(rows.find((row) => text(row.node_id) === id) || {})}</td>)}</tr>)}
               </tbody></table></div>
             </section>
           )}
@@ -820,14 +844,17 @@ function Nodes() {
     </>
   );
 }
+// The API's "1h" returns 12 hourly points, so analytics offers no one-hour window.
+const analyticsPeriods: Period[] = ["24h", "7d", "30d"];
 function Analytics() {
-  const [period, setPeriod] = usePeriod();
+  const [chosen, setPeriod] = usePeriod();
+  const period = chosen === "1h" ? "24h" : chosen;
   const source = usePublic("analytics", undefined, 1, { period });
   return (
     <>
       <div className="explorer-toolbar explorer-period-toolbar">
         <div><h2>Network measurements</h2><p className="ui-note">Time-series values retain the source window and reported units.</p></div>
-        <PeriodSelect value={period} onChange={setPeriod} />
+        <PeriodSelect value={period} onChange={setPeriod} options={analyticsPeriods} />
       </div>
       <Health period={period} />
       <SourceState source={source} />
@@ -837,7 +864,7 @@ function Analytics() {
         </section>
       ) : source.data ? (
         <div className="explorer-chart-grid">
-          <TrendChart title="Bandwidth" unit="GB" points={records(source.data.bandwidth_gb)} />
+          <TrendChart title="Node traffic, rolling 24 h" unit="GB" points={records(source.data.bandwidth_gb)} note="Each point adds up the 24-hour totals of the nodes that reported in that hour, so neighbouring points overlap. It is not traffic per hour." />
           <TrendChart title="Active nodes" unit="nodes" points={records(source.data.active_nodes)} />
           <TrendChart title="Transaction volume" unit="SOL" points={records(source.data.transaction_volume)} />
           <TrendChart title="Active wallets" unit="wallets" points={records(source.data.active_wallets)} />
@@ -1005,7 +1032,7 @@ function Detail({ resource, id }: { resource: PublicResource; id: string }) {
     region: "Region",
     last_heartbeat: "Last heartbeat",
     latency_ms: "Reported latency (ms)",
-    uptime_percent: "Reported uptime (%)",
+    uptime_percent: "Last-seen score (%)",
     balance_sol: "Public balance (SOL)",
     title: "Title",
     description: "Description",
