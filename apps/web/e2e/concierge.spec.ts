@@ -116,6 +116,8 @@ async function open(page: Page, draftHandler?: (route: Route) => Promise<void>) 
 const card = (page: Page) => page.locator("#session-assistant");
 
 test.describe("session assistant", () => {
+  // The first test also pays for compiling the page on a fresh dev server.
+  test.describe.configure({ timeout: 90_000 });
   test.use({ viewport: { width: 1280, height: 900 } });
 
   test("drafts a plan, shows the checks and guesses, and creates exactly the approved intent", async ({ page }, info) => {
