@@ -111,7 +111,7 @@ func sendFriendRequest(c *gin.Context) {
 		Dedupe:     true,
 	})
 
-	c.JSON(http.StatusOK, req)
+	c.JSON(http.StatusOK, friendRequestDTOFrom(req))
 }
 
 // @Summary      Accept friend request
@@ -305,7 +305,7 @@ func listFriendRequests(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, requests)
+	c.JSON(http.StatusOK, friendRequestDTOs(requests))
 }
 
 // getFriendshipStatus returns the relationship state between the current user and a target user.
@@ -414,7 +414,7 @@ func listFriends(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, friends)
+	c.JSON(http.StatusOK, friendshipDTOs(friends))
 }
 
 type friendUserSummary struct {
@@ -547,5 +547,5 @@ func getMutualFriends(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"friends": mutual, "count": len(mutual)})
+	c.JSON(http.StatusOK, gin.H{"friends": friendshipDTOs(mutual), "count": len(mutual)})
 }

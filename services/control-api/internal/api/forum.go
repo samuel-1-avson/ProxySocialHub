@@ -134,7 +134,7 @@ func getCategoryThreads(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"category": category,
-		"threads":  threads,
+		"threads":  forumThreadDTOs(threads),
 	})
 }
 
@@ -197,7 +197,7 @@ func getThreadPosts(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"posts": posts,
+		"posts": forumPostDTOs(posts),
 		"total": totalPosts,
 		"page":  page,
 		"limit": limit,
@@ -224,8 +224,8 @@ func renderThreadWithPosts(c *gin.Context, thread models.ForumThread, incrementV
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"thread":      thread,
-		"posts":       posts,
+		"thread":      forumThreadDTOFrom(thread),
+		"posts":       forumPostDTOs(posts),
 		"total_posts": totalPosts,
 		"page":        page,
 		"limit":       limit,
@@ -334,7 +334,7 @@ func createThread(c *gin.Context) {
 		PublishFeedEvent(*feedEvent)  // Real-time + Cache
 	}()
 
-	c.JSON(http.StatusCreated, thread)
+	c.JSON(http.StatusCreated, forumThreadDTOFrom(thread))
 }
 
 type CreatePostRequest struct {
@@ -427,7 +427,7 @@ func createPost(c *gin.Context) {
 		})
 	}
 
-	c.JSON(http.StatusCreated, post)
+	c.JSON(http.StatusCreated, forumPostDTOFrom(post))
 }
 
 type UpdatePostRequest struct {
@@ -486,7 +486,7 @@ func updatePost(c *gin.Context) {
 	}
 
 	db.Social().Preload("Author").First(&post, "id = ?", post.ID)
-	c.JSON(http.StatusOK, post)
+	c.JSON(http.StatusOK, forumPostDTOFrom(post))
 }
 
 // deletePost deletes a post owned by the current user.
@@ -592,7 +592,7 @@ func markPostSolution(c *gin.Context) {
 		return
 	}
 	db.Social().Preload("Author").First(&post, "id = ?", postID)
-	c.JSON(http.StatusOK, post)
+	c.JSON(http.StatusOK, forumPostDTOFrom(post))
 }
 
 type VoteRequest struct {
@@ -773,7 +773,7 @@ func getRecentThreads(c *gin.Context) {
 	}
 	q.Order("created_at DESC").Limit(limit).Find(&threads)
 
-	c.JSON(http.StatusOK, gin.H{"threads": threads})
+	c.JSON(http.StatusOK, gin.H{"threads": forumThreadDTOs(threads)})
 }
 
 // getPopularThreads returns most voted threads
@@ -786,7 +786,7 @@ func getPopularThreads(c *gin.Context) {
 	}
 	q.Order("(upvotes - downvotes) DESC, created_at DESC").Limit(limit).Find(&threads)
 
-	c.JSON(http.StatusOK, gin.H{"threads": threads})
+	c.JSON(http.StatusOK, gin.H{"threads": forumThreadDTOs(threads)})
 }
 
 // getUnansweredThreads returns threads with no replies
@@ -799,7 +799,7 @@ func getUnansweredThreads(c *gin.Context) {
 	}
 	q.Order("created_at DESC").Limit(limit).Find(&threads)
 
-	c.JSON(http.StatusOK, gin.H{"threads": threads})
+	c.JSON(http.StatusOK, gin.H{"threads": forumThreadDTOs(threads)})
 }
 
 func slugify(s string) string {
@@ -845,7 +845,7 @@ func searchForum(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"threads": threads,
+		"threads": forumThreadDTOs(threads),
 		"total":   total,
 		"page":    page,
 		"limit":   limit,
@@ -880,7 +880,7 @@ func getMyPosts(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"posts": posts,
+		"posts": forumPostDTOs(posts),
 		"total": total,
 		"page":  page,
 		"limit": limit,
@@ -914,7 +914,7 @@ func getMyThreads(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"threads": threads,
+		"threads": forumThreadDTOs(threads),
 		"total":   total,
 		"page":    page,
 		"limit":   limit,
