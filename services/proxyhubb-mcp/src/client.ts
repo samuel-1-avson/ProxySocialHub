@@ -9,6 +9,12 @@ import type { ProxyHubbConfig } from "./config.ts";
 
 export type FetchFn = typeof fetch;
 
+// A JWT minted from a provider CLI token is confined to the routes a headless node
+// needs (control-api RestrictProviderToken). It is easy to copy by mistake from the
+// provider app, and the API's own message does not say what to use instead.
+const PROVIDER_TOKEN_HINT =
+  "PROXYHUBB_ACCESS_TOKEN is a provider node token (from the ProxyHub provider app or CLI), which only works on node routes. Use the token from your signed-in website session instead (see the README, \"Getting your access token\").";
+
 export class ProxyHubbApiError extends Error {
   readonly status: number;
   readonly code: string | null;
@@ -73,7 +79,8 @@ export class ProxyHubbClient {
     if (!res.ok) {
       const rec = (data ?? {}) as Record<string, unknown>;
       const message = typeof rec.error === "string" ? rec.error.slice(0, 300) : res.statusText;
-      throw new ProxyHubbApiError(res.status, message, typeof rec.code === "string" ? rec.code : null);
+      const code = typeof rec.code === "string" ? rec.code : null;
+      throw new ProxyHubbApiError(res.status, code === "provider_token_scope" ? `${message}. ${PROVIDER_TOKEN_HINT}` : message, code);
     }
     return data;
   }

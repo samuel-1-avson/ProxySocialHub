@@ -244,6 +244,19 @@ describe("list_my_orders", () => {
     assert.equal(keyOnly.calls[0]?.headers["x-api-key"], "phub_test");
     assert.equal(keyOnly.calls[0]?.headers.authorization, undefined);
   });
+
+  it("says what is wrong when the token is a provider node token", async () => {
+    const { handlers } = makeHandlers(() =>
+      jsonResponse({ error: "provider token cannot call this route", code: "provider_token_scope" }, 403),
+    );
+    await assert.rejects(
+      () => handlers.listMyOrders({}),
+      (err: Error) =>
+        /403: provider token cannot call this route/.test(err.message) &&
+        /provider node token/.test(err.message) &&
+        /website session/.test(err.message),
+    );
+  });
 });
 
 describe("use_my_order", () => {
