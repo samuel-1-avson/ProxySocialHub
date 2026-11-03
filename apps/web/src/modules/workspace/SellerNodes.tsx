@@ -27,6 +27,8 @@ import {
 import { explorerHref } from "@/lib/navigation/workspace";
 import { Modal } from "@/components/patterns/Modal";
 import { CommandBlock } from "@/components/workspace/CommandBlock";
+import { isNodeOnline, lastSeenText, nodeStatusLabel, useNodeClock } from "@/lib/node-status";
+import { CountrySelect } from "@/components/ui/CountrySelect";
 import {
   PageHeading,
   Loading,
@@ -157,22 +159,17 @@ export function SellerNodeSetup() {
                 placeholder="e.g. Accra home node"
               />
             </label>
-            <label className="ui-field">
-              Country code
-              <input
-                className="ui-input"
-                aria-label="Country code"
-                maxLength={2}
-                pattern="[A-Za-z]{2}"
+            <div className="ui-field">
+              <span>Country</span>
+              <CountrySelect
                 value={country}
-                onChange={(e) => setCountry(e.target.value.toUpperCase())}
-                aria-describedby="setup-country-help"
-                placeholder="e.g. GH"
+                onChange={setCountry}
+                describedBy="setup-country-help"
               />
               <small id="setup-country-help">
-                Optional ISO country code. Live location is verified separately.
+                Optional. Live location is verified separately.
               </small>
-            </label>
+            </div>
             <label className="ui-field">
               City
               <input
@@ -375,8 +372,10 @@ export function NodeConnection({
 
 export function NodeVerification({ nodeId }: { nodeId: string }) {
   const nodes = useSellerNodes();
+  const now = useNodeClock();
   const node = nodes.data?.nodes.find((item) => item.id === nodeId);
-  const verified = node?.status === "online" && node.latest_heartbeat_verified;
+  const online = node ? isNodeOnline(node, now) : false;
+  const verified = online && node?.latest_heartbeat_verified;
   return (
     <section className="ui-surface">
       <div className="ui-section-heading">
@@ -384,11 +383,16 @@ export function NodeVerification({ nodeId }: { nodeId: string }) {
         <Status tone={verified ? "good" : "neutral"}>
           {verified
             ? "Online · signature verified"
-            : node?.status === "online"
+            : online
               ? "Online · signature not verified"
-              : "Waiting for a verified heartbeat"}
+              : node?.status === "online"
+                ? "Offline · no recent heartbeat"
+                : "Waiting for a verified heartbeat"}
         </Status>
       </div>
+      {node && node.last_seen_at && (
+        <p className="ui-note">{lastSeenText(node, now)}</p>
+      )}
       <p className="ui-note">
         The node software reports its own heartbeat. This screen checks the
         server record; it does not send a simulated heartbeat.
@@ -600,17 +604,10 @@ function NodeSettings({ node }: { node: NodeRegistration }) {
               onChange={(e) => setName(e.target.value)}
             />
           </label>
-          <label className="ui-field">
-            Country code
-            <input
-              className="ui-input"
-              pattern="[A-Za-z]{2}"
-              aria-label="Country code"
-              maxLength={2}
-              value={country}
-              onChange={(e) => setCountry(e.target.value.toUpperCase())}
-            />
-          </label>
+          <div className="ui-field">
+            <span>Country</span>
+            <CountrySelect value={country} onChange={setCountry} />
+          </div>
           <label className="ui-field">
             City
             <input
@@ -691,6 +688,7 @@ function NodeSettings({ node }: { node: NodeRegistration }) {
 
 export function SellerNodes() {
   const query = useSellerNodes();
+  const now = useNodeClock();
   return (
     <div className="ui-page">
       <PageHeading
@@ -756,10 +754,13 @@ export function SellerNodes() {
                   </td>
                   <td>
                     <Status
-                      tone={node.status === "online" ? "good" : "neutral"}
+                      tone={isNodeOnline(node, now) ? "good" : "neutral"}
                     >
-                      {node.status}
+                      {nodeStatusLabel(node, now)}
                     </Status>
+                    {node.status === "online" && !isNodeOnline(node, now) && (
+                      <p>{lastSeenText(node, now)}</p>
+                    )}
                   </td>
                   <td>
                     {node.latest_heartbeat_verified

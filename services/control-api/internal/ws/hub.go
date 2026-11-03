@@ -22,12 +22,14 @@ const (
 	MsgTypeNotification   = "notification"
 	MsgTypeSystemAlert    = "system_alert"
 	// Social feature message types
-	MsgTypeNewMessage  = "new_message"
-	MsgTypeNewOrder    = "new_order"
-	MsgTypeNewReview   = "new_review"
-	MsgTypeNewFollower = "new_follower"
-	MsgTypeOrderUpdate = "order_update"
-	MsgTypeNewListing  = "new_listing"
+	MsgTypeNewMessage     = "new_message"
+	MsgTypeMessageUpdated = "message_updated"
+	MsgTypeMessageDeleted = "message_deleted"
+	MsgTypeNewOrder       = "new_order"
+	MsgTypeNewReview      = "new_review"
+	MsgTypeNewFollower    = "new_follower"
+	MsgTypeOrderUpdate    = "order_update"
+	MsgTypeNewListing     = "new_listing"
 )
 
 // Client represents a WebSocket client
