@@ -127,3 +127,15 @@ test("the metrics projection does not pass on the average block time", () => {
   assert.equal(result.block_height, 7);
   assert.equal(Object.hasOwn(result, "avg_block_time_ms"), false);
 });
+
+test("the metrics projection passes on how old the index is, and only those fields", () => {
+  const result = projectPublicData("metrics", {
+    block_height: 7,
+    indexed_head_time: "2026-11-03T17:01:58Z",
+    indexed_lag_seconds: 5820,
+    indexed_internal: { secret: true },
+  });
+  assert.equal(result.indexed_head_time, "2026-11-03T17:01:58Z");
+  assert.equal(result.indexed_lag_seconds, 5820);
+  assert.equal(Object.hasOwn(result, "indexed_internal"), false);
+});
