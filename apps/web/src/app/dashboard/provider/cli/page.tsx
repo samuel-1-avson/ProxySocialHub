@@ -31,9 +31,9 @@ import {
 } from '@/components/workspace/Patterns';
 
 const PLATFORMS = [
-    { id: 'linux', label: 'Linux', icon: Terminal, archs: ['amd64', 'arm64'] },
-    { id: 'windows', label: 'Windows', icon: Monitor, archs: ['amd64'] },
-    { id: 'macos', label: 'macOS', icon: Apple, archs: ['amd64', 'arm64'] },
+    { id: 'linux', label: 'Linux', icon: Terminal, archs: ['amd64', 'arm64'], beta: true },
+    { id: 'windows', label: 'Windows', icon: Monitor, archs: ['amd64'], beta: false },
+    { id: 'macos', label: 'macOS', icon: Apple, archs: ['amd64', 'arm64'], beta: true },
 ];
 
 function resolveDownload(
@@ -413,12 +413,20 @@ metrics_port = 9090`;
                                 <span className="ui-inline-icon">
                                     <Icon size={14} aria-hidden="true" />
                                     {p.label}
+                                    {p.beta && <span className="ui-tag ui-tag-beta">Beta</span>}
                                     {!available && !isLoading && ' (unavailable)'}
                                 </span>
                             </button>
                         );
                     })}
                 </div>
+
+                {platformConfig.beta && (
+                    <p className="ui-note ui-section-space" role="note">
+                        The {platformConfig.label} build is in beta. It works, but it has had less testing than
+                        Windows, so you may hit rough edges. Tell us if something breaks.
+                    </p>
+                )}
 
                 {platformConfig.archs.length > 1 && (
                     <div className="ui-actions ui-section-space">

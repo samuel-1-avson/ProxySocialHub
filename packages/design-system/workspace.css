@@ -1346,6 +1346,15 @@ fieldset.ui-choice-group {
   background: var(--secondary);
   color: var(--muted-foreground);
 }
+.ui-tag-beta {
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid var(--border);
+}
 .ui-truncate-id {
   max-width: 190px;
   overflow: hidden;
