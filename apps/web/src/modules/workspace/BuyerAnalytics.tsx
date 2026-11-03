@@ -112,7 +112,7 @@ export function BuyerAnalytics() {
     <section className="ui-surface">
       <h2>Reported network observations</h2><SourceState source={network} />
       {network.data && <>
-        <p className="ui-note">{measured(network.data.healthy_nodes, 0)} healthy / {measured(network.data.total_nodes, 0)} total nodes · {measured(network.data.avg_latency, 1, 'ms')} reported latency.</p>
+        <p className="ui-note">{measured(network.data.healthy_nodes, 0)} healthy-flagged ({measured(network.data.healthy_recently_observed_nodes, 0)} observed in the last {measured(typeof network.data.stale_after_seconds === 'number' ? network.data.stale_after_seconds / 60 : undefined, 0, 'min')}) / {measured(network.data.total_nodes, 0)} registered nodes · {measured(network.data.avg_latency, 1, 'ms')} average reported latency across {measured(network.data.latency_sample_size, 0)} samples{typeof network.data.last_observed_at === 'string' && network.data.last_observed_at ? ` · last node seen ${new Date(network.data.last_observed_at).toLocaleString()}` : ' · no node observation reported'}.</p>
         {Array.isArray(network.data.node_scores) && <MeasurementTable title="Reported node scores" rows={network.data.node_scores} columns={[
           { key: 'id', label: 'Node', text: true }, { key: 'country', label: 'Country', text: true }, { key: 'score', label: 'Source score' },
         ]} />}
