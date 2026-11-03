@@ -113,6 +113,15 @@ function ListingDetailContent() {
         }
     };
 
+    const handleShare = async () => {
+        try {
+            await navigator.clipboard.writeText(window.location.href);
+            toast.success('Link copied', 'Listing link copied to clipboard.');
+        } catch {
+            toast.error('Copy failed', 'Could not copy link to clipboard.');
+        }
+    };
+
     if (loading) {
         return <div className="ui-loading" role="status"><Loader2 className="animate-spin" size={18} aria-hidden="true" /> Loading this listing…</div>;
     }
@@ -196,6 +205,7 @@ function ListingDetailContent() {
                                     </button>
                                     <button
                                         aria-label="Share listing"
+                                        onClick={handleShare}
                                         className="btn-retro p-3 bg-background border-border hover:border-primary"
                                     >
                                         <Share2 size={20} />
