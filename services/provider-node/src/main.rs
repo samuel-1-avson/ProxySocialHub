@@ -1,3 +1,4 @@
+mod account;
 mod config;
 mod config_validate;
 mod daemon_ctrl;
@@ -244,6 +245,18 @@ enum Commands {
         /// Control API. Fast and offline-safe, for programs that poll every few seconds.
         #[arg(long)]
         local: bool,
+    },
+
+    /// What ProxyHubb's servers say about this computer, and your earnings (asks the Control API)
+    Account {
+        /// Path to configuration file
+        #[arg(short, long)]
+        config: Option<String>,
+
+        /// Emit JSON for scripts: one object on stdout and nothing else. For programs driving
+        /// this command, such as the desktop app.
+        #[arg(long)]
+        json: bool,
     },
 
     /// Pre-flight checks for config, auth, gateway, and local daemon
@@ -990,8 +1003,27 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
+        Commands::Account { config, json } => {
+            // With --json, stdout is the report and nothing else (as with `status --json`).
+            if !json {
+                init_logging(false);
+            }
+            let config_path = config
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(config::Config::default_config_path);
+            let report = account::collect(config_path).await;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                account::print_human(&report);
+            }
+        }
+
         Commands::Doctor { config, json } => {
-            init_logging(false);
+            // Same rule as `status --json`: logging goes to stdout, which would mix into the JSON.
+            if !json {
+                init_logging(false);
+            }
             let config_path = config
                 .map(std::path::PathBuf::from)
                 .unwrap_or_else(config::Config::default_config_path);
