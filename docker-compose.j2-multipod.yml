@@ -85,7 +85,7 @@ services:
       - ENABLE_DEBUG_ROUTES=${ENABLE_DEBUG_ROUTES:-true}
     volumes:
       - ./certs:/app/certs:ro
-      - ./buyer-certs:/app/buyer-certs:ro
+      - ${BUYER_TLS_HOST_DIR:-./buyer-certs}:/app/buyer-certs:ro
       - ./geoip:/app/geoip:ro
     depends_on:
       control-api:
@@ -181,7 +181,7 @@ services:
       - ENABLE_DEBUG_ROUTES=${ENABLE_DEBUG_ROUTES:-true}
     volumes:
       - ./certs:/app/certs:ro
-      - ./buyer-certs:/app/buyer-certs:ro
+      - ${BUYER_TLS_HOST_DIR:-./buyer-certs}:/app/buyer-certs:ro
       - ./geoip:/app/geoip:ro
     depends_on:
       control-api:
