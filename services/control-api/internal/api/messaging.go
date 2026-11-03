@@ -16,6 +16,21 @@ import (
 	"github.com/proxyhubb/control-api/internal/ws"
 )
 
+// tombstoneDeleted clears the content of soft-deleted messages so ordinary
+// read paths return a content-free tombstone (F03). The stored row is
+// untouched; retention of the original text is a product/policy decision.
+func tombstoneDeleted(m *models.Message) {
+	if m != nil && m.IsDeleted {
+		m.Content = ""
+	}
+}
+
+func tombstoneDeletedAll(messages []models.Message) {
+	for i := range messages {
+		tombstoneDeleted(&messages[i])
+	}
+}
+
 // RegisterMessagingRoutes registers messaging-related routes
 func RegisterMessagingRoutes(rg *gin.RouterGroup) {
 	rg.GET("/conversations", getConversations)
@@ -62,7 +77,7 @@ func getConversations(c *gin.Context) {
 	results := make([]models.ConversationWithPreview, len(conversations))
 	if len(conversations) == 0 {
 		c.JSON(http.StatusOK, gin.H{
-			"conversations": results,
+			"conversations": conversationWithPreviewDTOs(results),
 			"total":         total,
 			"page":          page,
 			"limit":         limit,
@@ -85,6 +100,7 @@ func getConversations(c *gin.Context) {
 		ORDER BY conversation_id, created_at DESC
 	`, convIDs).Scan(&lastMsgs).Error; err == nil {
 		for _, m := range lastMsgs {
+			tombstoneDeleted(&m)
 			lastByConv[m.ConversationID] = m
 		}
 	}
@@ -127,7 +143,7 @@ func getConversations(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"conversations": results,
+		"conversations": conversationWithPreviewDTOs(results),
 		"total":         total,
 		"page":          page,
 		"limit":         limit,
@@ -168,6 +184,10 @@ func startConversation(c *gin.Context) {
 		return
 	}
 
+	if rejectIfBlocked(c, userID, req.RecipientID) {
+		return
+	}
+
 	// Check if conversation exists (in either direction)
 	var existingConv models.Conversation
 	err := db.Social().Where(
@@ -201,7 +221,7 @@ func startConversation(c *gin.Context) {
 		announceMessage(c, userID, existingConv.ID, req.RecipientID, msg)
 
 		db.Social().Preload("User1").Preload("User2").First(&existingConv, "id = ?", existingConv.ID)
-		c.JSON(http.StatusOK, existingConv)
+		c.JSON(http.StatusOK, conversationDTOFrom(existingConv))
 		return
 	}
 
@@ -237,7 +257,7 @@ func startConversation(c *gin.Context) {
 	announceMessage(c, userID, conv.ID, req.RecipientID, msg)
 
 	db.Social().Preload("User1").Preload("User2").First(&conv, "id = ?", conv.ID)
-	c.JSON(http.StatusCreated, conv)
+	c.JSON(http.StatusCreated, conversationDTOFrom(conv))
 }
 
 // getMessages returns messages in a conversation
@@ -283,6 +303,7 @@ func getMessages(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch messages"})
 		return
 	}
+	tombstoneDeletedAll(messages)
 
 	for i := range messages {
 		if messages[i].IsDeleted {
@@ -292,7 +313,7 @@ func getMessages(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"messages": messages,
+		"messages": messageDTOs(messages),
 		"total":    total,
 		"page":     page,
 		"limit":    limit,
@@ -340,6 +361,10 @@ func sendMessage(c *gin.Context) {
 
 	if conv.Participant1 != userID && conv.Participant2 != userID {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
+	if rejectIfBlocked(c, userID, conv.GetOtherParticipant(userID)) {
 		return
 	}
 
@@ -419,7 +444,7 @@ func messageRequestError(err error) string {
 func announceMessage(c *gin.Context, senderID, convID, recipientID uuid.UUID, msg models.Message) {
 	ws.BroadcastToUser(recipientID.String(), ws.MsgTypeNewMessage, gin.H{
 		"conversation_id": convID,
-		"message":         msg,
+		"message":         messageDTOFrom(msg),
 	})
 	dispatchUserNotification(c.Request.Context(), userNotification{
 		UserID:     recipientID,
@@ -433,6 +458,8 @@ func announceMessage(c *gin.Context, senderID, convID, recipientID uuid.UUID, ms
 		TargetID:   &convID,
 		Dedupe:     true,
 	})
+
+	c.JSON(http.StatusCreated, messageDTOFrom(msg))
 }
 
 // markAsRead marks all messages as read
@@ -509,6 +536,11 @@ func editMessage(c *gin.Context) {
 		return
 	}
 
+	if msg.IsDeleted {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Message has been deleted"})
+		return
+	}
+
 	// Check edit window (5 minutes)
 	if time.Since(msg.CreatedAt) > 5*time.Minute {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Edit window expired"})
@@ -527,7 +559,7 @@ func editMessage(c *gin.Context) {
 	}
 
 	db.Social().Preload("Sender").First(&msg, "id = ?", msg.ID)
-	c.JSON(http.StatusOK, msg)
+	c.JSON(http.StatusOK, messageDTOFrom(msg))
 }
 
 // deleteMessage soft-deletes a message
@@ -578,6 +610,11 @@ func deleteMessage(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	ws.BroadcastToUser(conv.GetOtherParticipant(userID).String(), ws.MsgTypeMessageDeleted, gin.H{
+		"conversation_id": convID,
+		"message_id":      msgID,
+	})
 
 	c.JSON(http.StatusOK, gin.H{"message": "Message deleted"})
 }
@@ -710,7 +747,7 @@ func searchMessages(c *gin.Context) {
 		Find(&messages)
 
 	c.JSON(http.StatusOK, gin.H{
-		"messages": messages,
+		"messages": messageDTOs(messages),
 		"query":    query,
 	})
 }

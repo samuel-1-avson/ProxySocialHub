@@ -19,16 +19,16 @@ export interface Message {
     content: string;
     read_at?: string;
     created_at: string;
+    type?: string;
+    reply_to_id?: string;
     edited_at?: string;
     is_deleted?: boolean;
-}
-
-export interface MessagesPage {
-    /** Oldest first. */
-    messages: Message[];
-    total: number;
-    page: number;
-    limit: number;
+    reactions?: Array<{
+        message_id?: string;
+        user_id: string;
+        emoji: string;
+        created_at: string;
+    }>;
 }
 
 export interface ConversationWithPreview {
