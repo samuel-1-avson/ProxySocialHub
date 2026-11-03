@@ -6,9 +6,15 @@
 // default (100 MB, 20 minutes — mirroring the Regional Auditor's minting),
 // price/domain caps pass straight into the signed session intent, and a
 // deployment that requires escrow funding is reported, never bypassed.
+//
+// Where new intents need funding, an agent can instead use a marketplace order
+// its owner already paid for (list_my_orders / use_my_order), exactly as the
+// Regional Auditor does: active orders only, because asking for an inactive
+// order's credentials can make the control API re-activate its session.
 
 import type { ProxyHubbConfig } from "./config.ts";
-import { sessionIntentProxyUrl } from "./config.ts";
+import { sessionIntentProxyUrl, stripScheme } from "./config.ts";
+import { ProxyHubbApiError } from "./client.ts";
 import type { CreateIntentPayload, ProxyHubbClient } from "./client.ts";
 import type { GeoLookup } from "./geo.ts";
 import { evaluateAssurance } from "./geo.ts";
@@ -60,6 +66,54 @@ function normalizeDomains(domains: string[] | undefined, field: string): string[
 
 function asRecord(v: unknown): Record<string, unknown> {
   return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+}
+
+const ORDER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ORDER_STATUS = /^[a-z][a-z_]{0,39}$/;
+
+function text(v: unknown, max = 120): string | null {
+  return typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null;
+}
+
+/** The listing's seller-declared country: a claim that narrows the choice, never proof of the exit. */
+function declaredCountry(listing: unknown): string | null {
+  const c = text(asRecord(listing).country, 8)?.toUpperCase() ?? null;
+  return c && CC.test(c) ? c : null;
+}
+
+/** Normalise "http://host:port/" and "host:port" to "host:port" (lower case), or null when there is no port. */
+export function gatewayKey(value: unknown): string | null {
+  const s = text(value, 200);
+  if (!s) return null;
+  const m = /^(?:https?:\/\/)?([^/:\s]+):(\d{1,5})\/?$/i.exec(s);
+  return m ? `${(m[1] ?? "").toLowerCase()}:${Number(m[2])}` : null;
+}
+
+/** use_my_order's answer: a proxy_url when ready, otherwise a code and the reason. */
+export type OrderProxyResult = {
+  status: "ready" | "unavailable";
+  order_id: string;
+  proxy_url: string | null;
+  code?: string;
+  message?: string;
+  retryable?: boolean;
+  declared_country?: string | null;
+  proxy_host?: string;
+  expires_at?: string | null;
+  bandwidth_gb?: number | null;
+  warnings?: string[];
+};
+
+function orderAccessProblem(err: unknown): { code: string; message: string } | null {
+  if (!(err instanceof ProxyHubbApiError)) return null;
+  if (err.status === 404) return { code: "order_not_found", message: "This order was not found in your account." };
+  if (err.status === 403) {
+    return {
+      code: "order_forbidden",
+      message: "The control API refused access to this order. Only the buyer's own orders are readable, and an API key needs the orders:create scope.",
+    };
+  }
+  return null;
 }
 
 export function createToolHandlers(deps: ToolDeps) {
@@ -279,7 +333,152 @@ export function createToolHandlers(deps: ToolDeps) {
     throw new ToolError("Provide session_id (terminates a live session) or intent_id (reports its expiry).");
   }
 
-  return { listRegions, discoverListings, createAgentSession, verifyExit, getSessionUsage, closeAgentSession };
+  function requireOrderAccess() {
+    if (!client.canReadOrders) {
+      throw new ToolError(
+        "Set PROXYHUBB_ACCESS_TOKEN (your account JWT) or PROXYHUBB_API_KEY (an API key with the orders:create scope) in this MCP server's environment to use your orders.",
+      );
+    }
+  }
+
+  async function listMyOrders(args: { country?: string }) {
+    requireOrderAccess();
+    const country = normalizeCountry(args.country, false);
+    const body = asRecord(await client.listOrders());
+    const raw = Array.isArray(body.orders) ? (body.orders as unknown[]) : [];
+    const orders: Record<string, unknown>[] = [];
+    const notActive: Record<string, number> = {};
+    for (const item of raw) {
+      const o = asRecord(item);
+      const id = typeof o.id === "string" && ORDER_ID.test(o.id) ? o.id.toLowerCase() : null;
+      if (!id) continue;
+      if (o.status !== "active") {
+        const status = typeof o.status === "string" && ORDER_STATUS.test(o.status) ? o.status : "unknown";
+        notActive[status] = (notActive[status] ?? 0) + 1;
+        continue;
+      }
+      const listing = asRecord(o.listing);
+      const declared = declaredCountry(listing);
+      if (country && declared !== country) continue;
+      // Identifiers and the listing's public description only: no seller, wallet, price or credentials.
+      orders.push({
+        order_id: id,
+        declared_country: declared,
+        title: text(listing.title) ?? "Marketplace order",
+        city: text(listing.city, 80),
+        isp: text(listing.isp, 80),
+        bandwidth_gb: typeof o.bandwidth_gb === "number" && Number.isFinite(o.bandwidth_gb) ? o.bandwidth_gb : null,
+        created_at: text(o.created_at, 40),
+      });
+    }
+    return {
+      count: orders.length,
+      orders,
+      not_active: notActive,
+      note: "Only active, already-paid orders are listed: they can carry traffic now. declared_country is the seller's claim. Call use_my_order for a proxy_url, then verify_exit. Nothing here buys, pays for or funds anything.",
+    };
+  }
+
+  async function useMyOrder(args: { order_id: string; expected_country?: string }): Promise<OrderProxyResult> {
+    requireOrderAccess();
+    const id = (args.order_id ?? "").trim().toLowerCase();
+    if (!ORDER_ID.test(id)) throw new ToolError("order_id must be an order id from list_my_orders.");
+    const expected = normalizeCountry(args.expected_country, false);
+    const unavailable = (code: string, message: string, extra: Partial<OrderProxyResult> = {}): OrderProxyResult => ({
+      status: "unavailable",
+      order_id: id,
+      code,
+      message,
+      proxy_url: null,
+      ...extra,
+    });
+
+    let order: Record<string, unknown>;
+    try {
+      order = asRecord(await client.getOrder(id));
+    } catch (err) {
+      const problem = orderAccessProblem(err);
+      if (problem) return unavailable(problem.code, problem.message);
+      throw err;
+    }
+
+    // Checked before credentials are requested: for an order in any other state the control API may
+    // try to re-activate its session, and an agent must not cause that.
+    const status = text(order.status, 40);
+    if (status !== "active") {
+      return unavailable("order_not_active", `This order is ${status ?? "in an unknown state"}; only active orders can carry traffic.`);
+    }
+    const declared = declaredCountry(order.listing);
+    if (expected && declared && declared !== expected) {
+      return unavailable("order_region_mismatch", `This order is for a ${declared} listing, not ${expected}, so its credentials were not requested.`, {
+        declared_country: declared,
+      });
+    }
+
+    let creds: Record<string, unknown>;
+    try {
+      creds = asRecord(await client.getOrderCredentials(id));
+    } catch (err) {
+      if (err instanceof ProxyHubbApiError && err.status === 409) {
+        return unavailable("order_not_ready", `The order's session is not ready yet (${err.message}). Retry in a minute.`, { retryable: true });
+      }
+      const problem = orderAccessProblem(err);
+      if (problem) return unavailable(problem.code, problem.message);
+      throw err;
+    }
+
+    const pc = asRecord(creds.proxy_credentials);
+    const username = text(pc.username, 120);
+    const password = typeof pc.password === "string" && pc.password.length > 0 && pc.password.length <= 4096 ? pc.password : null;
+    if (!username || !password) {
+      return unavailable("order_credentials_unreadable", "The control API answered without usable proxy credentials for this order.");
+    }
+    const expiresAt = text(pc.expires_at, 40) ?? text(creds.expires_at, 40);
+    if (expiresAt && Date.parse(expiresAt) <= Date.now()) {
+      return unavailable("order_expired", "This order's session has expired.", { expires_at: expiresAt });
+    }
+    const scheme = text(pc.auth_for_endpoint, 24);
+    if (scheme && scheme !== "hmac") {
+      return unavailable("order_credentials_unsupported", `This order's gateway uses "${scheme}" authentication; only HTTP proxy (hmac) credentials are supported.`);
+    }
+    // Never hand an order's credentials to a different gateway than the one the order is for.
+    const configured = gatewayKey(cfg.proxyEndpoint);
+    const orderGateway =
+      (typeof pc.host === "string" && typeof pc.port === "number" ? gatewayKey(`${pc.host}:${pc.port}`) : null) ?? gatewayKey(pc.endpoint);
+    if (configured && orderGateway && orderGateway !== configured) {
+      return unavailable(
+        "order_gateway_mismatch",
+        `This order is for the gateway ${orderGateway}, but this server is configured for ${configured} (PROXYHUBB_PROXY_ENDPOINT), so its credentials were not used.`,
+      );
+    }
+
+    const host = stripScheme(cfg.proxyEndpoint);
+    return {
+      status: "ready",
+      order_id: id,
+      declared_country: declared,
+      proxy_url: `http://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${host}`,
+      proxy_host: host,
+      expires_at: expiresAt,
+      bandwidth_gb: typeof order.bandwidth_gb === "number" && Number.isFinite(order.bandwidth_gb) ? order.bandwidth_gb : null,
+      warnings: [
+        "proxy_url contains the order's credentials. Treat it as a secret; do not print it to shared logs.",
+        `The country is the seller's claim until proven: call verify_exit with expected_country=${expected ?? declared ?? "<two-letter code>"} and only trust the session when it returns assurance=verified.`,
+        "Traffic counts against this order's prepaid bandwidth. This server cannot set a smaller cap on an order; for a hard per-task cap, use create_agent_session where the deployment allows it.",
+      ],
+    };
+  }
+
+  return {
+    listRegions,
+    discoverListings,
+    createAgentSession,
+    verifyExit,
+    getSessionUsage,
+    closeAgentSession,
+    listMyOrders,
+    useMyOrder,
+  };
 }
 
 export type ToolHandlers = ReturnType<typeof createToolHandlers>;
