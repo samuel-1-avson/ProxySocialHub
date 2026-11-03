@@ -115,3 +115,57 @@ pub fn print_created(path: &std::path::Path) {
 fn _assert_config_loads_for_support(path: &std::path::Path) -> Result<config::Config> {
     config::Config::load(&path.to_string_lossy())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const API_KEY: &str = "ph_live_SECRET_API_KEY_0123456789";
+    const JWT: &str = "eyJhbGciOiJIUzI1NiJ9.SECRET_JWT_PAYLOAD.SIGNATURE";
+    const SIGNING: &str = "SECRETSIGNINGKEYbase58xyz";
+
+    /// The file `pair` and `join` write is a serialized `Config`; redact exactly that shape.
+    fn config_with_secrets() -> String {
+        let cfg = config::Config {
+            api_key: API_KEY.to_string(),
+            jwt_token: JWT.to_string(),
+            provider_signing_key: SIGNING.to_string(),
+            node_id: "48d27c5c-4383-4424-ba88-1ded99596a59".to_string(),
+            control_api_url: "https://api.proxyhubb.com".to_string(),
+            ..config::Config::default()
+        };
+        toml::to_string(&cfg).expect("config serializes")
+    }
+
+    #[test]
+    fn a_support_file_never_contains_the_keys_from_provider_toml() {
+        let raw = config_with_secrets();
+        for secret in [API_KEY, JWT, SIGNING] {
+            assert!(raw.contains(secret), "the fixture must hold {secret}");
+        }
+        let redacted = redact_config(&raw);
+        for secret in [API_KEY, JWT, SIGNING] {
+            assert!(!redacted.contains(secret), "{secret} leaked:\n{redacted}");
+        }
+    }
+
+    #[test]
+    fn redaction_keeps_what_support_needs_to_read() {
+        let redacted = redact_config(&config_with_secrets());
+        assert!(redacted.contains("https://api.proxyhubb.com"));
+        assert!(redacted.contains("48d27c5c-4383-4424-ba88-1ded99596a59"));
+        assert!(redacted.contains("api_key = \"<redacted>\""));
+    }
+
+    #[test]
+    fn log_lines_lose_inline_credentials_and_long_hex_tokens() {
+        let long_hex = "a".repeat(64);
+        let line =
+            format!("INFO connect api_key=ph_live_SECRET jwt_token=eyJ.x.y token {long_hex} ok");
+        let out = redact_runtime_line(&line);
+        assert!(!out.contains("ph_live_SECRET"));
+        assert!(!out.contains("eyJ.x.y"));
+        assert!(!out.contains(&long_hex), "{out}");
+        assert!(out.contains("INFO connect"));
+    }
+}

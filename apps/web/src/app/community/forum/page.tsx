@@ -2,12 +2,13 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowRight, MessageSquare, Plus, Search, X } from "lucide-react";
 import {
   getForumCategories,
   getRecentThreads,
   searchForum,
+  type ForumThread,
 } from "@/lib/forum-api";
 import {
   DataError,
@@ -33,7 +34,36 @@ export default function ForumPage() {
     queryFn: () => searchForum(search),
     enabled: !!search,
   });
+  const [extraResults, setExtraResults] = useState<ForumThread[]>([]);
+  const [nextSearchPage, setNextSearchPage] = useState(2);
+  const loadMoreResults = useMutation({
+    retry: false,
+    mutationFn: () => searchForum(search, nextSearchPage),
+    onSuccess: (result) => {
+      setExtraResults((previous) => {
+        const merged = [...previous];
+        for (const thread of result.threads) {
+          if (!merged.some((item) => item.id === thread.id)) merged.push(thread);
+        }
+        return merged;
+      });
+      setNextSearchPage((current) => current + 1);
+    },
+  });
   const threads = search ? results : recent;
+  const displayThreads = [...(threads.data?.threads ?? [])];
+  if (search) {
+    for (const thread of extraResults) {
+      if (!displayThreads.some((item) => item.id === thread.id)) {
+        displayThreads.push(thread);
+      }
+    }
+  }
+  const searchTotal = results.data?.total ?? 0;
+  function resetSearchPages() {
+    setExtraResults([]);
+    setNextSearchPage(2);
+  }
   return (
     <div className="ui-page forum-page">
       <PageHeading
@@ -51,6 +81,7 @@ export default function ForumPage() {
         className="forum-search"
         onSubmit={(event) => {
           event.preventDefault();
+          resetSearchPages();
           setSearch(draft.trim());
         }}
         role="search"
@@ -71,6 +102,7 @@ export default function ForumPage() {
             aria-label="Clear forum search"
             onClick={() => {
               setDraft("");
+              resetSearchPages();
               setSearch("");
             }}
           >
@@ -154,7 +186,7 @@ export default function ForumPage() {
                 error={threads.error}
                 retry={() => void threads.refetch()}
               />
-            ) : !threads.data?.threads?.length ? (
+            ) : !displayThreads.length ? (
               <EmptyState
                 title={
                   search ? "No matching discussions" : "Start the conversation"
@@ -169,11 +201,32 @@ export default function ForumPage() {
                 icon={<MessageSquare size={28} />}
               />
             ) : (
-              <div className="forum-thread-list">
-                {threads.data.threads.map((thread) => (
-                  <ForumThreadCard key={thread.id} thread={thread} />
-                ))}
-              </div>
+              <>
+                <div className="forum-thread-list">
+                  {displayThreads.map((thread) => (
+                    <ForumThreadCard key={thread.id} thread={thread} />
+                  ))}
+                </div>
+                {loadMoreResults.isError && (
+                  <DataError
+                    title="More results could not be loaded"
+                    error={loadMoreResults.error}
+                    retry={() => loadMoreResults.mutate()}
+                  />
+                )}
+                {search && displayThreads.length < searchTotal && (
+                  <button
+                    type="button"
+                    className="ui-button secondary"
+                    disabled={loadMoreResults.isPending}
+                    onClick={() => loadMoreResults.mutate()}
+                  >
+                    {loadMoreResults.isPending
+                      ? "Loading…"
+                      : "Load more results"}
+                  </button>
+                )}
+              </>
             )}
           </section>
         </div>

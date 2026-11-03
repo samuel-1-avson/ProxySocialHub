@@ -3,7 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type InfiniteData,
+} from "@tanstack/react-query";
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -49,6 +55,15 @@ function displayDate(value: string | undefined, time = false) {
       : date.toLocaleDateString(undefined, { month: "short", day: "numeric" })
     : "";
 }
+// One idempotency key per draft text: retrying the identical send reuses
+// the key so the API dedupes it; editing the draft mints a fresh one (F05).
+type DraftSendKey = { current: { text: string; key: string } | null };
+function draftSendKey(ref: DraftSendKey, text: string) {
+  if (!ref.current || ref.current.text !== text) {
+    ref.current = { text, key: crypto.randomUUID() };
+  }
+  return ref.current.key;
+}
 function name(conversation: Conversation) {
   return (
     conversation.other_participant?.display_name ||
@@ -62,18 +77,27 @@ function MessagesContent() {
   const params = useSearchParams();
   const selectedId = params.get("conversation");
   const [search, setSearch] = useState("");
+  // `recipient` is canonical (see messageRecipientHref); `to` (older
+  // profile links) and `user` remain accepted aliases (F06).
   const initialRecipient =
-    params.get("recipient") || params.get("user") || undefined;
+    params.get("recipient") ||
+    params.get("to") ||
+    params.get("user") ||
+    undefined;
   const [composing, setComposing] = useState(!!initialRecipient);
   const { subscribe, isConnected } = useRealtime();
   const client = useQueryClient();
   const key = ["inbox", "conversations", user?.id];
-  const query = useQuery({
+  const query = useInfiniteQuery({
     queryKey: key,
-    queryFn: getConversations,
+    queryFn: ({ pageParam }) => getConversations(pageParam),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) =>
+      lastPage.has_more ? lastPage.page + 1 : undefined,
     refetchInterval: isConnected ? false : 15_000,
   });
-  const conversations = query.data?.conversations ?? [];
+  const conversations =
+    query.data?.pages.flatMap((page) => page.conversations) ?? [];
   const inList = conversations.find(
     (conversation) => conversation.id === selectedId,
   );
@@ -127,11 +151,12 @@ function MessagesContent() {
       update: (message: Message) => Message,
       messageId: string,
     ) => {
-      client.setQueryData<{ messages: Message[] }>(
+      client.setQueryData<MessageThread>(
         ["inbox", "messages", user?.id, conversationId],
         (previous) =>
           previous
             ? {
+                ...previous,
                 messages: previous.messages.map((item) =>
                   item.id === messageId ? update(item) : item,
                 ),
@@ -267,6 +292,18 @@ function MessagesContent() {
                 </button>
               ))
             )}
+            {query.hasNextPage && (
+              <button
+                type="button"
+                className="ui-button secondary"
+                disabled={query.isFetchingNextPage}
+                onClick={() => void query.fetchNextPage()}
+              >
+                {query.isFetchingNextPage
+                  ? "Loading…"
+                  : "Load more conversations"}
+              </button>
+            )}
           </div>
         </aside>
         <section className="inbox-thread">
@@ -316,17 +353,38 @@ function MessagesContent() {
         <NewConversation
           initialRecipient={initialRecipient}
           onStarted={(conversation) => {
-            client.setQueryData<{ conversations: Conversation[] }>(
-              key,
-              (previous) => ({
-                conversations: [
-                  conversation,
-                  ...(previous?.conversations ?? []).filter(
-                    (item) => item.id !== conversation.id,
-                  ),
+            // Seed the accepted conversation into the first list page so a
+            // failed preview refresh cannot lose a successful first send.
+            client.setQueryData<
+              InfiniteData<{
+                conversations: Conversation[];
+                total: number;
+                page: number;
+                has_more: boolean;
+              }>
+            >(key, (previous) => {
+              const first = previous?.pages[0] ?? {
+                conversations: [],
+                total: 0,
+                page: 1,
+                has_more: false,
+              };
+              return {
+                pages: [
+                  {
+                    ...first,
+                    conversations: [
+                      conversation,
+                      ...first.conversations.filter(
+                        (item) => item.id !== conversation.id,
+                      ),
+                    ],
+                  },
+                  ...(previous?.pages.slice(1) ?? []),
                 ],
-              }),
-            );
+                pageParams: previous?.pageParams ?? [1],
+              };
+            });
             setComposing(false);
             select(conversation.id);
           }}
@@ -354,12 +412,21 @@ function ConversationThread({
     // A dropped socket can miss messages; look again when the tab returns.
     refetchOnWindowFocus: true,
   });
+  const sendKeyRef = useRef<{ text: string; key: string } | null>(null);
   const messages = query.data?.messages ?? [];
   const send = useMutation({
     retry: false,
-    mutationFn: ({ id, content }: { id: string; content: string }) =>
-      sendMessage(id, content),
+    mutationFn: ({
+      id,
+      content,
+      clientMsgId,
+    }: {
+      id: string;
+      content: string;
+      clientMsgId: string;
+    }) => sendMessage(id, content, undefined, clientMsgId),
     onSuccess: (message) => {
+      sendKeyRef.current = null;
       client.setQueryData<MessageThread>(key, (previous) => ({
         page: previous?.page ?? 1,
         hasMore: previous?.hasMore ?? false,
@@ -374,13 +441,14 @@ function ConversationThread({
       });
     },
   });
-  // Older messages: the thread opens on the newest page.
+  // Older messages: continue strictly before the oldest one already shown
+  // (cursor), so new arrivals cannot shift history pages (F04).
   const older = useMutation({
     retry: false,
-    mutationFn: () => getMessages(conversation.id, (query.data?.page ?? 1) + 1),
+    mutationFn: () => getMessages(conversation.id, messages[0]?.id),
     onSuccess: (result) => {
       client.setQueryData<MessageThread>(key, (previous) => ({
-        page: result.page,
+        page: (previous?.page ?? 1) + 1,
         hasMore: result.hasMore,
         messages: mergeMessages(result.messages, previous?.messages ?? []),
       }));
@@ -404,7 +472,7 @@ function ConversationThread({
     const firstLook = markedFor.current === null;
     markedFor.current = lastIncomingId;
     if (firstLook && !((conversation.unread_count ?? 0) > 0)) return;
-    markConversationRead(conversation.id)
+    markConversationRead(conversation.id, lastIncomingId)
       .then(() =>
         client.invalidateQueries({
           queryKey: ["inbox", "conversations", user?.id],
@@ -422,7 +490,12 @@ function ConversationThread({
   function submit(event?: React.FormEvent) {
     event?.preventDefault();
     if (!draft.trim() || send.isPending) return;
-    send.mutate({ id: conversation.id, content: draft.trim() });
+    const text = draft.trim();
+    send.mutate({
+      id: conversation.id,
+      content: text,
+      clientMsgId: draftSendKey(sendKeyRef, text),
+    });
   }
   const profile =
     conversation.other_participant?.username ||
@@ -481,7 +554,7 @@ function ConversationThread({
                   disabled={older.isPending}
                   onClick={() => older.mutate()}
                 >
-                  {older.isPending ? "Loading…" : "Load earlier messages"}
+                  {older.isPending ? "Loading…" : "Load older messages"}
                 </button>
                 {older.isError && (
                   <p className="ui-note" role="alert">
@@ -581,10 +654,19 @@ function NewConversation({
     enabled: !!initialRecipient,
   });
   const [content, setContent] = useState("");
+  const startKeyRef = useRef<{ text: string; key: string } | null>(null);
   const start = useMutation({
     retry: false,
-    mutationFn: () => startConversation(recipient, content.trim()),
-    onSuccess: onStarted,
+    mutationFn: () =>
+      startConversation(
+        recipient,
+        content.trim(),
+        draftSendKey(startKeyRef, content.trim()),
+      ),
+    onSuccess: (conversation) => {
+      startKeyRef.current = null;
+      onStarted(conversation);
+    },
   });
   return (
     <form

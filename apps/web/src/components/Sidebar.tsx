@@ -1,12 +1,13 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, ArrowUpRight, CircleHelp, Globe2, MessageSquareText, Settings, ShieldCheck } from "lucide-react";
+import { ArrowUpRight, CircleHelp, Globe2, Settings } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
 import { BrandLockup } from "@/components/BrandLockup";
 import {
+  COMMUNITY_DESTINATIONS,
   WORKSPACE_DESTINATIONS,
   explorerHref,
   isWorkspaceDestinationActive,
@@ -43,18 +44,22 @@ export function Sidebar() {
       </nav>
       <p className="workspace-nav-label">Community & network</p>
       <nav className="workspace-primary workspace-discovery" aria-label="Community and network">
-        <Link href="/community/forum" className={pathname.startsWith("/community/forum") ? "active" : ""} aria-current={pathname.startsWith("/community/forum") ? "page" : undefined}>
-          <MessageSquareText size={18} strokeWidth={1.6} aria-hidden="true" />
-          Forum
-        </Link>
-        <Link href="/community/feed" className={pathname === "/community/feed" ? "active" : ""} aria-current={pathname === "/community/feed" ? "page" : undefined}>
-          <Activity size={18} strokeWidth={1.6} aria-hidden="true" />
-          Activity feed
-        </Link>
-        <Link href="/governance" className={pathname.startsWith("/governance") ? "active" : ""} aria-current={pathname.startsWith("/governance") ? "page" : undefined}>
-          <ShieldCheck size={18} strokeWidth={1.6} aria-hidden="true" />
-          Governance
-        </Link>
+        {COMMUNITY_DESTINATIONS.map((item) => (
+          <Link
+            key={item.href}
+            href={item.href}
+            prefetch={false}
+            className={
+              isWorkspaceDestinationActive(pathname, item) ? "active" : ""
+            }
+            aria-current={
+              isWorkspaceDestinationActive(pathname, item) ? "page" : undefined
+            }
+          >
+            <item.icon size={18} strokeWidth={1.6} aria-hidden="true" />
+            {item.label}
+          </Link>
+        ))}
       </nav>
       <nav className="workspace-secondary" aria-label="Workspace utilities">
         <a href={explorerHref()}>

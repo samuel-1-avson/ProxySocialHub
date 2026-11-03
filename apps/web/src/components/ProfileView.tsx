@@ -17,6 +17,7 @@ import { getUserBadges, type UserBadge } from "@/lib/api/badges";
 import { accountTierLabel, identityStatusLabel } from "@/lib/account-tier";
 import { getListings, type Listing } from "@/lib/api/marketplace";
 import { socialProfileUrl } from "@/lib/utils";
+import { messageRecipientHref } from "@/lib/messaging/social-messaging";
 import { ConfirmDialog } from "@/components/patterns/ConfirmDialog";
 import {
     PageHeading,
@@ -193,7 +194,7 @@ export function ProfileView({ username: propUsername }: ProfileViewProps) {
                                 )}
                                 {isFollowing ? "Following" : "Follow"}
                             </button>
-                            <Link href={`/messages?recipient=${profile.id}`} className="ui-button secondary">
+                            <Link href={messageRecipientHref(profile.id)} className="ui-button secondary">
                                 Message
                             </Link>
                             <button
