@@ -20,7 +20,7 @@ The browser checks cover typed lookup, About, reciprocal links, theme persistenc
 
 ## Cloud release
 
-Run the repository's **Deploy** workflow with `services=explorer` and `deploy_explorer=true` at the reviewed source revision. GitHub Actions runs the validation gates, builds the Linux image, and transfers it to the existing GCE VM. The roll script checks the image's source revision and rolls only the Explorer service. No local Docker daemon is required.
+Run the repository's **Deploy** workflow with `services=explorer` and `deploy_explorer=true` at the reviewed source revision. GitHub Actions runs the validation gates, builds the Linux image, and transfers it to the existing GCE VM. The roll script checks the image's source revision and rolls only the Explorer service. No local Docker daemon is required. While GitHub Actions is unavailable, follow "Rolling the Explorer by hand" in [`docs/MANUAL_CI_GATE.md`](../../docs/MANUAL_CI_GATE.md); it builds the same image in Cloud Build from `scripts/cloudbuild-explorer.yaml`.
 
 | Setting | Value / purpose |
 | --- | --- |
