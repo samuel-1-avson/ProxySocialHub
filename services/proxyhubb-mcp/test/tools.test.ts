@@ -133,6 +133,95 @@ describe("create_agent_session", () => {
   });
 });
 
+describe("quote_session", () => {
+  const LISTINGS = {
+    listings: [
+      { status: "active", country: "GH", price_per_gb: 0.89 },
+      { status: "active", country: "GH", price_per_gb: 0.97 },
+      { status: "active", country: "GH", price_per_gb: 1.04 },
+      { status: "active", country: "US", price_per_gb: 2.5 },
+      { status: "paused", country: "NG", price_per_gb: 0.5 },
+    ],
+  };
+
+  /** Answers listings for GET and a created intent for POST, so one handler set can quote and then create. */
+  const market = (url: URL, init: RequestInit) =>
+    init.method === "POST" ? INTENT_OK : url.pathname === "/v1/listings" ? LISTINGS : jsonResponse({ error: "unexpected" }, 500);
+
+  it("prices a session against active listings and creates nothing", async () => {
+    const { handlers, calls } = makeHandlers(market);
+    const out = await handlers.quoteSession({
+      country: "gh",
+      session_type: "sticky",
+      max_price_per_gb: 1,
+      budget_usd: 3,
+      allowed_domains: ["https://Shop.Example.com/checkout"],
+    });
+    assert.equal(out.status, "ok");
+    assert.equal(out.created, false);
+    assert.equal(out.max_escrow_usd, 3);
+    assert.equal(out.matching_listings, 2);
+    assert.deepEqual(out.create_args, {
+      session_type: "sticky",
+      rotation: "none",
+      max_mb: 3072,
+      time_limit_minutes: 20,
+      country: "GH",
+      max_price_per_gb: 1,
+      allowed_domains: ["shop.example.com"],
+    });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.method, "GET");
+    assert.equal(new URL(calls[0]?.url ?? "").searchParams.get("limit"), "100");
+  });
+
+  it("create_args reproduce exactly the quoted intent", async () => {
+    for (const args of [
+      { country: "GH", session_type: "sticky" as const, budget_usd: 2.5 },
+      { country: "US", rotation_interval_seconds: 120, time_limit_minutes: 45 },
+      { max_mb: 777, max_price_per_gb: 1, blocked_domains: ["facebook.com"] },
+      {},
+    ]) {
+      const { handlers, calls } = makeHandlers(market);
+      const quote = await handlers.quoteSession(args);
+      assert.equal(quote.status, "ok", JSON.stringify(args));
+      await handlers.createAgentSession(quote.create_args as Parameters<typeof handlers.createAgentSession>[0]);
+      const payload = calls.find((c) => c.method === "POST")?.body;
+      assert.deepEqual(payload, quote.intent, JSON.stringify(args));
+    }
+  });
+
+  it("blocks a country without active listings, never swaps it, and offers no create_args", async () => {
+    const { handlers } = makeHandlers(market);
+    const out = await handlers.quoteSession({ country: "NG" });
+    assert.equal(out.status, "blocked");
+    assert.equal(out.create_args, null);
+    assert.equal(out.intent.target_geo, "NG");
+    assert.ok(out.notes.some((n) => n.level === "blocked" && /NG/.test(n.message)));
+  });
+
+  it("clamps out-of-range caps with a note instead of rejecting them", async () => {
+    const { handlers } = makeHandlers(market);
+    const out = await handlers.quoteSession({ max_mb: 50_000, time_limit_minutes: 999 });
+    assert.equal(out.status, "ok");
+    assert.equal((out.create_args as Record<string, unknown>).max_mb, 10_240);
+    assert.equal((out.create_args as Record<string, unknown>).time_limit_minutes, 240);
+    assert.ok(out.notes.some((n) => n.level === "warning" && /10240 MB/.test(n.message)));
+  });
+
+  it("needs no access token, because it creates nothing", async () => {
+    const { handlers } = makeHandlers(market, { withToken: false });
+    const out = await handlers.quoteSession({ country: "US" });
+    assert.equal(out.status, "ok");
+    assert.equal(out.max_escrow_usd, (100 / 1024) * 2.5);
+  });
+
+  it("reports the API failing instead of quoting an empty market", async () => {
+    const { handlers } = makeHandlers(() => jsonResponse({ error: "down" }, 503));
+    await assert.rejects(() => handlers.quoteSession({ country: "GH" }));
+  });
+});
+
 describe("verify_exit", () => {
   it("returns verified only when the observed exit's estimate matches", async () => {
     const { handlers } = makeHandlers(() => ({}));

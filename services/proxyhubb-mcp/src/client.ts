@@ -90,12 +90,13 @@ export class ProxyHubbClient {
     return this.#request("GET", "/v1/listings/facets");
   }
 
-  /** GET /v1/listings with the filters the API documents (country, proxy_type, q). */
-  searchListings(filters: { country?: string; proxy_type?: string; q?: string }): Promise<unknown> {
+  /** GET /v1/listings with the filters the API documents (country, proxy_type, q; limit is at most 100). */
+  searchListings(filters: { country?: string; proxy_type?: string; q?: string; limit?: number }): Promise<unknown> {
     const params = new URLSearchParams();
     if (filters.country) params.set("country", filters.country);
     if (filters.proxy_type) params.set("proxy_type", filters.proxy_type);
     if (filters.q) params.set("q", filters.q);
+    if (filters.limit) params.set("limit", String(filters.limit));
     const qs = params.toString();
     return this.#request("GET", `/v1/listings${qs ? `?${qs}` : ""}`);
   }
