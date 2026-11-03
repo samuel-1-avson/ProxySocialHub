@@ -39,6 +39,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard } from "@/components/ui/glass-card";
 import { getBuyerProxyEndpoint } from "@/lib/proxy-endpoint";
 import { authApiFetch } from "@/lib/api/client";
+import { SessionConcierge } from "@/modules/concierge/SessionConcierge";
 
 const PROXY_ENDPOINT = getBuyerProxyEndpoint();
 const SDK_MATRIX = [
@@ -233,6 +234,12 @@ export default function ProxyPage() {
     } finally {
       setCreating(false);
     }
+  }
+
+  function handleConciergeCreated(intent: CreateSessionIntentResponse) {
+    setIntentError("");
+    setSessionIntent(intent);
+    setIntentLifecycle(intent.lifecycle_state);
   }
 
   const matchingStatus =
@@ -799,63 +806,66 @@ export default function ProxyPage() {
             </GlassCard>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <motion.button
-              whileHover={{ y: -8, scale: 1.01 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => handleQuickStart("rotating")}
-              disabled={creating}
-              className="group p-8 glass-card border-border bg-muted hover:bg-surface-hover hover:border-primary/40 transition-all rounded-3xl text-left relative overflow-hidden disabled:opacity-50 shadow-xl"
-            >
-              <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-15 transition-all transform group-hover:scale-125 group-hover:rotate-12 duration-700">
-                <Globe size={180} className="text-primary" />
-              </div>
-              <div className="relative z-10">
-                <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center border border-primary/20 mb-6 shadow-[0_0_20px_rgba(16,185,129,0.1)]">
-                  {creating ? (
-                    <Loader2 size={24} className="animate-spin text-primary" />
-                  ) : (
-                    <RefreshCw size={24} className="text-primary" />
-                  )}
+          <>
+            <SessionConcierge onCreated={handleConciergeCreated} />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <motion.button
+                whileHover={{ y: -8, scale: 1.01 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => handleQuickStart("rotating")}
+                disabled={creating}
+                className="group p-8 glass-card border-border bg-muted hover:bg-surface-hover hover:border-primary/40 transition-all rounded-3xl text-left relative overflow-hidden disabled:opacity-50 shadow-xl"
+              >
+                <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-15 transition-all transform group-hover:scale-125 group-hover:rotate-12 duration-700">
+                  <Globe size={180} className="text-primary" />
                 </div>
-                <h3 className="text-2xl font-semibold font-mono normal-case tracking-tighter text-foreground group-hover:text-primary transition-colors mb-3">
-                  Rotating Stream
-                </h3>
-                <p className="text-xs font-mono font-semibold text-muted-foreground normal-case leading-relaxed tracking-normal">
-                  NEW IDENTITY PER REQUEST. IDEAL FOR AGGRESSIVE DATA HARVESTING
-                  AND ANONYMIZED DISCOVERY.
-                </p>
-              </div>
-            </motion.button>
-
-            <motion.button
-              whileHover={{ y: -8, scale: 1.01 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => handleQuickStart("sticky")}
-              disabled={creating}
-              className="group p-8 glass-card border-border bg-muted hover:bg-surface-hover hover:border-primary/40 transition-all rounded-3xl text-left relative overflow-hidden disabled:opacity-50 shadow-xl"
-            >
-              <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-15 transition-all transform group-hover:scale-125 group-hover:-rotate-12 duration-700">
-                <Shield size={180} className="text-blue-500" />
-              </div>
-              <div className="relative z-10">
-                <div className="w-14 h-14 rounded-2xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20 mb-6 shadow-[0_0_20px_rgba(59,130,246,0.1)]">
-                  {creating ? (
-                    <Loader2 size={24} className="animate-spin text-blue-500" />
-                  ) : (
-                    <Lock size={24} className="text-blue-500" />
-                  )}
+                <div className="relative z-10">
+                  <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center border border-primary/20 mb-6 shadow-[0_0_20px_rgba(16,185,129,0.1)]">
+                    {creating ? (
+                      <Loader2 size={24} className="animate-spin text-primary" />
+                    ) : (
+                      <RefreshCw size={24} className="text-primary" />
+                    )}
+                  </div>
+                  <h3 className="text-2xl font-semibold font-mono normal-case tracking-tighter text-foreground group-hover:text-primary transition-colors mb-3">
+                    Rotating Stream
+                  </h3>
+                  <p className="text-xs font-mono font-semibold text-muted-foreground normal-case leading-relaxed tracking-normal">
+                    NEW IDENTITY PER REQUEST. IDEAL FOR AGGRESSIVE DATA HARVESTING
+                    AND ANONYMIZED DISCOVERY.
+                  </p>
                 </div>
-                <h3 className="text-2xl font-semibold font-mono normal-case tracking-tighter text-foreground group-hover:text-blue-400 transition-colors mb-3">
-                  Sticky Core
-                </h3>
-                <p className="text-xs font-mono font-semibold text-muted-foreground normal-case leading-relaxed tracking-normal">
-                  PERSISTENT IDENTITY FRAGMENTS. PERFECT FOR SECURE ACCOUNT
-                  SIMULATION AND LINEAR SESSIONS.
-                </p>
-              </div>
-            </motion.button>
-          </div>
+              </motion.button>
+  
+              <motion.button
+                whileHover={{ y: -8, scale: 1.01 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => handleQuickStart("sticky")}
+                disabled={creating}
+                className="group p-8 glass-card border-border bg-muted hover:bg-surface-hover hover:border-primary/40 transition-all rounded-3xl text-left relative overflow-hidden disabled:opacity-50 shadow-xl"
+              >
+                <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-15 transition-all transform group-hover:scale-125 group-hover:-rotate-12 duration-700">
+                  <Shield size={180} className="text-blue-500" />
+                </div>
+                <div className="relative z-10">
+                  <div className="w-14 h-14 rounded-2xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20 mb-6 shadow-[0_0_20px_rgba(59,130,246,0.1)]">
+                    {creating ? (
+                      <Loader2 size={24} className="animate-spin text-blue-500" />
+                    ) : (
+                      <Lock size={24} className="text-blue-500" />
+                    )}
+                  </div>
+                  <h3 className="text-2xl font-semibold font-mono normal-case tracking-tighter text-foreground group-hover:text-blue-400 transition-colors mb-3">
+                    Sticky Core
+                  </h3>
+                  <p className="text-xs font-mono font-semibold text-muted-foreground normal-case leading-relaxed tracking-normal">
+                    PERSISTENT IDENTITY FRAGMENTS. PERFECT FOR SECURE ACCOUNT
+                    SIMULATION AND LINEAR SESSIONS.
+                  </p>
+                </div>
+              </motion.button>
+            </div>
+          </>
         )}
       </motion.div>
 

@@ -1,0 +1,87 @@
+/* Session assistant (agent concierge) on /dashboard/proxy: a request box, then a checked plan to approve. */
+
+.concierge-textarea {
+  width: 100%;
+  min-height: 88px;
+  padding: 12px;
+  border: 1px solid var(--input);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 14px;
+  resize: vertical;
+}
+.concierge-textarea:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.concierge-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-top: 22px;
+  padding-top: 22px;
+  border-top: 1px solid var(--border);
+}
+.concierge-plan h3 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 6px;
+}
+
+.concierge-values {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 14px 24px;
+  margin: 0;
+}
+.concierge-values div {
+  min-width: 0;
+}
+.concierge-values dt {
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.concierge-values dd {
+  margin: 2px 0 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.concierge-cost {
+  font-size: 14px;
+  margin: 0;
+}
+.concierge-cost strong {
+  font-size: 18px;
+}
+
+.concierge-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.concierge-list li[data-level="blocked"] {
+  color: var(--error);
+}
+.concierge-list li[data-level="warning"] {
+  color: var(--warning);
+}
+
+.concierge-guesses {
+  border-left: 3px solid var(--warning);
+  border-radius: 6px;
+  padding: 10px 14px;
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+}
+
+.concierge-edit summary {
+  cursor: pointer;
+  font-size: 13px;
+}
+.concierge-edit .ui-form-grid {
+  margin-top: 12px;
+}
