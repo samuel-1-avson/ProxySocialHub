@@ -17,7 +17,9 @@ async function prepare(page: Page, role?: "both" | "admin") {
 }
 async function review(page: Page, path: string) {
   await page.goto(base + path, { waitUntil: "domcontentloaded" });
-  await expect(page.locator("main")).toHaveCount(1, { timeout: 30000 });
+  // Cold dev-server compiles of large routes can take a while locally;
+  // the content assertions below are unchanged.
+  await expect(page.locator("main")).toHaveCount(1, { timeout: 90000 });
   await expect(page.locator("main").getByRole("heading").first()).toBeVisible({
     timeout: 30000,
   });
@@ -106,18 +108,9 @@ test.describe("route-family release review", () => {
   }, info) => {
     await prepare(page);
     await page.setViewportSize({ width: 390, height: 844 });
-    const routes = [
-      "/explorer/blocks/123",
-      "/explorer/transactions/unavailable-hash",
-      "/explorer/wallets/5J7sQx1LQx32fY6k3i8rXQ9rC3Z1V3aNQ3fxh7c7c4yD",
-      "/explorer/contracts/unavailable-contract",
-      "/explorer/nodes/unavailable-node",
-      "/explorer/nodes/compare?ids=node-a,node-b",
-      "/explorer/leaderboard",
-      "/explorer/sessions",
-      "/explorer/earnings",
-      "/providers/unavailable-provider",
-    ];
+    // The /explorer/* record pages moved to the standalone explorer (see
+    // explorer.spec.ts); only local public records are reviewed here.
+    const routes = ["/providers/unavailable-provider"];
     for (const path of routes) await test.step(path, () => review(page, path));
     await info.attach("routes-reviewed", {
       body: JSON.stringify(routes),
