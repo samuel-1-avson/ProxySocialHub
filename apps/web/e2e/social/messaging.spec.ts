@@ -49,10 +49,20 @@ async function stub(
       calls.sent.push(content);
       return route.fulfill({ status: 201, json: message("sent-1", me, content, 30) });
     }
-    const pageNo = Number(new URL(request.url()).searchParams.get("page") ?? "1");
-    const rows = options.messagePages?.[pageNo - 1] ?? [];
+    // The API pages history by cursor: no `before` gets the newest page,
+    // `before=<oldest id>` continues strictly older than it.
+    const url = new URL(request.url());
+    const before = url.searchParams.get("before");
+    const pages = options.messagePages ?? [];
+    if (!before) {
+      const rows = pages[0] ?? [];
+      return route.fulfill({
+        json: { messages: rows, total: options.total ?? rows.length, page: 1, limit: 50, has_more: pages.length > 1 },
+      });
+    }
+    const rows = pages[1] ?? [];
     return route.fulfill({
-      json: { messages: rows, total: options.total ?? rows.length, page: pageNo, limit: 2 },
+      json: { messages: rows, total: options.total ?? rows.length, page: 1, limit: 50, has_more: false },
     });
   });
   await page.route(/\/v1\/conversations\/[^/]+\/read$/, (route) => {
@@ -85,9 +95,9 @@ test.describe("messages", () => {
     // Opening the thread marks it read, so the badge goes.
     await expect.poll(() => calls.read).toBeGreaterThan(0);
 
-    await log.getByRole("button", { name: "Load earlier messages" }).click();
+    await log.getByRole("button", { name: "Load older messages" }).click();
     await expect(log.locator("article p")).toHaveText(["First message", "Second message", "Third message"]);
-    await expect(log.getByRole("button", { name: "Load earlier messages" })).toHaveCount(0);
+    await expect(log.getByRole("button", { name: "Load older messages" })).toHaveCount(0);
   });
 
   test("a deleted message keeps its place without its words", async ({ page }) => {
