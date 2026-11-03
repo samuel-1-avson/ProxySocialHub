@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
 import { BrandLockup } from "@/components/BrandLockup";
+import { ROUTES } from "@/lib/navigation/routes";
 import {
   WORKSPACE_DESTINATIONS,
   explorerHref,
@@ -15,6 +16,9 @@ export function Sidebar() {
   const pathname = usePathname();
   const { isAuthenticated } = useAuth();
   const { mode } = useWorkspace();
+  const forumActive = /^\/(help|community)\/forum(?:\/|$)/.test(pathname);
+  const settingsActive = /^\/(app|dashboard)\/settings(?:\/|$)/.test(pathname);
+  const helpActive = /^\/help(?:\/|$)/.test(pathname) && !forumActive;
   return (
     <aside className="workspace-sidebar" aria-label="Workspace navigation">
       <BrandLockup
@@ -43,7 +47,7 @@ export function Sidebar() {
       </nav>
       <p className="workspace-nav-label">Community & network</p>
       <nav className="workspace-primary workspace-discovery" aria-label="Community and network">
-        <Link href="/community/forum" className={pathname.startsWith("/community/forum") ? "active" : ""} aria-current={pathname.startsWith("/community/forum") ? "page" : undefined}>
+        <Link href={ROUTES.communityForum} className={forumActive ? "active" : ""} aria-current={forumActive ? "page" : undefined}>
           <MessageSquareText size={18} strokeWidth={1.6} aria-hidden="true" />
           Forum
         </Link>
@@ -62,11 +66,11 @@ export function Sidebar() {
           Explorer
           <ArrowUpRight className="ml-auto" size={13} aria-hidden="true" />
         </a>
-        <Link href="/help">
+        <Link href="/help" className={helpActive ? "active" : ""} aria-current={helpActive ? "page" : undefined}>
           <CircleHelp size={18} aria-hidden="true" />
           Help & support
         </Link>
-        <Link href="/app/settings">
+        <Link href="/app/settings" className={settingsActive ? "active" : ""} aria-current={settingsActive ? "page" : undefined}>
           <Settings size={18} aria-hidden="true" />
           Settings
         </Link>

@@ -125,7 +125,7 @@ export function Marketplace() {
     );
   }
   return (
-    <div className="ui-page">
+    <div className="ui-page marketplace-page">
       <PageHeading
         eyebrow="Buyer workspace"
         title="Marketplace"
@@ -261,6 +261,9 @@ export function Marketplace() {
             {rows.map((listing) => {
               const selected = compare.some((item) => item.id === listing.id);
               const isSaved = savedIds.has(listing.id);
+              const regionCode = /^[a-z]{2}$/i.test(listing.country || "")
+                ? listing.country!.toUpperCase()
+                : null;
               return (
                 <article
                   className={"offer-card" + (selected ? " is-selected" : "")}
@@ -272,7 +275,7 @@ export function Marketplace() {
                       className="offer-region"
                       aria-label={countryName(listing.country)}
                     >
-                      {listing.country || (
+                      {regionCode || (
                         <MapPin size={18} aria-hidden="true" />
                       )}
                     </span>
@@ -347,7 +350,7 @@ export function Marketplace() {
                             {amount(listing.avg_latency_ms)} <span>ms</span>
                           </>
                         ) : (
-                          <span>Not measured</span>
+                          <span className="offer-spec-unavailable">Not measured</span>
                         )}
                         <small>
                           {listing.avg_latency_ms > 0
@@ -688,18 +691,20 @@ function MarketplaceFilters({
             <option value="sales">Order volume</option>
           </select>
         </label>
-        <button
-          disabled={!hydrated}
-          className="ui-button secondary"
-          type="button"
-          onClick={() => setMoreOpen(true)}
-        >
-          <SlidersHorizontal size={15} aria-hidden="true" />
-          More filters{draftPrice && <span className="filter-count">1</span>}
-        </button>
-        <button className="ui-button" type="submit" disabled={!hydrated}>
-          Apply filters
-        </button>
+        <div className="marketplace-filter-actions">
+          <button
+            disabled={!hydrated}
+            className="ui-button secondary"
+            type="button"
+            onClick={() => setMoreOpen(true)}
+          >
+            <SlidersHorizontal size={15} aria-hidden="true" />
+            More filters{draftPrice && <span className="filter-count">1</span>}
+          </button>
+          <button className="ui-button" type="submit" disabled={!hydrated}>
+            Apply filters
+          </button>
+        </div>
       </form>
       <Modal
         open={moreOpen}

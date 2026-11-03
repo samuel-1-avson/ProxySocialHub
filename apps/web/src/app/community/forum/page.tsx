@@ -108,11 +108,16 @@ export default function ForumPage() {
                       className="forum-category ui-surface"
                       href={"/help/forum/category/" + category.slug}
                     >
-                      <MessageSquare size={20} aria-hidden="true" />
-                      <h3>{category.name}</h3>
+                      <div className="forum-category-heading">
+                        <span className="forum-category-icon">
+                          <MessageSquare size={19} aria-hidden="true" />
+                        </span>
+                        <h3>{category.name}</h3>
+                      </div>
                       <p>{category.description}</p>
                       <span>
-                        {category.thread_count ?? 0} discussions
+                        {category.thread_count ?? 0}{" "}
+                        {category.thread_count === 1 ? "discussion" : "discussions"}
                         <ArrowRight size={14} aria-hidden="true" />
                       </span>
                     </Link>
