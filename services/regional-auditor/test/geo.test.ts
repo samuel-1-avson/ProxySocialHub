@@ -35,10 +35,12 @@ describe("evaluateAssurance", () => {
     assert.match(r.reason, /conflict/);
   });
 
-  it("detects a direct (non-proxied) connection by the worker's own IP", () => {
+  it("detects an exit equal to the worker's own IP (bypass, or a node on the same connection)", () => {
     const r = evaluateAssurance({ ...base, samples: [{ ip: "198.18.5.5", geoip: geo("GH") }] });
     assert.equal(r.assurance, "direct_egress");
     assert.equal(r.matchesWorkerDirectIp, true);
+    assert.match(r.reason, /did not leave through a regional exit/);
+    assert.match(r.reason, /own internet connection/);
   });
 
   it("is unavailable when no egress IP was observed", () => {

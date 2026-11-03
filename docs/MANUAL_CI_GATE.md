@@ -111,3 +111,36 @@ anchor changes merge only with a maintainer's explicit sign-off in the PR.
 
 `scripts/gcp-ci-deploy.sh` already builds images, runs `db-migrate`, waits for
 healthy services, and smoke-checks HTTP. A successful deploy is the gate.
+
+## Deploying by hand
+
+While the deploy workflow cannot start, merging to `main` does not update testnet. Deploy over SSH
+(`gcloud compute ssh proxyhubb-testnet --zone=us-central1-a`), in this order. On Windows, put scripts on the
+VM with `gcloud compute scp` first: piping a script into `gcloud compute ssh` fails.
+
+1. **Back up the database** (about 3 minutes and 0.6 GB; keeps the newest 3 dumps, see the script header):
+
+   ```bash
+   cd /opt/proxyhubb && sudo git fetch origin main && sudo git reset --hard origin/main
+   bash scripts/gcp-pre-deploy-backup.sh
+   ```
+
+2. **Run the deploy detached**, so a dropped SSH session cannot kill it half way (the web rebuild takes
+   about 20 minutes on this disk):
+
+   ```bash
+   sudo systemd-run --unit=proxyhubb-manual-deploy --collect --working-directory=/opt/proxyhubb \
+     bash -c "git fetch origin main && git reset --hard origin/main && bash scripts/gcp-ci-deploy.sh --services 'db-migrate control-api web docs' >> /var/log/proxyhubb-deploy.log 2>&1; echo DEPLOY_EXIT \$? >> /var/log/proxyhubb-deploy.log"
+   sudo tail -f /var/log/proxyhubb-deploy.log
+   ```
+
+3. **Read the result.** Success ends with `Deployment successfully completed and verified!`, then
+   `[6/6] Freeing disk` and `DEPLOY_EXIT 0`. Migrations run UP only.
+4. **Check by hand:** `curl https://api.proxyhubb.com/health`, a few site pages, and `sudo docker ps` (every
+   container healthy, none restarting).
+
+`scripts/gcp-ci-deploy.sh` looks after disk space itself. Below 10 GB free it clears build cache older than
+24 h and old rollout images before building; below 6 GB it drops all unused build cache (the next build is
+slower); if that is still not enough it stops before touching the running stack. It never removes anything a
+container uses. The limits are environment variables (`DEPLOY_MIN_FREE_GB`, `DEPLOY_HARD_MIN_FREE_GB`,
+`DEPLOY_PRUNE_CACHE_UNUSED_FOR`).

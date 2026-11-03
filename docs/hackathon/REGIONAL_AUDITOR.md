@@ -9,7 +9,7 @@ evidence-backed report you can inspect, rerun after a fix, and export.
 > | | State |
 > | --- | --- |
 > | **Core feature (fixture + replay + real Meta analysis)** | **Complete and verified locally** (details in [§11](#11-checks-actually-run)). |
-> | **Live acceptance** (new captures through two real ProxyHubb regional exits) | **One region done, two not yet.** On 2026-11-02 audit `aud_a397dd463c47` captured `https://proxyhubb.com/` through the user's own Ghana marketplace order on the testnet gateway, with a verified exit and a real Meta analysis ([§13.0](#130-first-real-live-audit-2026-11-02)). A two-region comparison still needs an active order in a second country. |
+> | **Live acceptance** (new captures through two real ProxyHubb regional exits) | **One region done, two not yet.** On 2026-11-02 audit `aud_a397dd463c47` captured `https://proxyhubb.com/` through the user's own Ghana marketplace order on the testnet gateway, and a real Meta analysis ([§13.0](#130-first-real-live-audit-2026-11-02)). **Correction (2026-11-03):** that exit was on Starlink, so under the satellite rule added later the same day it is not verified evidence; no run has yet verified under the current rules. A two-region comparison still needs an active order in a second country. |
 
 The audit is **read-only**: it never logs in, submits forms, buys anything or
 changes state on the audited site.
@@ -141,7 +141,7 @@ requested country and nothing contradicts it.
 | `verified` | GeoIP matches (and any declared country agrees) | captured and interpreted |
 | `unverified` | country unknown, or declared and estimated countries conflict | page is captured for inspection, **not** sent to the model, not counted as the region's behaviour |
 | `mismatch` | GeoIP says another country, or the exit changed to one during capture | target page is **never loaded** (or, if it changed mid-run, the result is withheld) |
-| `direct_egress` | observed IP equals the worker's own direct IP | treated as a proxy bypass; not loaded |
+| `direct_egress` | observed IP equals the worker's own direct IP (a bypass, or an exit node on the worker's own connection: the two look identical) | treated as a proxy bypass; not loaded |
 | `unavailable` | no egress observed, or no session could be obtained | region fails; says nothing about your site |
 
 A failed or unavailable region can never produce a clean report: the job is
@@ -533,10 +533,17 @@ main as of #124, deployed 2026-11-01) and ran audits over their own Ghana market
 | `aud_428b30228d2a` (13:50 UTC) | GH `unavailable` · `order_not_ready`: the control API answered that the order's proxy credentials were not ready yet. Nothing was captured and no model call was made. |
 | `aud_a397dd463c47` (13:56 UTC) | **completed.** Exit IP observed through the audit browser before and after capture, unchanged; GeoIP (`ipwho.is`) and the seller-declared listing country both say GH, so the route is `verified`. Main document HTTP 200, two screenshots, 2 model calls on `muse-spark-1.3-contributor` (7,468 in / 2,644 out tokens, estimated $0.0013). Expectations: page loads **met**; signup **unclear** (the site says "Get started"/"Sign in", and clicking was not tested); prices in the expected currency **not met**. One finding: the homepage shows no pricing and no currency for GH. |
 
+**Correction (2026-11-03):** the exit of `aud_a397dd463c47` was on SpaceX Starlink (AS14593; `ipwho.is`,
+looked up 2026-11-03). The satellite rule (`b53c6020`, 17:05 UTC the same day, after this run) makes such an
+exit `unverified`, because satellite addresses are placed by ground station. So this run proves the live path
+works, but it is **not verified evidence** under the current rules. It also ran on the contributor (training)
+model, which a person must enable by hand.
+
 What this settles from the list below: the credentialed tunnel through the **real** gateway works with a
 marketplace order's per-session username and HMAC password; signing in through a local web app against the
-remote API works; the target is reachable from that exit, and that order's exit is in the country its listing
-declares (GeoIP estimate). Still open: a second region, and the `session-intent` path (blocked by escrow).
+remote API works; the target is reachable from that exit. It does not settle where that exit is (see the
+correction above). Still open: a run that verifies, a second region, and the `session-intent` path (blocked by
+escrow).
 
 The same run exposed a defect, now fixed: after capturing, the worker re-checks the exit under an echo-only
 request policy but had left the target page open. proxyhubb.com kept prefetching (`/provider`, redirected to
@@ -597,7 +604,7 @@ was or was not interpreted, findings, usage). It reads only the local job store,
 | `failed` · `egress_probe_failed` | the gateway rejected the session, the exit has no route, or the echo host is not reachable through it (for example excluded by `allowed_domains`) | `npm run inspect`; try with `AUDITOR_RESTRICT_INTENT_DOMAINS` unset; check the echo URL |
 | `mismatch` | the exit's IP geolocates to another country than requested: a real finding about that supply, not a bug | rerun (a different node may be chosen) or pick another listing |
 | `unverified` | no GeoIP answer for the exit, or declared and estimated countries conflict | retry later (GeoIP rate limits) or set another provider; the page is kept but not interpreted |
-| `failed` · `direct_egress` | the observed IP equals the worker's own IP: the request did not leave through the proxy | stop and investigate before trusting any run |
+| `failed` · `direct_egress` | the observed IP equals the worker's own IP: either the request did not leave through the proxy, or the exit node is on the same internet connection as the worker (for example your own node on your own line; seen on 2026-11-03) | compare with the worker machine's own IP (`curl https://api.ipify.org`); if they match, run the worker and the node on different connections. Never weaken the check: from the worker's side the two cases are indistinguishable |
 | `captured`, and a "blocked or challenged" hypothesis | the site served a bot challenge to that exit | not a site defect by itself; allow the exit or test another |
 | `captured`, but results differ from what the site's own geo logic should do | the site classifies the visitor's IP differently from the auditor's GeoIP source | expected sometimes; the report shows what the site actually served |
 

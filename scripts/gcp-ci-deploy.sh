@@ -10,10 +10,13 @@
 #
 # Disk: each build adds several GB of images and build cache to an 80 GB disk.
 # Before building, the script frees space if less than DEPLOY_MIN_FREE_GB
-# (default 10) is free and stops, leaving the running stack untouched, if less
-# than DEPLOY_HARD_MIN_FREE_GB (default 6) is still free. After a verified
-# deploy it removes build cache unused for DEPLOY_PRUNE_CACHE_UNUSED_FOR
-# (default 6h) and old rollout images. Nothing a container uses is removed.
+# (default 10) is free: first build cache unused for 24h and old rollout images,
+# then, only if less than DEPLOY_HARD_MIN_FREE_GB (default 6) is still free,
+# ALL unused build cache (the next build is slower, but several deploys in one
+# day can no longer leave nothing to free). If that is still not enough it stops,
+# leaving the running stack untouched. After a verified deploy it removes build
+# cache unused for DEPLOY_PRUNE_CACHE_UNUSED_FOR (default 6h) and old rollout
+# images. Nothing a container uses is removed.
 # ==============================================================================
 
 set -euo pipefail
@@ -115,6 +118,14 @@ if [[ "$DRY_RUN" == "false" ]]; then
     cleanup_docker 24h
     FREE_BEFORE=$(free_gb)
     echo "Free disk after cleanup: $(show_gb "$FREE_BEFORE")"
+  fi
+  if [[ -n "$FREE_BEFORE" ]] && (( FREE_BEFORE < HARD_MIN_FREE_GB )); then
+    # Cache newer than 24h (several deploys in one day) survives the cleanup above. A build needs
+    # space more than it needs a warm cache, so as a last resort drop all unused build cache.
+    echo "Only $(show_gb "$FREE_BEFORE") free: removing ALL unused build cache (the next build will be slower)..."
+    sudo docker builder prune -af >/dev/null 2>&1 || true
+    FREE_BEFORE=$(free_gb)
+    echo "Free disk after removing all unused build cache: $(show_gb "$FREE_BEFORE")"
   fi
   if [[ -n "$FREE_BEFORE" ]] && (( FREE_BEFORE < HARD_MIN_FREE_GB )); then
     echo "❌ Only ${FREE_BEFORE} GB free (need ${HARD_MIN_FREE_GB} GB to build). Nothing was changed; the running stack is untouched." >&2

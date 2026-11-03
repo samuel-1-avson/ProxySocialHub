@@ -2,15 +2,33 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { ProxyHubbClient } from "../src/client.ts";
 import { loadConfig } from "../src/config.ts";
+import type { FetchPageOptions, FetchPageResult } from "../src/fetch.ts";
 import { createToolHandlers, ToolError } from "../src/tools.ts";
 
 type Handler = (url: URL, init: RequestInit) => unknown;
+type FetchPage = (proxyUrl: string, target: URL, opts: FetchPageOptions) => Promise<FetchPageResult>;
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
 
-function makeHandlers(handler: Handler, opts: { withToken?: boolean } = {}) {
+const PAGE_OK: FetchPage = async (_proxyUrl, target) => ({
+  ok: true,
+  finalUrl: target.href,
+  redirects: [],
+  status: 200,
+  headers: { "content-type": "text/html; charset=utf-8" },
+  body: Buffer.from("<html><head><title>Shop GH</title></head><body><p>Price: GH₵ 120</p></body></html>"),
+  truncated: false,
+  bytesReceived: 120,
+  elapsedMs: 30,
+});
+
+function makeHandlers(
+  handler: Handler,
+  opts: { withToken?: boolean; apiKey?: string; ownIp?: string; fetchPage?: FetchPage } = {},
+) {
+  const pageCalls: { proxyUrl: string; target: string }[] = [];
   const calls: { url: string; method: string; body: unknown; headers: Record<string, string> }[] = [];
   const fetchFn = (async (input: unknown, init?: RequestInit) => {
     const url = new URL(String(input));
@@ -27,7 +45,7 @@ function makeHandlers(handler: Handler, opts: { withToken?: boolean } = {}) {
   const cfg = loadConfig({
     baseUrl: "http://api.test",
     accessToken: opts.withToken === false ? "" : "jwt-test",
-    apiKey: "",
+    apiKey: opts.apiKey ?? "",
     proxyEndpoint: "proxy.test:8090",
     echoUrl: "https://echo.test/?format=json",
   });
@@ -36,9 +54,13 @@ function makeHandlers(handler: Handler, opts: { withToken?: boolean } = {}) {
     client: new ProxyHubbClient(cfg, fetchFn),
     probe: async () => ({ ok: true, ip: "203.0.113.7", targetHost: "echo.test", elapsedMs: 42 }),
     geoLookup: async () => ({ country: "GH", source: "test", lookedUpAt: null, note: null }),
-    learnOwnIp: async () => "198.51.100.9",
+    learnOwnIp: async () => opts.ownIp ?? "198.51.100.9",
+    fetchPage: async (proxyUrl, target, fetchOpts) => {
+      pageCalls.push({ proxyUrl, target: target.href });
+      return (opts.fetchPage ?? PAGE_OK)(proxyUrl, target, fetchOpts);
+    },
   });
-  return { handlers, calls };
+  return { handlers, calls, pageCalls };
 }
 
 const INTENT_OK = {
@@ -168,5 +190,235 @@ describe("discovery", () => {
     const found = await handlers.discoverListings({ country: "GH", max_price_per_gb: 5 });
     assert.equal(found.count, 1);
     assert.equal(JSON.stringify(found).includes('"api_key"'), false);
+  });
+});
+
+const ORDER_ID = "0b6c1f2e-1111-4222-8333-944455556666";
+const FUTURE = new Date(Date.now() + 3_600_000).toISOString();
+
+function order(overrides: Record<string, unknown> = {}) {
+  return {
+    id: ORDER_ID,
+    status: "active",
+    bandwidth_gb: 1,
+    price_usd: 0.9,
+    created_at: "2026-11-02T10:00:00Z",
+    listing: { country: "GH", title: "Accra fibre", city: "Accra", isp: "MTN", seller_wallet: "W1-secret", email: "seller@test" },
+    ...overrides,
+  };
+}
+
+function credentials(overrides: Record<string, unknown> = {}) {
+  return {
+    proxy_credentials: {
+      username: "u-1",
+      password: "p@ss/word",
+      host: "proxy.test",
+      port: 8090,
+      endpoint: "http://proxy.test:8090",
+      auth_for_endpoint: "hmac",
+      expires_at: FUTURE,
+      ...overrides,
+    },
+  };
+}
+
+/** Answers GET /v1/orders/:id and /v1/orders/:id/credentials. */
+function orderApi(o: unknown, creds: unknown) {
+  return (url: URL) => (url.pathname.endsWith("/credentials") ? creds : o);
+}
+
+describe("list_my_orders", () => {
+  it("lists only active orders, with public listing fields and counts of the rest", async () => {
+    const { handlers, calls } = makeHandlers(() => ({
+      orders: [
+        order(),
+        order({ id: "1b6c1f2e-1111-4222-8333-944455556666", listing: { country: "US", title: "Ohio cable" } }),
+        order({ id: "2b6c1f2e-1111-4222-8333-944455556666", status: "completed" }),
+        order({ id: "3b6c1f2e-1111-4222-8333-944455556666", status: "pending_payment" }),
+        order({ id: "not-a-uuid" }),
+      ],
+    }));
+    const out = await handlers.listMyOrders({ country: "gh" });
+    assert.ok(calls[0]?.url.endsWith("/v1/orders?limit=100"));
+    assert.equal(out.count, 1);
+    assert.deepEqual(out.orders[0], {
+      order_id: ORDER_ID,
+      declared_country: "GH",
+      title: "Accra fibre",
+      city: "Accra",
+      isp: "MTN",
+      bandwidth_gb: 1,
+      created_at: "2026-11-02T10:00:00Z",
+    });
+    assert.deepEqual(out.not_active, { completed: 1, pending_payment: 1 });
+    const json = JSON.stringify(out);
+    for (const leak of ["seller@test", "W1-secret", "price_usd"]) assert.equal(json.includes(leak), false, leak);
+  });
+
+  it("needs a token or an API key, and accepts an API key on its own", async () => {
+    const none = makeHandlers(() => ({ orders: [] }), { withToken: false });
+    await assert.rejects(() => none.handlers.listMyOrders({}), /PROXYHUBB_API_KEY/);
+
+    const keyOnly = makeHandlers(() => ({ orders: [order()] }), { withToken: false, apiKey: "phub_test" });
+    const out = await keyOnly.handlers.listMyOrders({});
+    assert.equal(out.count, 1);
+    assert.equal(keyOnly.calls[0]?.headers["x-api-key"], "phub_test");
+    assert.equal(keyOnly.calls[0]?.headers.authorization, undefined);
+  });
+
+  it("says what is wrong when the token is a provider node token", async () => {
+    const { handlers } = makeHandlers(() =>
+      jsonResponse({ error: "provider token cannot call this route", code: "provider_token_scope" }, 403),
+    );
+    await assert.rejects(
+      () => handlers.listMyOrders({}),
+      (err: Error) =>
+        /403: provider token cannot call this route/.test(err.message) &&
+        /provider node token/.test(err.message) &&
+        /website session/.test(err.message),
+    );
+  });
+});
+
+describe("use_my_order", () => {
+  it("returns a proxy URL on the configured gateway for an active order", async () => {
+    const { handlers, calls } = makeHandlers(orderApi(order(), credentials()));
+    const out = await handlers.useMyOrder({ order_id: ORDER_ID.toUpperCase(), expected_country: "gh" });
+    assert.equal(out.status, "ready");
+    assert.equal(out.proxy_url, "http://u-1:p%40ss%2Fword@proxy.test:8090");
+    assert.equal(out.declared_country, "GH");
+    assert.equal(out.bandwidth_gb, 1);
+    assert.deepEqual(
+      calls.map((c) => new URL(c.url).pathname),
+      [`/v1/orders/${ORDER_ID}`, `/v1/orders/${ORDER_ID}/credentials`],
+    );
+    assert.equal(calls[1]?.headers.authorization, "Bearer jwt-test");
+  });
+
+  it("never asks for the credentials of an order that is not active", async () => {
+    const { handlers, calls } = makeHandlers(orderApi(order({ status: "completed" }), credentials()));
+    const out = await handlers.useMyOrder({ order_id: ORDER_ID });
+    assert.equal(out.status, "unavailable");
+    assert.equal(out.code, "order_not_active");
+    assert.equal(out.proxy_url, null);
+    assert.equal(calls.length, 1);
+  });
+
+  it("refuses an order declared for another country before asking for credentials", async () => {
+    const { handlers, calls } = makeHandlers(orderApi(order(), credentials()));
+    const out = await handlers.useMyOrder({ order_id: ORDER_ID, expected_country: "US" });
+    assert.equal(out.code, "order_region_mismatch");
+    assert.equal(calls.length, 1);
+  });
+
+  it("reports an order whose session is not ready as retryable", async () => {
+    const { handlers } = makeHandlers(
+      orderApi(order(), jsonResponse({ error: "Proxy credentials are not ready yet", retryable: true }, 409)),
+    );
+    const out = await handlers.useMyOrder({ order_id: ORDER_ID });
+    assert.equal(out.code, "order_not_ready");
+    assert.equal(out.retryable, true);
+  });
+
+  it("refuses expired, non-hmac and other-gateway credentials", async () => {
+    const cases: [Record<string, unknown>, string][] = [
+      [{ expires_at: "2020-01-01T00:00:00Z" }, "order_expired"],
+      [{ auth_for_endpoint: "capability" }, "order_credentials_unsupported"],
+      [{ host: "other.test", port: 9000, endpoint: "http://other.test:9000" }, "order_gateway_mismatch"],
+      [{ password: "" }, "order_credentials_unreadable"],
+    ];
+    for (const [overrides, code] of cases) {
+      const { handlers } = makeHandlers(orderApi(order(), credentials(overrides)));
+      const out = await handlers.useMyOrder({ order_id: ORDER_ID });
+      assert.equal(out.code, code, code);
+      assert.equal(out.proxy_url, null, code);
+    }
+  });
+
+  it("reports an order that is not in the account, and rejects a malformed id", async () => {
+    const { handlers } = makeHandlers(() => jsonResponse({ error: "Order not found" }, 404));
+    const out = await handlers.useMyOrder({ order_id: ORDER_ID });
+    assert.equal(out.code, "order_not_found");
+    await assert.rejects(() => handlers.useMyOrder({ order_id: "../credentials" }), ToolError);
+  });
+});
+
+/** Answers the order list, the order and its credentials. */
+function accountApi(o: Record<string, unknown> = order(), creds: unknown = credentials(), list: unknown[] = [o]) {
+  return (url: URL) =>
+    url.pathname === "/v1/orders" ? { orders: list } : url.pathname.endsWith("/credentials") ? creds : o;
+}
+
+describe("fetch_url", () => {
+  it("fetches through a verified order exit and never returns the credential", async () => {
+    const { handlers, calls, pageCalls } = makeHandlers(accountApi());
+    const out = await handlers.fetchUrl({ url: "https://shop.example/gh", country: "gh" });
+    assert.equal(out.status, "fetched");
+    assert.equal(out.title, "Shop GH");
+    assert.match(String(out.text), /Price: GH₵ 120/);
+    assert.equal(out.exit?.assurance, "verified");
+    assert.deepEqual(
+      calls.map((c) => new URL(c.url).pathname),
+      ["/v1/orders", `/v1/orders/${ORDER_ID}`, `/v1/orders/${ORDER_ID}/credentials`],
+    );
+    assert.equal(pageCalls[0]?.proxyUrl, "http://u-1:p%40ss%2Fword@proxy.test:8090");
+    assert.equal(pageCalls[0]?.target, "https://shop.example/gh");
+    const json = JSON.stringify(out);
+    for (const secret of ["p@ss", "p%40ss", "proxy_url"]) assert.equal(json.includes(secret), false, secret);
+  });
+
+  it("does not request the page through an unverified exit by default", async () => {
+    // The exit IP equals our own IP: direct_egress.
+    const { handlers, pageCalls } = makeHandlers(accountApi(), { ownIp: "203.0.113.7" });
+    const out = await handlers.fetchUrl({ url: "https://shop.example/", country: "GH" });
+    assert.equal(out.status, "not_fetched");
+    assert.equal(out.exit?.assurance, "direct_egress");
+    assert.match(String(out.message), /require_verified=false/);
+    assert.equal(pageCalls.length, 0);
+  });
+
+  it("fetches an unverified exit only when asked, and labels the result", async () => {
+    const { handlers, pageCalls } = makeHandlers(accountApi(), { ownIp: "203.0.113.7" });
+    const out = await handlers.fetchUrl({ url: "https://shop.example/", country: "GH", require_verified: false });
+    assert.equal(out.status, "fetched");
+    assert.match(String(out.warnings?.[0]), /NOT verified \(direct_egress\)/);
+    assert.equal(pageCalls.length, 1);
+  });
+
+  it("says when there is no active order for the country", async () => {
+    const { handlers, calls, pageCalls } = makeHandlers(accountApi(order(), credentials(), []));
+    const out = await handlers.fetchUrl({ url: "https://shop.example/", country: "US" });
+    assert.equal(out.status, "unavailable");
+    assert.equal(out.code, "no_active_order");
+    assert.equal(calls.length, 1);
+    assert.equal(pageCalls.length, 0);
+  });
+
+  it("passes an order refusal through without fetching", async () => {
+    const o = order({ status: "completed" });
+    const { handlers, pageCalls } = makeHandlers(accountApi(o, credentials(), [order()]));
+    const out = await handlers.fetchUrl({ url: "https://shop.example/", order_id: ORDER_ID });
+    assert.equal(out.status, "unavailable");
+    assert.equal(out.code, "order_not_active");
+    assert.equal(pageCalls.length, 0);
+  });
+
+  it("reports a failed fetch with its stage", async () => {
+    const { handlers } = makeHandlers(accountApi(), {
+      fetchPage: async () => ({ ok: false, stage: "tls", message: "TLS failed.", redirects: [] }),
+    });
+    const out = await handlers.fetchUrl({ url: "https://shop.example/", country: "GH" });
+    assert.equal(out.status, "failed");
+    assert.equal(out.stage, "tls");
+  });
+
+  it("refuses non-https and internal targets before any API call", async () => {
+    const { handlers, calls } = makeHandlers(accountApi());
+    for (const url of ["http://shop.example/", "https://192.168.1.1/", "https://localhost/", "https://router/", "https://shop.example:22/"]) {
+      await assert.rejects(() => handlers.fetchUrl({ url, country: "GH" }), ToolError, url);
+    }
+    await assert.rejects(() => handlers.fetchUrl({ url: "https://shop.example/" }), /country/);
+    assert.equal(calls.length, 0);
   });
 });

@@ -1,0 +1,54 @@
+---
+title: AI agents
+description: Give your AI agent real exits in other countries, verified before it trusts them, and audit your site from several countries with Meta's model.
+---
+
+AI agents increasingly need to see the web the way people in other countries see it: prices, cookie banners, sign-up flows, blocked pages. ProxyHubb gives an agent **real residential exits** in the countries you choose, run by the people who live there, and **checks where each exit really is** before the agent trusts what it sees.
+
+<Flow caption="The agent never gets a raw credential when it uses fetch_url: the MCP server keeps it.">
+  <FlowStep icon="laptop" title="Your agent">Claude, Cursor, VS Code or your own code asks for a page from a country</FlowStep>
+  <FlowStep icon="server" title="ProxyHubb MCP server" arrow="tool call">Uses an order you paid for and verifies the exit</FlowStep>
+  <FlowStep icon="house" title="A provider's home" arrow="routed">Fetches the page from that country</FlowStep>
+  <FlowStep icon="globe" title="The website" arrow="visits">Answers as it would answer a local visitor</FlowStep>
+</Flow>
+
+## What you can do today
+
+<RoleGrid>
+  <PathCard code="A1" href="/docs/agents/mcp" title="Connect your agent (MCP)" meta="Claude, Cursor, VS Code">
+    Add the ProxyHubb MCP server to your agent, then ask it to read a page as seen from Ghana.
+  </PathCard>
+  <PathCard code="A2" href="/docs/agents/regional-auditor" title="Audit your site from other countries" meta="Regional Auditor">
+    A browser per country, a verified exit, and Meta's model explaining what differs, with evidence.
+  </PathCard>
+  <PathCard code="A3" href="/docs/sdks" title="Build your own agent" meta="SDKs">
+    Use order credentials from the Python, Node.js or Go SDK in your own agent code.
+  </PathCard>
+</RoleGrid>
+
+## What is available and what is planned
+
+| Capability | Status |
+|------------|--------|
+| MCP server for local agents (Claude Desktop, Claude Code, Cursor, VS Code) | **Available**, installed from GitHub |
+| `fetch_url`: read a page as seen from a country, no credential exposed | **Available** |
+| Use orders you already bought from the agent | **Available** |
+| Exit verification (`verified`, `mismatch`, `unverified`, `direct_egress`) | **Available** |
+| Regional Auditor with Meta's Muse Spark model | **Available** as a local stack you run yourself |
+| An agent key you create on the website (instead of your login token) | Planned |
+| `npx` install and a one-click Claude Desktop extension | Planned |
+| A hosted endpoint for ChatGPT and Claude.ai (web and mobile) | Planned |
+| Agents paying for their own bandwidth | Not planned yet |
+
+## The safety model
+
+- **Agents spend what you prepaid.** The MCP server never buys, pays, funds escrow or signs a transaction. It uses marketplace orders you already bought, or capped sessions where funding is not needed.
+- **Verify before trusting.** Routing is best effort, so every exit is measured. Only `verified` means the exit's GeoIP estimate matches the country you asked for. A satellite exit (for example Starlink) is never `verified`, because its address says where the ground station is, not where the dish is.
+- **Credentials stay on the server** when you use `fetch_url`. The older tools that return a `proxy_url` say plainly that it is a secret.
+- **Page text is data, not instructions.** An agent must not follow instructions it finds on a website it fetched.
+- **Your token is your login.** Today the MCP server uses your website session token, which can do anything your account can for up to 24 hours. Treat it like a password: never paste it into a chat, a screenshot or a shared file.
+- **Only for sites you may access:** regional QA, price and currency checks, ad verification, and your own properties.
+
+<Callout type="info" title="Testnet">
+ProxyHubb runs on Solana devnet today. Orders are paid with test SOL, and supply is small: check the regions available before you rely on one.
+</Callout>

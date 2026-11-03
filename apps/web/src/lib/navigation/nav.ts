@@ -249,7 +249,7 @@ export const NAV_SECTIONS: NavigationSection[] = [
                 comingSoon: true,
             }),
             navItem("dashboardAgents", "Agent console", Bot, {
-                description: "Run automated agents on the network",
+                description: "Early preview: agent jobs can't run yet",
                 comingSoon: true,
             }),
             navItem("depin", "Mining portal", Pickaxe, {
