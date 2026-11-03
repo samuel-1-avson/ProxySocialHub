@@ -10,9 +10,12 @@ import {
   formatRate,
   formatRetrySentence,
   formatSol,
+  listOrNone,
   noticeForPairingEnd,
+  offerSentence,
   secondsLeft,
   serverLine,
+  updateSentence,
 } from './format';
 import type { ServerView } from './types';
 
@@ -177,5 +180,30 @@ describe('serverLine', () => {
     for (const view of all) {
       expect(serverLine(view).text).not.toMatch(/api|jwt|token|provider.toml|heartbeat/i);
     }
+  });
+});
+
+describe('offerSentence', () => {
+  it('says what the computer offers, not what it is limited to', () => {
+    expect(offerSentence(500, 100)).toBe('Up to 500 connections and 100 Mbps');
+    expect(offerSentence(0, 0)).toBe('Up to no stated number of connections and no stated speed');
+    expect(offerSentence(Number.NaN, 25.4)).toBe('Up to no stated number of connections and 25 Mbps');
+    expect(offerSentence(500, 100)).not.toMatch(/limit/i);
+  });
+});
+
+describe('listOrNone', () => {
+  it('lists with commas and falls back to the words given', () => {
+    expect(listOrNone([80, 443, 8080], 'none')).toBe('80, 443, 8080');
+    expect(listOrNone(['a.example'], 'none')).toBe('a.example');
+    expect(listOrNone([], 'none')).toBe('none');
+  });
+});
+
+describe('updateSentence', () => {
+  it('names the newer version and the one the person has', () => {
+    expect(updateSentence('0.1.3', '0.1.2')).toBe(
+      'A newer version of ProxyHubb Provider is available (0.1.3). You have 0.1.2.',
+    );
   });
 });

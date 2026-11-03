@@ -157,3 +157,20 @@ export function serverLine(server: ServerView): ServerLine {
       };
   }
 }
+
+/** What this computer offers ProxyHubb, as a sentence. These are announced, not enforced. */
+export function offerSentence(connections: number, mbps: number): string {
+  const c = Number.isFinite(connections) && connections > 0 ? `${Math.round(connections)} connections` : 'no stated number of connections';
+  const s = Number.isFinite(mbps) && mbps > 0 ? `${Math.round(mbps)} Mbps` : 'no stated speed';
+  return `Up to ${c} and ${s}`;
+}
+
+/** "80, 443, 8080" or the given words when there is nothing to list. */
+export function listOrNone(items: readonly (string | number)[], none: string): string {
+  return items.length > 0 ? items.join(', ') : none;
+}
+
+/** The notice about a newer installer, in a sentence. */
+export function updateSentence(latest: string, current: string): string {
+  return `A newer version of ProxyHubb Provider is available (${latest}). You have ${current}.`;
+}
