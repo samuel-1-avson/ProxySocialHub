@@ -1,11 +1,19 @@
 // Thin client for the existing ProxyHubb control API (/v1). This MCP server
-// wraps the public contract only: session intents, listings/facets, usage and
-// session termination. It never funds escrow and never bypasses plan limits —
-// a deployment that answers `session_escrow_required` is surfaced as-is.
+// wraps the public contract only: session intents, listings/facets, usage,
+// session termination, and reading the caller's own marketplace orders. It
+// never funds escrow, never buys, pays for or cancels an order, and never
+// bypasses plan limits — a deployment that answers `session_escrow_required`
+// is surfaced as-is.
 
 import type { ProxyHubbConfig } from "./config.ts";
 
 export type FetchFn = typeof fetch;
+
+// A JWT minted from a provider CLI token is confined to the routes a headless node
+// needs (control-api RestrictProviderToken). It is easy to copy by mistake from the
+// provider app, and the API's own message does not say what to use instead.
+const PROVIDER_TOKEN_HINT =
+  "PROXYHUBB_ACCESS_TOKEN is a provider node token (from the ProxyHub provider app or CLI), which only works on node routes. Use the token from your signed-in website session instead (see the README, \"Getting your access token\").";
 
 export class ProxyHubbApiError extends Error {
   readonly status: number;
@@ -45,6 +53,11 @@ export class ProxyHubbClient {
     return this.#cfg.accessToken.length > 0;
   }
 
+  /** The order routes accept the account JWT or an API key with the orders:create scope. */
+  get canReadOrders(): boolean {
+    return this.#cfg.accessToken.length > 0 || this.#cfg.apiKey.length > 0;
+  }
+
   async #request(method: string, path: string, body?: unknown): Promise<unknown> {
     const headers: Record<string, string> = { "content-type": "application/json", accept: "application/json" };
     if (this.#cfg.apiKey) headers["x-api-key"] = this.#cfg.apiKey;
@@ -66,7 +79,8 @@ export class ProxyHubbClient {
     if (!res.ok) {
       const rec = (data ?? {}) as Record<string, unknown>;
       const message = typeof rec.error === "string" ? rec.error.slice(0, 300) : res.statusText;
-      throw new ProxyHubbApiError(res.status, message, typeof rec.code === "string" ? rec.code : null);
+      const code = typeof rec.code === "string" ? rec.code : null;
+      throw new ProxyHubbApiError(res.status, code === "provider_token_scope" ? `${message}. ${PROVIDER_TOKEN_HINT}` : message, code);
     }
     return data;
   }
@@ -109,5 +123,23 @@ export class ProxyHubbClient {
   /** POST /v1/sessions/:id/terminate — real sessions only; intents expire (see tools). */
   terminateSession(sessionId: string): Promise<unknown> {
     return this.#request("POST", `/v1/sessions/${encodeURIComponent(sessionId)}/terminate`);
+  }
+
+  /** GET /v1/orders — the caller's own marketplace orders. */
+  listOrders(limit = 100): Promise<unknown> {
+    return this.#request("GET", `/v1/orders?limit=${limit}`);
+  }
+
+  /** GET /v1/orders/:id */
+  getOrder(orderId: string): Promise<unknown> {
+    return this.#request("GET", `/v1/orders/${encodeURIComponent(orderId)}`);
+  }
+
+  /**
+   * GET /v1/orders/:id/credentials. Only call this for an ACTIVE order: for an order in another
+   * state the control API may try to re-activate its session.
+   */
+  getOrderCredentials(orderId: string): Promise<unknown> {
+    return this.#request("GET", `/v1/orders/${encodeURIComponent(orderId)}/credentials`);
   }
 }
