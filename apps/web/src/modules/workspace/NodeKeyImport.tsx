@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { getListingProofPolicy } from "@/lib/api/marketplace";
 import {
@@ -33,15 +33,21 @@ export function useListingSigner(
   nodeHotkey: string,
 ): ListingSignerState {
   const wallet = useWallet();
-  const client = useQueryClient();
+  // Bumped after a key is saved so the next render re-reads storage.
+  const [, setStorageTick] = useState(0);
   const policy = useQuery({
     queryKey: ["listing-proof-policy"],
     queryFn: getListingProofPolicy,
     staleTime: 60_000,
   });
-  const localSecret = nodeId ? loadProviderSigningKey(nodeId) : null;
+  const localSecret = nodeId
+    ? loadProviderSigningKey(nodeId, { allowLegacyFallback: false })
+    : null;
+  // The derived hotkey belongs to a key, not just a node: keying on the key
+  // means a freshly saved key is derived on its own instead of reusing the
+  // cached hotkey of the key it replaced.
   const deviceHotkeyQuery = useQuery({
-    queryKey: ["device-hotkey", nodeId ?? ""],
+    queryKey: ["device-hotkey", nodeId ?? "", localSecret ?? ""],
     queryFn: () => publicKeyFromProviderSecret(localSecret ?? ""),
     enabled: Boolean(localSecret),
     staleTime: Infinity,
@@ -72,9 +78,7 @@ export function useListingSigner(
     localSecret,
     walletHotkey,
     devServerSigning: policy.data?.dev_server_signing ?? false,
-    refreshSecret: () => {
-      void client.invalidateQueries({ queryKey: ["device-hotkey", nodeId ?? ""] });
-    },
+    refreshSecret: () => setStorageTick((tick) => tick + 1),
   };
 }
 

@@ -1,4 +1,5 @@
 "use client";
+import { isNodeOnline, nodeStatusLabel, useNodeClock } from "@/lib/node-status";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -30,6 +31,7 @@ import {
 
 export function SellerOverview() {
   const { user } = useAuth();
+  const now = useNodeClock();
   const nodes = useQuery({
     queryKey: ["provider-nodes", user?.id],
     queryFn: getMyNodes,
@@ -47,7 +49,7 @@ export function SellerOverview() {
     staleTime: 15_000,
   });
   const online =
-    nodes.data?.nodes.filter((node) => node.status === "online").length ?? 0;
+    nodes.data?.nodes.filter((node) => isNodeOnline(node, now)).length ?? 0;
   const checks = readiness.data?.checks ?? [];
   const complete = checks.filter((check) => check.status === "complete").length;
   const ready = readiness.data?.summary.ready_for_marketplace === true;
@@ -273,8 +275,8 @@ export function SellerOverview() {
               </div>
             </div>
             <div className="ui-actions">
-              <Status tone={node.status === "online" ? "good" : "neutral"}>
-                {node.status}
+              <Status tone={isNodeOnline(node, now) ? "good" : "neutral"}>
+                {nodeStatusLabel(node, now)}
               </Status>
               <Link
                 className="ui-button secondary small"

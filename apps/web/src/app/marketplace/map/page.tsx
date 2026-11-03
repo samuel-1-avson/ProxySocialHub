@@ -7,7 +7,7 @@ import dynamic from 'next/dynamic';
 import { useQuery } from '@tanstack/react-query';
 import { Loader2, Search, X } from 'lucide-react';
 import { BuyListingModal } from '@/components/BuyListingModal';
-import { PageHeading } from '@/components/workspace/Patterns';
+import { PageHeading, countryName } from '@/components/workspace/Patterns';
 import { measured } from '@/lib/measurements';
 import { CatalogProductBadge } from '@/components/marketplace/CatalogProductBadge';
 import { ListingSocialPanel } from '@/components/marketplace/ListingSocialPanel';
@@ -27,6 +27,7 @@ import type { NodeGeoPoint } from '@/lib/services/explorer';
 import type { MarketplaceListingMapPin } from '@/lib/map/marketplace-map-adapters';
 import { geoSourceLabel } from '@/lib/map/geo-labels';
 import type { ExplorerListingPin } from '@/components/map/types';
+import { visibleCountry } from '@/lib/listing-display';
 
 const ProxyMapCanvas = dynamic(
     () => import('@/components/map/ProxyMapCanvas'),
@@ -302,7 +303,7 @@ function MarketplaceMapContent({ highlightListingId }: { highlightListingId: str
                             <label className="ui-field">Country
                                 <select aria-label="Country" className="ui-select" value={country} onChange={e => changeFilter(setCountry, e.target.value)}>
                                     <option value="">All countries</option>
-                                    {countries.map(c => <option key={c} value={c}>{c}</option>)}
+                                    {countries.map(c => <option key={c} value={c}>{countryName(c)} ({c})</option>)}
                                 </select>
                             </label>
                             <div className="grid grid-cols-2 gap-2">
@@ -373,7 +374,7 @@ function MarketplaceMapContent({ highlightListingId }: { highlightListingId: str
                                 <div>
                                     <dt>Location</dt>
                                     <dd>
-                                        {[selectedPin.city, selectedPin.country].filter(Boolean).join(', ') || 'Not reported'}
+                                        {[selectedPin.city, visibleCountry(selectedPin.country)].filter(Boolean).join(', ') || 'Location shared after purchase'}
                                         <span className="ui-note" style={{ display: 'block' }}>{geoSourceLabel(selectedPin)}</span>
                                     </dd>
                                 </div>
@@ -410,7 +411,7 @@ function MarketplaceMapContent({ highlightListingId }: { highlightListingId: str
                                 listingId={selectedPin.listing_id}
                                 listingTitle={selectedPin.title}
                                 pricePerGb={selectedPin.price_per_gb}
-                                location={[selectedPin.city, selectedPin.country].filter(Boolean).join(', ')}
+                                location={[selectedPin.city, visibleCountry(selectedPin.country)].filter(Boolean).join(', ')}
                                 compact
                             />
                             <ListingQASection listingId={selectedPin.listing_id} compact />
@@ -453,7 +454,7 @@ function MarketplaceMapContent({ highlightListingId }: { highlightListingId: str
                                     >
                                         <span>{p.title}</span>
                                         <small>
-                                            {[p.city, p.country].filter(Boolean).join(', ') || p.country || 'Location not reported'}
+                                            {[p.city, visibleCountry(p.country)].filter(Boolean).join(', ') || 'Location shared after purchase'}
                                             {' · '}{measured(p.price_per_gb, 4, 'USD / GB')}
                                         </small>
                                     </button>

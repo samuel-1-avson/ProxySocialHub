@@ -14,12 +14,16 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import {
+  getConversation,
   getConversations,
   getMessages,
+  markConversationRead,
+  mergeMessages,
   sendMessage,
   startConversation,
   type Conversation,
   type Message,
+  type MessageThread,
 } from "@/lib/social-api";
 import { getPublicProfile } from "@/lib/api/profile";
 import { getFriends } from "@/lib/friends-api";
@@ -70,9 +74,18 @@ function MessagesContent() {
     refetchInterval: isConnected ? false : 15_000,
   });
   const conversations = query.data?.conversations ?? [];
-  const selected = conversations.find(
+  const inList = conversations.find(
     (conversation) => conversation.id === selectedId,
   );
+  // A link from a notification can point at a conversation further down the
+  // list than the first page; look for it before calling it unavailable.
+  const missing = Boolean(selectedId) && query.isSuccess && !inList;
+  const farther = useQuery({
+    queryKey: ["inbox", "conversation", user?.id, selectedId],
+    queryFn: () => getConversation(selectedId!),
+    enabled: missing,
+  });
+  const selected = inList ?? farther.data;
   const filtered = conversations.filter((conversation) =>
     (name(conversation) + " " + (conversation.last_message?.content || ""))
       .toLowerCase()
@@ -92,16 +105,13 @@ function MessagesContent() {
           | undefined;
         if (!payload?.conversation_id || !payload.message?.id) return;
         const message = payload.message;
-        client.setQueryData<{ messages: Message[] }>(
+        client.setQueryData<MessageThread>(
           ["inbox", "messages", user?.id, payload.conversation_id],
           (previous) =>
             previous
               ? {
-                  messages: previous.messages.some(
-                    (item) => item.id === message.id,
-                  )
-                    ? previous.messages
-                    : [...previous.messages, message],
+                  ...previous,
+                  messages: mergeMessages(previous.messages, [message]),
                 }
               : previous,
         );
@@ -266,6 +276,8 @@ function MessagesContent() {
               conversation={selected}
               onBack={() => select(null)}
             />
+          ) : selectedId && query.isSuccess && farther.isFetching ? (
+            <Loading label="Finding this conversation…" />
           ) : selectedId && query.isSuccess ? (
             <EmptyState
               title="This conversation is unavailable"
@@ -334,34 +346,79 @@ function ConversationThread({
   const client = useQueryClient();
   const [draft, setDraft] = useState("");
   const end = useRef<HTMLDivElement>(null);
+  const field = useRef<HTMLTextAreaElement>(null);
   const key = ["inbox", "messages", user?.id, conversation.id];
   const query = useQuery({
     queryKey: key,
     queryFn: () => getMessages(conversation.id),
+    // A dropped socket can miss messages; look again when the tab returns.
+    refetchOnWindowFocus: true,
   });
+  const messages = query.data?.messages ?? [];
   const send = useMutation({
     retry: false,
     mutationFn: ({ id, content }: { id: string; content: string }) =>
       sendMessage(id, content),
     onSuccess: (message) => {
-      client.setQueryData<{ messages: Message[] }>(key, (previous) => ({
-        messages: [
-          ...(previous?.messages ?? []).filter(
-            (item) => item.id !== message.id,
-          ),
-          message,
-        ],
+      client.setQueryData<MessageThread>(key, (previous) => ({
+        page: previous?.page ?? 1,
+        hasMore: previous?.hasMore ?? false,
+        messages: mergeMessages(previous?.messages ?? [], [message]),
       }));
       setDraft("");
+      // The box stays enabled while sending, so typing can continue; put the
+      // cursor back for the next message.
+      field.current?.focus();
       void client.invalidateQueries({
         queryKey: ["inbox", "conversations", user?.id],
       });
     },
   });
-  const count = query.data?.messages.length ?? 0;
+  // Older messages: the thread opens on the newest page.
+  const older = useMutation({
+    retry: false,
+    mutationFn: () => getMessages(conversation.id, (query.data?.page ?? 1) + 1),
+    onSuccess: (result) => {
+      client.setQueryData<MessageThread>(key, (previous) => ({
+        page: result.page,
+        hasMore: result.hasMore,
+        messages: mergeMessages(result.messages, previous?.messages ?? []),
+      }));
+    },
+  });
+  const count = messages.length;
+  // Follow the newest message. Loading older ones above must not move the view.
+  const lastId = messages[messages.length - 1]?.id;
   useEffect(() => {
-    end.current?.scrollIntoView({ block: "nearest" });
-  }, [count]);
+    end.current?.scrollIntoView({ block: "end" });
+  }, [lastId]);
+  // Reading a conversation clears its unread count, now and as new messages
+  // arrive while it is open.
+  const markedFor = useRef<string | null>(null);
+  const lastIncomingId = [...messages]
+    .reverse()
+    .find((message) => message.sender_id !== user?.id && !message.is_deleted)?.id;
+  useEffect(() => {
+    if (!query.isSuccess || !lastIncomingId) return;
+    if (markedFor.current === lastIncomingId) return;
+    const firstLook = markedFor.current === null;
+    markedFor.current = lastIncomingId;
+    if (firstLook && !((conversation.unread_count ?? 0) > 0)) return;
+    markConversationRead(conversation.id)
+      .then(() =>
+        client.invalidateQueries({
+          queryKey: ["inbox", "conversations", user?.id],
+        }),
+      )
+      .catch(() => {});
+  }, [
+    query.isSuccess,
+    lastIncomingId,
+    conversation.id,
+    conversation.unread_count,
+    client,
+    user?.id,
+  ]);
   function submit(event?: React.FormEvent) {
     event?.preventDefault();
     if (!draft.trim() || send.isPending) return;
@@ -400,7 +457,7 @@ function ConversationThread({
         className="inbox-message-list"
         role="log"
         aria-label={"Messages with " + name(conversation)}
-        aria-live="polite"
+        aria-relevant="additions"
       >
         {query.isPending ? (
           <Loading label="Loading messages…" />
@@ -415,7 +472,25 @@ function ConversationThread({
             No messages yet. Write the first message below.
           </p>
         ) : (
-          query.data?.messages.map((message) => (
+          <>
+            {query.data?.hasMore && (
+              <div className="inbox-older">
+                <button
+                  type="button"
+                  className="ui-button secondary small"
+                  disabled={older.isPending}
+                  onClick={() => older.mutate()}
+                >
+                  {older.isPending ? "Loading…" : "Load earlier messages"}
+                </button>
+                {older.isError && (
+                  <p className="ui-note" role="alert">
+                    Earlier messages could not be loaded. Try again.
+                  </p>
+                )}
+              </div>
+            )}
+            {messages.map((message) => (
             <article
               key={message.id}
               className={
@@ -434,13 +509,18 @@ function ConversationThread({
                 {message.edited_at ? " · Edited" : ""}
               </time>
             </article>
-          ))
+            ))}
+          </>
         )}
         <div ref={end} />
       </div>
       <form className="inbox-compose" onSubmit={submit}>
         {send.isError && (
-          <DataError title="Your message was not sent" error={send.error} />
+          <DataError
+            title="Your message was not sent"
+            error={send.error}
+            retry={draft.trim() ? () => submit() : undefined}
+          />
         )}
         <div>
           <label className="sr-only" htmlFor="message-draft">
@@ -448,11 +528,13 @@ function ConversationThread({
           </label>
           <textarea
             id="message-draft"
+            ref={field}
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             rows={2}
+            maxLength={2000}
             placeholder="Write a message…"
-            disabled={send.isPending}
+            readOnly={send.isPending}
             onKeyDown={(event) => {
               if (
                 event.key === "Enter" &&
@@ -541,7 +623,7 @@ function NewConversation({
                 value={
                   recipientProfile.data?.display_name ||
                   recipientProfile.data?.username ||
-                  initialRecipient
+                  (recipientProfile.isPending ? "Loading…" : "Unverified member")
                 }
                 readOnly
               />
