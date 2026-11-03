@@ -36,6 +36,7 @@ func tombstoneDeletedAll(messages []models.Message) {
 // RegisterMessagingRoutes registers messaging-related routes
 func RegisterMessagingRoutes(rg *gin.RouterGroup) {
 	rg.GET("/conversations", getConversations)
+	rg.GET("/conversations/:id", getConversation)
 	rg.POST("/conversations", startConversation)
 	rg.GET("/conversations/:id/messages", getMessages)
 	rg.POST("/conversations/:id/messages", sendMessage)
@@ -152,22 +153,60 @@ func getConversations(c *gin.Context) {
 	query.Count(&total)
 
 	if err := query.Preload("User1").Preload("User2").Preload("Listing").
-		Order("last_message_at DESC").
+		Order("last_message_at DESC, id DESC").
 		Offset(offset).Limit(limit).
 		Find(&conversations).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch conversations"})
 		return
 	}
 
+	results := buildConversationPreviews(conversations, userID)
+
+	c.JSON(http.StatusOK, gin.H{
+		"conversations": conversationWithPreviewDTOs(results),
+		"total":         total,
+		"page":          page,
+		"limit":         limit,
+		"has_more":      int64(page*limit) < total,
+	})
+}
+
+// getConversation returns one conversation preview for the current user.
+// Deep links use it when the target is beyond the loaded list pages (F04).
+func getConversation(c *gin.Context) {
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	convID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid conversation ID"})
+		return
+	}
+
+	var conv models.Conversation
+	if err := db.Social().Preload("User1").Preload("User2").Preload("Listing").
+		First(&conv, "id = ?", convID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Conversation not found"})
+		return
+	}
+	if conv.Participant1 != userID && conv.Participant2 != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
+	previews := buildConversationPreviews([]models.Conversation{conv}, userID)
+	c.JSON(http.StatusOK, conversationWithPreviewDTOs(previews)[0])
+}
+
+// buildConversationPreviews attaches last-message, unread-count and
+// other-participant data to conversations in two batch queries.
+func buildConversationPreviews(conversations []models.Conversation, userID uuid.UUID) []models.ConversationWithPreview {
 	results := make([]models.ConversationWithPreview, len(conversations))
 	if len(conversations) == 0 {
-		c.JSON(http.StatusOK, gin.H{
-			"conversations": conversationWithPreviewDTOs(results),
-			"total":         total,
-			"page":          page,
-			"limit":         limit,
-		})
-		return
+		return results
 	}
 
 	convIDs := make([]uuid.UUID, len(conversations))
@@ -182,7 +221,7 @@ func getConversations(c *gin.Context) {
 		SELECT DISTINCT ON (conversation_id) *
 		FROM messages
 		WHERE conversation_id IN ?
-		ORDER BY conversation_id, created_at DESC
+		ORDER BY conversation_id, created_at DESC, id DESC
 	`, convIDs).Scan(&lastMsgs).Error; err == nil {
 		for _, m := range lastMsgs {
 			tombstoneDeleted(&m)
@@ -227,12 +266,7 @@ func getConversations(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"conversations": conversationWithPreviewDTOs(results),
-		"total":         total,
-		"page":          page,
-		"limit":         limit,
-	})
+	return results
 }
 
 // startConversation starts a new conversation or returns existing one
@@ -367,23 +401,50 @@ func getMessages(c *gin.Context) {
 
 	page := getPageParam(c, 1)
 	limit := getLimitParam(c, 50)
-	offset := (page - 1) * limit
 
-	var messages []models.Message
 	var total int64
-
-	query := db.Social().Model(&models.Message{}).Where("conversation_id = ?", convID)
-	query.Count(&total)
-
-	if err := query.Preload("Sender").Preload("Reactions").
-		Order("created_at DESC").
-		Offset(offset).Limit(limit).
-		Find(&messages).Error; err != nil {
+	if err := db.Social().Model(&models.Message{}).
+		Where("conversation_id = ?", convID).Count(&total).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch messages"})
 		return
 	}
-	tombstoneDeletedAll(messages)
+	// Newest first with an ID tie-breaker so equal timestamps page stably.
+	// `before` is a cursor naming the oldest message the client already has;
+	// the response continues strictly older than it. Page/offset remains
+	// supported when no cursor is supplied.
+	listQ := db.Social().Preload("Sender").Preload("Reactions").
+		Where("conversation_id = ?", convID)
+	cursorMode := false
+	if beforeStr := c.Query("before"); beforeStr != "" {
+		beforeID, perr := uuid.Parse(beforeStr)
+		if perr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid cursor"})
+			return
+		}
+		var anchor models.Message
+		if err := db.Social().First(&anchor, "id = ? AND conversation_id = ?", beforeID, convID).Error; err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid cursor"})
+			return
+		}
+		cursorMode = true
+		listQ = listQ.Where("(created_at, id) < (?, ?)", anchor.CreatedAt, anchor.ID)
+	}
 
+	var messages []models.Message
+	fetch := listQ.Order("created_at DESC, id DESC").Limit(limit + 1)
+	if !cursorMode {
+		fetch = fetch.Offset((page - 1) * limit)
+	}
+	if err := fetch.Find(&messages).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch messages"})
+		return
+	}
+	hasMore := len(messages) > limit
+	if hasMore {
+		messages = messages[:limit]
+	}
+
+	tombstoneDeletedAll(messages)
 	for i := range messages {
 		if messages[i].IsDeleted {
 			messages[i].Content = ""
@@ -396,6 +457,7 @@ func getMessages(c *gin.Context) {
 		"total":    total,
 		"page":     page,
 		"limit":    limit,
+		"has_more": hasMore,
 	})
 }
 
@@ -557,10 +619,34 @@ func markAsRead(c *gin.Context) {
 		return
 	}
 
-	now := time.Now()
-	db.Social().Model(&models.Message{}).
-		Where("conversation_id = ? AND sender_id != ? AND read_at IS NULL", convID, userID).
-		Update("read_at", now)
+	// Optional read watermark: only messages at or before the named one are
+	// marked, so arrivals the reader has not seen yet stay unread. Without a
+	// body the legacy mark-everything behavior applies.
+	var req struct {
+		UpToMessageID *uuid.UUID `json:"up_to_message_id"`
+	}
+	if c.Request.ContentLength > 0 {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+	}
+
+	update := db.Social().Model(&models.Message{}).
+		Where("conversation_id = ? AND sender_id != ? AND read_at IS NULL", convID, userID)
+	if req.UpToMessageID != nil {
+		var anchor models.Message
+		if err := db.Social().First(&anchor, "id = ? AND conversation_id = ?", *req.UpToMessageID, convID).Error; err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "up_to_message_id is not in this conversation"})
+			return
+		}
+		update = update.Where("(created_at, id) <= (?, ?)", anchor.CreatedAt, anchor.ID)
+	}
+
+	if err := update.Update("read_at", time.Now()).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to mark messages as read"})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Messages marked as read"})
 }
