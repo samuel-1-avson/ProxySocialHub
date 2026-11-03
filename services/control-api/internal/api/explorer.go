@@ -105,6 +105,34 @@ type ExplorerMetricsResponse struct {
 	DataSource               string         `json:"data_source"`                // "aggregated" | "live"
 	TimeSeriesAvailable      bool           `json:"time_series_available"`      // hourly/daily explorer_metrics rows exist
 	MetricsAggregatorEnabled bool           `json:"metrics_aggregator_enabled"` // EXPLORER_METRICS_ENABLED (default on)
+	// Freshness of the index. Both are omitted when there is no indexed block, so "unknown" is never sent as 0.
+	IndexedHeadTime   *time.Time `json:"indexed_head_time,omitempty"`   // chain time of the newest indexed block
+	IndexedLagSeconds *int64     `json:"indexed_lag_seconds,omitempty"` // age of that block when this response was made
+}
+
+// explorerIndexLag reports how old the newest indexed block is. ok is false when the block has no
+// time, so the caller can leave the lag out. A block time slightly ahead of this clock counts as 0.
+func explorerIndexLag(head, now time.Time) (seconds int64, ok bool) {
+	if head.IsZero() {
+		return 0, false
+	}
+	lag := now.Sub(head)
+	if lag < 0 {
+		lag = 0
+	}
+	return int64(lag / time.Second), true
+}
+
+// applyExplorerIndexLag recomputes the lag from the head time. Cached responses carry the lag from
+// when they were stored, so this runs on every response rather than trusting that value.
+func applyExplorerIndexLag(response *ExplorerMetricsResponse, now time.Time) {
+	response.IndexedLagSeconds = nil
+	if response.IndexedHeadTime == nil {
+		return
+	}
+	if seconds, ok := explorerIndexLag(*response.IndexedHeadTime, now); ok {
+		response.IndexedLagSeconds = &seconds
+	}
 }
 
 type TransactionListResponse struct {
@@ -580,6 +608,7 @@ func getExplorerMetrics(c *gin.Context) {
 					ts, agg := explorerMetricsResponseExtras(chain)
 					response.TimeSeriesAvailable = ts
 					response.MetricsAggregatorEnabled = agg
+					applyExplorerIndexLag(&response, time.Now())
 					c.JSON(http.StatusOK, response)
 					return
 				}
@@ -622,9 +651,14 @@ func getExplorerMetrics(c *gin.Context) {
 
 	// Block height from latest indexed block (real Solana chain height)
 	blockHeight := uint64(0)
+	var indexedHeadTime *time.Time
 	var latestBlock models.ExplorerBlock
 	if err := db.GetReadDB().Where("is_orphaned = ?", false).Order("block_number DESC").First(&latestBlock).Error; err == nil {
 		blockHeight = latestBlock.BlockNumber
+		if !latestBlock.Timestamp.IsZero() {
+			headTime := latestBlock.Timestamp
+			indexedHeadTime = &headTime
+		}
 	}
 
 	// Regional distribution of active provider nodes
@@ -660,7 +694,9 @@ func getExplorerMetrics(c *gin.Context) {
 		DataSource:               "live",
 		TimeSeriesAvailable:      explorerTimeSeriesAvailable(chain),
 		MetricsAggregatorEnabled: explorerMetricsAggregatorEnabled(),
+		IndexedHeadTime:          indexedHeadTime,
 	}
+	applyExplorerIndexLag(&response, response.LastUpdated)
 
 	// Cache in Redis
 	cacheResponse(c, cacheKey, response, 30*time.Second)

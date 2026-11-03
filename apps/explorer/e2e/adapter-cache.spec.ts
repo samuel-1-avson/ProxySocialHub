@@ -81,11 +81,13 @@ test('an upstream failure is shown as unavailable, held for a moment only, then 
 });
 
 test('a hidden tab does not poll, and a returning tab refreshes stale data', async ({ page }) => {
-  let calls = 0;
+  // /blocks loads the block list and, for the freshness notice, the metrics. Both must obey the rule.
+  const seen: string[] = [];
   await page.route('**/api/public?**', (route) => {
-    calls += 1;
+    seen.push(new URL(route.request().url()).searchParams.get('resource') || '');
     return route.fulfill({ json: { blocks: [], total: 0 } });
   });
+  const requested = () => [...seen].sort();
   await page.addInitScript(() => {
     let hidden = false;
     Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
@@ -98,15 +100,15 @@ test('a hidden tab does not poll, and a returning tab refreshes stale data', asy
     page.evaluate((hidden) => (window as unknown as { setTabHidden: (value: boolean) => void }).setTabHidden(hidden), value);
   await page.clock.install();
   await page.goto('/blocks');
-  await expect.poll(() => calls).toBe(1);
+  await expect.poll(requested).toEqual(['blocks', 'metrics']);
 
   await setHidden(true);
   await page.clock.runFor(180_000);
-  expect(calls).toBe(1);
+  expect(requested()).toEqual(['blocks', 'metrics']);
 
   await setHidden(false);
-  await expect.poll(() => calls).toBe(2);
+  await expect.poll(requested).toEqual(['blocks', 'blocks', 'metrics', 'metrics']);
 
   await page.clock.runFor(60_000);
-  await expect.poll(() => calls).toBe(3);
+  await expect.poll(requested).toEqual(['blocks', 'blocks', 'blocks', 'metrics', 'metrics', 'metrics']);
 });
