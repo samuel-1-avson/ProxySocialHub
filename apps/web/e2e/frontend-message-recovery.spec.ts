@@ -9,7 +9,7 @@ test("an accepted first message survives a failed inbox preview refresh without 
  let accepted = false; let writes = 0;
  const message = "Please confirm your available region.";
  await page.route("**/v1/users/alex", (route) => route.fulfill({ json: { id: "alex", username: "alex", display_name: "Alex" } }));
- await page.route("**/v1/conversations", (route) => {
+ await page.route(/\/v1\/conversations(?:\?.*)?$/, (route) => {
   if (route.request().method() === "POST") { writes++; expect(route.request().postDataJSON()).toEqual({ recipient_id: "alex", message, client_msg_id: expect.any(String) }); accepted = true; return route.fulfill({ json: { conversation_id: "accepted-conversation" } }); }
   return route.fulfill(accepted ? { status: 503, json: { error: "Preview refresh unavailable" } } : { json: { conversations: [] } });
  });

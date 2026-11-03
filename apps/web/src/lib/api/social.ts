@@ -183,16 +183,69 @@ export async function getFeed() {
     return events.map(normalizeFeedEvent);
 }
 
+export interface ConversationPage {
+    conversations: ConversationWithPreview[];
+    total: number;
+    page: number;
+    limit: number;
+    has_more: boolean;
+}
+
+/**
+ * List one page of the user's conversations (newest activity first).
+ */
+export async function getConversationsPage(page = 1, limit = 20): Promise<ConversationPage> {
+    // The first page keeps the historical bare URL; later pages name themselves.
+    const path = page <= 1 && limit === 20 ? '/v1/conversations' : `/v1/conversations?page=${page}&limit=${limit}`;
+    const data = await apiGet<{ conversations?: RawConversation[]; total?: number; page?: number; limit?: number; has_more?: boolean }>(path);
+    const conversations = (data.conversations || []).map(normalizeConversation);
+    const total = Number(data.total ?? conversations.length);
+    return {
+        conversations,
+        total,
+        page: Number(data.page ?? page),
+        limit: Number(data.limit ?? limit),
+        has_more: data.has_more ?? page * limit < total,
+    };
+}
+
 /**
  * List active user conversations
  */
 export async function getConversations(page = 1) {
-    const data = await apiGet<{ conversations?: RawConversation[]; total?: number; limit?: number } | RawConversation[]>(
-        '/v1/conversations',
-        page > 1 ? { page: String(page) } : undefined,
+    const result = await getConversationsPage(page);
+    return result.conversations;
+}
+
+/**
+ * Fetch one conversation preview by id (deep links beyond the loaded pages).
+ */
+export async function getConversation(conversationId: string): Promise<ConversationWithPreview> {
+    const data = await apiGet<RawConversation>(`/v1/conversations/${conversationId}`);
+    return normalizeConversation(data);
+}
+
+export interface MessagePage {
+    messages: Message[];
+    total: number;
+    has_more: boolean;
+}
+
+/**
+ * Fetch one newest-first page of messages. Pass `before` (a message id) to
+ * continue strictly older than the oldest message already held.
+ */
+export async function getMessagesPage(conversationId: string, before?: string): Promise<MessagePage> {
+    const query = before ? `?before=${encodeURIComponent(before)}` : '';
+    const data = await apiGet<{ messages: Message[]; total?: number; has_more?: boolean }>(
+        `/v1/conversations/${conversationId}/messages${query}`
     );
-    const conversations = Array.isArray(data) ? data : data.conversations || [];
-    return conversations.map(normalizeConversation);
+    const messages = data.messages || [];
+    return {
+        messages,
+        total: Number(data.total ?? messages.length),
+        has_more: Boolean(data.has_more),
+    };
 }
 
 /** Conversations come 20 to a page; this is how far a link to one looks. */
@@ -214,6 +267,13 @@ export async function findConversation(id: string) {
  * Fetch one page of messages. The API sends the newest first; they come back
  * oldest first, the order a thread reads in.
  */
+export interface MessagesPage {
+    messages: Message[];
+    total: number;
+    page: number;
+    limit: number;
+}
+
 export async function getMessages(conversationId: string, page = 1): Promise<MessagesPage> {
     const data = await apiGet<{ messages?: Message[]; total?: number; page?: number; limit?: number }>(
         `/v1/conversations/${conversationId}/messages`,
@@ -228,9 +288,15 @@ export async function getMessages(conversationId: string, page = 1): Promise<Mes
     };
 }
 
-/** Mark everything the other person sent in a conversation as read. */
-export async function markConversationRead(conversationId: string) {
-    await apiPost<unknown>(`/v1/conversations/${conversationId}/read`, {});
+/**
+ * Mark messages as read, optionally only up to a seen message (watermark).
+ * Without a watermark everything incoming is marked read.
+ */
+export async function markConversationRead(conversationId: string, upToMessageId?: string) {
+    return apiPost<{ message: string }>(
+        `/v1/conversations/${conversationId}/read`,
+        upToMessageId ? { up_to_message_id: upToMessageId } : {}
+    );
 }
 
 /**
