@@ -85,7 +85,7 @@ export interface Diagnosis {
 
 // Mirrors src-tauri/src/node_settings.rs, disconnect.rs and app_update.rs.
 
-/** This computer's node settings, for reading. The app cannot change any of them. */
+/** This computer's node settings, for reading. Only `blocked_hosts` can be changed, via `saveBlockedSites`. */
 export interface NodeSettings {
   config_path: string;
   gateways: string[];
@@ -105,6 +105,45 @@ export interface NodeSettings {
 export interface DisconnectResult {
   /** Where the settings file was kept (it still holds the key); `null` when there was none. */
   archived_config: string | null;
+}
+
+/** One site added to or removed from the blocked sites. `source` is `named` or `category:<id>`. */
+export interface RuleChange {
+  host: string;
+  source: string;
+}
+
+/** A change to the blocked sites, drafted from the provider's words and checked by ProxyHubb. */
+export interface RulesPlan {
+  /** The whole list to save. */
+  blocked: string[];
+  added: RuleChange[];
+  removed: RuleChange[];
+  categories: { id: string; label: string; sites: number; action: 'block' | 'unblock' }[];
+  rejected: string[];
+  notes: { level: 'info' | 'warning' | 'blocked'; message: string }[];
+  /** What the assistant guessed; the provider should check these. */
+  assumptions: string[];
+  cannotDo: string[];
+  unchanged: boolean;
+  refused: boolean;
+}
+
+export interface RulesDraft {
+  plan: RulesPlan;
+  model: string;
+  /** `standard`: the words are not used for training. */
+  dataMode: string;
+}
+
+export interface BlockedSitesSaved {
+  blockedHosts: string[];
+  rejected: string[];
+  changed: boolean;
+  /** The node was running under this app and was restarted: the list is in force now. */
+  restarted: boolean;
+  /** The node is running but was started elsewhere: it applies after a restart. */
+  needsRestart: boolean;
 }
 
 /** A newer installer than this app exists. */

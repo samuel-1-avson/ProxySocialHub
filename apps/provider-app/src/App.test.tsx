@@ -6,7 +6,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { Screens } from './App';
 import type { Ipc } from './ipc';
-import type { AppState, Diagnosis, NodeSettings, RemoteView, UpdateNotice } from './types';
+import type {
+  AppState,
+  BlockedSitesSaved,
+  Diagnosis,
+  NodeSettings,
+  RemoteView,
+  RulesDraft,
+  UpdateNotice,
+} from './types';
 
 afterEach(cleanup);
 
@@ -64,6 +72,26 @@ const SETTINGS: NodeSettings = {
   connection_type: 'residential',
 };
 
+const DRAFT: RulesDraft = {
+  plan: {
+    blocked: ['bet365.com', 'facebook.com'],
+    added: [
+      { host: 'facebook.com', source: 'named' },
+      { host: 'bet365.com', source: 'category:gambling' },
+    ],
+    removed: [{ host: 'old.example', source: 'named' }],
+    categories: [{ id: 'gambling', label: 'Gambling and betting', sites: 30, action: 'block' }],
+    rejected: ['not a site'],
+    notes: [{ level: 'info', message: 'Categories cover a short, fixed list.' }],
+    assumptions: ['Gambling includes betting sites.'],
+    cannotDo: ['Blocking only in the evenings is not possible.'],
+    unchanged: false,
+    refused: false,
+  },
+  model: 'muse-spark-1.3',
+  dataMode: 'standard',
+};
+
 /** The fake Rust side: every command is a spy, and the test decides what each one answers. */
 function fakeRustSide(first: AppState, notice: UpdateNotice | null = null) {
   let emit: ((s: AppState) => void) | null = null;
@@ -77,6 +105,16 @@ function fakeRustSide(first: AppState, notice: UpdateNotice | null = null) {
     restartNode: vi.fn(async () => undefined),
     disconnect: vi.fn(async () => ({ archived_config: 'C:/p/provider.toml.disconnected-1' })),
     getNodeSettings: vi.fn(async () => SETTINGS),
+    draftRules: vi.fn(async (): Promise<RulesDraft> => DRAFT),
+    saveBlockedSites: vi.fn(
+      async (sites: string[]): Promise<BlockedSitesSaved> => ({
+        blockedHosts: sites,
+        rejected: [],
+        changed: true,
+        restarted: true,
+        needsRestart: false,
+      }),
+    ),
     getUpdateNotice: vi.fn(async () => notice),
     openTokensPage: vi.fn(async () => undefined),
     openDownloadPage: vi.fn(async () => undefined),
@@ -357,6 +395,107 @@ describe('node settings', () => {
     fireEvent(details, new Event('toggle'));
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain('Certificate checks for the gateway are turned off');
+  });
+});
+
+describe('blocked sites', () => {
+  async function openPanel(first: AppState) {
+    const opened = await open(first);
+    opened.fns.getNodeSettings.mockResolvedValue({ ...SETTINGS, blocked_hosts: ['old.example'] });
+    const details = [...opened.container.querySelectorAll('details')].find(
+      (d) => d.querySelector('summary')?.textContent === 'Blocked sites',
+    ) as HTMLDetailsElement;
+    details.open = true;
+    fireEvent(details, new Event('toggle'));
+    expect(await screen.findByText('old.example')).toBeTruthy();
+    return opened;
+  }
+
+  it('reads the list when opened; removing and adding sites then saves the new list', async () => {
+    const { fns } = await openPanel(sharing());
+    const save = screen.getByRole('button', { name: 'Save and apply' }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove old.example' }));
+    fireEvent.change(screen.getByLabelText('Block another site'), { target: { value: ' Facebook.com ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add site' }));
+    expect(screen.getByText('facebook.com')).toBeTruthy();
+    expect(screen.queryByText('old.example')).toBeNull();
+    expect(save.disabled).toBe(false);
+
+    fireEvent.click(save);
+    await waitFor(() => expect(fns.saveBlockedSites).toHaveBeenCalledWith(['facebook.com']));
+    expect(await screen.findByText(/node was restarted, so the new list is in force now/)).toBeTruthy();
+  });
+
+  it('drafts from the provider’s words, shows what changed and why, and uses the drafted list', async () => {
+    const { fns } = await openPanel(sharing());
+    const words = screen.getByLabelText('Or describe in your own words') as HTMLTextAreaElement;
+    expect(words.maxLength).toBe(500);
+    fireEvent.change(words, {
+      target: { value: 'no gambling, never Facebook, stop blocking old.example, evenings only' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Draft a new list' }));
+    await waitFor(() =>
+      expect(fns.draftRules).toHaveBeenCalledWith(
+        'no gambling, never Facebook, stop blocking old.example, evenings only',
+      ),
+    );
+
+    expect(await screen.findByText('Gambling and betting: 30 sites blocked.')).toBeTruthy();
+    expect(screen.getAllByText('(you named it)')).toHaveLength(2);
+    expect(screen.getByText('(the Gambling and betting category)')).toBeTruthy();
+    expect(screen.getByText('Gambling includes betting sites.')).toBeTruthy();
+    expect(screen.getByText('Blocking only in the evenings is not possible.')).toBeTruthy();
+    expect(screen.getByText('Categories cover a short, fixed list.')).toBeTruthy();
+    expect(screen.getByText(/Not used: not a site\./)).toBeTruthy();
+    expect(screen.getByText(/Drafted by muse-spark-1\.3, data mode standard/)).toBeTruthy();
+    // Nothing is saved by drafting alone.
+    expect(fns.saveBlockedSites).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Use this list' }));
+    expect(screen.queryByRole('button', { name: 'Use this list' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Save and apply' }));
+    await waitFor(() => expect(fns.saveBlockedSites).toHaveBeenCalledWith(['bet365.com', 'facebook.com']));
+  });
+
+  it('a failed draft is shown and leaves the list untouched', async () => {
+    const { fns } = await openPanel(sharing());
+    fns.draftRules.mockRejectedValueOnce('The model did not answer. Edit the list yourself.');
+    fireEvent.change(screen.getByLabelText('Or describe in your own words'), { target: { value: 'no gambling' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Draft a new list' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('The model did not answer.');
+    expect(screen.getByText('old.example')).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Save and apply' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('says a node started elsewhere needs a restart for the list to apply', async () => {
+    const { fns } = await openPanel(sharing({ managed_externally: true }));
+    fns.saveBlockedSites.mockResolvedValueOnce({
+      blockedHosts: [],
+      rejected: [],
+      changed: true,
+      restarted: false,
+      needsRestart: true,
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Remove old.example' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save and apply' }));
+    expect(await screen.findByText(/needs a restart/)).toBeTruthy();
+  });
+
+  it('says the list applies when sharing starts when the node is not running', async () => {
+    const { fns } = await openPanel({ kind: 'paused' });
+    fns.saveBlockedSites.mockResolvedValueOnce({
+      blockedHosts: [],
+      rejected: [],
+      changed: true,
+      restarted: false,
+      needsRestart: false,
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Remove old.example' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save and apply' }));
+    expect(await screen.findByText(/applies when sharing starts/)).toBeTruthy();
   });
 });
 

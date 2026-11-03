@@ -22,6 +22,7 @@ use crate::disconnect::DisconnectResult;
 use crate::engine::AppCore;
 use crate::node::{is_allowed_link, locate_sidecar, Sidecar};
 use crate::node_settings::NodeSettings;
+use crate::rules::{BlockedSitesSaved, RulesDraft};
 use crate::state::{tooltip_for, tray_view_for, AppState, TrayView};
 
 pub type Core = AppCore<Sidecar>;
@@ -297,11 +298,36 @@ pub async fn disconnect_computer(
     .await?
 }
 
-/// This computer's node settings, for reading. Nothing here can change them.
+/// This computer's node settings, for reading. The blocked sites are changed only through
+/// `save_blocked_sites`.
 #[tauri::command]
 pub async fn get_node_settings(core: State<'_, Arc<Core>>) -> Result<NodeSettings, String> {
     let core = Arc::clone(&core);
     blocking(move || core.node_settings()).await?
+}
+
+/// Draft a change to the blocked sites from the provider's own words. Changes nothing.
+#[tauri::command]
+pub async fn draft_rules(core: State<'_, Arc<Core>>, text: String) -> Result<RulesDraft, String> {
+    let core = Arc::clone(&core);
+    blocking(move || core.draft_rules(&text)).await?
+}
+
+/// Save the blocked sites the provider approved, and restart a node this app started so they
+/// apply at once.
+#[tauri::command]
+pub async fn save_blocked_sites(
+    app: AppHandle,
+    core: State<'_, Arc<Core>>,
+    sites: Vec<String>,
+) -> Result<BlockedSitesSaved, String> {
+    let core = Arc::clone(&core);
+    blocking(move || {
+        let result = core.save_blocked_sites(sites);
+        emit_state(&app, &core);
+        result
+    })
+    .await?
 }
 
 /// The notice about a newer installer, if there is one. Cheap: it reads what was last found.

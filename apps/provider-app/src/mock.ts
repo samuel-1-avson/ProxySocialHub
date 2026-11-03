@@ -3,7 +3,7 @@
 // without it the first-run flow plays out: consent, pairing, connecting, sharing.
 // `?diag=clean|problems|slow|fail` picks what "Check my connection" finds. `?update=1` shows the
 // "newer version" notice, `?disconnect=fail` makes Disconnect fail, `?tls=off` turns the
-// certificate-checks warning on in the settings.
+// certificate-checks warning on in the settings, `?rules=fail` makes the rules assistant fail.
 
 import type { Ipc } from './ipc';
 import type {
@@ -152,7 +152,7 @@ const SETTINGS: NodeSettings = {
   max_connections: 500,
   bandwidth_limit_mbps: 100,
   allowed_ports: [80, 443, 8080, 8443],
-  blocked_hosts: [],
+  blocked_hosts: ['old.example'],
   connection_type: 'residential',
 };
 
@@ -163,6 +163,7 @@ export function createMockIpc(): Ipc {
   const notice: UpdateNotice | null = params.get('update') ? { latest: '0.1.3', current: '0.1.2' } : null;
   let state: AppState = (initial && SAMPLES[initial]) || SAMPLES.needs_consent;
   let autostart = false;
+  let blockedHosts = [...SETTINGS.blocked_hosts];
   const stateListeners = new Set<(s: AppState) => void>();
   const endedListeners = new Set<(e: PairingEnded) => void>();
   const updateListeners = new Set<(n: UpdateNotice | null) => void>();
@@ -201,7 +202,47 @@ export function createMockIpc(): Ipc {
     },
     getNodeSettings: async () => {
       await wait(200);
-      return { ...SETTINGS, tls_skip_verify: params.get('tls') === 'off' };
+      return { ...SETTINGS, tls_skip_verify: params.get('tls') === 'off', blocked_hosts: [...blockedHosts] };
+    },
+    draftRules: async () => {
+      await wait(1200);
+      if (params.get('rules') === 'fail') {
+        throw 'The rules assistant did not answer. You can still edit the list yourself.';
+      }
+      const added = [
+        { host: 'facebook.com', source: 'named' },
+        { host: 'bet365.com', source: 'category:gambling' },
+      ].filter((c) => !blockedHosts.includes(c.host));
+      const removed = blockedHosts.includes('old.example') ? [{ host: 'old.example', source: 'named' }] : [];
+      const blocked = [...blockedHosts.filter((h) => !removed.some((r) => r.host === h)), ...added.map((c) => c.host)];
+      return {
+        plan: {
+          blocked,
+          added,
+          removed,
+          categories: [{ id: 'gambling', label: 'Gambling and betting', sites: 30, action: 'block' as const }],
+          rejected: [],
+          notes: [{ level: 'info' as const, message: 'Categories cover a short, fixed list of well-known sites.' }],
+          assumptions: ['Gambling includes betting sites.'],
+          cannotDo: ['Blocking only in the evenings is not possible.'],
+          unchanged: added.length === 0 && removed.length === 0,
+          refused: false,
+        },
+        model: 'muse-spark-1.3',
+        dataMode: 'standard',
+      };
+    },
+    saveBlockedSites: async (sites) => {
+      await wait(600);
+      const changed = JSON.stringify(sites) !== JSON.stringify(blockedHosts);
+      blockedHosts = [...sites];
+      return {
+        blockedHosts: [...blockedHosts],
+        rejected: [],
+        changed,
+        restarted: state.kind === 'sharing',
+        needsRestart: false,
+      };
     },
     getUpdateNotice: async () => notice,
     openTokensPage: async () => undefined,
