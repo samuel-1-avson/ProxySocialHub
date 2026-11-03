@@ -71,10 +71,8 @@ test.describe("frontend details and public content", () => {
     await expect(
       page.getByRole("heading", { name: "Premium Austin Pool", exact: true }),
     ).toBeVisible({ timeout: 30_000 });
-    await expect(
-      page.locator(".listing-intro").getByText("No reviews yet"),
-    ).toBeVisible();
-    await expect(page.getByText("No source reported").first()).toBeVisible();
+    await expect(page.getByText("No reviews yet")).toBeVisible();
+    await expect(page.getByText("Unmeasured").first()).toBeVisible();
     await expect(
       page.getByText("Measured metrics", { exact: true }),
     ).toHaveCount(0);
@@ -96,7 +94,7 @@ test.describe("frontend details and public content", () => {
     ).toBeVisible();
   });
 
-  test("governance filters actual proposals and keeps readiness separate", async ({
+  test("governance lists actual proposals and keeps readiness separate", async ({
     page,
   }, info) => {
     await isolate(page);
@@ -149,18 +147,17 @@ test.describe("frontend details and public content", () => {
     await expect(
       page.getByText(/On-chain governance is not ready/),
     ).toBeVisible();
-    await expect(page.locator(".proposal-card")).toHaveCount(2);
-    await page.getByLabel("Proposal status").selectOption("active");
-    await expect(page.locator(".proposal-card")).toHaveCount(1);
+    const proposalLinks = page.locator(
+      'main a[href^="/governance/"]:not([href="/governance/create"])',
+    );
+    await expect(proposalLinks).toHaveCount(2);
     await expect(
       page.getByRole("link", { name: /Regional capacity incentives/ }),
     ).toBeVisible();
-    await page.getByLabel("Search proposals").fill("no match");
     await expect(
-      page.getByText("No matching proposals", { exact: true }),
+      page.getByRole("link", { name: /Gateway maintenance window/ }),
     ).toBeVisible();
-    await page.getByLabel("Search proposals").fill("");
-    await page.getByLabel("Proposal status").selectOption("");
+    await expect(page.getByText("Displaying 2 proposals")).toBeVisible();
     await page.setViewportSize({ width: 390, height: 844 });
     await noOverflow(page);
     await capture(page, info.outputPath("governance-mobile.png"));
@@ -319,53 +316,22 @@ test.describe("frontend details and public content", () => {
     ).toBeVisible();
     await noOverflow(page);
   });
-  test("Explorer preserves zero measurements and reports unavailable health", async ({
+  test("the retired embedded Explorer redirects to the standalone one", async ({
     page,
-  }, info) => {
-    await isolate(page);
-    let available = true;
-    await page.route("**/v1/explorer/metrics**", (route) =>
+  }) => {
+    // Measurement honesty for the Explorer now lives in the standalone
+    // app; the embedded overview this test drove was removed.
+    await page.route("**://explorer.proxyhubb.com/**", (route) =>
       route.fulfill({
-        json: available
-          ? {
-              active_nodes: 0,
-              block_height: 0,
-              total_volume: 0,
-              total_bandwidth_gb: 0,
-              active_wallets: 0,
-              transactions_per_second: 0,
-            }
-          : {},
+        status: 200,
+        contentType: "text/html",
+        body: "<main>standalone explorer</main>",
       }),
     );
-    await page.route("**/v1/explorer/transactions**", (route) =>
-      route.fulfill({ json: { transactions: [], total: 0 } }),
-    );
-    await page.route("**/v1/explorer/blocks**", (route) =>
-      route.fulfill({ json: { blocks: [], total: 0 } }),
-    );
     await page.goto(base + "/explorer", { waitUntil: "domcontentloaded" });
-    await expect(
-      page.getByRole("group", { name: "Active nodes", exact: true }),
-    ).toContainText("0", { timeout: 30_000 });
-    await expect(
-      page.getByRole("group", { name: "Transaction volume", exact: true }),
-    ).toContainText("0.00 SOL");
-    await expect(page.getByText("System status: unavailable")).toBeVisible({
+    await expect(page).toHaveURL("https://explorer.proxyhubb.com/", {
       timeout: 30_000,
     });
-    await expect(page.getByText(/System status: optimal/i)).toHaveCount(0);
-    await capture(page, info.outputPath("explorer-overview.png"));
-    available = false;
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(
-      page.getByRole("group", { name: "Active nodes", exact: true }),
-    ).toContainText("—", { timeout: 30_000 });
-    await expect(
-      page.getByRole("group", { name: "Transaction volume", exact: true }),
-    ).toContainText("—");
-    await page.setViewportSize({ width: 390, height: 844 });
-    await noOverflow(page);
   });
 
   test("forum category pagination requests the next page and preserves a useful empty state", async ({
