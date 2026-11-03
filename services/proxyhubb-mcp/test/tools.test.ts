@@ -2,15 +2,33 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { ProxyHubbClient } from "../src/client.ts";
 import { loadConfig } from "../src/config.ts";
+import type { FetchPageOptions, FetchPageResult } from "../src/fetch.ts";
 import { createToolHandlers, ToolError } from "../src/tools.ts";
 
 type Handler = (url: URL, init: RequestInit) => unknown;
+type FetchPage = (proxyUrl: string, target: URL, opts: FetchPageOptions) => Promise<FetchPageResult>;
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
 
-function makeHandlers(handler: Handler, opts: { withToken?: boolean; apiKey?: string } = {}) {
+const PAGE_OK: FetchPage = async (_proxyUrl, target) => ({
+  ok: true,
+  finalUrl: target.href,
+  redirects: [],
+  status: 200,
+  headers: { "content-type": "text/html; charset=utf-8" },
+  body: Buffer.from("<html><head><title>Shop GH</title></head><body><p>Price: GH₵ 120</p></body></html>"),
+  truncated: false,
+  bytesReceived: 120,
+  elapsedMs: 30,
+});
+
+function makeHandlers(
+  handler: Handler,
+  opts: { withToken?: boolean; apiKey?: string; ownIp?: string; fetchPage?: FetchPage } = {},
+) {
+  const pageCalls: { proxyUrl: string; target: string }[] = [];
   const calls: { url: string; method: string; body: unknown; headers: Record<string, string> }[] = [];
   const fetchFn = (async (input: unknown, init?: RequestInit) => {
     const url = new URL(String(input));
@@ -36,9 +54,13 @@ function makeHandlers(handler: Handler, opts: { withToken?: boolean; apiKey?: st
     client: new ProxyHubbClient(cfg, fetchFn),
     probe: async () => ({ ok: true, ip: "203.0.113.7", targetHost: "echo.test", elapsedMs: 42 }),
     geoLookup: async () => ({ country: "GH", source: "test", lookedUpAt: null, note: null }),
-    learnOwnIp: async () => "198.51.100.9",
+    learnOwnIp: async () => opts.ownIp ?? "198.51.100.9",
+    fetchPage: async (proxyUrl, target, fetchOpts) => {
+      pageCalls.push({ proxyUrl, target: target.href });
+      return (opts.fetchPage ?? PAGE_OK)(proxyUrl, target, fetchOpts);
+    },
   });
-  return { handlers, calls };
+  return { handlers, calls, pageCalls };
 }
 
 const INTENT_OK = {
@@ -319,5 +341,84 @@ describe("use_my_order", () => {
     const out = await handlers.useMyOrder({ order_id: ORDER_ID });
     assert.equal(out.code, "order_not_found");
     await assert.rejects(() => handlers.useMyOrder({ order_id: "../credentials" }), ToolError);
+  });
+});
+
+/** Answers the order list, the order and its credentials. */
+function accountApi(o: Record<string, unknown> = order(), creds: unknown = credentials(), list: unknown[] = [o]) {
+  return (url: URL) =>
+    url.pathname === "/v1/orders" ? { orders: list } : url.pathname.endsWith("/credentials") ? creds : o;
+}
+
+describe("fetch_url", () => {
+  it("fetches through a verified order exit and never returns the credential", async () => {
+    const { handlers, calls, pageCalls } = makeHandlers(accountApi());
+    const out = await handlers.fetchUrl({ url: "https://shop.example/gh", country: "gh" });
+    assert.equal(out.status, "fetched");
+    assert.equal(out.title, "Shop GH");
+    assert.match(String(out.text), /Price: GH₵ 120/);
+    assert.equal(out.exit?.assurance, "verified");
+    assert.deepEqual(
+      calls.map((c) => new URL(c.url).pathname),
+      ["/v1/orders", `/v1/orders/${ORDER_ID}`, `/v1/orders/${ORDER_ID}/credentials`],
+    );
+    assert.equal(pageCalls[0]?.proxyUrl, "http://u-1:p%40ss%2Fword@proxy.test:8090");
+    assert.equal(pageCalls[0]?.target, "https://shop.example/gh");
+    const json = JSON.stringify(out);
+    for (const secret of ["p@ss", "p%40ss", "proxy_url"]) assert.equal(json.includes(secret), false, secret);
+  });
+
+  it("does not request the page through an unverified exit by default", async () => {
+    // The exit IP equals our own IP: direct_egress.
+    const { handlers, pageCalls } = makeHandlers(accountApi(), { ownIp: "203.0.113.7" });
+    const out = await handlers.fetchUrl({ url: "https://shop.example/", country: "GH" });
+    assert.equal(out.status, "not_fetched");
+    assert.equal(out.exit?.assurance, "direct_egress");
+    assert.match(String(out.message), /require_verified=false/);
+    assert.equal(pageCalls.length, 0);
+  });
+
+  it("fetches an unverified exit only when asked, and labels the result", async () => {
+    const { handlers, pageCalls } = makeHandlers(accountApi(), { ownIp: "203.0.113.7" });
+    const out = await handlers.fetchUrl({ url: "https://shop.example/", country: "GH", require_verified: false });
+    assert.equal(out.status, "fetched");
+    assert.match(String(out.warnings?.[0]), /NOT verified \(direct_egress\)/);
+    assert.equal(pageCalls.length, 1);
+  });
+
+  it("says when there is no active order for the country", async () => {
+    const { handlers, calls, pageCalls } = makeHandlers(accountApi(order(), credentials(), []));
+    const out = await handlers.fetchUrl({ url: "https://shop.example/", country: "US" });
+    assert.equal(out.status, "unavailable");
+    assert.equal(out.code, "no_active_order");
+    assert.equal(calls.length, 1);
+    assert.equal(pageCalls.length, 0);
+  });
+
+  it("passes an order refusal through without fetching", async () => {
+    const o = order({ status: "completed" });
+    const { handlers, pageCalls } = makeHandlers(accountApi(o, credentials(), [order()]));
+    const out = await handlers.fetchUrl({ url: "https://shop.example/", order_id: ORDER_ID });
+    assert.equal(out.status, "unavailable");
+    assert.equal(out.code, "order_not_active");
+    assert.equal(pageCalls.length, 0);
+  });
+
+  it("reports a failed fetch with its stage", async () => {
+    const { handlers } = makeHandlers(accountApi(), {
+      fetchPage: async () => ({ ok: false, stage: "tls", message: "TLS failed.", redirects: [] }),
+    });
+    const out = await handlers.fetchUrl({ url: "https://shop.example/", country: "GH" });
+    assert.equal(out.status, "failed");
+    assert.equal(out.stage, "tls");
+  });
+
+  it("refuses non-https and internal targets before any API call", async () => {
+    const { handlers, calls } = makeHandlers(accountApi());
+    for (const url of ["http://shop.example/", "https://192.168.1.1/", "https://localhost/", "https://router/", "https://shop.example:22/"]) {
+      await assert.rejects(() => handlers.fetchUrl({ url, country: "GH" }), ToolError, url);
+    }
+    await assert.rejects(() => handlers.fetchUrl({ url: "https://shop.example/" }), /country/);
+    assert.equal(calls.length, 0);
   });
 });

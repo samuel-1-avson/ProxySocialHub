@@ -92,6 +92,16 @@ function setupGuides(host: string, port: string): Array<{ key: string; title: st
                 'Your browser asks for the username and password the first time. This only applies on that Wi-Fi.',
             ],
         },
+        {
+            key: 'ai-agent',
+            title: 'AI agent (Claude, Cursor, VS Code)',
+            steps: [
+                'You do not need to copy these details: the ProxyHubb MCP server uses this order for your agent.',
+                'Follow docs.proxyhubb.com/docs/agents/mcp to install it and connect Claude Desktop, Claude Code, Cursor or VS Code.',
+                'Then ask your agent, for example: "Use ProxyHubb to fetch https://example.com as seen from this order\'s country."',
+                'The agent only spends this order’s bandwidth, and only trusts the exit once it is verified.',
+            ],
+        },
     ];
 }
 

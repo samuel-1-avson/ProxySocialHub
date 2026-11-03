@@ -67,6 +67,10 @@ func sendFriendRequest(c *gin.Context) {
 		return
 	}
 
+	if rejectIfBlocked(c, senderID, targetID) {
+		return
+	}
+
 	// Check if already friends
 	var existingFriendship models.Friendship
 	if err := db.Social().Where("user_id = ? AND friend_id = ?", senderID, targetID).First(&existingFriendship).Error; err == nil {
@@ -111,7 +115,7 @@ func sendFriendRequest(c *gin.Context) {
 		Dedupe:     true,
 	})
 
-	c.JSON(http.StatusOK, req)
+	c.JSON(http.StatusOK, friendRequestDTOFrom(req))
 }
 
 // @Summary      Accept friend request
@@ -149,6 +153,10 @@ func acceptFriendRequest(c *gin.Context) {
 
 	if req.Status != models.FriendRequestPending {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Request is not pending"})
+		return
+	}
+
+	if rejectIfBlocked(c, receiverID, req.SenderID) {
 		return
 	}
 
@@ -305,7 +313,7 @@ func listFriendRequests(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, requests)
+	c.JSON(http.StatusOK, friendRequestDTOs(requests))
 }
 
 // getFriendshipStatus returns the relationship state between the current user and a target user.
@@ -414,7 +422,7 @@ func listFriends(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, friends)
+	c.JSON(http.StatusOK, friendshipDTOs(friends))
 }
 
 type friendUserSummary struct {
@@ -487,6 +495,13 @@ func getPeopleYouMayKnow(c *gin.Context) {
 		}
 	}
 
+	blockedIDs, err := blockedCounterpartyIDs(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load blocked users"})
+		return
+	}
+	excluded = append(excluded, blockedIDs...)
+
 	var users []models.User
 	if err := db.Social().
 		Where("id NOT IN ?", excluded).
@@ -547,5 +562,5 @@ func getMutualFriends(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"friends": mutual, "count": len(mutual)})
+	c.JSON(http.StatusOK, gin.H{"friends": friendshipDTOs(mutual), "count": len(mutual)})
 }

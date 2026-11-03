@@ -48,6 +48,10 @@ curl -s https://api.proxyhubb.com/v1/listings/facets
   *unverified* and is never interpreted.
 * **Windows or Linux** for the provider app. The macOS download is still v1.0.6 (two versions behind).
 * The machine must stay **on and online** from the first live run until the video is recorded.
+* **Not on the auditor's internet connection.** If a node shares the public IP of the machine running the
+  audit, its exit looks exactly like a bypass and the region is reported as `direct_egress`, never verified.
+  This happened on 2026-11-03: the Ghana order's exit (MTN Ghana, Accra) was the owner PC's own public
+  address, so the node was on the same connection.
 
 What the friend does (no account needed; you approve):
 
@@ -60,7 +64,10 @@ What the friend does (no account needed; you approve):
 5. Create a **listing** for the node (small bandwidth, a normal price: current listings are $0.89 to $1.04 per GB).
 6. Confirm it appears: the facets call above should now list the new country.
 
-The Accra nodes you already have are your Ghana region; keep one running throughout.
+The Accra nodes you already have are your Ghana region; keep one running throughout, on a **different
+connection** from the laptop that runs the audit (for example the node on home broadband and the laptop on a
+phone hotspot, or the node on another device at another address). A node running on the audit laptop itself
+can never verify.
 
 **Gate:** facets lists Ghana **and** a second country, and both nodes show *online* in My nodes.
 
@@ -97,6 +104,16 @@ npx wrangler deploy            # serves demo-v1 at https://proxyhubb-regional-au
 
 Do this **early**, even with Ghana only, so any problem surfaces a day before filming.
 
+**As of 2026-11-03 no live run has verified under the current rules.** The 2026-11-02 run's exit was on
+Starlink (now `unverified` by design), and the 2026-11-03 MCP run's node shared the owner's connection
+(`direct_egress`). The first goal is one Ghana region showing **Verified**, from a node on ordinary broadband or
+mobile data and a laptop on a different connection.
+
+- [ ] Start the stack in a **fresh terminal**, and do not set `AUDITOR_MODEL` or
+      `AUDITOR_ALLOW_CONTRIBUTOR_MODE`, so the standard (non-training) model is used
+- [ ] Run it from a checkout of the latest `main` (other sessions sometimes switch the main folder to their
+      own branch; `git log -1` should show the newest merge)
+
 ```bash
 cd services/regional-auditor
 npm run stack -- live --api-url https://api.proxyhubb.com --target https://<your-demo-site>
@@ -119,7 +136,7 @@ app. Then:
 | `unavailable`, `order_region_mismatch` | the order is for another country than the region you picked |
 | `mismatch` | the exit really is in another country: a true finding about that node, not a bug |
 | `unverified` | no GeoIP answer, or a satellite network, or declared and measured countries disagree |
-| `failed`, `direct_egress` | **stop**: the request did not use the proxy; do not film |
+| `failed`, `direct_egress` | the exit IP is the audit machine's own IP. Either the request did not use the proxy, or the node is on the same connection as the audit machine (the usual cause with your own nodes). Check the machine's IP (`curl https://api.ipify.org`); if it equals the exit, move the node or the laptop to another connection. Do not film this region |
 | the node is offline | the listing still looks buyable; start the node and retry |
 
 More causes are in `docs/hackathon/REGIONAL_AUDITOR.md` section 13.1.
@@ -151,6 +168,7 @@ the portal's limit). Do it end to end twice.
 - [ ] Never show a token, a proxy password or a secret (the stack never prints its secret; check the
       browser tab, terminal and address bar before you hit record)
 - [ ] Close notifications; browser window about 1280 wide; both nodes confirmed **online** just before you start
+- [ ] The laptop is on a **different connection** from every node it audits through (otherwise `direct_egress`)
 
 **Decision at 09:00 on Nov 4:** if there is still no second country online with an active order, **use
 fallback B**: a live Ghana run, and a second region shown as a clearly labelled synthetic fixture
