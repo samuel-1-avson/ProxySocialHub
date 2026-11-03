@@ -18,6 +18,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { getErrorMessage } from "@/lib/utils";
 import { normalizeCountryCode } from "@/lib/geo/regional-hubs";
 import { ProviderApplicationForm } from "@/components/ProviderApplicationForm";
+import { CountrySelect } from "@/components/ui/CountrySelect";
 
 export function OnboardingApplyPanel({
   onboarding,
@@ -288,15 +289,13 @@ export function OnboardingProviderSetupPanel({
                 ? " (detected)"
                 : ""}
             </label>
-            <input
+            <CountrySelect
               value={nodeCountry}
-              onChange={(e) => {
+              onChange={(code) => {
                 setCountryTouched(true);
-                setNodeCountry(e.target.value.toUpperCase());
+                setNodeCountry(code);
               }}
-              maxLength={2}
-              className="w-full border border-border bg-background px-3 py-2.5 font-mono text-sm"
-              placeholder="e.g. GH"
+              label="Country"
             />
             <p className="text-xs font-mono text-muted-foreground">
               Detected from your connection when possible. City is optional. Set it later for finer map routing.

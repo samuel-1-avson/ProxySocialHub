@@ -205,9 +205,7 @@ func getPublicProfile(c *gin.Context) {
 
 	// Check if block or follow relationship exists
 	if hasViewer {
-		var block models.Block
-		if err := db.DB.Where("(blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?)",
-			currentUserID, user.ID, user.ID, currentUserID).First(&block).Error; err == nil {
+		if block, err := findBlockBetween(currentUserID, user.ID); err == nil && block != nil {
 			if block.BlockerID == user.ID {
 				c.JSON(http.StatusForbidden, gin.H{"error": "You have been blocked by this user"})
 				return
@@ -352,9 +350,12 @@ func followUser(c *gin.Context) {
 	}
 
 	// Check if a block relationship exists in either direction
-	var block models.Block
-	if err := db.DB.Where("(blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?)",
-		followerID, followingID, followingID, followerID).First(&block).Error; err == nil {
+	blocked, err := blockedBetween(followerID, followingID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check contact policy"})
+		return
+	}
+	if blocked {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Cannot follow a blocked user or be followed by a user you blocked"})
 		return
 	}
@@ -541,6 +542,21 @@ func blockUser(c *gin.Context) {
 				return
 			}
 		}
+	}
+
+	// Sever the friendship and any pending friend requests between the pair
+	// so a block cannot be bypassed by accepting an older request.
+	if err := tx.Where("(user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)",
+		blockerID, blockedID, blockedID, blockerID).Delete(&models.Friendship{}).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update friendship"})
+		return
+	}
+	if err := tx.Where("status = ? AND ((sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?))",
+		models.FriendRequestPending, blockerID, blockedID, blockedID, blockerID).Delete(&models.FriendRequest{}).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update friend requests"})
+		return
 	}
 
 	if err := tx.Commit().Error; err != nil {

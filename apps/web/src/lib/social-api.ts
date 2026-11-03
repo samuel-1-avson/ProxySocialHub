@@ -297,6 +297,10 @@ export async function getListingReviews(listingId: string, page = 1): Promise<{ 
 export {
     getConversationsNormalized as getConversations,
     getMessagesNormalized as getMessages,
+    getConversationNormalized as getConversation,
+    markConversationReadNormalized as markConversationRead,
+    mergeMessages,
+    type MessageThread,
     sendMessageNormalized as sendMessage,
     startConversationNormalized as startConversation,
 } from '@/lib/messaging/social-messaging';
