@@ -21,6 +21,7 @@ import {
   MapPin,
 } from "lucide-react";
 import { getMyNodes, getNodeUptime } from "@/lib/api/provider";
+import { isNodeOnline, useNodeClock } from "@/lib/node-status";
 
 type CheckStatus = "pass" | "warn" | "fail" | "loading";
 
@@ -69,11 +70,10 @@ export default function HealthPage() {
     queryFn: getMyNodes,
   });
 
+  const now = useNodeClock();
   const nodes = useMemo(() => nodesData?.nodes ?? [], [nodesData?.nodes]);
-  const onlineNodes = nodes.filter((n) => n.status === "online");
-  const offlineNodes = nodes.filter(
-    (n) => n.status === "offline" || n.status === "pending",
-  );
+  const onlineNodes = nodes.filter((n) => isNodeOnline(n, now));
+  const offlineNodes = nodes.filter((n) => !isNodeOnline(n, now));
 
   const uptimeQueries = useQueries({
     queries: nodes.slice(0, 8).map((node) => ({
@@ -414,7 +414,7 @@ export default function HealthPage() {
                   <div className="flex items-center gap-3 min-w-0">
                     <span
                       className={`w-2 h-2 rounded-full shrink-0 ${
-                        node.status === "online"
+                        isNodeOnline(node, now)
                           ? "bg-emerald-500"
                           : node.status === "pending"
                             ? "bg-amber-400"

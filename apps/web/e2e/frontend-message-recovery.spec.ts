@@ -10,7 +10,7 @@ test("an accepted first message survives a failed inbox preview refresh without 
  const message = "Please confirm your available region.";
  await page.route("**/v1/users/alex", (route) => route.fulfill({ json: { id: "alex", username: "alex", display_name: "Alex" } }));
  await page.route(/\/v1\/conversations(?:\?.*)?$/, (route) => {
-  if (route.request().method() === "POST") { writes++; expect(route.request().postDataJSON()).toEqual({ recipient_id: "alex", message }); accepted = true; return route.fulfill({ json: { conversation_id: "accepted-conversation" } }); }
+  if (route.request().method() === "POST") { writes++; expect(route.request().postDataJSON()).toEqual({ recipient_id: "alex", message, client_msg_id: expect.any(String) }); accepted = true; return route.fulfill({ json: { conversation_id: "accepted-conversation" } }); }
   return route.fulfill(accepted ? { status: 503, json: { error: "Preview refresh unavailable" } } : { json: { conversations: [] } });
  });
  await page.route(/\/v1\/conversations\/accepted-conversation\/messages(?:\?.*)?$/, (route) => route.fulfill({ json: { messages: [{ id: "accepted-message", conversation_id: "accepted-conversation", sender_id: "buyer-route-policy-user", content: message, created_at: "2026-11-01T10:00:00Z" }] } }));

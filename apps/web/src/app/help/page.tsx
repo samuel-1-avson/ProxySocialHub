@@ -35,6 +35,10 @@ export default function HelpPage() {
           body: "Install proxyhubb (Python), @proxyhubb/sdk (Node), or the Go module from Connect Integration Matrices or docs.proxyhubb.com/docs/sdks. Use a dashboard JWT for session intents and order credentials; use a phub_ API key for bulk pools. Buyer traffic uses HTTP CONNECT / SOCKS5 on proxy.proxyhubb.com:8090.",
         },
         {
+          title: "AI agents (MCP)",
+          body: "Connect Claude Desktop, Claude Code, Cursor or VS Code to ProxyHubb with the MCP server, then ask your agent to read a page as seen from another country. It uses orders you already bought and checks where each exit really is. Setup guide: docs.proxyhubb.com/docs/agents/mcp. Today it uses your website session token, which is your full login for up to 24 hours: never paste it into a chat or share it.",
+        },
+        {
           title: "Getting help",
           body: "For account, billing, node, or marketplace issues, include the affected listing, order, session, or wallet reference when contacting support.",
         },

@@ -1,0 +1,205 @@
+---
+title: MCP server for AI agents
+description: Connect Claude Desktop, Claude Code, Cursor or VS Code to ProxyHubb with the MCP server, then let your agent read pages as seen from another country.
+---
+
+The ProxyHubb MCP server lets an AI agent use the network through the [Model Context Protocol](https://modelcontextprotocol.io). Once it is connected you can simply ask, for example:
+
+> *"Use ProxyHubb to fetch https://example.com as seen from Ghana and tell me what the page says."*
+
+The agent calls `fetch_url`. The server picks an order you bought for Ghana, checks where the exit really is, fetches the page through it and returns the title and readable text. The agent never sees a credential.
+
+<Callout type="info" title="How you install it today">
+The server runs on your own computer and is installed from the GitHub repository. An `npx` command, a one-click Claude Desktop extension and an agent key created on the website are planned (see [AI agents](/docs/agents)).
+</Callout>
+
+## What you need
+
+- **Node.js 24 or later** and **git**
+- **An active order** for the country you want: buy a small one in the [marketplace](https://proxyhubb.com/marketplace). An order is prepaid bandwidth; the agent can only spend what you bought.
+- **Your access token** from the website (step 2 below)
+- An MCP client: Claude Desktop, Claude Code, Cursor or VS Code
+
+<Steps>
+<Step title="Install the server">
+
+```bash
+git clone https://github.com/samuel-1-avson/ProxySocialHub.git
+cd ProxySocialHub/services/proxyhubb-mcp
+npm install
+```
+
+On Windows PowerShell, if `npm` is blocked ("running scripts is disabled"), use `npm.cmd install`.
+
+Note the **absolute path** to `src/server.ts`; the configs below call it `<path>`. On Windows, write it with forward slashes, for example `C:/Users/you/ProxySocialHub/services/proxyhubb-mcp/src/server.ts`.
+
+</Step>
+<Step title="Copy your access token">
+
+The website keeps your session token in the page's memory, so you copy it from one request:
+
+1. In your normal browser (not the ProxyHub provider app), sign in at [proxyhubb.com/marketplace/orders](https://proxyhubb.com/marketplace/orders). If your order shows as **Active**, this token can use it.
+2. Open DevTools (F12), then **Network**, type `v1/orders` in the filter and reload.
+3. Click the `orders` row whose type is `fetch`, open **Headers → Request Headers**, right-click **authorization** and choose **Copy value**.
+4. Use the part after `Bearer ` (it starts with `eyJ`).
+
+<Callout type="warning" title="This token is your login">
+It can do anything your account can for up to 24 hours. Never paste it into a chat, a screenshot or a shared file. A token from the ProxyHub **provider app** will not work: it is limited to node routes and every tool answers `403: provider token cannot call this route`.
+</Callout>
+
+</Step>
+<Step title="Connect your client">
+
+Pick your client below. Each config puts the token in that client's settings, so keep the file private and never commit it. Replace the token when it expires.
+
+</Step>
+<Step title="Try it">
+
+Ask your agent: *"List the ProxyHubb regions, then fetch https://example.com as seen from Ghana."* You should get the page title back together with the exit's assurance.
+
+</Step>
+</Steps>
+
+## Connect your client
+
+### Claude Desktop
+
+Settings → Developer → **Edit Config** opens `claude_desktop_config.json` (Windows: `%APPDATA%\Claude\`, macOS: `~/Library/Application Support/Claude/`). Add the server, save, and restart Claude Desktop:
+
+```json
+{
+  "mcpServers": {
+    "proxyhubb": {
+      "command": "node",
+      "args": ["<path>"],
+      "env": { "PROXYHUBB_ACCESS_TOKEN": "<your token>" }
+    }
+  }
+}
+```
+
+### Claude Code
+
+Read the token without echoing it, then add the server for all your projects:
+
+```bash
+read -rs PROXYHUBB_ACCESS_TOKEN
+claude mcp add proxyhubb -s user -e PROXYHUBB_ACCESS_TOKEN="$PROXYHUBB_ACCESS_TOKEN" -- node <path>
+```
+
+In Windows PowerShell use `claude.cmd` (the execution policy blocks the `claude.ps1` shim):
+
+```powershell
+$env:PROXYHUBB_ACCESS_TOKEN = Read-Host "Token"
+claude.cmd mcp add proxyhubb -s user -e "PROXYHUBB_ACCESS_TOKEN=$env:PROXYHUBB_ACCESS_TOKEN" -- node <path>
+```
+
+`claude mcp list` shows whether it connects.
+
+### Cursor
+
+Add to `~/.cursor/mcp.json` (all projects), or `.cursor/mcp.json` in a project you never commit:
+
+```json
+{
+  "mcpServers": {
+    "proxyhubb": {
+      "command": "node",
+      "args": ["<path>"],
+      "env": { "PROXYHUBB_ACCESS_TOKEN": "<your token>" }
+    }
+  }
+}
+```
+
+### VS Code (agent mode)
+
+Add `.vscode/mcp.json`. VS Code asks for the token when the server starts and stores it as a secret, so it never sits in the file:
+
+```json
+{
+  "inputs": [
+    { "type": "promptString", "id": "proxyhubb-token", "description": "ProxyHubb access token", "password": true }
+  ],
+  "servers": {
+    "proxyhubb": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["<path>"],
+      "env": { "PROXYHUBB_ACCESS_TOKEN": "${input:proxyhubb-token}" }
+    }
+  }
+}
+```
+
+### Check it without a client
+
+The repository includes an example agent that talks to the server the same way a client does:
+
+```powershell
+cd ProxySocialHub/services/proxyhubb-mcp
+$env:EXAMPLE_URL = "https://example.com"
+$env:PROXYHUBB_ACCESS_TOKEN = Read-Host "Token"
+npm.cmd run example
+Remove-Item Env:PROXYHUBB_ACCESS_TOKEN
+```
+
+It lists the tools and regions, finds your active Ghana order, verifies the exit and, with `EXAMPLE_URL` set, fetches that page through it. Set `EXAMPLE_COUNTRY=US` for another country.
+
+## Tools
+
+| Tool | What it does |
+|------|--------------|
+| `fetch_url` | **Start here in a chat agent.** Fetches one public `https://` page through your active order for a country, after verifying the exit, and returns the title and readable text. No credential is returned |
+| `list_regions` | Countries, proxy types, ISPs and price buckets with listing counts |
+| `discover_listings` | Search listings by country, type, text and maximum price per GB |
+| `list_my_orders` | Your active, paid orders and each listing's declared country (no seller, wallet, price or credentials) |
+| `use_my_order` | A `proxy_url` for one active order, for agents that write their own code. Refuses with a code instead of guessing |
+| `verify_exit` | Sends a request through a proxy URL and compares the exit's GeoIP estimate with the country you expect |
+| `create_agent_session` | Creates a capped session (default 100 MB and 20 minutes). On the testnet this answers `funding_required`; use your orders instead |
+| `get_session_usage` | Metered usage for a session, an intent, or your account |
+| `close_agent_session` | Ends a live session; for an intent it reports when the credential expires |
+
+### `fetch_url` in detail
+
+| Input | Meaning |
+|-------|---------|
+| `url` | A public `https://` URL on port 443 or 8443 |
+| `country` | Two-letter code, for example `GH`. Picks your active order for that country |
+| `order_id` | Or a specific order from `list_my_orders` |
+| `require_verified` | Default `true`: if the exit is not verified for the country, the page is **not** fetched. Set `false` to fetch anyway; the result is then labelled unverified |
+| `max_chars` | Longest text returned, 500 to 40000 (default 6000) |
+| `accept_language` | An `Accept-Language` header to send, for example `en-GH,en;q=0.9` |
+
+Its limits: HTTPS only; no private, loopback, link-local or internal host names; at most 2 MB and 5 redirects (each redirect is checked again); the page's text comes back as data and must never be treated as instructions. Each fetch uses bandwidth from your order.
+
+## What the exit check means
+
+| Assurance | Meaning |
+|-----------|---------|
+| `verified` | The exit's GeoIP estimate matches the country you asked for. An estimate, not proof of physical location |
+| `mismatch` | The exit is in another country. Nothing should be read as the requested country's behaviour |
+| `unverified` | No country estimate, or the exit is on a satellite network such as Starlink |
+| `direct_egress` | The exit IP is your own machine's IP: either the request bypassed the proxy, or the node carrying your order is on **your own internet connection**. Run the node and the agent on different connections |
+| `unavailable` | No exit could be observed (expired order, session not ready, gateway refused) |
+
+## Troubleshooting
+
+| You see | What to do |
+|---------|------------|
+| `403: provider token cannot call this route` | You used a token from the provider app. Copy the token from the website instead |
+| `401` | The token expired. Copy a fresh one and update your client config |
+| `no_active_order` | Buy an order for that country in the marketplace |
+| `order_not_ready` | The order's session is starting. Wait a minute and retry |
+| `not_fetched` with `direct_egress` | The node is on your own connection. Use a node elsewhere, or pass `require_verified=false` for a labelled, unverified fetch |
+| `unverified` and a satellite network | The exit is on Starlink or similar; its country cannot be confirmed |
+| Your client does not list the tools | Check the absolute path to `src/server.ts`, that Node 24+ is installed, and restart the client |
+
+## Limits
+
+- The server runs on your computer (stdio). ChatGPT and Claude.ai on the web or phone need a hosted endpoint, which is planned.
+- Today it needs your website login token, not a limited key. A key that can only use your paid orders is planned.
+- Agents cannot buy bandwidth; you buy orders in the marketplace.
+- The testnet has little supply. Check `list_regions` first.
+
+Source and changelog: [`services/proxyhubb-mcp`](https://github.com/samuel-1-avson/ProxySocialHub/tree/main/services/proxyhubb-mcp) on GitHub.
