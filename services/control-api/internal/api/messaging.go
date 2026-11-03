@@ -156,6 +156,10 @@ func startConversation(c *gin.Context) {
 		return
 	}
 
+	if rejectIfBlocked(c, userID, req.RecipientID) {
+		return
+	}
+
 	// Check if conversation exists (in either direction)
 	var existingConv models.Conversation
 	err := db.Social().Where(
@@ -293,6 +297,10 @@ func sendMessage(c *gin.Context) {
 
 	if conv.Participant1 != userID && conv.Participant2 != userID {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
+	if rejectIfBlocked(c, userID, conv.GetOtherParticipant(userID)) {
 		return
 	}
 
