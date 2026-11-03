@@ -24,6 +24,7 @@ on:
       - '.github/workflows/proxyhubb-ci.yml'
       - 'scripts/gcp-roll-explorer-image.sh'
       - 'scripts/explorer-release.compose.yml'
+      - 'scripts/cloudbuild-explorer.yaml'
       - 'config/gcp/Caddyfile.example'
   workflow_dispatch:
     inputs:
