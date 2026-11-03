@@ -59,16 +59,15 @@ pub struct Diagnosis {
 /// The doctor files "the key did not work" and "the servers could not be reached" under the same
 /// code. Only the first means the person has to reconnect, so the server's own words decide.
 ///
-/// The phrases are specific to a refusal on purpose. Do not add the bare word "token": the node's
-/// message ends with advice that always says it ("Create a fresh token in Dashboard..."), so a 502
-/// during a deploy would read as a revoked key. The tests with the real message shape pin this.
+/// The phrases are the control API's own refusal words, the same two as the node's
+/// `ip::is_key_refusal` (this is a separate crate, so it is a copy; keep them identical). Do not
+/// add the bare word "token": the node's message ends with advice that always says it ("Create a
+/// fresh token in Dashboard..."), so a 502 during a deploy would read as a revoked key. A bare
+/// 401/403 is not enough either: a proxy or firewall can send those. The tests with the real
+/// message shape pin this.
 fn key_was_refused(message: &str) -> bool {
     let said = message.to_ascii_lowercase();
-    said.contains("invalid or inactive provider token")
-        || said.contains("provider token expired")
-        || said.contains("unauthorized")
-        || said.contains("http 401")
-        || said.contains("http 403")
+    said.contains("invalid or inactive provider token") || said.contains("provider token expired")
 }
 
 const KEY_NOT_CONFIRMED: &str =
@@ -243,6 +242,10 @@ mod tests {
             "HTTP 502 Bad Gateway",
             "HTTP 500 Internal Server Error",
             "HTTP 429 Too Many Requests",
+            // A proxy or firewall can answer these for its own reasons; only the control API's
+            // own words count as a refused key.
+            "HTTP 401 Unauthorized",
+            "HTTP 403 Forbidden",
         ] {
             let message = format!(
                 "Provider auth failed: Authentication failed: {said}. Create a fresh token in Dashboard"

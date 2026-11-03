@@ -473,7 +473,7 @@ fn render_too_small(frame: &mut ratatui::Frame<'_>, area: Rect) {
             theme::dim(),
         )),
     ];
-    let w = area.width.saturating_sub(4).min(62).max(20);
+    let w = area.width.saturating_sub(4).clamp(20, 62);
     let h = 7.min(area.height);
     let card = Rect::new(
         area.x + area.width.saturating_sub(w) / 2,
