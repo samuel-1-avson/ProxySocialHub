@@ -1,6 +1,6 @@
 /**
  * Matching & Smart Connect API Module
- * Intelligent node discovery and recommendations
+ * Rule-based node discovery and recommendations (no AI model)
  */
 
 import { apiGet, apiPost } from './client';
@@ -27,7 +27,7 @@ export async function getUseCases() {
 }
 
 /**
- * Get intelligent node recommendations for a vector
+ * Get weighted-score node recommendations for a use case
  */
 export async function getRecommendations(useCaseId: string, minScore = 0) {
     return apiGet<{ recommendations: Recommendation[] }>('/v1/matching/recommend', {
@@ -72,8 +72,9 @@ export interface SmartMatchResponse {
 }
 
 /**
- * POST /v1/smart-match — AI-powered provider selection
- * Returns scored, ranked providers matching the caller's requirements.
+ * POST /v1/smart-match — rule-based provider selection (no AI model)
+ * Filters active listings by the caller's requirements, then ranks them with a
+ * fixed weighted score (see the response's `explanation`).
  */
 export async function smartMatch(req: SmartMatchRequest): Promise<SmartMatchResponse> {
     return apiPost<SmartMatchResponse, SmartMatchRequest>('/v1/smart-match', req);

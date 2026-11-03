@@ -16,7 +16,7 @@ func init() {
 	matchEngine = matching.NewMatcher()
 }
 
-// RegisterSmartMatchingRoutes registers routes for the AI matching engine
+// RegisterSmartMatchingRoutes registers routes for the rule-based matching engine (no AI model)
 func RegisterSmartMatchingRoutes(r *gin.RouterGroup) {
 	group := r.Group("/matching")
 	{
@@ -28,7 +28,7 @@ func RegisterSmartMatchingRoutes(r *gin.RouterGroup) {
 		group.PUT("/preferences", updatePreferences)
 	}
 
-	// Phase 7: AI-powered smart match — standalone endpoint at /v1/smart-match
+	// Phase 7: smart match (filters + fixed weighted score) — standalone endpoint at /v1/smart-match
 	r.POST("/smart-match", SmartMatch)
 }
 

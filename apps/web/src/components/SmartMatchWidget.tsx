@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import {
-    Sparkles, Check, BrainCircuit, Loader2, Hexagon, Zap,
+    Sparkles, Check, Loader2, Hexagon, Zap,
     Activity, Globe, Wifi, Terminal, Radar, ChevronRight,
     ShieldCheck, Command, Target, Filter, Clock, LogIn
 } from 'lucide-react';
@@ -206,7 +206,7 @@ export function SmartMatchWidget() {
                 animate={{ opacity: 1, scale: 1, transition: { duration: 0.5, staggerChildren: 0.1 } }}
                 className="group relative overflow-hidden rounded-[3rem] bg-card border border-border p-1 shadow-sm"
             >
-                {/* Background neural grid */}
+                {/* Background dot grid */}
                 <div
                     className="absolute inset-0 opacity-[0.03] pointer-events-none z-0"
                     style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, currentColor 1px, transparent 0)', backgroundSize: '24px 24px' }}
@@ -221,20 +221,18 @@ export function SmartMatchWidget() {
                         <div className="space-y-4">
                             <div className="flex items-center gap-3">
                                 <div className="p-2.5 rounded-lg bg-primary/10 border border-primary/20 shadow-sm">
-                                    <BrainCircuit className="text-primary" size={20} />
+                                    <Filter className="text-primary" size={20} />
                                 </div>
                                 <div className="space-y-0.5">
-                                    <h3 className="text-xs font-semibold text-muted-foreground">Neural Engine V4</h3>
-                                    <div className="flex items-center gap-2">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
-                                        <span className="text-xs font-semibold text-success">Core Online</span>
-                                    </div>
+                                    <h3 className="text-xs font-semibold text-muted-foreground">Rule-based ranking</h3>
+                                    <span className="text-xs font-semibold text-muted-foreground">No AI model</span>
                                 </div>
                             </div>
                             <div className="space-y-2">
                                 <h2 className="text-3xl font-semibold tracking-tight text-foreground leading-none">Smart Match</h2>
                                 <p className="text-xs font-semibold text-muted-foreground leading-relaxed">
-                                    AI-powered provider selection with real-time scoring.
+                                    Filters active listings by your criteria, then ranks them with a fixed formula:
+                                    latency 30%, uptime 25%, price 20%, tier 15%, sessions served 10%.
                                 </p>
                             </div>
                         </div>
@@ -467,7 +465,7 @@ export function SmartMatchWidget() {
                                     >
                                         <div className="absolute inset-0 bg-secondary translate-x-[-200%] group-hover:translate-x-[200%] transition-transform duration-1000" />
                                         {analyzing ? <Loader2 className="animate-spin" size={16} /> : <Target size={16} />}
-                                        {analyzing ? 'Analyzing...' : 'Find Best Providers'}
+                                        {analyzing ? 'Searching...' : 'Find Best Providers'}
                                     </button>
                                 )}
                             </div>
@@ -761,27 +759,9 @@ export function SmartMatchWidget() {
                         {/* Bottom HUD */}
                         <div className="absolute bottom-0 inset-x-0 p-8 pt-0 z-30 flex justify-between items-end gap-10">
                             <div className="flex-1 flex items-center gap-10 p-4 border-t border-border">
-                                <div className="space-y-1">
-                                    <div className="text-xs font-semibold text-muted-foreground">Neural Load</div>
-                                    <div className="flex gap-1">
-                                        {[1, 1, 1, 1, 0.5, 0.2, 0.1].map((v, i) => (
-                                            <div key={i} className="w-2 h-4 bg-muted rounded-sm overflow-hidden border border-border">
-                                                <motion.div
-                                                    initial={{ height: 0 }}
-                                                    animate={{ height: `${v * 100}%` }}
-                                                    className="bg-primary/40 w-full mt-auto"
-                                                />
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                                <div className="hidden lg:block space-y-1">
-                                    <div className="text-xs font-semibold text-muted-foreground">Network Feed</div>
-                                    <div className="text-xs font-semibold flex items-center gap-2 text-muted-foreground truncate max-w-[200px]">
-                                        <Activity size={10} className="text-primary/40 animate-pulse" />
-                                        Synchronizing Sector-7G... OK
-                                    </div>
-                                </div>
+                                <p className="text-xs font-semibold text-muted-foreground leading-relaxed">
+                                    Ranking uses each listing&apos;s price and the latency, uptime, tier and session count stored for its provider node. No AI model is involved.
+                                </p>
                             </div>
                             <div className="flex gap-3">
                                 <div className="p-3 rounded-lg bg-muted border border-border text-muted-foreground">
