@@ -333,6 +333,32 @@ export function projectPublicData(
   }
 }
 
+const resourceTtlSeconds: Record<PublicResource, number> = {
+  metrics: 15,
+  health: 10,
+  trust: 15,
+  nodes: 30,
+  "node-geo": 30,
+  node: 30,
+  transactions: 10,
+  transaction: 30,
+  blocks: 10,
+  block: 30,
+  wallet: 30,
+  contract: 60,
+  analytics: 60,
+  "health-history": 60,
+  leaderboard: 60,
+  proposals: 30,
+  proposal: 30,
+  "proposal-execution": 30,
+  treasury: 30,
+};
+
+/** How long the adapter may reuse one upstream answer. Seconds, so "live" still means live. */
+export const publicResourceTtlMs = (resource: PublicResource) =>
+  resourceTtlSeconds[resource] * 1_000;
+
 export function publicResourcePath(
   resource: PublicResource,
   params: URLSearchParams,

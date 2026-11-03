@@ -8,7 +8,7 @@
     "build": "next build --webpack",
     "start": "next start -H 127.0.0.1 -p 4012",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test scripts/public-data.test.mjs",
+    "test": "node --experimental-strip-types --test scripts/public-data.test.mjs scripts/public-cache.test.mjs",
     "test:e2e": "playwright test"
   },
   "dependencies": {
