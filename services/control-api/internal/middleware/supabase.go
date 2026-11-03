@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/proxyhubb/control-api/internal/authstate"
 	"github.com/proxyhubb/control-api/internal/config"
 	"github.com/proxyhubb/control-api/internal/crypto"
 	"github.com/proxyhubb/control-api/internal/db"
@@ -22,16 +23,6 @@ func authTokenFromRequest(c *gin.Context) string {
 
 	if cookieToken, err := c.Cookie("proxyhubb_token"); err == nil {
 		return cookieToken
-	}
-
-	// Browsers cannot set Authorization headers on WebSocket handshakes, so the
-	// realtime client passes the access token as ?token=. Restrict query-param
-	// auth to genuine upgrade requests so regular API URLs never carry JWTs
-	// (URL query strings are routinely logged).
-	if isWebSocketUpgrade(c) {
-		if t := strings.TrimSpace(c.Query("token")); t != "" {
-			return t
-		}
 	}
 
 	return ""
@@ -52,16 +43,45 @@ func tryWSTicket(c *gin.Context) bool {
 	if ticket == "" {
 		return false
 	}
-	userID, role, err := redis.ConsumeWSTicket(ticket)
+	userID, _, familyID, expiresAt, err := redis.ConsumeWSTicketSession(ticket)
 	if err != nil || userID == "" {
 		return false
 	}
+	role, err := authstate.Validate(userID, familyID, true)
+	if err != nil || time.Now().After(expiresAt) {
+		return false
+	}
+	c.Set("auth_session_id", familyID)
+	c.Set("auth_expires_at", expiresAt)
 	c.Set("userID", userID)
 	if uid, err := uuid.Parse(userID); err == nil {
 		c.Set("user_id", uid)
 	}
 	c.Set("userRole", role)
 	c.Set("auth_type", "ws_ticket")
+	return true
+}
+
+func bindAccountClaims(c *gin.Context, claims *crypto.CustomClaims) bool {
+	if claims.Kind != "" && claims.Kind != crypto.TokenKindExtension && claims.Kind != crypto.TokenKindProviderNode {
+		return false
+	}
+	role, err := authstate.Validate(claims.UserID, claims.SessionID, claims.Kind == "")
+	if err != nil || !bindExtensionDeviceClaims(c, claims) {
+		return false
+	}
+	c.Set("userID", claims.UserID)
+	uid, err := uuid.Parse(claims.UserID)
+	if err != nil {
+		return false
+	}
+	c.Set("user_id", uid)
+	c.Set("userRole", role)
+	c.Set("auth_session_id", claims.SessionID)
+	if claims.ExpiresAt != nil {
+		c.Set("auth_expires_at", claims.ExpiresAt.Time)
+	}
+	markProviderNodeClaims(c, claims)
 	return true
 }
 
@@ -85,17 +105,10 @@ func SupabaseAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 
 		// 1. Local JWT verification (wallet auth / email auth)
 		if claims, err := crypto.ValidateToken(tokenString, cfg.Auth.JWTSecret); err == nil {
-			c.Set("userID", claims.UserID)
-			if uid, err := uuid.Parse(claims.UserID); err == nil {
-				c.Set("user_id", uid)
-			}
-			c.Set("userEmail", claims.Email)
-			c.Set("userRole", claims.Role)
-			if !bindExtensionDeviceClaims(c, claims) {
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "extension device revoked"})
+			if !bindAccountClaims(c, claims) {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "account or session inactive"})
 				return
 			}
-			markProviderNodeClaims(c, claims)
 			c.Next()
 			return
 		}
@@ -139,17 +152,7 @@ func SupabaseAuthMiddlewareOptional(cfg *config.Config) gin.HandlerFunc {
 		}
 
 		if claims, err := crypto.ValidateToken(tokenString, cfg.Auth.JWTSecret); err == nil {
-			c.Set("userID", claims.UserID)
-			if uid, err := uuid.Parse(claims.UserID); err == nil {
-				c.Set("user_id", uid)
-			}
-			c.Set("userEmail", claims.Email)
-			c.Set("userRole", claims.Role)
-			if !bindExtensionDeviceClaims(c, claims) {
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "extension device revoked"})
-				return
-			}
-			markProviderNodeClaims(c, claims)
+			bindAccountClaims(c, claims)
 		}
 
 		// Provider CLI token fallback

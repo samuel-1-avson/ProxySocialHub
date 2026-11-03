@@ -23,7 +23,13 @@ type RecordParams struct {
 
 // Record inserts a funnel event asynchronously. Failures are logged only.
 func Record(ctx context.Context, params RecordParams) {
-	if params.EventName == "" {
+	if params.EventName == "" || db.DB == nil || params.UserID == nil {
+		return
+	}
+	// Optional product analytics require affirmative consent. Anonymous browsing
+	// is not persisted; billing and security records use separate mandatory paths.
+	var consent bool
+	if err := db.DB.WithContext(ctx).Table("profiles").Where("id = ?", *params.UserID).Select("analytics_opt_in").Scan(&consent).Error; err != nil || !consent {
 		return
 	}
 	if !models.IsValidFunnelEventName(params.EventName) {
@@ -31,9 +37,11 @@ func Record(ctx context.Context, params RecordParams) {
 		return
 	}
 
-	meta := params.Meta
-	if meta == nil {
-		meta = map[string]interface{}{}
+	meta := map[string]interface{}{}
+	for _, key := range []string{"category", "country", "payment_method", "result", "reason_code"} {
+		if value, ok := params.Meta[key].(string); ok && len(value) <= 64 {
+			meta[key] = value
+		}
 	}
 	metaJSON, err := json.Marshal(meta)
 	if err != nil {

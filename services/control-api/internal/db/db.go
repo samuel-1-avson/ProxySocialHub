@@ -42,6 +42,7 @@ func Init(dsn string) error {
 		log.New(os.Stdout, "\r\n[DB] ", log.LstdFlags),
 		gormlogger.Config{
 			SlowThreshold:             slowThreshold,
+			ParameterizedQueries:      true,
 			LogLevel:                  logLevel,
 			IgnoreRecordNotFoundError: true, // record-not-found is a normal code path, not an error
 			Colorful:                  os.Getenv("GIN_MODE") != "release",

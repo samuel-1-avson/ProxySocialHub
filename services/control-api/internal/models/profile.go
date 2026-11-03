@@ -92,6 +92,26 @@ type UserSelfProfile struct {
 
 // ToPublicProfile converts a User to a public profile DTO with Privacy Masking
 func (u *User) ToPublicProfile() UserPublicProfile {
+	p := u.profileFields()
+	p.AvatarURL = publicMedia(p.AvatarURL)
+	p.CoverImageURL = publicMedia(p.CoverImageURL)
+	if !u.PresenceVisible || u.LastSeenAt == nil || time.Since(*u.LastSeenAt) > 2*time.Minute {
+		p.IsOnline = false
+		p.LastSeenAt = nil
+	}
+	if p.LastSeenAt != nil {
+		rounded := p.LastSeenAt.Truncate(5 * time.Minute)
+		p.LastSeenAt = &rounded
+	}
+	if !u.ProfilePublic {
+		// Public contributions/offers retain a pseudonymous identifier, not the
+		// user's personal profile, location, remote media, or social graph.
+		return UserPublicProfile{ID: u.ID, Username: u.Username, Role: u.Role, AvgRating: u.AvgRating, ReviewsCount: u.ReviewsCount, Verified: u.Verified, TrustTier: u.TrustTier}
+	}
+	return p
+}
+
+func (u *User) profileFields() UserPublicProfile {
 	// STRICT PRIVACY MASK: Email, TaxID, KYC, ISP, and wallet stay off the public DTO.
 
 	return UserPublicProfile{
@@ -130,7 +150,7 @@ func (u *User) ToPublicProfile() UserPublicProfile {
 // ToSelfProfile is GET /v1/profile for the signed-in user (includes KYC).
 func (u *User) ToSelfProfile() UserSelfProfile {
 	return UserSelfProfile{
-		UserPublicProfile: u.ToPublicProfile(),
+		UserPublicProfile: u.profileFields(),
 		KYCStatus:         u.KYCStatus,
 	}
 }
@@ -143,7 +163,7 @@ type UpdateProfileRequest struct {
 	Location      *string                `json:"location" binding:"omitempty,max=100"`
 	Website       *string                `json:"website" binding:"omitempty,max=255"`
 	AvatarURL     *string                `json:"avatar_url" binding:"omitempty,max=80000"`
-	CoverImageURL *string                `json:"cover_image_url" binding:"omitempty,url"`
+	CoverImageURL *string                `json:"cover_image_url" binding:"omitempty,max=80000"`
 	Skills        []string               `json:"skills" binding:"omitempty,max=50,dive,max=50"`
 	SocialLinks   map[string]interface{} `json:"social_links" binding:"omitempty,max=10"`
 	BusinessName  *string                `json:"business_name" binding:"omitempty,max=100"`

@@ -20,8 +20,8 @@ import (
 	"github.com/proxyhubb/control-api/internal/decentralization"
 	"github.com/proxyhubb/control-api/internal/marketplace/funnel"
 	"github.com/proxyhubb/control-api/internal/models"
-	providerProofs "github.com/proxyhubb/control-api/internal/proofs"
 	"github.com/proxyhubb/control-api/internal/privacy"
+	providerProofs "github.com/proxyhubb/control-api/internal/proofs"
 )
 
 // getListingProofPolicy exposes whether signed listing offers are mandatory.
@@ -180,7 +180,8 @@ func sellerProfileToModel(p *domain.SellerPublicProfile) *models.User {
 		return nil
 	}
 	return &models.User{
-		ID:           p.ID,
+		ID:            p.ID,
+		ProfilePublic: true, PresenceVisible: true,
 		DisplayName:  p.DisplayName,
 		Username:     p.Username,
 		AvatarURL:    p.AvatarURL,
@@ -215,44 +216,44 @@ func listingViewerFromContext(c *gin.Context) ports.ListingViewer {
 
 func listingEntityToModel(e domain.ListingEntity) models.ProxyListing {
 	return models.ProxyListing{
-		ID:                   e.ID,
-		SellerID:             e.SellerID,
-		ProviderNodeID:       e.ProviderNodeID,
-		ListingOfferHash:     e.ListingOfferHash,
-		ListingOfferSignature: e.ListingOfferSignature,
-		ListingOfferSigner:   e.ListingOfferSigner,
-		ListingOfferSignedAt: e.ListingOfferSignedAt,
-		ListingOfferVerified: e.ListingOfferVerified,
+		ID:                            e.ID,
+		SellerID:                      e.SellerID,
+		ProviderNodeID:                e.ProviderNodeID,
+		ListingOfferHash:              e.ListingOfferHash,
+		ListingOfferSignature:         e.ListingOfferSignature,
+		ListingOfferSigner:            e.ListingOfferSigner,
+		ListingOfferSignedAt:          e.ListingOfferSignedAt,
+		ListingOfferVerified:          e.ListingOfferVerified,
 		ListingOfferVerificationError: e.ListingOfferVerificationError,
-		ListingOfferNonce:    e.ListingOfferNonce,
-		ListingCommitmentPDA:     e.ListingCommitmentPDA,
-		ListingCommitmentOnChain: e.ListingCommitmentOnChain,
-		ListingCommitmentTx:      e.ListingCommitmentTx,
-		ListingCommitmentAt:      e.ListingCommitmentAt,
-		Title:                e.Title,
-		Description:          e.Description,
-		PricePerGB:           e.PricePerGB,
-		MinPurchaseGB:        e.MinPurchaseGB,
-		AvailableBandwidthGB: e.AvailableBandwidthGB,
-		MaxConcurrency:       e.MaxConcurrency,
-		ProxyType:            models.ProxyType(e.ProxyType),
-		Protocol:             e.Protocol,
-		RotationType:         e.RotationType,
-		Country:              e.Country,
-		ISP:                  e.ISP,
-		Status:               models.ListingStatus(e.Status),
-		QualityScore:         e.QualityScore,
-		UptimePercent:        e.UptimePercent,
-		AvgLatencyMs:         e.AvgLatencyMs,
-		SuccessRate:          e.SuccessRate,
-		CurrentTier:          e.CurrentTier,
-		ViewsCount:           e.ViewsCount,
-		SavesCount:           e.SavesCount,
-		OrdersCount:          e.OrdersCount,
-		ActiveSessionsCount:  e.ActiveSessionsCount,
-		AllowDirectMessage:   e.AllowDirectMessage,
-		CreatedAt:            e.CreatedAt,
-		UpdatedAt:            e.UpdatedAt,
+		ListingOfferNonce:             e.ListingOfferNonce,
+		ListingCommitmentPDA:          e.ListingCommitmentPDA,
+		ListingCommitmentOnChain:      e.ListingCommitmentOnChain,
+		ListingCommitmentTx:           e.ListingCommitmentTx,
+		ListingCommitmentAt:           e.ListingCommitmentAt,
+		Title:                         e.Title,
+		Description:                   e.Description,
+		PricePerGB:                    e.PricePerGB,
+		MinPurchaseGB:                 e.MinPurchaseGB,
+		AvailableBandwidthGB:          e.AvailableBandwidthGB,
+		MaxConcurrency:                e.MaxConcurrency,
+		ProxyType:                     models.ProxyType(e.ProxyType),
+		Protocol:                      e.Protocol,
+		RotationType:                  e.RotationType,
+		Country:                       e.Country,
+		ISP:                           e.ISP,
+		Status:                        models.ListingStatus(e.Status),
+		QualityScore:                  e.QualityScore,
+		UptimePercent:                 e.UptimePercent,
+		AvgLatencyMs:                  e.AvgLatencyMs,
+		SuccessRate:                   e.SuccessRate,
+		CurrentTier:                   e.CurrentTier,
+		ViewsCount:                    e.ViewsCount,
+		SavesCount:                    e.SavesCount,
+		OrdersCount:                   e.OrdersCount,
+		ActiveSessionsCount:           e.ActiveSessionsCount,
+		AllowDirectMessage:            e.AllowDirectMessage,
+		CreatedAt:                     e.CreatedAt,
+		UpdatedAt:                     e.UpdatedAt,
 	}
 }
 

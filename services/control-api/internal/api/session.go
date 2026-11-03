@@ -565,7 +565,7 @@ func createSession(c *gin.Context) {
 		RotationType:            rotationType,
 		RotationIntervalSeconds: rotationInterval,
 		TimeLimitMinutes:        req.TimeLimitMinutes,
-		CredentialPasswordHash: marketplace.HashCredentialPassword(credPass),
+		CredentialPasswordHash:  marketplace.HashCredentialPassword(credPass),
 		// Routing fields — edge-gateway uses these to forward traffic
 		NodeID:     node.ID.String(),
 		NodeHost:   node.IPAddress,
@@ -592,7 +592,7 @@ func createSession(c *gin.Context) {
 			"password": credPass,
 			"host":     buyerHost,
 			"port":     buyerPort,
-			"protocol": "http",
+			"protocol": buyerProxyScheme(),
 			"endpoint": buyerEndpoint,
 		},
 		"limits": gin.H{
@@ -949,7 +949,7 @@ func createInstantSession(c *gin.Context) {
 			"password": credPass,
 			"host":     buyerHost,
 			"port":     buyerPort,
-			"protocol": "http",
+			"protocol": buyerProxyScheme(),
 			"endpoint": buyerEndpoint,
 		},
 		"strategy": req.Strategy,
@@ -1287,7 +1287,7 @@ func createSessionFromListing(c *gin.Context) {
 			"password": credPass,
 			"host":     buyerHost,
 			"port":     buyerPort,
-			"protocol": "http",
+			"protocol": buyerProxyScheme(),
 			"endpoint": buyerEndpoint,
 		},
 		"provider": gin.H{

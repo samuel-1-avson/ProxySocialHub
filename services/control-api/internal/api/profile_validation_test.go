@@ -1,8 +1,15 @@
 package api
 
-import "testing"
+import (
+	"encoding/base64"
+	"testing"
+)
 
 func TestValidAvatarURL(t *testing.T) {
+	t.Setenv("PROFILE_MEDIA_ORIGINS", "https://cdn.example.com")
+	if validAvatarURL("https://tracker.example.test/a.png") {
+		t.Fatal("unapproved tracker origin accepted")
+	}
 	if !validAvatarURL("https://cdn.example.com/a.png") {
 		t.Fatal("https avatar should be valid")
 	}
@@ -12,7 +19,7 @@ func TestValidAvatarURL(t *testing.T) {
 	if validAvatarURL("data:text/html;base64,aaaa") {
 		t.Fatal("non-image data URI must be rejected")
 	}
-	okData := "data:image/jpeg;base64," + string(make([]byte, 16))
+	okData := "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(make([]byte, 16))
 	if !validAvatarURL(okData) {
 		t.Fatal("small jpeg data URI should be valid")
 	}

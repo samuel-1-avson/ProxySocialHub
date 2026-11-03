@@ -24,6 +24,7 @@ mod error; // Error types
 mod heartbeat;
 mod ingress;
 mod internal_forward;
+mod internal_http;
 mod leader;
 mod metering;
 mod metrics;
@@ -336,6 +337,7 @@ async fn run_buyer_accept_loop(
     connection_admission: Arc<Semaphore>,
     authenticator: Arc<SessionAuthenticator>,
     buyer_tls_acceptor: Option<tokio_rustls::TlsAcceptor>,
+    internal_only: bool,
 ) {
     loop {
         let (stream, _) = match listener.accept().await {
@@ -389,6 +391,7 @@ async fn run_buyer_accept_loop(
                             proxy_state,
                             auth_clone,
                             Some(tls_fp),
+                            internal_only,
                         )
                         .await;
                     }
@@ -397,8 +400,14 @@ async fn run_buyer_accept_loop(
                     }
                 }
             } else {
-                serve_buyer_http_connection(TokioIo::new(stream), proxy_state, auth_clone, None)
-                    .await;
+                serve_buyer_http_connection(
+                    TokioIo::new(stream),
+                    proxy_state,
+                    auth_clone,
+                    None,
+                    internal_only,
+                )
+                .await;
             }
         });
     }
@@ -409,6 +418,7 @@ async fn serve_buyer_http_connection<I>(
     proxy_state: Arc<AppState>,
     auth: Arc<SessionAuthenticator>,
     conn_tls: Option<crate::security::fingerprint::TlsClientFingerprints>,
+    internal_only: bool,
 ) where
     I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
@@ -416,7 +426,15 @@ async fn serve_buyer_http_connection<I>(
         let s = proxy_state.clone();
         let a = auth.clone();
         let tls = conn_tls.clone();
-        async move { proxy(req, s, a, tls).await }
+        async move {
+            if internal_only && !internal_http::allowed(&req) {
+                return Ok(Response::builder()
+                    .status(StatusCode::FORBIDDEN)
+                    .body(Full::new(Bytes::from("Buyer traffic requires TLS")))
+                    .unwrap());
+            }
+            proxy(req, s, a, tls).await
+        }
     });
     let builder = proxy::http2::make_auto_builder();
     if let Err(err) = builder.serve_connection_with_upgrades(io, service).await {
@@ -2450,8 +2468,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 return Err(format!("BUYER_TLS_ENABLE set but TLS init failed: {e}").into());
             }
         },
-        None => None,
+        None => {
+            if std::env::var("BUYER_TLS_ENABLE").is_ok_and(|v| v == "true" || v == "1") {
+                return Err("Buyer TLS is enabled but certificates are missing".into());
+            }
+            None
+        }
     };
+
+    let strict_privacy_env = ["ENVIRONMENT", "APP_ENV", "RUST_ENV"].iter().any(|key| {
+        let value = std::env::var(key).unwrap_or_default().to_lowercase();
+        matches!(
+            value.as_str(),
+            "production" | "prod" | "staging" | "testnet"
+        )
+    });
+    if state.config.serves_buyer_connect()
+        && (!cfg!(debug_assertions) || strict_privacy_env)
+        && buyer_tls_acceptor.is_none()
+    {
+        return Err("Buyer TLS and valid certificates are required in this environment".into());
+    }
 
     if let Some(metrics_addr) = state.config.metrics_socket_addr() {
         let metrics_listener = TcpListener::bind(metrics_addr).await?;
@@ -2515,7 +2552,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             connection_admission.clone(),
             authenticator.clone(),
             buyer_tls_acceptor.clone(),
+            false,
         )));
+    }
+
+    if let Ok(address) = std::env::var("GATEWAY_INTERNAL_HTTP_ADDR") {
+        let address: std::net::SocketAddr = address.parse()?;
+        if address.port() == addr.port() {
+            return Err("Internal management port must differ from buyer TLS port".into());
+        }
+        let listener = TcpListener::bind(address).await?;
+        accept_tasks.push(tokio::spawn(run_buyer_accept_loop(
+            listener,
+            state.clone(),
+            connection_admission.clone(),
+            authenticator.clone(),
+            None,
+            true,
+        )));
+        info!("Private management/peer ingress listening on {}", address);
     }
 
     shutdown_signal().await;

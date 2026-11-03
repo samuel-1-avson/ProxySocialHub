@@ -491,10 +491,59 @@
   color: var(--muted-foreground);
 }
 .marketplace-filter-panel {
+  container-type: inline-size;
   padding: 22px;
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--card);
+}
+.marketplace-filter-panel .ui-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  align-items: end;
+}
+.marketplace-filter-panel .ui-filters .ui-field {
+  min-width: 0;
+}
+.marketplace-filter-actions {
+  display: flex;
+  gap: 12px;
+}
+.marketplace-filter-actions .ui-button {
+  white-space: nowrap;
+}
+@container (max-width: 960px) {
+  .marketplace-filter-panel .ui-filters {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .marketplace-filter-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
+}
+@container (max-width: 560px) {
+  .marketplace-filter-panel .ui-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .marketplace-filter-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .marketplace-filter-actions .ui-button {
+    padding-inline: 10px;
+  }
+}
+.marketplace-page .offer-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
+  gap: 20px;
+  align-items: stretch;
+}
+.marketplace-page .offer-card {
+  display: grid;
+  grid-template-rows: subgrid;
+  grid-row: span 7;
+  row-gap: 0;
 }
 .marketplace-filter-heading {
   display: flex;
@@ -549,7 +598,7 @@
   display: flex;
   align-items: center;
   gap: 11px;
-  margin-bottom: 20px;
+  margin-bottom: 18px;
 }
 .offer-region {
   display: grid;
@@ -562,12 +611,13 @@
   background: color-mix(in srgb, var(--primary) 7%, transparent);
   color: var(--primary);
   font: 500 12px/1 var(--font-mono);
+  overflow: hidden;
 }
 .offer-save {
   display: grid;
   place-items: center;
-  width: 38px;
-  height: 38px;
+  width: 44px;
+  height: 44px;
   flex: none;
   margin-left: auto;
   border: 1px solid transparent;
@@ -616,13 +666,13 @@
   border: 1px solid var(--border);
   border-radius: 5px;
   color: var(--muted-foreground);
-  font: 9px/1.4 var(--font-mono);
+  font: 10px/1.4 var(--font-mono);
   text-transform: uppercase;
 }
 .offer-specs {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 9px;
+  gap: 16px;
   margin: 23px 0 17px;
   padding-block: 17px;
   border-block: 1px solid var(--border);
@@ -632,26 +682,39 @@
   align-items: center;
   gap: 5px;
   color: var(--muted-foreground);
-  font-size: 10px;
+  font-size: 11px;
   margin-bottom: 8px;
 }
 .offer-specs dd {
   margin: 0;
   color: var(--foreground);
-  font-size: 17px;
+  font-size: 19px;
   font-weight: 500;
   letter-spacing: -0.04em;
   overflow-wrap: anywhere;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
 }
 .offer-specs dd > span {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--muted-foreground);
   letter-spacing: 0;
   font-weight: 400;
 }
 .offer-specs small {
+  display: block;
+  margin-top: 5px;
   color: var(--muted-foreground);
-  font-size: 9px;
+  font-size: 10px;
+  line-height: 1.5;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+.offer-specs .offer-spec-unavailable {
+  display: block;
+  font-size: 12px;
+  line-height: 1.5;
+  padding-top: 4px;
 }
 .offer-evidence {
   display: flex;
@@ -659,7 +722,7 @@
   flex-wrap: wrap;
   gap: 9px;
   color: var(--muted-foreground);
-  font-size: 10px;
+  font-size: 11px;
   margin-bottom: 23px;
 }
 .offer-evidence span:first-child {
@@ -673,6 +736,7 @@
   justify-content: space-between;
   gap: 13px;
   margin-top: auto;
+  flex-wrap: wrap;
 }
 .offer-price small {
   display: block;
@@ -689,7 +753,8 @@
   overflow-wrap: anywhere;
 }
 .offer-price strong span {
-  font-size: 9px;
+  font-size: 10px;
+  margin-left: 4px;
   font-weight: 400;
   color: var(--muted-foreground);
   letter-spacing: 0;
@@ -1106,9 +1171,6 @@
     width: 100%;
     margin-left: 25px;
   }
-  .marketplace-filter-panel .ui-filters > .ui-button {
-    flex: 1;
-  }
   .offer-card,
   .connection-card,
   .node-card {
@@ -1125,7 +1187,7 @@
     gap: 7px;
   }
   .offer-specs dt {
-    font-size: 9px;
+    font-size: 11px;
   }
   .offer-specs dt svg {
     display: none;

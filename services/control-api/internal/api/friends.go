@@ -73,6 +73,11 @@ func sendFriendRequest(c *gin.Context) {
 		return
 	}
 
+	var target models.User
+	if db.DB.First(&target, "id = ?", targetID).Error != nil || target.ContactMode == "nobody" {
+		c.JSON(403, gin.H{"error": "Contact requests unavailable"})
+		return
+	}
 	// Check if already friends
 	var existingFriendship models.Friendship
 	if err := db.Social().Where("user_id = ? AND friend_id = ?", senderID, targetID).First(&existingFriendship).Error; err == nil {
@@ -446,6 +451,7 @@ type suggestedUserResponse struct {
 }
 
 func summarizeFriendUser(user models.User) friendUserSummary {
+	public := user.ToPublicProfile()
 	username := user.ID.String()
 	if user.Username != nil && *user.Username != "" {
 		username = *user.Username
@@ -454,11 +460,11 @@ func summarizeFriendUser(user models.User) friendUserSummary {
 	return friendUserSummary{
 		ID:          user.ID,
 		Username:    username,
-		DisplayName: user.DisplayName,
-		AvatarURL:   user.AvatarURL,
-		Bio:         user.Bio,
-		IsOnline:    user.IsOnline,
-		LastSeenAt:  user.LastSeenAt,
+		DisplayName: public.DisplayName,
+		AvatarURL:   public.AvatarURL,
+		Bio:         public.Bio,
+		IsOnline:    public.IsOnline,
+		LastSeenAt:  public.LastSeenAt,
 	}
 }
 
@@ -484,7 +490,8 @@ func getPeopleYouMayKnow(c *gin.Context) {
 		return
 	}
 
-	social := db.Social()
+	// Consent and discovery exclusions must use the primary database.
+	social := db.DB
 	friendsSub := social.Model(&models.Friendship{}).Select("friend_id").Where("user_id = ?", userID)
 	pendingOutSub := social.Model(&models.FriendRequest{}).Select("receiver_id").
 		Where("sender_id = ? AND status = ?", userID, models.FriendRequestPending)
@@ -495,6 +502,7 @@ func getPeopleYouMayKnow(c *gin.Context) {
 
 	eligible := func(q *gorm.DB) *gorm.DB {
 		q = q.Where("p.id <> ?", userID).
+			Where("p.profile_public = ? AND p.discoverable = ?", true, true).
 			Where("p.status NOT IN ?", []models.UserStatus{models.UserStatusSuspended, models.UserStatusBanned}).
 			Where("p.id NOT IN (?)", friendsSub).
 			Where("p.id NOT IN (?)", pendingOutSub).

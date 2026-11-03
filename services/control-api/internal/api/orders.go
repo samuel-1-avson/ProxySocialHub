@@ -610,7 +610,7 @@ func buildProxyCredentialsResponse(session *models.Session) gin.H {
 		"auth_for_endpoint": publishedBuyerAuthHMAC,
 		"host":              host,
 		"port":              port,
-		"protocol":          "http",
+		"protocol":          buyerProxyScheme(),
 		"endpoint":          endpoint,
 	}
 	if iso := sessionExpiresAtRFC3339(session); iso != "" {
@@ -770,7 +770,7 @@ func counterpartyColumns(q *gorm.DB) *gorm.DB {
 // publicSellerColumns projects a preloaded listing seller to the public storefront
 // fields marketplace clients render. Contact and business details stay server-side.
 func publicSellerColumns(q *gorm.DB) *gorm.DB {
-	return q.Select("id", "display_name", "username", "avatar_url", "location", "avg_rating", "reviews_count", "total_bandwidth_sold", "verified", "is_online", "last_seen_at")
+	return q.Select("profile_public", "presence_visible", "id", "display_name", "username", "avatar_url", "location", "avg_rating", "reviews_count", "total_bandwidth_sold", "verified", "is_online", "last_seen_at")
 }
 
 // scrubCounterpartyTaxID clears tax data that User.AfterFind refills from the vault

@@ -41,6 +41,7 @@ function throws(fn, re) {
 const hmacPass = 'deadbeefhmacfor8090notcapability';
 
 const primary = hmac.hmacConnectTarget({
+  protocol: 'https',
   username: 'buyer',
   password: hmacPass,
   host: 'proxy.proxyhubb.com',
@@ -49,10 +50,16 @@ const primary = hmac.hmacConnectTarget({
 assert(primary.password === hmacPass, 'use HMAC password');
 assert(primary.host === 'proxy.proxyhubb.com', 'host');
 assert(primary.port === 8090, 'port 8090');
+assert(primary.protocol === 'https', 'TLS scheme is preserved');
+throws(() => hmac.hmacConnectTarget({ username:'buyer', password:hmacPass, protocol:'http', host:'proxy.proxyhubb.com', port:8090 }), /Encrypted proxy transport/);
+throws(() => hmac.hmacConnectTarget({ username:'buyer', password:hmacPass, host:'proxy.proxyhubb.com', port:8090 }), /Encrypted proxy transport/);
+const local = hmac.hmacConnectTarget({ username:'buyer', password:hmacPass, protocol:'http', host:'127.0.0.1', port:8090 });
+assert(local.protocol === 'http', 'explicit loopback development transport');
 
 const nested = hmac.hmacConnectTarget({
   proxy_credentials: {
-    username: 'buyer',
+    protocol: 'https',
+  username: 'buyer',
     password: 'phubb1.capability-token',
     legacy_password: hmacPass,
     endpoint: 'proxy.proxyhubb.com:8090',
@@ -64,7 +71,8 @@ assert(nested.port === 8090, 'nested still 8090');
 throws(
   () =>
     hmac.hmacConnectTarget({
-      username: 'buyer',
+      protocol: 'https',
+  username: 'buyer',
       password: 'phubb1.a',
       legacy_password: 'phubb1.b',
     }),
@@ -74,7 +82,8 @@ throws(
 throws(
   () =>
     hmac.hmacConnectTarget({
-      username: 'buyer',
+      protocol: 'https',
+  username: 'buyer',
       password: hmacPass,
       auth_for_endpoint: 'capability',
     }),
@@ -84,7 +93,8 @@ throws(
 throws(
   () =>
     hmac.hmacConnectTarget({
-      username: 'buyer',
+      protocol: 'https',
+  username: 'buyer',
       password: hmacPass,
       host: '127.0.0.1',
       port: 18091,
@@ -95,7 +105,8 @@ throws(
 throws(
   () =>
     hmac.hmacConnectTarget({
-      username: 'buyer',
+      protocol: 'https',
+  username: 'buyer',
       password: hmacPass,
       endpoint: 'edge-gateway.example:18091',
     }),

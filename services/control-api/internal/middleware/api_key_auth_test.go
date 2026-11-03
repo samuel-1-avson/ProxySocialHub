@@ -42,12 +42,18 @@ CREATE TABLE api_keys (
 )`).Error; err != nil {
 		t.Fatalf("create table: %v", err)
 	}
+	if err := gdb.Exec(`CREATE TABLE profiles(id TEXT PRIMARY KEY, role TEXT, status TEXT)`).Error; err != nil {
+		t.Fatal(err)
+	}
 	db.DB = gdb
 	t.Cleanup(func() { db.DB = nil })
 }
 
 func seedAPIKey(t *testing.T, plaintext string, userID uuid.UUID, revoked bool) {
 	t.Helper()
+	if err := db.DB.Exec(`INSERT OR IGNORE INTO profiles(id,role,status) VALUES (?, ?, ?)`, userID, "buyer", "active").Error; err != nil {
+		t.Fatal(err)
+	}
 	sum := sha256.Sum256([]byte(plaintext))
 	prefixLen := 12
 	if len(plaintext) < prefixLen {

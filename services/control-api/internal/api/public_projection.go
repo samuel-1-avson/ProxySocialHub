@@ -135,6 +135,7 @@ func forumPostDTOs(posts []models.ForumPost) []forumPostDTO {
 // --- Messaging ---
 
 type messageDTO struct {
+	ClientMsgID    *string                   `json:"client_msg_id,omitempty"`
 	ID             uuid.UUID                 `json:"id"`
 	ConversationID uuid.UUID                 `json:"conversation_id"`
 	SenderID       uuid.UUID                 `json:"sender_id"`
@@ -150,7 +151,9 @@ type messageDTO struct {
 }
 
 func messageDTOFrom(m models.Message) messageDTO {
+	tombstoneDeleted(&m)
 	return messageDTO{
+		ClientMsgID:    m.ClientMsgID,
 		ID:             m.ID,
 		ConversationID: m.ConversationID,
 		SenderID:       m.SenderID,

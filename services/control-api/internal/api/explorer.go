@@ -90,21 +90,21 @@ func RegisterExplorerRoutes(r *gin.RouterGroup) {
 // ============================================================
 
 type ExplorerMetricsResponse struct {
-	Chain               string         `json:"chain"`
-	TotalTransactions   uint64         `json:"total_transactions"`
-	TotalVolume         float64        `json:"total_volume"`
-	ActiveWallets       uint64         `json:"active_wallets"`
-	ActiveNodes         uint64         `json:"active_nodes"`
-	BlockHeight         uint64         `json:"block_height"`
-	AvgBlockTime        float64        `json:"avg_block_time_ms"`
-	TotalBandwidthGB    float64        `json:"total_bandwidth_gb"`
-	TPS                 float64        `json:"transactions_per_second"`
-	TpsWindowHours      int            `json:"tps_window_hours"` // hours used for transactions_per_second (live path)
-	RegionDistribution  map[string]int `json:"region_distribution,omitempty"`
-	LastUpdated         time.Time      `json:"last_updated"`
-	DataSource          string         `json:"data_source"`           // "aggregated" | "live"
-	TimeSeriesAvailable       bool `json:"time_series_available"`        // hourly/daily explorer_metrics rows exist
-	MetricsAggregatorEnabled bool `json:"metrics_aggregator_enabled"` // EXPLORER_METRICS_ENABLED (default on)
+	Chain                    string         `json:"chain"`
+	TotalTransactions        uint64         `json:"total_transactions"`
+	TotalVolume              float64        `json:"total_volume"`
+	ActiveWallets            uint64         `json:"active_wallets"`
+	ActiveNodes              uint64         `json:"active_nodes"`
+	BlockHeight              uint64         `json:"block_height"`
+	AvgBlockTime             float64        `json:"avg_block_time_ms"`
+	TotalBandwidthGB         float64        `json:"total_bandwidth_gb"`
+	TPS                      float64        `json:"transactions_per_second"`
+	TpsWindowHours           int            `json:"tps_window_hours"` // hours used for transactions_per_second (live path)
+	RegionDistribution       map[string]int `json:"region_distribution,omitempty"`
+	LastUpdated              time.Time      `json:"last_updated"`
+	DataSource               string         `json:"data_source"`                // "aggregated" | "live"
+	TimeSeriesAvailable      bool           `json:"time_series_available"`      // hourly/daily explorer_metrics rows exist
+	MetricsAggregatorEnabled bool           `json:"metrics_aggregator_enabled"` // EXPLORER_METRICS_ENABLED (default on)
 }
 
 type TransactionListResponse struct {
@@ -128,20 +128,20 @@ type TransactionSummary struct {
 }
 
 type TransactionDetailResponse struct {
-	TxHash        string                 `json:"tx_hash"`
-	Chain         string                 `json:"chain"`
-	BlockHash     string                 `json:"block_hash"`
-	BlockNumber   uint64                 `json:"block_number"`
-	FromAddress   string                 `json:"from_address"`
-	ToAddress     string                 `json:"to_address"`
-	Amount        float64                `json:"amount"`
-	Currency      string                 `json:"currency"`
-	Fee           float64                `json:"fee"`
-	Status        string                 `json:"status"`
-	TxType        string                 `json:"tx_type"`
-	ProgramID     string                 `json:"program_id,omitempty"`
-	Timestamp     time.Time              `json:"timestamp"`
-	Confirmations int `json:"confirmations"`
+	TxHash        string    `json:"tx_hash"`
+	Chain         string    `json:"chain"`
+	BlockHash     string    `json:"block_hash"`
+	BlockNumber   uint64    `json:"block_number"`
+	FromAddress   string    `json:"from_address"`
+	ToAddress     string    `json:"to_address"`
+	Amount        float64   `json:"amount"`
+	Currency      string    `json:"currency"`
+	Fee           float64   `json:"fee"`
+	Status        string    `json:"status"`
+	TxType        string    `json:"tx_type"`
+	ProgramID     string    `json:"program_id,omitempty"`
+	Timestamp     time.Time `json:"timestamp"`
+	Confirmations int       `json:"confirmations"`
 	// Raw chain payload is intentionally omitted from public explorer responses (EXP-P0-08).
 }
 
@@ -197,20 +197,20 @@ type NodeListResponse struct {
 type NodeSummary struct {
 	NodeID string `json:"node_id"`
 	// Provider identity fields are omitted from public explorer responses (EXP-P0-06); use publicNodeSummary.
-	Name string `json:"name,omitempty"`
-	Chain            string    `json:"chain"`
-	Region           string    `json:"region"`
-	Country          string    `json:"country"`
-	City             string    `json:"city,omitempty"`
-	ISP              string    `json:"isp,omitempty"`
-	Latitude         float64   `json:"latitude"`
-	Longitude        float64   `json:"longitude"`
-	IsActive         bool      `json:"is_active"`
-	IsValidator      bool      `json:"is_validator"`
-	UptimePercent    float64   `json:"uptime_percent"`
-	ActiveSessions   int       `json:"active_sessions"`
-	BandwidthGB      float64   `json:"bandwidth_gb"`
-	LastHeartbeat    time.Time `json:"last_heartbeat"`
+	Name           string    `json:"name,omitempty"`
+	Chain          string    `json:"chain"`
+	Region         string    `json:"region"`
+	Country        string    `json:"country"`
+	City           string    `json:"city,omitempty"`
+	ISP            string    `json:"isp,omitempty"`
+	Latitude       float64   `json:"latitude"`
+	Longitude      float64   `json:"longitude"`
+	IsActive       bool      `json:"is_active"`
+	IsValidator    bool      `json:"is_validator"`
+	UptimePercent  float64   `json:"uptime_percent"`
+	ActiveSessions int       `json:"active_sessions"`
+	BandwidthGB    float64   `json:"bandwidth_gb"`
+	LastHeartbeat  time.Time `json:"last_heartbeat"`
 }
 
 type NodeDetailResponse struct {
@@ -224,8 +224,8 @@ type NodeDetailResponse struct {
 	QualityScore  float64 `json:"quality_score"`
 	SuccessRate   float64 `json:"success_rate"`
 	TotalSessions int64   `json:"total_sessions"`
-	BytesUp  int64 `json:"bytes_up"`
-	BytesDown int64 `json:"bytes_down"`
+	BytesUp       int64   `json:"bytes_up"`
+	BytesDown     int64   `json:"bytes_down"`
 	// Validator hotkey is intentionally omitted from public node detail (EXP-P0-09).
 }
 
@@ -233,18 +233,18 @@ type NodeDetailResponse struct {
 // Only the fields the map engine actually needs are included to keep
 // the response small at large node counts.
 type NodeGeoPoint struct {
-	NodeID         string         `json:"node_id"`
-	Latitude       float64        `json:"lat"`
-	Longitude      float64        `json:"lon"`
-	IsActive       bool           `json:"is_active"`
-	IsValidator    bool           `json:"is_validator"`
-	UptimePercent  float64        `json:"uptime_percent"`
-	ActiveSessions int            `json:"active_sessions"`
-	Country        string         `json:"country"`
-	Region         string         `json:"region"`
-	City           string         `json:"city,omitempty"`
-	ISP            string         `json:"isp,omitempty"`
-	GeoSource      string         `json:"geo_source,omitempty"`
+	NodeID         string          `json:"node_id"`
+	Latitude       float64         `json:"lat"`
+	Longitude      float64         `json:"lon"`
+	IsActive       bool            `json:"is_active"`
+	IsValidator    bool            `json:"is_validator"`
+	UptimePercent  float64         `json:"uptime_percent"`
+	ActiveSessions int             `json:"active_sessions"`
+	Country        string          `json:"country"`
+	Region         string          `json:"region"`
+	City           string          `json:"city,omitempty"`
+	ISP            string          `json:"isp,omitempty"`
+	GeoSource      string          `json:"geo_source,omitempty"`
 	Geo            *geo.MapGeoMeta `json:"geo,omitempty"`
 }
 
@@ -597,9 +597,9 @@ func getExplorerMetrics(c *gin.Context) {
 
 	db.GetReadDB().Model(&models.ExplorerTransaction{}).Where("chain = ? AND is_orphaned = ?", "solana", false).Count(&txCount)
 	db.GetReadDB().Model(&models.ExplorerTransaction{}).Where("chain = ? AND status = ? AND is_orphaned = ?", "solana", "confirmed", false).Select("COALESCE(SUM(amount), 0)").Scan(&totalVolume)
-	db.GetReadDB().Model(&models.ExplorerNode{}).Where("is_active = ? AND chain = ?", true, "solana").Count(&nodeCount)
+	explorerPrivacyQuery(db.DB.Model(&models.ExplorerNode{})).Where("is_active = ? AND chain = ?", true, "solana").Count(&nodeCount)
 	// Bandwidth is cumulative telemetry from active provider nodes (lifetime counter).
-	db.GetReadDB().Model(&models.ExplorerNode{}).Where("is_active = ? AND chain = ?", true, "solana").Select("COALESCE(SUM(total_bandwidth), 0)").Scan(&totalBandwidthBytes)
+	explorerPrivacyQuery(db.DB.Model(&models.ExplorerNode{})).Where("is_active = ? AND chain = ?", true, "solana").Select("COALESCE(SUM(total_bandwidth), 0)").Scan(&totalBandwidthBytes)
 	activeWallets := explorerDistinctActiveWallets("solana", time.Now().Add(-24*time.Hour))
 
 	// Compute avg block time from the last 1000 indexed blocks (real chain data)
@@ -632,7 +632,7 @@ func getExplorerMetrics(c *gin.Context) {
 		Region string
 		Count  int
 	}
-	db.GetReadDB().Model(&models.ExplorerNode{}).Where("is_active = ? AND chain = ?", true, "solana").
+	explorerPrivacyQuery(db.DB.Model(&models.ExplorerNode{})).Where("is_active = ? AND chain = ?", true, "solana").
 		Select("region, count(*) as count").Group("region").Scan(&regionStats)
 
 	regionDist := make(map[string]int)
@@ -678,7 +678,7 @@ func getNetworkStats(c *gin.Context) {
 
 	db.GetReadDB().Model(&models.ExplorerTransaction{}).Where("chain = ? AND is_orphaned = ?", "solana", false).Count(&stats.TotalTx)
 	db.GetReadDB().Model(&models.ExplorerTransaction{}).Where("chain = ? AND is_orphaned = ?", "solana", false).Select("COALESCE(SUM(amount), 0)").Scan(&stats.TotalVolume)
-	db.GetReadDB().Model(&models.ExplorerNode{}).Where("is_active = ? AND chain = ?", true, "solana").Count(&stats.ActiveNodes)
+	explorerPrivacyQuery(db.DB.Model(&models.ExplorerNode{})).Where("is_active = ? AND chain = ?", true, "solana").Count(&stats.ActiveNodes)
 
 	c.JSON(http.StatusOK, gin.H{
 		"total_transactions": stats.TotalTx,
@@ -1057,7 +1057,7 @@ func listExplorerNodes(c *gin.Context) {
 
 	offset := (page - 1) * pageSize
 
-	query := db.GetReadDB().Model(&models.ExplorerNode{}).Where("chain = ?", "solana")
+	query := explorerPrivacyQuery(db.DB.Model(&models.ExplorerNode{})).Where("chain = ?", "solana")
 	if activeOnly {
 		query = query.Where("is_active = ?", true)
 	}
@@ -1077,7 +1077,7 @@ func listExplorerNodes(c *gin.Context) {
 
 	var total, activeCount int64
 	query.Count(&total)
-	db.GetReadDB().Model(&models.ExplorerNode{}).Where("is_active = ? AND chain = ?", true, "solana").Count(&activeCount)
+	explorerPrivacyQuery(db.DB.Model(&models.ExplorerNode{})).Where("is_active = ? AND chain = ?", true, "solana").Count(&activeCount)
 
 	var nodes []models.ExplorerNode
 	if err := query.Order("uptime_percent DESC").Offset(offset).Limit(pageSize).Find(&nodes).Error; err != nil {
@@ -1106,18 +1106,9 @@ func getExplorerNodesGeo(c *gin.Context) {
 	activeOnly := c.DefaultQuery("active", "false") == "true"
 	validatorOnly := c.DefaultQuery("validator", "false") == "true"
 
-	cacheKey := fmt.Sprintf("explorer:nodes:geo:active=%v:validator=%v", activeOnly, validatorOnly)
-	if redisClient.Client != nil {
-		if cached, err := redisClient.Client.Get(c, cacheKey).Result(); err == nil && cached != "" {
-			var resp NodeGeoResponse
-			if err := json.Unmarshal([]byte(cached), &resp); err == nil {
-				c.JSON(http.StatusOK, resp)
-				return
-			}
-		}
-	}
+	c.Header("Cache-Control", "no-store")
 
-	query := db.GetReadDB().Model(&models.ExplorerNode{})
+	query := explorerPrivacyQuery(db.DB.Model(&models.ExplorerNode{}))
 	if activeOnly {
 		query = query.Where("is_active = ?", true)
 	}
@@ -1135,36 +1126,37 @@ func getExplorerNodesGeo(c *gin.Context) {
 		return
 	}
 
-	points := make([]NodeGeoPoint, len(nodes))
-	for i, n := range nodes {
+	points := make([]NodeGeoPoint, 0, len(nodes))
+	for _, n := range nodes {
 		anchor := geo.MapGeoAnchor(n.NodeID, "", "")
-		lat, lon, fallbackGeo := geo.ApplyMapCoords(n.Latitude, n.Longitude, n.Country, n.City, n.Region, anchor)
+		lat, lon, fallbackGeo := publicMapCoords(0, 0, n.Country, "", "", anchor, "country")
+		if fallbackGeo == "unknown" {
+			continue
+		}
 		geoSource := fallbackGeo
 		if geoSource == "" || geoSource == "unknown" {
 			geoSource = nodeMapGeoSource(n.GeoSource, n.Country, n.City, n.Region, n.Latitude, n.Longitude, fallbackGeo)
 		}
 		meta := geo.BuildMapGeoMeta(geoSource)
-		points[i] = NodeGeoPoint{
-			NodeID:         n.NodeID,
+		points = append(points, NodeGeoPoint{
+			NodeID:         mapOpaqueID("node", n.NodeID),
 			Latitude:       lat,
 			Longitude:      lon,
 			IsActive:       n.IsActive,
 			IsValidator:    n.IsValidator,
 			UptimePercent:  n.UptimePercent,
-			ActiveSessions: n.ActiveSessions,
+			ActiveSessions: 0,
 			Country:        n.Country,
-			Region:         n.Region,
-			City:           n.City,
-			ISP:            n.ISP,
+			Region:         "",
+			City:           "",
+			ISP:            "",
 			GeoSource:      geoSource,
 			Geo:            &meta,
-		}
+		})
 	}
 
 	resp := NodeGeoResponse{Nodes: points, Total: len(points)}
 
-	// Cache for 15 seconds — short TTL so map stays near-realtime
-	cacheResponse(c, cacheKey, resp, 15*time.Second)
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -1172,8 +1164,13 @@ func getExplorerNodeDetails(c *gin.Context) {
 	nodeID := c.Param("id")
 
 	var node models.ExplorerNode
-	if err := db.GetReadDB().Where("node_id = ?", nodeID).First(&node).Error; err != nil {
+	if err := db.GetReadDB().Where("node_id = ? OR "+opaqueNodeSQL()+" = ?", nodeID, nodeID).First(&node).Error; err != nil {
 		explorerNotFound(c, "Node not found")
+		return
+	}
+
+	if !publicExplorerNodeVisible(node.NodeID) {
+		c.JSON(404, gin.H{"error": "Node not found"})
 		return
 	}
 
@@ -1181,31 +1178,24 @@ func getExplorerNodeDetails(c *gin.Context) {
 	// ExplorerNode.NodeID == Node.ID (UUID string) — set by NodeSync.
 	var latencyMs int
 	var qualityScore, successRate float64
-	var totalSessions int64
-	var bytesUp, bytesDown int64
 	var srcNode models.Node
 	if err := db.GetReadDB().Where("id = ?", node.NodeID).First(&srcNode).Error; err == nil {
 		latencyMs = srcNode.LatencyMs
 		qualityScore = srcNode.QualityScore
 		successRate = explorerSuccessRatePercent(srcNode.SuccessRate)
-		bytesUp = srcNode.TotalBytesUp
-		bytesDown = srcNode.TotalBytesDown
 	}
-	// Count total sessions for this node
-	db.GetReadDB().Model(&models.Session{}).Where("node_id = ?", nodeID).Count(&totalSessions)
-
 	c.JSON(http.StatusOK, NodeDetailResponse{
 		NodeSummary:    publicNodeSummary(node),
 		StakeAmount:    node.StakeAmount,
 		CommissionRate: node.CommissionRate,
 		Version:        node.Version,
-		TotalBandwidth: node.TotalBandwidth,
+		TotalBandwidth: 0,
 		LatencyMs:      latencyMs,
 		QualityScore:   qualityScore,
 		SuccessRate:    successRate,
-		TotalSessions:  totalSessions,
-		BytesUp:        bytesUp,
-		BytesDown:      bytesDown,
+		TotalSessions:  0,
+		BytesUp:        0,
+		BytesDown:      0,
 	})
 }
 
@@ -1223,11 +1213,11 @@ func listExplorerValidators(c *gin.Context) {
 	offset := (page - 1) * pageSize
 
 	var total int64
-	query := db.GetReadDB().Model(&models.ExplorerNode{}).Where("is_validator = ? AND is_active = ? AND chain = ?", true, true, "solana")
+	query := explorerPrivacyQuery(db.DB.Model(&models.ExplorerNode{})).Where("is_validator = ? AND is_active = ? AND chain = ?", true, true, "solana")
 	query.Count(&total)
 
 	var maxStake float64
-	db.GetReadDB().Model(&models.ExplorerNode{}).
+	explorerPrivacyQuery(db.DB.Model(&models.ExplorerNode{})).
 		Where("is_validator = ? AND is_active = ? AND chain = ?", true, true, "solana").
 		Select("COALESCE(MAX(stake_amount), 0)").
 		Scan(&maxStake)
@@ -1369,7 +1359,7 @@ func getBandwidthStats(c *gin.Context) {
 
 	// Lifetime cumulative bandwidth across all indexed nodes.
 	var totalBandwidth uint64
-	db.GetReadDB().Model(&models.ExplorerNode{}).Where("chain = ?", "solana").
+	explorerPrivacyQuery(db.DB.Model(&models.ExplorerNode{})).Where("chain = ?", "solana").
 		Select("COALESCE(SUM(total_bandwidth), 0)").Scan(&totalBandwidth)
 
 	// Period bandwidth from proxy usage records (bytes in window).
@@ -1380,7 +1370,7 @@ func getBandwidthStats(c *gin.Context) {
 
 	// Active connections count
 	var activeConnections int64
-	db.GetReadDB().Model(&models.ExplorerNode{}).
+	explorerPrivacyQuery(db.DB.Model(&models.ExplorerNode{})).
 		Where("is_active = ? AND active_sessions > 0", true).
 		Select("COALESCE(SUM(active_sessions), 0)").
 		Scan(&activeConnections)
@@ -1391,7 +1381,7 @@ func getBandwidthStats(c *gin.Context) {
 		Bandwidth float64 `json:"bandwidth"`
 	}
 	var regionStats []RegionBW
-	db.GetReadDB().Model(&models.ExplorerNode{}).
+	explorerPrivacyQuery(db.DB.Model(&models.ExplorerNode{})).
 		Select("region, SUM(total_bandwidth) as bandwidth").
 		Group("region").
 		Scan(&regionStats)
@@ -1408,14 +1398,14 @@ func getBandwidthStats(c *gin.Context) {
 
 	// Top providers
 	var topProviders []models.ExplorerNode
-	db.GetReadDB().Order("total_bandwidth DESC").Limit(10).Find(&topProviders)
+	explorerPrivacyQuery(db.DB.Model(&models.ExplorerNode{})).Order("total_bandwidth DESC").Limit(10).Find(&topProviders)
 
 	providerStats := make([]ProviderBWStats, len(topProviders))
 	for i, p := range topProviders {
 		providerStats[i] = ProviderBWStats{
-			NodeID:       p.NodeID,
+			NodeID:       mapOpaqueID("node", p.NodeID),
 			BandwidthGB:  float64(p.TotalBandwidth) / (1024 * 1024 * 1024),
-			SessionCount: p.ActiveSessions,
+			SessionCount: 0,
 		}
 	}
 
@@ -1500,7 +1490,7 @@ func getNetworkHealth(c *gin.Context) {
 	}
 
 	// Active nodes
-	db.GetReadDB().Model(&models.ExplorerNode{}).Where("is_active = ?", true).Count(&health.ActiveNodes)
+	explorerPrivacyQuery(db.DB.Model(&models.ExplorerNode{})).Where("is_active = ?", true).Count(&health.ActiveNodes)
 
 	cacheResponse(c, cacheKey, health, 10*time.Second)
 	c.JSON(http.StatusOK, health)
@@ -1927,21 +1917,22 @@ func explorerSuccessRatePercent(raw float64) float64 {
 
 // publicNodeSummary maps an explorer node row to a public DTO without provider identity fields.
 func publicNodeSummary(n models.ExplorerNode) NodeSummary {
+	lat, lon, _ := publicMapCoords(0, 0, n.Country, "", "", "", "country")
 	return NodeSummary{
-		NodeID:         n.NodeID,
-		Name:           n.Name,
+		NodeID:         mapOpaqueID("node", n.NodeID),
+		Name:           privacyNodeTitle("", n.Country, "proxy"),
 		Chain:          n.Chain,
-		Region:         n.Region,
+		Region:         "",
 		Country:        n.Country,
-		City:           n.City,
-		ISP:            n.ISP,
-		Latitude:       n.Latitude,
-		Longitude:      n.Longitude,
+		City:           "",
+		ISP:            "",
+		Latitude:       lat,
+		Longitude:      lon,
 		IsActive:       n.IsActive,
 		IsValidator:    n.IsValidator,
 		UptimePercent:  n.UptimePercent,
-		ActiveSessions: n.ActiveSessions,
-		BandwidthGB:    float64(n.TotalBandwidth) / (1024 * 1024 * 1024),
+		ActiveSessions: 0,
+		BandwidthGB:    0,
 		LastHeartbeat:  n.LastHeartbeat,
 	}
 }
@@ -2084,8 +2075,8 @@ type ExplorerLeaderboardResponse struct {
 	Entries       []ExplorerLeaderboardEntry `json:"entries"`
 	Category      string                     `json:"category"`
 	Period        string                     `json:"period"`
-	DataSource    string                     `json:"data_source"`     // "indexed_nodes"
-	PeriodApplied bool                       `json:"period_applied"`  // false until time-windowed MV exists
+	DataSource    string                     `json:"data_source"`    // "indexed_nodes"
+	PeriodApplied bool                       `json:"period_applied"` // false until time-windowed MV exists
 	Note          string                     `json:"note,omitempty"`
 }
 
@@ -2194,16 +2185,7 @@ func getExplorerLeaderboard(c *gin.Context) {
 	category := c.DefaultQuery("category", "uptime")
 	period := c.DefaultQuery("period", "24h")
 
-	cacheKey := fmt.Sprintf("explorer:leaderboard:%s:%s", category, period)
-	if redisClient.Client != nil {
-		if cached, err := redisClient.Client.Get(c, cacheKey).Result(); err == nil && cached != "" {
-			var response ExplorerLeaderboardResponse
-			if err := json.Unmarshal([]byte(cached), &response); err == nil {
-				c.JSON(http.StatusOK, response)
-				return
-			}
-		}
-	}
+	c.Header("Cache-Control", "no-store")
 
 	const leaderboardLimit = 20
 	since := explorerPeriodSince(period)
@@ -2226,7 +2208,7 @@ func getExplorerLeaderboard(c *gin.Context) {
 		periodApplied = true
 	default:
 		var nodes []models.ExplorerNode
-		db.GetReadDB().Where("is_active = ?", true).
+		explorerPrivacyQuery(db.DB.Model(&models.ExplorerNode{})).Where("is_active = ?", true).
 			Order("uptime_percent DESC").
 			Limit(leaderboardLimit).
 			Find(&nodes)
@@ -2245,7 +2227,6 @@ func getExplorerLeaderboard(c *gin.Context) {
 		Note:          note,
 	}
 
-	cacheResponse(c, cacheKey, response, 2*time.Minute)
 	c.JSON(http.StatusOK, response)
 }
 
@@ -2298,7 +2279,7 @@ func explorerLeaderboardEntriesFromAgg(
 		}
 	}
 	var nodes []models.ExplorerNode
-	db.GetReadDB().Where("node_id IN ?", nodeIDs).Find(&nodes)
+	explorerPrivacyQuery(db.DB.Model(&models.ExplorerNode{})).Where("node_id IN ?", nodeIDs).Find(&nodes)
 	byID := make(map[string]models.ExplorerNode, len(nodes))
 	for _, n := range nodes {
 		byID[n.NodeID] = n
@@ -2336,13 +2317,13 @@ func explorerLeaderboardEntryFromNode(n models.ExplorerNode, bwGB float64, activ
 		qualityScore = 100
 	}
 	return ExplorerLeaderboardEntry{
-		NodeID:         n.NodeID,
-		Name:           n.Name,
-		Region:         n.Region,
+		NodeID:         mapOpaqueID("node", n.NodeID),
+		Name:           privacyNodeTitle("", n.Country, "proxy"),
+		Region:         "",
 		Country:        n.Country,
 		UptimePercent:  n.UptimePercent,
 		BandwidthGB:    bwGB,
-		ActiveSessions: activeSessions,
+		ActiveSessions: 0,
 		QualityScore:   qualityScore,
 		IsValidator:    n.IsValidator,
 	}
@@ -2370,55 +2351,8 @@ type ExplorerSessionsResponse struct {
 }
 
 func listExplorerSessions(c *gin.Context) {
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
-	status := c.Query("status")
-	sessionType := c.Query("type")
-
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 || pageSize > 100 {
-		pageSize = 20
-	}
-	offset := (page - 1) * pageSize
-
-	query := db.GetReadDB().Model(&models.Session{})
-	if status != "" {
-		query = query.Where("status = ?", status)
-	}
-	if sessionType != "" {
-		query = query.Where("type = ?", sessionType)
-	}
-
-	var total int64
-	query.Count(&total)
-
-	var sessions []models.Session
-	query.Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&sessions)
-
-	var activeCount int64
-	db.GetReadDB().Model(&models.Session{}).Where("status = ?", "active").Count(&activeCount)
-
-	summaries := make([]ExplorerSessionSummary, 0, len(sessions))
-	for _, s := range sessions {
-		summaries = append(summaries, ExplorerSessionSummary{
-			SessionID:   s.ID.String(),
-			SessionType: string(s.Type),
-			Status:      string(s.Status),
-			BytesUsed:   s.BytesUsed,
-			StartTime:   s.StartTime,
-			EndTime:     s.EndTime,
-		})
-	}
-
-	c.JSON(http.StatusOK, ExplorerSessionsResponse{
-		Sessions:    summaries,
-		Total:       total,
-		ActiveCount: activeCount,
-		Page:        page,
-		PageSize:    pageSize,
-	})
+	c.Header("Cache-Control", "no-store")
+	c.JSON(410, gin.H{"error": "Individual traffic sessions are private. Use the authenticated sessions dashboard."})
 }
 
 // ============================================================
@@ -2451,141 +2385,9 @@ type ProviderEarningsResponse struct {
 }
 
 func getExplorerProviderEarnings(c *gin.Context) {
-	period := c.DefaultQuery("period", "24h")
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
-
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 || pageSize > 100 {
-		pageSize = 20
-	}
-	offset := (page - 1) * pageSize
-
-	cacheKey := fmt.Sprintf("explorer:earnings:%s:%d", period, page)
-	if redisClient.Client != nil {
-		if cached, err := redisClient.Client.Get(c, cacheKey).Result(); err == nil && cached != "" {
-			var response ProviderEarningsResponse
-			if err := json.Unmarshal([]byte(cached), &response); err == nil {
-				c.JSON(http.StatusOK, response)
-				return
-			}
-		}
-	}
-
-	var since time.Time
-	switch period {
-	case "7d":
-		since = time.Now().AddDate(0, 0, -7)
-	case "30d":
-		since = time.Now().AddDate(0, 0, -30)
-	default:
-		since = time.Now().Add(-24 * time.Hour)
-	}
-
-	// Query provider_earnings table (source of truth for actual earnings).
-	// The explorer_transactions table only stores on-chain txs and never has
-	// tx_type="payout" since the indexer marks all txs as "transfer".
-	type providerRow struct {
-		NodeID         string
-		ProviderUserID string
-		Count          int64
-		BandwidthGB    float64
-		Total          float64
-		LastTime       time.Time
-	}
-	var rows []providerRow
-	db.GetReadDB().Model(&models.ProviderEarning{}).
-		Where("created_at >= ?", since).
-		Select("node_id, provider_user_id, count(*) as count, coalesce(sum(bandwidth_gb), 0) as bandwidth_gb, coalesce(sum(net_amount_sol), 0) as total, max(coalesce(paid_at, created_at)) as last_time").
-		Group("node_id, provider_user_id").
-		Order("total DESC").
-		Offset(offset).Limit(pageSize).
-		Scan(&rows)
-
-	var totalCount int64
-	db.GetReadDB().Model(&models.ProviderEarning{}).
-		Where("created_at >= ?", since).
-		Select("count(distinct node_id)").Scan(&totalCount)
-
-	var totalPaid float64
-	var txCount int64
-	db.GetReadDB().Model(&models.ProviderEarning{}).
-		Where("created_at >= ?", since).
-		Select("coalesce(sum(net_amount_sol), 0)").Scan(&totalPaid)
-	db.GetReadDB().Model(&models.ProviderEarning{}).
-		Where("created_at >= ?", since).
-		Count(&txCount)
-
-	avgEarning := 0.0
-	if totalCount > 0 {
-		avgEarning = totalPaid / float64(totalCount)
-	}
-
-	providers := make([]ProviderEarningSummary, 0, len(rows))
-	for _, r := range rows {
-		// Public explorer: never expose internal user IDs as addresses (EXP-P0-07).
-		var walletAddr string
-		var user models.User
-		if err := db.GetReadDB().Select("wallet_address").Where("id = ?", r.ProviderUserID).First(&user).Error; err == nil && user.WalletAddress != nil {
-			walletAddr = *user.WalletAddress
-		}
-		providers = append(providers, ProviderEarningSummary{
-			NodeID:          r.NodeID,
-			ProviderAddress: walletAddr,
-			SessionCount:    r.Count,
-			BandwidthGB:     r.BandwidthGB,
-			TotalEarned:     r.Total,
-			LastPayout:      r.LastTime,
-		})
-	}
-
-	var dbPeriod string
-	var bucketCount int
-	switch period {
-	case "7d":
-		dbPeriod = "daily"
-		bucketCount = 7
-	case "30d":
-		dbPeriod = "daily"
-		bucketCount = 30
-	default:
-		dbPeriod = "hourly"
-		bucketCount = 24
-	}
-	var metricsRecords []models.ExplorerMetrics
-	db.GetReadDB().Where("chain = ? AND period = ?", "solana", dbPeriod).
-		Order("period_start DESC").Limit(bucketCount).Find(&metricsRecords)
-	for i, j := 0, len(metricsRecords)-1; i < j; i, j = i+1, j-1 {
-		metricsRecords[i], metricsRecords[j] = metricsRecords[j], metricsRecords[i]
-	}
-	volumeChart := make([]AnalyticsPoint, 0, len(metricsRecords))
-	for _, r := range metricsRecords {
-		volumeChart = append(volumeChart, AnalyticsPoint{Timestamp: r.PeriodStart, Value: r.TotalVolume})
-	}
-
-	response := ProviderEarningsResponse{
-		Providers: providers,
-		Total:     totalCount,
-		Summary: EarningsSummary{
-			TotalPaid:       totalPaid,
-			ActiveProviders: totalCount,
-			AvgEarning:      avgEarning,
-			TxCount:         txCount,
-		},
-		VolumeChart: volumeChart,
-		Page:        page,
-		PageSize:    pageSize,
-	}
-
-	cacheResponse(c, cacheKey, response, 2*time.Minute)
-	c.JSON(http.StatusOK, response)
+	c.Header("Cache-Control", "no-store")
+	c.JSON(410, gin.H{"error": "Individual provider earnings are private. Use the authenticated earnings dashboard."})
 }
-
-// ============================================================
-// Network Health History
-// ============================================================
 
 type HealthHistoryPoint struct {
 	Timestamp     time.Time `json:"timestamp"`
@@ -2707,4 +2509,3 @@ func explorerMetricsUnavailableMessage(customRange bool) string {
 func explorerNotFound(c *gin.Context, message string) {
 	c.JSON(http.StatusNotFound, gin.H{"error": "not_found", "message": message})
 }
-

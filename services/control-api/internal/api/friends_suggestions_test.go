@@ -63,12 +63,12 @@ func TestF10SuggestionsRankMutualsBeforePopularity(t *testing.T) {
 	testutil.SetupTestDB(t)
 	testutil.CleanupTestData(t, "users", "friendships", "friend_requests", "follows", "suggestion_dismissals")
 
-	viewer := testutil.CreateTestUser(t, testutil.UniqueEmail("f10viewer"), "buyer")
-	friendA := testutil.CreateTestUser(t, testutil.UniqueEmail("f10frienda"), "buyer")
-	friendB := testutil.CreateTestUser(t, testutil.UniqueEmail("f10friendb"), "buyer")
-	mutualRich := testutil.CreateTestUser(t, testutil.UniqueEmail("f10mutual"), "provider")
-	popular := testutil.CreateTestUser(t, testutil.UniqueEmail("f10popular"), "provider")
-	newer := testutil.CreateTestUser(t, testutil.UniqueEmail("f10newer"), "provider")
+	viewer := f10PublicUser(t, testutil.UniqueEmail("f10viewer"), "buyer")
+	friendA := f10PublicUser(t, testutil.UniqueEmail("f10frienda"), "buyer")
+	friendB := f10PublicUser(t, testutil.UniqueEmail("f10friendb"), "buyer")
+	mutualRich := f10PublicUser(t, testutil.UniqueEmail("f10mutual"), "provider")
+	popular := f10PublicUser(t, testutil.UniqueEmail("f10popular"), "provider")
+	newer := f10PublicUser(t, testutil.UniqueEmail("f10newer"), "provider")
 
 	base := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 	f10PinProfile(t, mutualRich.ID, 0, base)                   // oldest, unknown, 2 mutuals
@@ -119,10 +119,10 @@ func TestF10SuggestionsPaginate(t *testing.T) {
 	testutil.SetupTestDB(t)
 	testutil.CleanupTestData(t, "users", "friendships", "friend_requests", "follows", "suggestion_dismissals")
 
-	viewer := testutil.CreateTestUser(t, testutil.UniqueEmail("f10pageviewer"), "buyer")
+	viewer := f10PublicUser(t, testutil.UniqueEmail("f10pageviewer"), "buyer")
 	base := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 	for i := 0; i < 25; i++ {
-		candidate := testutil.CreateTestUser(t, testutil.UniqueEmail(fmt.Sprintf("f10cand%02d", i)), "provider")
+		candidate := f10PublicUser(t, testutil.UniqueEmail(fmt.Sprintf("f10cand%02d", i)), "provider")
 		f10PinProfile(t, candidate.ID, 0, base.Add(time.Duration(i)*time.Hour))
 	}
 
@@ -147,9 +147,9 @@ func TestF10DismissalPersistsAndIsIdempotent(t *testing.T) {
 	testutil.SetupTestDB(t)
 	testutil.CleanupTestData(t, "users", "friendships", "friend_requests", "follows", "suggestion_dismissals")
 
-	viewer := testutil.CreateTestUser(t, testutil.UniqueEmail("f10dismissviewer"), "buyer")
-	candidate := testutil.CreateTestUser(t, testutil.UniqueEmail("f10dismissed"), "provider")
-	kept := testutil.CreateTestUser(t, testutil.UniqueEmail("f10kept"), "provider")
+	viewer := f10PublicUser(t, testutil.UniqueEmail("f10dismissviewer"), "buyer")
+	candidate := f10PublicUser(t, testutil.UniqueEmail("f10dismissed"), "provider")
+	kept := f10PublicUser(t, testutil.UniqueEmail("f10kept"), "provider")
 
 	dismiss := func(target uuid.UUID) *httptest.ResponseRecorder {
 		r := setupTestRouter()
@@ -185,4 +185,13 @@ func TestF10DismissalPersistsAndIsIdempotent(t *testing.T) {
 	if rows != 1 {
 		t.Fatalf("expected exactly 1 stored dismissal, got %d", rows)
 	}
+}
+
+func f10PublicUser(t *testing.T, email, role string) *models.User {
+	t.Helper()
+	user := testutil.CreateTestUser(t, email, role)
+	if err := db.DB.Model(user).Updates(map[string]any{"profile_public": true, "discoverable": true}).Error; err != nil {
+		t.Fatal(err)
+	}
+	return user
 }

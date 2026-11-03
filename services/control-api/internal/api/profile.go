@@ -2,7 +2,6 @@ package api
 
 import (
 	"net/http"
-	"net/url"
 	"regexp"
 	"strings"
 
@@ -101,6 +100,10 @@ func updateProfile(c *gin.Context) {
 				return
 			}
 		}
+	}
+	if req.CoverImageURL != nil && !validAvatarURL(*req.CoverImageURL) {
+		c.JSON(400, gin.H{"error": "Use an uploaded image or an approved media origin"})
+		return
 	}
 	if req.AvatarURL != nil && *req.AvatarURL != "" && !validAvatarURL(*req.AvatarURL) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Avatar must be an https image URL or a small image upload"})
@@ -201,6 +204,11 @@ func getPublicProfile(c *gin.Context) {
 		user = *found
 	}
 
+	if (!hasViewer || currentUserID != user.ID) && !user.ProfilePublic {
+		c.JSON(404, gin.H{"error": "User not found"})
+		return
+	}
+	c.Header("Cache-Control", "no-store")
 	profile := user.ToPublicProfile()
 
 	// Check if block or follow relationship exists
@@ -246,6 +254,9 @@ func getFollowers(c *gin.Context) {
 		return
 	}
 
+	if !allowProfileGraph(c, userID) {
+		return
+	}
 	page := getPageParam(c, 1)
 	limit := getLimitParam(c, 20)
 	offset := (page - 1) * limit
@@ -288,6 +299,9 @@ func getFollowing(c *gin.Context) {
 		return
 	}
 
+	if !allowProfileGraph(c, userID) {
+		return
+	}
 	page := getPageParam(c, 1)
 	limit := getLimitParam(c, 20)
 	offset := (page - 1) * limit
@@ -598,34 +612,34 @@ func getUserActivity(c *gin.Context) {
 		return
 	}
 
-	// Optional: Check if viewer is blocked by user (Privacy)
-	// For MVP, we assume public feed
-
-	var events []models.FeedEvent
-	if err := db.DB.Where("actor_id = ?", userID).
-		Order("created_at DESC").
-		Limit(20).
-		Find(&events).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch activity"})
+	viewer, has := GetUserID(c)
+	var subject models.User
+	if db.DB.First(&subject, "id = ?", userID).Error != nil {
+		c.JSON(404, gin.H{"error": "User not found"})
 		return
 	}
+	own := has && viewer == userID
+	if !own {
+		if !subject.ActivityPublic {
+			c.JSON(404, gin.H{"error": "Activity is private"})
+			return
+		}
+		if has && rejectIfBlocked(c, viewer, userID) {
+			return
+		}
+	}
+	query := db.DB.Where("actor_id = ?", userID)
+	if !own {
+		query = query.Where("event_type IN ?", publicActivityTypes())
+	}
+	var events []models.FeedEvent
+	if query.Order("created_at DESC").Limit(20).Find(&events).Error != nil {
+		c.JSON(500, gin.H{"error": "Cannot load activity"})
+		return
+	}
+	c.Header("Cache-Control", "no-store")
 
-	c.JSON(http.StatusOK, gin.H{"activity": events})
+	c.JSON(http.StatusOK, gin.H{"activity": feedEventDTOs(events)})
 }
 
-func validAvatarURL(raw string) bool {
-	s := strings.TrimSpace(raw)
-	if s == "" {
-		return true
-	}
-	if strings.HasPrefix(s, "data:image/jpeg;base64,") ||
-		strings.HasPrefix(s, "data:image/png;base64,") ||
-		strings.HasPrefix(s, "data:image/webp;base64,") {
-		return len(s) <= 80000
-	}
-	u, err := url.Parse(s)
-	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
-		return false
-	}
-	return true
-}
+func validAvatarURL(raw string) bool { return raw == "" || models.SafeProfileMedia(raw) }

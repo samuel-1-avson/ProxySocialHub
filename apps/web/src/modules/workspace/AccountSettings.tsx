@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
 import Image from "next/image";
 import { useTheme } from "next-themes";
 import {
@@ -31,6 +31,8 @@ import {
   type NotificationPreference,
 } from "@/lib/notifications-api";
 import { Modal } from "@/components/patterns/Modal";
+import { PrivacySettings } from "@/components/settings/PrivacySettings";
+import { DataExportPanel, DeleteAccountPanel } from "@/components/settings/DeleteAccountPanel";
 import ReferralPage from "@/components/settings/ReferralsPanel";
 import {
   PageHeading,
@@ -44,6 +46,7 @@ import {
 export function AccountSettings() {
   const params = useSearchParams();
   const tab = [
+    "privacy",
     "preferences",
     "security",
     "devices",
@@ -68,6 +71,7 @@ export function AccountSettings() {
         <nav className="settings-nav" aria-label="Settings views">
           {[
             { key: "profile", label: "Profile", icon: UserRound },
+            { key: "privacy", label: "Privacy", icon: ShieldCheck },
             {
               key: "preferences",
               label: "Preferences",
@@ -94,6 +98,8 @@ export function AccountSettings() {
         <div className="settings-content">
           {tab === "profile" ? (
             <ProfileSettings />
+          ) : tab === "privacy" ? (
+            <><PrivacySettings /><DataExportPanel /><DeleteAccountPanel /></>
           ) : tab === "preferences" ? (
             <Preferences />
           ) : tab === "security" ? (
@@ -474,6 +480,7 @@ type Setup = { secret: string; qr_code: string; otpauth_url: string };
 function Authentication() {
   const { user } = useAuth();
   const client = useQueryClient();
+  const setupTrigger = useRef<HTMLButtonElement>(null);
   const [setup, setSetup] = useState<Setup | null>(null);
   const [code, setCode] = useState("");
   const [codes, setCodes] = useState<string[]>([]);
@@ -530,7 +537,7 @@ function Authentication() {
     mutationFn: () =>
       apiPost<{ backup_codes: string[] }>(
         "/v1/2fa/backup-codes/regenerate",
-        {},
+        { code },
       ),
     onSuccess: (data) => {
       setCodes(data.backup_codes ?? []);
@@ -590,6 +597,7 @@ function Authentication() {
               Add an authenticator app to protect supported account actions.
             </p>
             <button
+              ref={setupTrigger}
               className="ui-button self-start"
               disabled={begin.isPending}
               onClick={() => begin.mutate()}
@@ -629,37 +637,60 @@ function Authentication() {
         }}
         title="Connect your authenticator"
         description="Scan the QR code or enter the setup key, then verify a code."
+        className="authenticator-dialog"
+        returnFocusRef={setupTrigger}
       >
         {setup && (
           <form
-            className="ui-page"
+            className="authenticator-setup"
             onSubmit={(e) => {
               e.preventDefault();
               enable.mutate();
             }}
           >
-            <QRCodeSVG
-              value={setup.otpauth_url}
-              title="Authenticator setup QR code"
-              size={200}
-            />
-            <details className="ui-note">
+            <div className="authenticator-scan">
+              <p className="authenticator-step">
+                <span>1</span> Add to your authenticator app
+              </p>
+              <div className="authenticator-qr">
+                <QRCodeSVG
+                  value={setup.otpauth_url}
+                  title="Authenticator setup QR code"
+                  size={184}
+                  marginSize={2}
+                />
+              </div>
+              <p className="ui-note">
+                Open your authenticator app and scan this code.
+              </p>
+            </div>
+            <details className="authenticator-manual">
               <summary>Enter a setup key manually</summary>
-              <code className="ui-code">{setup.secret}</code>
+              <code>{setup.secret}</code>
             </details>
             <label className="ui-field">
-              Authenticator code
+              <span className="authenticator-step">
+                <span>2</span> Authenticator code
+              </span>
               <input
-                className="ui-input"
+                className="ui-input authenticator-code"
+                aria-label="Authenticator code"
+                aria-describedby="authenticator-code-hint"
                 autoComplete="one-time-code"
                 inputMode="numeric"
                 pattern="[0-9]{6}"
                 minLength={6}
                 maxLength={6}
                 required
+                placeholder="000000"
                 value={code}
-                onChange={(e) => setCode(e.target.value)}
+                onChange={(e) =>
+                  setCode(e.target.value.replace(/\D/g, "").slice(0, 6))
+                }
               />
+              <small id="authenticator-code-hint">
+                Enter the 6-digit code shown in your app.
+              </small>
             </label>
             {enable.isError && <DataError error={enable.error} />}
             <button
@@ -708,8 +739,9 @@ function Authentication() {
         open={regenerateOpen}
         onOpenChange={setRegenerateOpen}
         title="Replace backup codes?"
-        description="Previously issued backup codes will stop working."
+        description="Verify with an authenticator or backup code. Previously issued backup codes will stop working."
       >
+        <label className="ui-field">Verification code<input className="ui-input" autoComplete="one-time-code" value={code} onChange={(e) => setCode(e.target.value)} minLength={6} maxLength={32} /></label>
         {regenerate.isError && <DataError error={regenerate.error} />}
         <button
           className="ui-button"

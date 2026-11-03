@@ -267,6 +267,7 @@ web_endpoint_refs_raw.csv
 
 # Local security and tooling material (including development TLS keypairs).
 certs/
+buyer-certs/
 .history/
 .tmp-*
 .tmp-go-build/

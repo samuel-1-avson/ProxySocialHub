@@ -39,12 +39,12 @@ type aggKey struct {
 }
 
 type aggBucket struct {
-	source          RegionEndpoint
-	target          RegionEndpoint
-	activeSessions  int
-	bytesUp         int64
-	bytesDown       int64
-	latencySamples  []int
+	source         RegionEndpoint
+	target         RegionEndpoint
+	activeSessions int
+	bytesUp        int64
+	bytesDown      int64
+	latencySamples []int
 }
 
 // AggregateSessionLinks rolls up active session intents into map_node_links rows.
@@ -84,7 +84,7 @@ func AggregateSessionLinks(now time.Time) (int, error) {
 		if !ok {
 			continue
 		}
-		source, ok := ResolveRegionEndpoint(prov.Country, prov.City, prov.Region, prov.Lat, prov.Lon, "provider:"+row.ProviderNodeID)
+		source, ok := ResolveRegionEndpoint(prov.Country, "", "", 0, 0, "country:"+prov.Country)
 		if !ok {
 			continue
 		}
@@ -114,6 +114,9 @@ func AggregateSessionLinks(now time.Time) (int, error) {
 
 	links := make([]models.MapNodeLink, 0, len(buckets))
 	for _, b := range buckets {
+		if b.activeSessions < 5 {
+			continue
+		}
 		p50, p95 := percentileLatency(b.latencySamples)
 		link := models.MapNodeLink{
 			ID:             uuid.New(),
@@ -195,6 +198,9 @@ SELECT
     COALESCE(SUM(si.total_bytes_down), 0)::bigint AS bytes_down
 FROM session_intents si
 LEFT JOIN proxy_listings pl ON pl.id = si.listing_id
+JOIN profiles buyer_privacy ON buyer_privacy.id = si.user_id AND buyer_privacy.activity_public = true
+JOIN provider_nodes provider_privacy ON provider_privacy.id::text = si.provider_node_id
+JOIN profiles seller_privacy ON seller_privacy.id = provider_privacy.user_id AND seller_privacy.map_visible = true
 WHERE si.deleted_at IS NULL
   AND si.lifecycle_state IN ('routed', 'active')
   AND si.provider_node_id IS NOT NULL

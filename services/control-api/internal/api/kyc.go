@@ -118,7 +118,7 @@ func handleKYCWebhook(c *gin.Context) {
 			return
 		}
 	}
-	
+
 	var payload KYCWebhookPayload
 	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -150,7 +150,7 @@ func handleKYCWebhook(c *gin.Context) {
 			// but there is no user-funded SOL to check.
 			internalStatus = models.KYCStatusApproved
 			user.TrustTier = models.TrustTierVerified
-			writeKYCAttestationAsync(*user.WalletAddress, solana.KYCTierVerified, solana.KYCStatusApprovedOnChain)
+			writeKYCAttestationAsync(user.ID, *user.WalletAddress, solana.KYCTierVerified, solana.KYCStatusApprovedOnChain)
 		} else {
 			// Check on-chain balance
 			// CONFIG-001: Read KYC minimum balance from on-chain ProgramConfig PDA.
@@ -185,7 +185,7 @@ func handleKYCWebhook(c *gin.Context) {
 							internalStatus = models.KYCStatusApproved
 							user.TrustTier = models.TrustTierVerified
 							// Anchor trust-tier elevation on-chain.
-							writeKYCAttestationAsync(*user.WalletAddress, solana.KYCTierVerified, solana.KYCStatusApprovedOnChain)
+							writeKYCAttestationAsync(user.ID, *user.WalletAddress, solana.KYCTierVerified, solana.KYCStatusApprovedOnChain)
 						}
 					} else {
 						// RPC error, keep it pending to retry later or mark as error
@@ -199,7 +199,7 @@ func handleKYCWebhook(c *gin.Context) {
 				internalStatus = models.KYCStatusApproved
 				user.TrustTier = models.TrustTierVerified
 				// Anchor on-chain even without live balance check (oracle was nil).
-				writeKYCAttestationAsync(*user.WalletAddress, solana.KYCTierVerified, solana.KYCStatusApprovedOnChain)
+				writeKYCAttestationAsync(user.ID, *user.WalletAddress, solana.KYCTierVerified, solana.KYCStatusApprovedOnChain)
 			}
 		}
 	case "rejected":
@@ -300,9 +300,9 @@ func recheckKYC(c *gin.Context) {
 	_, managed := managedWalletAddress(user.ID, user.WalletAddress)
 	if balanceSOL < minBalanceSOL && !managed {
 		c.JSON(http.StatusPaymentRequired, gin.H{
-			"error":           "Insufficient on-chain SOL balance for KYC approval",
-			"required_sol":    minBalanceSOL,
-			"current_sol":     balanceSOL,
+			"error":        "Insufficient on-chain SOL balance for KYC approval",
+			"required_sol": minBalanceSOL,
+			"current_sol":  balanceSOL,
 		})
 		return
 	}
@@ -316,7 +316,7 @@ func recheckKYC(c *gin.Context) {
 	}
 
 	// Anchor the trust-tier elevation on-chain for verifiability.
-	writeKYCAttestationAsync(*user.WalletAddress, solana.KYCTierVerified, solana.KYCStatusApprovedOnChain)
+	writeKYCAttestationAsync(user.ID, *user.WalletAddress, solana.KYCTierVerified, solana.KYCStatusApprovedOnChain)
 
 	_ = db.DB.Model(&models.ProviderNode{}).Where("user_id = ?", user.ID).Update("kyc_verified", true).Error
 	go PromoteProviderApplicationAfterKYC(context.Background(), user.ID)
@@ -382,7 +382,11 @@ func getKYCStatus(c *gin.Context) {
 // writeKYCAttestationAsync writes a KYC attestation to Solana in the background.
 // Failures are logged but do not block the HTTP response — the DB remains the
 // immediate source of truth; the chain is the verifiable audit trail.
-func writeKYCAttestationAsync(wallet string, trustTier uint8, kycStatus uint8) {
+func writeKYCAttestationAsync(userID uuid.UUID, wallet string, trustTier uint8, kycStatus uint8) {
+	var consent bool
+	if db.DB.Table("profiles").Select("public_chain_consent").Where("id = ? AND wallet_address = ?", userID, wallet).Scan(&consent).Error != nil || !consent {
+		return
+	}
 	oracle := solana.GetOracleClient()
 	if oracle == nil {
 		return

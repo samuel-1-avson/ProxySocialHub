@@ -137,12 +137,14 @@ export async function getUserReviews(userId: string, page = 1): Promise<{ review
 
 export async function deleteAccount(
     confirmation: string,
-    opts?: { nonce?: string; signature?: string },
+    opts?: { nonce?: string; signature?: string; google_credential?: string; code?: string },
 ): Promise<void> {
     await apiDeleteWithBody('/v1/gdpr/delete-account', {
         confirmation,
         nonce: opts?.nonce,
         signature: opts?.signature,
+        google_credential: opts?.google_credential,
+        code: opts?.code,
     });
 }
 

@@ -1,6 +1,5 @@
-// Package geoip provides a lightweight IP-to-coordinates resolver that uses
-// the ip-api.com JSON endpoint. Results are cached in memory to avoid
-// hammering the upstream service.
+// Package geoip provides manual/offline location helpers and an optional,
+// explicitly configured TLS resolver. External IP disclosure defaults off.
 //
 // Usage:
 //
@@ -9,10 +8,12 @@ package geoip
 
 import (
 	"encoding/json"
-	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
+	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -47,36 +48,53 @@ type ipAPIResponse struct {
 
 var (
 	cacheMu sync.RWMutex
-	cache   = make(map[string]Result)
+	cache   = make(map[string]cachedResult)
 
-	httpClient = &http.Client{Timeout: 5 * time.Second}
+	httpClient = &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
 )
+
+type cachedResult struct {
+	Result  Result
+	Expires time.Time
+}
 
 // Resolve looks up geographic data for the given IP address.
 // It returns (Result, true) on success, or (zero, false) on failure.
-// Results are cached for the process lifetime.
+// Results are cached for at most one hour, with a bounded cache size.
 func Resolve(ip string) (Result, bool) {
+	// External IP disclosure is disabled unless an operator explicitly configures
+	// a TLS service following the deployment consent and retention review.
+	if os.Getenv("EXTERNAL_GEOIP_ENABLED") != "true" {
+		return Result{}, false
+	}
+	endpoint, err := url.Parse(os.Getenv("EXTERNAL_GEOIP_URL"))
+	if err != nil || endpoint.Scheme != "https" || endpoint.Host == "" || endpoint.User != nil {
+		return Result{}, false
+	}
 	// Skip loopback and LAN only (allow RFC 5737 documentation/test nets used in dev).
 	if parsed := net.ParseIP(ip); parsed == nil || parsed.IsLoopback() || IsLANIP(parsed) {
 		return Result{}, false
 	}
 
 	cacheMu.RLock()
-	if r, ok := cache[ip]; ok {
+	if r, ok := cache[ip]; ok && time.Now().Before(r.Expires) {
 		cacheMu.RUnlock()
-		return r, true
+		return r.Result, true
 	}
 	cacheMu.RUnlock()
 
-	url := fmt.Sprintf("http://ip-api.com/json/%s?fields=status,lat,lon,city,regionName,country,countryCode,isp,message", ip)
-	resp, err := httpClient.Get(url)
+	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + "/" + url.PathEscape(ip)
+	resp, err := httpClient.Get(endpoint.String())
 	if err != nil {
 		return Result{}, false
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return Result{}, false
+	}
 
 	var apiResp ipAPIResponse
-	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 32768)).Decode(&apiResp); err != nil {
 		return Result{}, false
 	}
 	if apiResp.Status != "success" {
@@ -100,7 +118,17 @@ func Resolve(ip string) (Result, bool) {
 	}
 
 	cacheMu.Lock()
-	cache[ip] = result
+	if len(cache) >= 4096 {
+		for key, entry := range cache {
+			if time.Now().After(entry.Expires) {
+				delete(cache, key)
+			}
+		}
+		if len(cache) >= 4096 {
+			cache = make(map[string]cachedResult)
+		}
+	}
+	cache[ip] = cachedResult{result, time.Now().Add(time.Hour)}
 	cacheMu.Unlock()
 	return result, true
 }
