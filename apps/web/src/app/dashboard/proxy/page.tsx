@@ -79,6 +79,18 @@ const SDK_MATRIX = [
     docs: "https://docs.proxyhubb.com/docs/api",
     registry: "https://docs.proxyhubb.com/openapi.yaml",
   },
+  {
+    id: "mcp",
+    name: "AI agents (MCP)",
+    icon: "MCP",
+    bg: "hover:bg-violet-500/10",
+    // `;` rather than `&&` so the one-liner also runs in Windows PowerShell 5.1.
+    install:
+      "git clone https://github.com/samuel-1-avson/ProxySocialHub.git; cd ProxySocialHub/services/proxyhubb-mcp; npm install",
+    docs: "https://docs.proxyhubb.com/docs/agents/mcp",
+    registry:
+      "https://github.com/samuel-1-avson/ProxySocialHub/tree/main/services/proxyhubb-mcp",
+  },
 ] as const;
 const terminalIntentStates = new Set<SessionIntentLifecycle>([
   "ledger_committed",
@@ -933,10 +945,11 @@ export default function ProxyPage() {
           Matrices
         </h2>
         <p className="text-xs text-muted-foreground mb-8 relative z-10 max-w-2xl">
-          Official SDKs for Connect session intents and marketplace credentials.
-          Install a client, then use the quick-start snippets above.
+          Official SDKs for Connect session intents and marketplace credentials,
+          and an MCP server so AI agents (Claude, Cursor, VS Code) can use your
+          orders. Install a client, then use the quick-start snippets above.
         </p>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 relative z-10">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-6 relative z-10">
           {SDK_MATRIX.map((guide) => (
             <button
               key={guide.id}
