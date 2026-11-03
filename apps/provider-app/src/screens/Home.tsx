@@ -4,6 +4,7 @@ import type { Ipc } from '../ipc';
 import type { AppApi } from '../useApp';
 import type { AppState } from '../types';
 import { Diagnose, Earnings, ServerStatus } from './Details';
+import { Disconnect, NodeSettingsPanel } from './Manage';
 
 function StartAtSignIn({ ipc, app }: { ipc: Ipc; app: AppApi }) {
   const [on, setOn] = useState<boolean | null>(null);
@@ -40,6 +41,7 @@ function StartAtSignIn({ ipc, app }: { ipc: Ipc; app: AppApi }) {
 function Footer({ ipc, app }: { ipc: Ipc; app: AppApi }) {
   return (
     <>
+      <NodeSettingsPanel ipc={ipc} />
       <StartAtSignIn ipc={ipc} app={app} />
       <p className="muted small">
         Closing this window keeps sharing going. To stop completely, right-click the ProxyHubb icon near the
@@ -48,6 +50,7 @@ function Footer({ ipc, app }: { ipc: Ipc; app: AppApi }) {
           Open my dashboard
         </button>
       </p>
+      <Disconnect ipc={ipc} app={app} />
     </>
   );
 }
@@ -63,6 +66,9 @@ function PauseOrStop({ ipc, app, managedExternally }: { ipc: Ipc; app: AppApi; m
   if (!managedExternally) {
     return (
       <div className="actions">
+        <button className="secondary" type="button" disabled={app.busy} onClick={() => void app.act(() => ipc.restartNode())}>
+          Restart node
+        </button>
         <button className="secondary" type="button" disabled={app.busy} onClick={() => void app.act(() => ipc.setSharing(false))}>
           Pause sharing
         </button>
@@ -236,6 +242,7 @@ export function Problem({
         </button>
       </div>
       <Diagnose ipc={ipc} />
+      <Disconnect ipc={ipc} app={app} />
     </section>
   );
 }

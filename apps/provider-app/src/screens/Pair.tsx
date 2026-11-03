@@ -3,6 +3,7 @@ import { formatCountdown, secondsLeft } from '../format';
 import type { Ipc } from '../ipc';
 import type { AppApi } from '../useApp';
 import type { AppState } from '../types';
+import { DisconnectedReminder } from './Manage';
 
 /** Consent is given but this computer is not connected to an account yet. */
 export function NeedsPairing({ ipc, app }: { ipc: Ipc; app: AppApi }) {
@@ -27,6 +28,7 @@ export function NeedsPairing({ ipc, app }: { ipc: Ipc; app: AppApi }) {
         Link this computer to your ProxyHubb account. You will get a short code to approve in your
         browser. There is nothing to copy or install.
       </p>
+      <DisconnectedReminder ipc={ipc} app={app} />
       {app.notice && (
         <div className={`banner ${app.notice.tone}`} role="status">
           <strong>{app.notice.title}</strong>
