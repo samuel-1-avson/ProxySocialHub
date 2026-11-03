@@ -67,6 +67,10 @@ func sendFriendRequest(c *gin.Context) {
 		return
 	}
 
+	if rejectIfBlocked(c, senderID, targetID) {
+		return
+	}
+
 	// Check if already friends
 	var existingFriendship models.Friendship
 	if err := db.Social().Where("user_id = ? AND friend_id = ?", senderID, targetID).First(&existingFriendship).Error; err == nil {
@@ -149,6 +153,10 @@ func acceptFriendRequest(c *gin.Context) {
 
 	if req.Status != models.FriendRequestPending {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Request is not pending"})
+		return
+	}
+
+	if rejectIfBlocked(c, receiverID, req.SenderID) {
 		return
 	}
 
@@ -486,6 +494,13 @@ func getPeopleYouMayKnow(c *gin.Context) {
 			excluded = append(excluded, req.SenderID)
 		}
 	}
+
+	blockedIDs, err := blockedCounterpartyIDs(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load blocked users"})
+		return
+	}
+	excluded = append(excluded, blockedIDs...)
 
 	var users []models.User
 	if err := db.Social().
