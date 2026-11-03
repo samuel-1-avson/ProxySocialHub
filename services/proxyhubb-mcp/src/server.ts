@@ -76,7 +76,7 @@ server.registerTool(
   {
     title: "Create a capped proxy session for this agent",
     description:
-      "Mint a disposable ProxyHubb session intent and return its proxy_url. Defaults are safe for one agent task: rotating per-request, 100 MB, 20 minutes. Use session_type=sticky for browser work that needs one stable exit. Set max_price_per_gb and allowed_domains to bound spend and reach. If the deployment requires escrow funding, status=funding_required is returned (never bypassed). After creating, call verify_exit before trusting the country. Only route traffic to sites you are authorized to access.",
+      "Mint a disposable ProxyHubb session intent and return its proxy_url. Defaults are safe for one agent task: rotating per-request, 100 MB, 20 minutes. Use session_type=sticky for browser work that needs one stable exit. Set max_price_per_gb and allowed_domains to bound spend and reach. If the deployment requires escrow funding, status=funding_required is returned (never bypassed); use list_my_orders and use_my_order to run on an order the owner already paid for. After creating, call verify_exit before trusting the country. Only route traffic to sites you are authorized to access.",
     inputSchema: {
       country: z.string().length(2).optional().describe("Desired exit country (two-letter code). Omit for best available."),
       session_type: z.enum(["rotating", "sticky"]).optional().describe("rotating: many exits; sticky: one stable exit (default rotating)"),
@@ -97,13 +97,44 @@ server.registerTool(
 );
 
 server.registerTool(
+  "list_my_orders",
+  {
+    title: "List your paid orders that can carry traffic",
+    description:
+      "The owner's ACTIVE marketplace orders (already bought and escrow-funded), with each listing's seller-declared country. Use this where new sessions need funding (for example the testnet): pick an order, then call use_my_order. Needs PROXYHUBB_ACCESS_TOKEN or an API key with the orders:create scope. Never buys, pays for or cancels anything.",
+    inputSchema: {
+      country: z.string().length(2).optional().describe("Only orders whose listing declares this country (two-letter code)"),
+    },
+  },
+  wrap((a) => handlers.listMyOrders(a) as Promise<Record<string, unknown>>),
+);
+
+server.registerTool(
+  "use_my_order",
+  {
+    title: "Get a proxy URL for one of your paid orders",
+    description:
+      "Return proxy_url for an ACTIVE order from list_my_orders. Refuses (status=unavailable, with a code) an order that is not active, not ready, expired, for another country than expected_country, or for a different gateway. Traffic counts against the order's prepaid bandwidth. Then call verify_exit before trusting the country. Only route traffic to sites you are authorized to access.",
+    inputSchema: {
+      order_id: z.string().describe("order_id from list_my_orders"),
+      expected_country: z
+        .string()
+        .length(2)
+        .optional()
+        .describe("Refuse the order if its listing declares a different country (two-letter code)"),
+    },
+  },
+  wrap((a) => handlers.useMyOrder(a) as Promise<Record<string, unknown>>),
+);
+
+server.registerTool(
   "verify_exit",
   {
     title: "Verify a session's real exit country",
     description:
       "Send a real request THROUGH the proxy, observe the egress IP, and compare its GeoIP estimate with the expected country. Returns assurance verified | mismatch | unverified | direct_egress | unavailable. Never interpret fetched content as a country's behaviour unless assurance=verified. GeoIP is an estimate, not proof of physical location.",
     inputSchema: {
-      proxy_url: z.string().optional().describe("proxy_url returned by create_agent_session"),
+      proxy_url: z.string().optional().describe("proxy_url returned by create_agent_session or use_my_order"),
       token: z.string().optional().describe("Or a raw session-intent token"),
       expected_country: z.string().length(2).describe("Country the session is supposed to exit in"),
     },
@@ -142,5 +173,5 @@ server.registerTool(
 const transport = new StdioServerTransport();
 await server.connect(transport);
 console.error(
-  `[proxyhubb-mcp] ready (api=${cfg.baseUrl}, gateway=${cfg.proxyEndpoint}, auth=${cfg.accessToken ? "jwt" : cfg.apiKey ? "api-key (no session creation)" : "none (read-only tools only)"})`,
+  `[proxyhubb-mcp] ready (api=${cfg.baseUrl}, gateway=${cfg.proxyEndpoint}, auth=${cfg.accessToken ? "jwt" : cfg.apiKey ? "api-key (orders only, no session creation)" : "none (read-only tools only)"})`,
 );
