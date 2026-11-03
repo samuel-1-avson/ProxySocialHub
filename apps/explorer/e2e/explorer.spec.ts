@@ -52,12 +52,12 @@ test('System follows the device and explicit appearance persists', async ({ page
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.goto('/about');
   await expect(page.locator('html')).toHaveClass(/dark/);
-  const theme = page.getByRole('combobox', { name: 'Color theme' });
-  await theme.selectOption('light');
+  await expect(page.getByRole('banner').locator('select')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Switch to light theme' }).click();
   await expect(page.locator('html')).toHaveClass(/light/);
   await page.reload();
-  await expect(theme).toHaveValue('light');
-  await theme.selectOption('system');
+  await expect(page.getByRole('button', { name: 'Switch to dark theme' })).toBeVisible();
+  await page.getByRole('button', { name: 'Use device appearance' }).click();
   await expect(page.locator('html')).toHaveClass(/dark/);
   await page.emulateMedia({ colorScheme: 'light' });
   await expect(page.locator('html')).toHaveClass(/light/);

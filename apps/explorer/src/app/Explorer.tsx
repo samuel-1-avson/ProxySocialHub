@@ -9,6 +9,7 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
+import { BrandSymbol, ThemeSymbol, ArrowSymbol, SearchSymbol } from "./SiteIcons";
 import type { PublicResource } from "../lib/public-data";
 type Data = Record<string, unknown>;
 const PublicNodeMap = dynamic(() => import("./PublicNodeMap"), {
@@ -171,27 +172,16 @@ function SourceState({ source }: { source: ReturnType<typeof usePublic> }) {
     </>
   );
 }
-function Theme() {
-  const { theme, setTheme } = useTheme();
+function Theme({ system = false }: { system?: boolean }) {
+  const { theme, resolvedTheme, setTheme } = useTheme();
   const mounted = useSyncExternalStore(
     subscribe,
     () => true,
     () => false,
   );
-  return (
-    <label className="workspace-theme">
-      <span>Theme</span>
-      <select
-        aria-label="Color theme"
-        value={mounted ? (theme ?? "system") : "system"}
-        onChange={(event) => setTheme(event.target.value)}
-      >
-        <option value="system">System</option>
-        <option value="light">Light</option>
-        <option value="dark">Dark</option>
-      </select>
-    </label>
-  );
+  if (system) return <button className="explorer-device-theme" onClick={() => setTheme("system")} aria-pressed={mounted && theme === "system"}>Use device appearance</button>;
+  const dark = mounted && resolvedTheme === "dark";
+  return <button type="button" className="ph-theme-toggle" disabled={!mounted} aria-label={mounted ? `Switch to ${dark ? "light" : "dark"} theme` : "Loading color theme"} onClick={() => setTheme(dark ? "light" : "dark")}><ThemeSymbol dark={dark} /></button>;
 }
 function Status({ value }: { value: unknown }) {
   const label = text(value, "Unknown");
@@ -230,7 +220,7 @@ function Stat({
   detail: string;
 }) {
   return (
-    <div>
+    <div className="explorer-stat">
       <div className="ui-stat-label">{label}</div>
       <div className="ui-stat-value">{value}</div>
       <p className="ui-stat-detail">{detail}</p>
@@ -280,6 +270,7 @@ function Search() {
       <label className="sr-only" htmlFor="public-search">
         Public identifier
       </label>
+      <span className="explorer-search-icon"><SearchSymbol /></span>
       <input
         id="public-search"
         className="ui-input"
@@ -302,7 +293,7 @@ function Search() {
         <option value="contracts">Program</option>
       </select>
       <button className="ui-button" type="submit">
-        Search records
+        Search records <ArrowSymbol />
       </button>
     </form>
   );
@@ -328,7 +319,7 @@ function MetricSummary() {
           value={
             metrics.data?.total_bandwidth_gb != null
               ? `${num(metrics.data.total_bandwidth_gb)} GB`
-              : "None yet"
+              : "Not available"
           }
           detail="Cumulative indexed bandwidth"
         />
@@ -412,6 +403,9 @@ function TrendChart({
               />
             )}
           </svg>
+          <dl className="explorer-chart-axis">
+            {[values[0], values[values.length - 1]].map((point, index) => <div key={index}><dt>{observed(point.time)}</dt><dd>{num(point.value, 4)} {unit}</dd></div>)}
+          </dl>
           <p className="explorer-chart-summary">
             {num(min)}–{num(max)} {unit} across the selected window. Values are
             reported by the public metrics source.
@@ -442,12 +436,20 @@ function TrendChart({
     </section>
   );
 }
+function HistoryObservation({ point, index }: { point: Record<string, unknown>; index: number }) {
+  return <div className="explorer-history-item" key={`${String(point.timestamp)}-${index}`}>
+    <span>{observed(point.timestamp)}</span>
+    <Status value={point.status} />
+    <strong>{num(point.active_nodes, 0)} active nodes</strong>
+  </div>;
+}
 function Health({ period = "24h" }: { period?: Period }) {
   const health = usePublic("health");
   const trust = usePublic("trust");
   const historyPeriod = period === "1h" ? "24h" : period;
   const history = usePublic("health-history", undefined, 1, { period: historyPeriod });
-  const historyPoints = records(history.data?.history);
+  const historyPoints = records(history.data?.history).sort((a, b) =>
+    (Date.parse(text(b.timestamp, "")) || 0) - (Date.parse(text(a.timestamp, "")) || 0));
   return (
     <>
       <div className="ui-columns">
@@ -491,15 +493,17 @@ function Health({ period = "24h" }: { period?: Period }) {
         {history.data?.metrics_available === false ? (
           <p className="explorer-chart-empty">{text(history.data.message, "No historical health measurements have been reported yet.")}</p>
         ) : historyPoints.length ? (
-          <div className="explorer-history-list">
-            {historyPoints.map((point, index) => (
-              <div className="explorer-history-item" key={`${String(point.timestamp)}-${index}`}>
-                <span>{observed(point.timestamp)}</span>
-                <Status value={point.status} />
-                <strong>{num(point.active_nodes, 0)} active nodes</strong>
+          <>
+            <div className="explorer-history-list">
+              {historyPoints.slice(0, 4).map((point, index) => <HistoryObservation point={point} index={index} key={index} />)}
+            </div>
+            {historyPoints.length > 4 && <details className="explorer-chart-data explorer-history-more">
+              <summary>Show {historyPoints.length - 4} earlier observations</summary>
+              <div className="explorer-history-list">
+                {historyPoints.slice(4).map((point, index) => <HistoryObservation point={point} index={index} key={index} />)}
               </div>
-            ))}
-          </div>
+            </details>}
+          </>
         ) : !history.loading && !history.error ? (
           <p className="explorer-chart-empty">No historical health measurements have been reported for this window.</p>
         ) : null}
@@ -507,7 +511,7 @@ function Health({ period = "24h" }: { period?: Period }) {
     </>
   );
 }
-function Ledger({ blocks = false }: { blocks?: boolean }) {
+function Ledger({ blocks = false, preview = false }: { blocks?: boolean; preview?: boolean }) {
   const [page, setPage] = useState(1);
   const source = usePublic(blocks ? "blocks" : "transactions", undefined, page);
   const rows = records(source.data?.[blocks ? "blocks" : "transactions"]);
@@ -532,7 +536,7 @@ function Ledger({ blocks = false }: { blocks?: boolean }) {
           aria-label={blocks ? "Public blocks" : "Public transactions"}
           tabIndex={0}
         >
-          <table className="ui-table">
+          <table className="ui-table explorer-ledger-table">
             <thead>
               <tr>
                 <th>{blocks ? "Block" : "Transaction"}</th>
@@ -542,7 +546,7 @@ function Ledger({ blocks = false }: { blocks?: boolean }) {
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => {
+              {(preview ? rows.slice(0, 5) : rows).map((row) => {
                 const id = text(blocks ? row.block_number : row.tx_hash, "");
                 return (
                   <tr key={id}>
@@ -557,14 +561,14 @@ function Ledger({ blocks = false }: { blocks?: boolean }) {
                       </Link>
                       {!blocks && <p>{text(row.tx_type).replace(/_/g, " ")}</p>}
                     </td>
-                    <td>
+                    <td data-label={blocks ? "Transactions" : "State"}>
                       {blocks ? (
                         num(row.transaction_count, 0)
                       ) : (
                         <Status value={row.status} />
                       )}
                     </td>
-                    <td>
+                    <td data-label={blocks ? "Observed" : "Amount"}>
                       {blocks
                         ? observed(row.timestamp)
                         : `${num(row.amount, 6)} ${text(row.currency, "")}`}
@@ -587,7 +591,10 @@ function Ledger({ blocks = false }: { blocks?: boolean }) {
           )}
         </div>
       )}
-      <div className="ui-pagination">
+      {preview ? source.data && <div className="ui-pagination explorer-ledger-preview">
+        <span>Showing {Math.min(rows.length, 5)}{total != null ? ` of ${total}` : ""} indexed records</span>
+        <Link href="/transactions" className="ui-button secondary small">View all transactions <ArrowSymbol /></Link>
+      </div> : <div className="ui-pagination">
         <button
           className="ui-button secondary small"
           onClick={() => setPage((value) => Math.max(1, value - 1))}
@@ -606,7 +613,7 @@ function Ledger({ blocks = false }: { blocks?: boolean }) {
         >
           Next
         </button>
-      </div>
+      </div>}
     </>
   );
 }
@@ -1103,20 +1110,12 @@ export function Explorer({ path = [] }: { path?: string[] }) {
       )[root] || "A clear view of the network.";
   return (
     <>
-      <header className="explorer-header">
-        <Link className="explorer-brand" href="/">
-          <span className="workspace-mark" aria-hidden="true">
-            ph
-          </span>
-          ProxyHubb<span>Explorer</span>
+      <header className="explorer-masthead">
+      <div className="explorer-header">
+        <Link className="ph-brand" href="/">
+          <span className="ph-brand-mark" aria-hidden="true"><BrandSymbol /></span>
+          <span className="ph-brand-name">ProxyHubb</span>{" "}<span className="ph-product-label">Explorer</span>
         </Link>
-        <div className="explorer-tools">
-          <span className="explorer-environment">Public evidence</span>
-          <Theme />
-          <a href="https://docs.proxyhubb.com/docs">Docs ↗</a>
-          <a href={appHref("/app")}>Open workspace ↗</a>
-        </div>
-      </header>
       <nav className="explorer-nav" aria-label="Explorer primary">
         {[
           ["overview", "Overview", "/"],
@@ -1135,8 +1134,16 @@ export function Explorer({ path = [] }: { path?: string[] }) {
           </Link>
         ))}
       </nav>
+        <div className="explorer-tools">
+          <Theme />
+          <a className="ph-subtle-link explorer-docs-link" href="https://docs.proxyhubb.com/docs">Docs <ArrowSymbol /></a>
+          <a className="ph-primary-link" href={appHref("/app")} aria-label="Open workspace">Workspace <ArrowSymbol /></a>
+        </div>
+      </div>
+      </header>
       <main id="main-content" tabIndex={-1} className="explorer-content">
         <div className="ui-page">
+          <section className={`explorer-page-intro${!root ? " is-overview" : ""}`}>
           <Heading
             title={title}
             description={
@@ -1147,6 +1154,8 @@ export function Explorer({ path = [] }: { path?: string[] }) {
                 : "Public network and settlement evidence, separate from private workspace operations."
             }
           />
+          {!root && <><Search /><MetricSummary /></>}
+          </section>
           {detailType ? (
             <Detail resource={detailType} id={id} />
           ) : isProtocol ? (
@@ -1166,14 +1175,12 @@ export function Explorer({ path = [] }: { path?: string[] }) {
             <Governance treasury={isTreasury} />
           ) : (
             <>
-              <Search />
-              <MetricSummary />
               <Health />
               <section>
                 <h2 className="explorer-subheading">
                   Recent settlement evidence
                 </h2>
-                <Ledger />
+                <Ledger preview />
               </section>
             </>
           )}
@@ -1183,6 +1190,7 @@ export function Explorer({ path = [] }: { path?: string[] }) {
           <Link href="/about">About the network</Link>
           <a href={appHref("/help")}>Help & operating environment ↗</a>
           <span>No wallet connection required.</span>
+          <Theme system />
         </footer>
       </main>
     </>

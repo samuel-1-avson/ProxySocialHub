@@ -97,3 +97,40 @@ test('Explorer: invalid public resources and identifiers are rejected before fet
   const write = await request.post(`${explorer}/api/public?resource=metrics`);
   expect(write.status()).toBe(405);
 });
+
+test('Explorer: mobile navigation and settlement actions stay fully visible', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route('**/api/public?**', route => route.fulfill({ json: { transactions: [{ tx_hash: '5'.repeat(88), tx_type: 'settlement', status: 'confirmed', amount: .32, currency: 'SOL' }], total: 1 } }));
+  await page.goto(`${explorer}/transactions`);
+  const nav = page.getByRole('navigation', { name: 'Explorer primary' });
+  for (const link of await nav.getByRole('link').all()) {
+    const box = await link.boundingBox();
+    expect(box && box.x >= 0 && box.x + box.width <= 390).toBeTruthy();
+  }
+  const inspect = page.getByRole('link', { name: 'Inspect →' }).first();
+  await expect(inspect).toBeVisible();
+  const box = await inspect.boundingBox();
+  expect(box && box.x >= 0 && box.x + box.width <= 390).toBeTruthy();
+  await expect(page.getByText('0.32 SOL', { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+});
+
+test('Explorer: overview stays concise as live history and transactions grow', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route('**/api/public?**', route => {
+    const resource = new URL(route.request().url()).searchParams.get('resource');
+    const data = resource === 'health-history' ? { history: Array.from({ length: 24 }, (_, i) => ({ timestamp: new Date(Date.UTC(2026, 10, 1, i)).toISOString(), status: 'healthy', active_nodes: 2 })) }
+      : resource === 'transactions' ? { transactions: Array.from({ length: 20 }, (_, i) => ({ tx_hash: `${i}`.padStart(88, '5'), tx_type: 'settlement', status: 'confirmed', amount: .32, currency: 'SOL' })), total: 159 } : {};
+    return route.fulfill({ json: data });
+  });
+  await page.goto(explorer);
+  await expect(page.locator('.explorer-history-item:visible')).toHaveCount(4);
+  await expect(page.getByRole('region', { name: 'Public transactions' }).locator('tbody tr')).toHaveCount(5);
+  await expect(page.getByText('Showing 5 of 159 indexed records')).toBeVisible();
+  await page.getByText('Show 20 earlier observations', { exact: true }).click();
+  await expect(page.locator('.explorer-history-item:visible')).toHaveCount(24);
+  await page.getByRole('link', { name: 'View all transactions' }).click();
+  await expect(page.getByRole('region', { name: 'Public transactions' }).locator('tbody tr')).toHaveCount(20);
+  await expect(page.getByRole('button', { name: 'Next', exact: true })).toBeEnabled();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+});
