@@ -1,3 +1,4 @@
+mod account;
 mod config;
 mod config_validate;
 mod daemon_ctrl;
@@ -14,12 +15,14 @@ mod proofs;
 mod proxy;
 mod runtime_state;
 mod service;
+mod settings_view;
 mod stats;
 mod status;
 mod support;
 mod sys;
 mod tui;
 mod tunnel;
+mod unpair;
 mod update;
 mod watch;
 
@@ -246,6 +249,45 @@ enum Commands {
         local: bool,
     },
 
+    /// What ProxyHubb's servers say about this computer, and your earnings (asks the Control API)
+    Account {
+        /// Path to configuration file
+        #[arg(short, long)]
+        config: Option<String>,
+
+        /// Emit JSON for scripts: one object on stdout and nothing else. For programs driving
+        /// this command, such as the desktop app.
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Disconnect this computer from its account: stop the node and move provider.toml aside
+    Unpair {
+        /// Path to configuration file
+        #[arg(short, long)]
+        config: Option<String>,
+
+        /// Machine-readable output: one JSON object on stdout and nothing else, and no prompt.
+        /// For programs driving this command, such as the desktop app.
+        #[arg(long)]
+        json: bool,
+
+        /// Skip the confirmation prompt
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
+
+    /// Print the newest published installer version (asks the Control API; nothing is downloaded)
+    LatestRelease {
+        /// "desktop" (the Provider app) or "daemon" (this CLI)
+        #[arg(long, default_value = "desktop")]
+        package: String,
+
+        /// Emit JSON for scripts
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Pre-flight checks for config, auth, gateway, and local daemon
     Doctor {
         /// Path to configuration file
@@ -308,6 +350,16 @@ enum Commands {
 
 #[derive(Subcommand)]
 enum ConfigCommands {
+    /// Show this computer's node settings (never a key or token)
+    Show {
+        /// Path to configuration file
+        #[arg(short, long)]
+        config: Option<String>,
+
+        /// Emit JSON for scripts
+        #[arg(long)]
+        json: bool,
+    },
     /// Validate provider.toml and print fixes for blocking issues
     Validate {
         /// Path to configuration file
@@ -568,6 +620,71 @@ async fn main() -> anyhow::Result<()> {
                 println!("provider_hotkey = \"{}\"", generated.public_key);
                 println!();
                 println!("Add provider_signing_key to provider.toml to enable signed heartbeats.");
+            }
+        }
+
+        Commands::Config {
+            command: ConfigCommands::Show { config, json },
+        } => {
+            // With --json, stdout is the view and nothing else (as with `status --json`).
+            if !json {
+                init_logging(false);
+            }
+            let config_path = config
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(config::Config::default_config_path);
+            let view = settings_view::collect(&config_path);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&view)?);
+            } else {
+                settings_view::print_human(&view);
+            }
+        }
+
+        Commands::Unpair { config, json, yes } => {
+            if !json {
+                init_logging(false);
+            }
+            let config_path = config
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(config::Config::default_config_path);
+            if !json && !yes {
+                println!(
+                    "This stops the node and moves {} aside.",
+                    config_path.display()
+                );
+                println!(
+                    "The key in it stays valid until you revoke it in your dashboard (Tokens)."
+                );
+                print!("Disconnect this computer? [y/N] ");
+                let _ = std::io::Write::flush(&mut std::io::stdout());
+                let mut line = String::new();
+                std::io::stdin().read_line(&mut line)?;
+                if !matches!(line.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
+                    println!("Cancelled.");
+                    return Ok(());
+                }
+            }
+            let report = unpair::run(config_path).await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                unpair::print_human(&report);
+            }
+        }
+
+        Commands::LatestRelease { package, json } => {
+            if !json {
+                init_logging(false);
+            }
+            let latest = update::latest_release(&package).await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&latest)?);
+            } else {
+                println!(
+                    "Latest {} release: v{} ({})",
+                    latest.package_type, latest.version, latest.filename
+                );
             }
         }
 
@@ -990,8 +1107,27 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
+        Commands::Account { config, json } => {
+            // With --json, stdout is the report and nothing else (as with `status --json`).
+            if !json {
+                init_logging(false);
+            }
+            let config_path = config
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(config::Config::default_config_path);
+            let report = account::collect(config_path).await;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                account::print_human(&report);
+            }
+        }
+
         Commands::Doctor { config, json } => {
-            init_logging(false);
+            // Same rule as `status --json`: logging goes to stdout, which would mix into the JSON.
+            if !json {
+                init_logging(false);
+            }
             let config_path = config
                 .map(std::path::PathBuf::from)
                 .unwrap_or_else(config::Config::default_config_path);

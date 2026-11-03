@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
-import { formatBytes, formatDuration, formatRetrySentence } from '../format';
+import { formatBytes, formatDelay, formatDuration, formatRate, formatRetrySentence } from '../format';
 import type { Ipc } from '../ipc';
 import type { AppApi } from '../useApp';
 import type { AppState } from '../types';
+import { Diagnose, Earnings, ServerStatus } from './Details';
+import { Disconnect, NodeSettingsPanel } from './Manage';
 
 function StartAtSignIn({ ipc, app }: { ipc: Ipc; app: AppApi }) {
   const [on, setOn] = useState<boolean | null>(null);
@@ -39,6 +41,7 @@ function StartAtSignIn({ ipc, app }: { ipc: Ipc; app: AppApi }) {
 function Footer({ ipc, app }: { ipc: Ipc; app: AppApi }) {
   return (
     <>
+      <NodeSettingsPanel ipc={ipc} />
       <StartAtSignIn ipc={ipc} app={app} />
       <p className="muted small">
         Closing this window keeps sharing going. To stop completely, right-click the ProxyHubb icon near the
@@ -47,6 +50,7 @@ function Footer({ ipc, app }: { ipc: Ipc; app: AppApi }) {
           Open my dashboard
         </button>
       </p>
+      <Disconnect ipc={ipc} app={app} />
     </>
   );
 }
@@ -62,6 +66,9 @@ function PauseOrStop({ ipc, app, managedExternally }: { ipc: Ipc; app: AppApi; m
   if (!managedExternally) {
     return (
       <div className="actions">
+        <button className="secondary" type="button" disabled={app.busy} onClick={() => void app.act(() => ipc.restartNode())}>
+          Restart node
+        </button>
         <button className="secondary" type="button" disabled={app.busy} onClick={() => void app.act(() => ipc.setSharing(false))}>
           Pause sharing
         </button>
@@ -127,6 +134,7 @@ export function Connecting({
       )}
       {/* Someone whose node cannot connect must still be able to stop it. */}
       <PauseOrStop ipc={ipc} app={app} managedExternally={state.managed_externally} />
+      <Diagnose ipc={ipc} />
       <Footer ipc={ipc} app={app} />
     </section>
   );
@@ -163,13 +171,34 @@ export function Sharing({
         </div>
         <div>
           <dt>Connections now</dt>
-          <dd>{state.active_connections}</dd>
+          <dd>
+            {state.active_connections}
+            {state.details.total_connections > 0 && (
+              <span className="muted small">
+                {' '}
+                ({state.details.total_connections} served, {state.details.failed_connections} failed)
+              </span>
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt>Speed now</dt>
+          <dd>
+            {formatRate(state.details.rate_down_kbps)} down, {formatRate(state.details.rate_up_kbps)} up
+          </dd>
+        </div>
+        <div>
+          <dt>Delay to ProxyHubb</dt>
+          <dd>{formatDelay(state.details.latency_ms)}</dd>
         </div>
       </dl>
       {state.managed_externally && (
         <p className="muted">Started outside this app, for example from the command line.</p>
       )}
+      {/* The control comes before the detail: it must not end up below the fold. */}
       <PauseOrStop ipc={ipc} app={app} managedExternally={state.managed_externally} />
+      <ServerStatus ipc={ipc} app={app} remote={state.details.remote} />
+      <Earnings remote={state.details.remote} />
       <Footer ipc={ipc} app={app} />
     </section>
   );
@@ -212,6 +241,8 @@ export function Problem({
           Try again
         </button>
       </div>
+      <Diagnose ipc={ipc} />
+      <Disconnect ipc={ipc} app={app} />
     </section>
   );
 }
