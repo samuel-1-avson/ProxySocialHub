@@ -248,3 +248,94 @@ input:focus-visible {
 .dot.bad {
   background: var(--bad);
 }
+
+/* A titled group below the headline numbers: what ProxyHubb says, earnings, "something wrong?". */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 6px;
+}
+
+.panel h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.panel p {
+  margin: 0;
+}
+
+.status-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.findings {
+  margin: 0;
+  padding-left: 1.2em;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.findings li.problem {
+  color: var(--text);
+}
+
+.findings li.note {
+  color: var(--muted);
+}
+
+/* Inside a panel the numbers sit two to a row, so earnings take two short rows, not four tall ones. */
+.panel .stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.panel .stats > div {
+  flex-direction: column;
+  gap: 0;
+  padding: 8px 12px;
+}
+
+.panel .stats dd {
+  text-align: left;
+}
+
+/* Node settings: a plain list, one row per setting; the path may be long and has no break points. */
+details.panel > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.settings {
+  margin: 8px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings dt {
+  color: var(--muted);
+}
+
+.settings dd {
+  margin: 0;
+  text-align: right;
+}
+
+.path {
+  overflow-wrap: anywhere;
+}

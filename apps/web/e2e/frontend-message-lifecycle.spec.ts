@@ -39,7 +39,7 @@ test("deleted messages show as tombstones and edited messages keep their marker"
     created_at: "2026-11-01T10:00:00Z",
   };
 
-  await page.route(/\/v1\/conversations(?:\?.*)?$/, (route) =>
+  await page.route("**/v1/conversations", (route) =>
     route.fulfill({
       json: {
         conversations: [

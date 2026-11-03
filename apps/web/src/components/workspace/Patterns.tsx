@@ -7,6 +7,7 @@ import {
   Loader2,
   RefreshCw,
 } from "lucide-react";
+import { LOCATION_SHARED_LATER, isMaskedLocation } from "@/lib/listing-display";
 
 export function PageHeading({
   title,
@@ -157,6 +158,7 @@ export function amount(value: unknown, digits = 2): string {
 }
 export function countryName(code?: string): string {
   if (!code) return "Location not specified";
+  if (isMaskedLocation(code)) return LOCATION_SHARED_LATER;
   try {
     return (
       new Intl.DisplayNames(["en"], { type: "region" }).of(

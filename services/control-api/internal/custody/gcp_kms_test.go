@@ -239,6 +239,38 @@ func TestGCPKMSCRCRejectsInvalidValues(t *testing.T) {
 	}
 }
 
+func TestGCPKMSDedicatedIdentityNeverFallsBack(t *testing.T) {
+	t.Setenv("EMBEDDED_WALLET_GCP_KMS_SERVICE_ACCOUNT", "custody-runtime@custody-project.iam.gserviceaccount.com")
+	g, _ := fakeKMS(t, fixtureKey)
+	g.token = g.credentials
+	g.adc = func(_ context.Context, scope string) (*oauth2.Token, error) {
+		if scope != "https://www.googleapis.com/auth/cloud-platform" {
+			t.Fatal("source scope")
+		}
+		return &oauth2.Token{AccessToken: "synthetic-base"}, nil
+	}
+	status := 200
+	g.client.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host != "iamcredentials.googleapis.com" || r.Header.Get("Authorization") != "Bearer synthetic-base" {
+			t.Fatal("unsafe impersonation request")
+		}
+		body, _ := json.Marshal(map[string]any{"accessToken": "synthetic-delegated", "expireTime": time.Now().Add(time.Minute).UTC().Format(time.RFC3339)})
+		return &http.Response{StatusCode: status, Body: io.NopCloser(bytes.NewReader(body))}, nil
+	})
+	token, err := g.credentials(context.Background())
+	if err != nil || token.AccessToken != "synthetic-delegated" {
+		t.Fatal("dedicated identity unavailable", err)
+	}
+	status = 403
+	if token, err := g.credentials(context.Background()); err == nil || token != nil {
+		t.Fatal("fell back to VM identity")
+	}
+	t.Setenv("EMBEDDED_WALLET_GCP_KMS_SERVICE_ACCOUNT", "https://attacker.invalid")
+	if _, err := NewGCPKEK(fixtureKey, "HSM"); err == nil {
+		t.Fatal("unsafe target identity accepted")
+	}
+}
+
 func exerciseCustodyRotation(t *testing.T, source, target KEK, outage func(bool)) {
 	t.Helper()
 	testutil.SetupTestDB(t)

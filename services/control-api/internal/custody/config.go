@@ -131,7 +131,7 @@ func Ready(ctx context.Context) error {
 	if _, local := k.(*LocalKEK); local {
 		return nil
 	}
-	id := k.ID() + "|" + os.Getenv("EMBEDDED_WALLET_KMS_PROTECTION_LEVEL")
+	id := k.ID() + "|" + os.Getenv("EMBEDDED_WALLET_KMS_PROTECTION_LEVEL") + "|" + os.Getenv("EMBEDDED_WALLET_GCP_KMS_SERVICE_ACCOUNT")
 	readiness.Lock()
 	defer readiness.Unlock()
 	if readiness.id == id && time.Now().Before(readiness.until) {

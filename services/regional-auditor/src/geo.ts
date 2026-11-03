@@ -193,7 +193,8 @@ function evaluateSample(input: AssuranceInput, sample: EgressSample): { assuranc
   if (workerDirectIp && sample.ip === workerDirectIp) {
     return {
       assurance: "direct_egress",
-      reason: "The observed egress IP equals the worker's own direct IP, so traffic did not leave through a regional exit.",
+      reason:
+        "The observed egress IP equals the worker's own direct IP. Either traffic did not leave through a regional exit, or the exit node is on the worker's own internet connection (for example your own node on your own line); the two look the same, so the region is not interpreted. If this IP is your connection's, run the node and the worker on different connections.",
     };
   }
   const country = sample.geoip?.country ?? null;

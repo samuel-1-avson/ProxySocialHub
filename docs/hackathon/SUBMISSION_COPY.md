@@ -77,12 +77,14 @@ per use through an on-chain escrow. The Regional Auditor is the first "agent" th
   prompt-injection text; neither fooled the model.
 * The model is asked to separate **observed defects** from **regional differences that may be
   intentional** and from **hypotheses**, and to state uncertainty in words, not numbers.
-* Default is the *standard* (non-training) Muse Spark mode; the training-data ("contributor") mode is
-  refused unless explicitly enabled. Requests are sent with `store: false`.
-  **[[CHECK before you keep this bullet: the 2026-11-02 live report shows model
-  `muse-spark-1.3-contributor`, so that stack had contributor mode enabled. Confirm the stack you record
-  with uses `muse-spark-1.3` (the report page names the model). If it does not, delete "standard
-  (non-training)" from every place it appears.]]**
+* Default is the *standard* (non-training) Muse Spark model, `muse-spark-1.3`. The training-data
+  ("contributor") model runs only if a person sets both `AUDITOR_MODEL=muse-spark-1.3-contributor` and
+  `AUDITOR_ALLOW_CONTRIBUTOR_MODE=1` (`services/regional-auditor/src/config.ts`). Requests are sent with
+  `store: false`.
+  **[[CHECK on the recorded run: the report page names the model and must say `muse-spark-1.3`. The
+  2026-11-02 live run used `-contributor` (set by hand in that terminal). On 2026-11-03 neither variable was
+  saved on the recording PC, so a fresh terminal uses the standard model. If the recorded report shows
+  `-contributor`, delete "standard (non-training)" everywhere.]]**
 * Measured cost: about **$0.017 per two-region audit** (estimate from the documented Muse Spark prices).
 
 ### Measured results (synthetic evaluation, be careful how you quote it)
@@ -96,15 +98,27 @@ people wrote the demo site, the defects and the labels. The raw results are in
 `docs/hackathon/eval-results/`.
 
 ### Live evidence
-* One real audit through a Ghana marketplace order (`aud_a397dd463c47`, 2026-11-02): the exit was
-  observed, verified as Ghana, captured, and analysed by the model.
+* One real audit through a Ghana marketplace order (`aud_a397dd463c47`, 2026-11-02): the browser's exit
+  was observed, geolocated to Ghana, captured, and analysed by the model. **That exit was on Starlink**
+  (AS14593). The same afternoon we made satellite exits "unverified", because their addresses are placed by
+  ground station, so **under our current rules this run is not verified evidence**; do not present it as
+  verified. It also used the contributor (training) model.
+* MCP, 2026-11-03: an MCP client found the owner's active Ghana order, got its credentials and sent real
+  traffic through the exit. The exit check returned `direct_egress`, because that node shares the owner's
+  own internet connection, which the checker correctly refuses to trust.
+* [[FILL IN: the first live run that **verifies under the current rules** (node and audit machine on
+  different connections). Until it exists, there is no verified live evidence.]]
 * [[FILL IN: the second region and the before/after rerun, **only if they happened live**. Otherwise
   delete this line and use the fallback sentence in section 8.]]
 
 ### Also in the submission
-`proxyhubb-mcp`, a small MCP server so any agent can discover regions and request capped, verified
-sessions. Its read tools are proven against the live API; session creation follows the same escrow rules
-as the web app and was **not** exercised live.
+`proxyhubb-mcp`, an MCP server so an everyday agent (Claude Desktop, Claude Code, Cursor, VS Code) can
+discover regions, use orders its owner already bought, verify the exit, and **read a page as seen from a
+country** with `fetch_url`, without ever seeing a credential. The order path ran live on 2026-11-03 (see
+above). `fetch_url`'s tunnel was tested against real sites through a local proxy, not yet through a live
+order [[FILL IN if it runs live]]. Today the server needs the owner's website login token, which can do
+everything the account can and lasts up to a day; a limited agent key is the planned next step
+(`docs/plans/MCP_AGENT_INTEGRATION_PLAN_2026-11-03.md`).
 
 ## 5. What is new and what existed before (say this plainly)
 
@@ -115,13 +129,14 @@ since 2026-01-16.
 edge gateway and provider node, the buyer SDKs, the provider app and CLI, the web workspace and design
 system.
 
-**Built for this event** (committed 2026-11-02 in PRs #126 to #131; see `git log`):
+**Built for this event** (committed 2026-11-02 in PRs #126 to #131, and the MCP work on 2026-11-03 in
+#135, #136, #137 and #140; see `git log`):
 
 | What | Where |
 | --- | --- |
 | The Regional Auditor worker (browser capture, route verification, Meta client, validation, stores, fixtures, evaluation): 58 files, about 9,100 lines | `services/regional-auditor/` |
 | The web side (authenticated routes, the Audits UI, report pages, rerun comparison, export) and migration 000176 | `apps/web/src/app/api/audits/`, `apps/web/src/modules/audits/`, `migrations/` |
-| `proxyhubb-mcp`: 15 files, about 1,400 lines | `services/proxyhubb-mcp/` |
+| `proxyhubb-mcp`: 17 files, about 2,800 lines (tracked files, lockfile excluded, counted 2026-11-03), including `fetch_url` and the paid-order tools | `services/proxyhubb-mcp/` |
 | An honest proxy connection test (it used to report "Synchronized" without touching the gateway) | `apps/web/src/app/api/proxy/test/` |
 | Fixes found while building it: a Ghana node was counted and pinned as US; the Buy dialog could not connect a wallet; exits on satellite networks are never "verified"; security headers on the site | PRs #126, #128, #130 |
 | A full-system verification record | `docs/hackathon/SYSTEM_VERIFICATION_2026-11-02.md` |
@@ -159,8 +174,9 @@ upgrade. Say "designed so providers keep about 95%".
   we do not compete on pool size.
 * **The Audits UI runs from a local stack** against the live API today; the worker is not deployed on
   the public server.
-* **Agent budgets are caps on a user's own session, not a payment protocol** (x402 and similar are on the
-  roadmap, not built).
+* **Agents spend orders their owner bought.** The MCP server never buys, pays or funds anything. Today it
+  needs the owner's website login token (full account access, up to 24 hours), not a limited key; a key
+  that can only use paid orders is planned. Payment protocols such as x402 are roadmap, not built.
 
 ## 8. The live-demo sentence (two versions)
 
@@ -183,7 +199,8 @@ around a paywall or a geo-blocked service. Providers opt in, see their earnings,
 | --- | --- |
 | Is this just a proxy marketplace? | The marketplace existed before. The new part is the verified-exit audit with Meta's model, and an MCP server so agents can use the network. |
 | What did you build during the event? | Section 5. Everything else predates it, and the repo history shows it. |
-| Does it work live? | One real Ghana audit, yes. [[FILL IN the second region.]] Fixture mode is labelled synthetic. |
+| Does it work live? | The live path works end to end: a real Ghana order, a real exit, real Meta analysis. Our Nov 2 run does not count as verified under our own current rules, because its exit was on Starlink. [[FILL IN the run that verifies, and the second region.]] Fixture mode is labelled synthetic. |
+| Can I use it from my own AI agent? | Yes, locally: the MCP server plugs into Claude Desktop, Claude Code, Cursor and VS Code, and `fetch_url` lets a chat agent read a page as seen from a country. A hosted endpoint for ChatGPT and Claude.ai is planned, not built. |
 | How accurate is the AI? | On our 15-case synthetic suite it found 11 of 11 seeded defects with no false alarms on the 6 controls. That shows the pipeline and guard rails work; it is not a general accuracy claim. |
 | Why not trust the gateway's routing? | It can fall back to any healthy node when a country has none. So we measure the exit instead, and refuse mismatches. |
 | Why Solana? | Providers are paid per use from an escrow, so no one holds a custodial balance; it is the settlement rail, not the headline. |

@@ -213,6 +213,13 @@
   flex-direction: column;
   gap: 15px;
 }
+.inbox-older {
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
 .inbox-message {
   align-self: flex-start;
   max-width: 82%;
