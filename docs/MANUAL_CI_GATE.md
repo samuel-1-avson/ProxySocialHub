@@ -144,3 +144,65 @@ VM with `gcloud compute scp` first: piping a script into `gcloud compute ssh` fa
 slower); if that is still not enough it stops before touching the running stack. It never removes anything a
 container uses. The limits are environment variables (`DEPLOY_MIN_FREE_GB`, `DEPLOY_HARD_MIN_FREE_GB`,
 `DEPLOY_PRUNE_CACHE_UNUSED_FOR`).
+
+## Rolling the Explorer by hand
+
+The public Explorer (`explorer.proxyhubb.com`, `apps/explorer`) is not part of the deploy above. It is built
+into an image, copied to the VM and rolled by `scripts/gcp-roll-explorer-image.sh`, which health-checks the new
+container and puts the old image and Caddy config back if anything fails. The **Deploy** workflow does this
+when Actions runs. By hand, with no local Docker, it is:
+
+1. **Run the gates on the exact revision.** Export it with LF endings (a Windows checkout is CRLF) and run what
+   the workflow's validation step runs:
+
+   ```bash
+   REV=$(git rev-parse origin/main)   # the full 40-character revision, never a branch name
+   git -c core.autocrlf=false -c core.eol=lf archive $REV apps/explorer packages/design-system | tar -x -C <scratch>
+   cd <scratch>/apps/explorer
+   npm ci && npm audit --omit=dev --audit-level=high && npm run typecheck && npm test && npm run build
+   npx playwright test   # both browsers; add --project=chromium if WebKit is not installed, and say so
+   ```
+
+   The repo's secret scan only runs in Actions, so also search the tree for keys by hand.
+2. **Build the image in Cloud Build** (about 2 minutes). From the repo root:
+
+   ```bash
+   git -c core.autocrlf=false -c core.eol=lf archive --format=tar.gz -o explorer-source.tgz $REV apps/explorer packages/design-system
+   gcloud builds submit explorer-source.tgz --project=gen-lang-client-0022105784 \
+     --config=scripts/cloudbuild-explorer.yaml --substitutions=_REVISION=$REV --async
+   gcloud builds describe <build id> --project=gen-lang-client-0022105784 --format='value(status)'
+   gcloud builds log <build id> --project=gen-lang-client-0022105784 | grep -E 'revision=|explorer-image.tar'
+   ```
+
+   The log's last step prints the image's revision label and the **sha256 of the tar**: copy it. Do not build
+   the same revision twice, because the second build replaces the stored tar and the recorded sha256 stops
+   matching.
+3. **Put the image on the VM and check it.** The VM can read the release bucket:
+
+   ```bash
+   gcloud storage cp gs://gen-lang-client-0022105784_cloudbuild/proxyhubb/public-frontend-releases/$REV/explorer-image.tar /tmp/proxyhubb-explorer-$REV.tar
+   echo "<sha256 from the build log>  /tmp/proxyhubb-explorer-$REV.tar" | sha256sum -c -
+   ```
+
+4. **Copy the roll script and the compose overlay from the same revision** to the VM, one `gcloud compute scp`
+   per file: `scripts/gcp-roll-explorer-image.sh` as `/tmp/proxyhubb-explorer-$REV.sh` and
+   `scripts/explorer-release.compose.yml` as `/tmp/proxyhubb-explorer-$REV.yml`. In Git Bash, `git show
+   <rev>:<path>` needs `MSYS_NO_PATHCONV=1` in front.
+5. **Roll, detached**, so a dropped SSH session cannot kill it half way (it takes about a minute):
+
+   ```bash
+   TS=$(date -u +%Y%m%dT%H%M%SZ)
+   sudo systemd-run --unit=proxyhubb-explorer-roll-$TS --collect --quiet bash -c "env EXPECTED_REVISION=$REV bash /tmp/proxyhubb-explorer-$REV.sh > /var/log/proxyhubb-explorer-roll-$TS.log 2>&1; echo ROLL_EXIT=\$? >> /var/log/proxyhubb-explorer-roll-$TS.log"
+   sudo tail -f /var/log/proxyhubb-explorer-roll-$TS.log
+   ```
+
+   Success ends with `Explorer staged: revision=<rev> ... rollback_image=<id>` and `ROLL_EXIT=0`. Note the
+   `rollback_image`.
+6. **Check by hand:** `curl https://explorer.proxyhubb.com/api/health` shows the new revision; `/`, `/nodes`,
+   `/transactions`, `/analytics`, `/governance` and `/about` return 200; `sudo docker ps` shows the Explorer
+   healthy and every other container with its old uptime.
+
+The roll only recreates the Explorer container. The API and everything else keep running, and an API change
+still needs the deploy above. The previous image stays on the VM as `proxyhubb-production/explorer:<old rev>`
+until a later deploy's cleanup (which keeps the newest two), so an older release can be put back by running the
+same steps with its revision, or by recreating the container from that tag.

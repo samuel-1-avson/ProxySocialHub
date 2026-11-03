@@ -1,0 +1,59 @@
+# Build the public Explorer release image in Cloud Build while GitHub Actions is billing-locked.
+#
+# It mirrors the explorer build step of .github/workflows/deploy.yml: the same Dockerfile, build args
+# and OCI revision label, and the image is saved as a tar for scripts/gcp-roll-explorer-image.sh.
+# The full procedure is "Rolling the Explorer by hand" in docs/MANUAL_CI_GATE.md. From the repo root:
+#
+#   git -c core.autocrlf=false -c core.eol=lf archive --format=tar.gz -o explorer-source.tgz \
+#     <full 40-hex sha> apps/explorer packages/design-system
+#   gcloud builds submit explorer-source.tgz --project=gen-lang-client-0022105784 \
+#     --config=scripts/cloudbuild-explorer.yaml --substitutions=_REVISION=<full 40-hex sha> --async
+#
+# _REVISION has no default on purpose: leaving it out makes Cloud Build reject the request instead of
+# building an image the roll script would refuse. The tar is uploaded to
+# gs://gen-lang-client-0022105784_cloudbuild/proxyhubb/public-frontend-releases/<sha>/explorer-image.tar.
+# Do not build the same revision twice: the second build replaces that object, so the sha256 you
+# recorded for the first one stops matching.
+steps:
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - apps/explorer/Dockerfile
+      - -t
+      - ghcr.io/samuel-1-avson/explorer:${_REVISION}
+      - --build-arg
+      - NEXT_PUBLIC_APP_URL=https://proxyhubb.com
+      - --build-arg
+      - BUILD_REVISION=${_REVISION}
+      - --label
+      - org.opencontainers.image.revision=${_REVISION}
+      - --label
+      - org.opencontainers.image.source=https://github.com/samuel-1-avson/ProxySocialHub
+      - .
+  - id: save
+    name: gcr.io/cloud-builders/docker
+    args:
+      - save
+      - -o
+      - /workspace/explorer-image.tar
+      - ghcr.io/samuel-1-avson/explorer:${_REVISION}
+  # Prints the image's revision label and the tar's sha256. Copy the sha256: the VM checks the download
+  # against it before the roll.
+  - id: receipt
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        docker inspect ghcr.io/samuel-1-avson/explorer:${_REVISION} --format 'image={{.Id}} revision={{index .Config.Labels "org.opencontainers.image.revision"}} env={{range .Config.Env}}{{if eq (printf "%.23s" .) "EXPLORER_BUILD_REVISION"}}{{.}}{{end}}{{end}}'
+        sha256sum /workspace/explorer-image.tar
+        ls -l /workspace/explorer-image.tar
+artifacts:
+  objects:
+    location: gs://gen-lang-client-0022105784_cloudbuild/proxyhubb/public-frontend-releases/${_REVISION}/
+    paths:
+      - explorer-image.tar
+options:
+  logging: CLOUD_LOGGING_ONLY
