@@ -463,10 +463,16 @@ func issueGatewayToken(c *gin.Context) {
 
 	// Claims must match the struct expected by tunnel.rs:
 	//   sub string, role string, exp usize
+	//
+	// knd marks this as a provider-node token. The node sends this same JWT to the control API
+	// (leases, node list and heartbeats), and the auth middleware only accepts a token with no
+	// kind when it carries a login session (sid); this one never does. With the kind set it is
+	// checked against the account alone and confined to the node routes (RestrictProviderToken).
 	claims := jwt.MapClaims{
 		"sub":     token.UserID.String(),
 		"user_id": token.UserID.String(), // Backward compatibility for legacy consumers.
 		"role":    "provider",
+		"knd":     crypto.TokenKindProviderNode,
 		"iat":     now.Unix(),
 		"exp":     now.Add(gatewayTokenTTL).Unix(),
 		"iss":     "proxyhubb-control-api",
