@@ -10,6 +10,7 @@ import {
   Gauge,
   GitCompareArrows,
   Layers,
+  Lock,
   MapPin,
   Shield,
   ShieldCheck,
@@ -31,6 +32,7 @@ import {
 import { CatalogProductBadge } from "@/components/marketplace/CatalogProductBadge";
 import {
   displayListingTitle,
+  isMaskedLocation,
   listingShowsCatalogSubtitle,
 } from "@/lib/listing-display";
 import { Modal } from "@/components/patterns/Modal";
@@ -272,8 +274,12 @@ export function Marketplace() {
                       className="offer-region"
                       aria-label={countryName(listing.country)}
                     >
-                      {listing.country || (
-                        <MapPin size={18} aria-hidden="true" />
+                      {isMaskedLocation(listing.country) ? (
+                        <Lock size={16} aria-hidden="true" />
+                      ) : (
+                        listing.country || (
+                          <MapPin size={18} aria-hidden="true" />
+                        )
                       )}
                     </span>
                     <Status

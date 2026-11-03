@@ -16,6 +16,7 @@ import {
 import { useAuth } from "@/lib/auth";
 import {
   getThread,
+  getThreadPosts,
   createPost,
   votePost,
   voteThread,
@@ -43,7 +44,31 @@ function ThreadContent({ id }: { id: string }) {
   const key = ["forum", "thread", id];
   const query = useQuery({ queryKey: key, queryFn: () => getThread(id) });
   const thread = query.data?.thread;
-  const posts = query.data?.posts ?? [];
+  const [extraPosts, setExtraPosts] = useState<ForumPost[]>([]);
+  const [nextPage, setNextPage] = useState(2);
+  const firstPagePosts = query.data?.posts ?? [];
+  const posts = [...firstPagePosts];
+  for (const post of extraPosts) {
+    if (!posts.some((item) => item.id === post.id)) posts.push(post);
+  }
+  const totalPosts = query.data?.total_posts ?? posts.length;
+  const solutionPost = query.data?.solution_post ?? null;
+  const solutionLoaded =
+    !solutionPost || posts.some((post) => post.id === solutionPost.id);
+  const loadMore = useMutation({
+    retry: false,
+    mutationFn: () => getThreadPosts(thread!.id, { page: nextPage }),
+    onSuccess: (result) => {
+      setExtraPosts((previous) => {
+        const merged = [...previous];
+        for (const post of result.posts) {
+          if (!merged.some((item) => item.id === post.id)) merged.push(post);
+        }
+        return merged;
+      });
+      setNextPage((current) => current + 1);
+    },
+  });
   const [draft, setDraft] = useState("");
   const [replyTo, setReplyTo] = useState<ForumPost | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
@@ -83,6 +108,8 @@ function ThreadContent({ id }: { id: string }) {
     onSuccess: () => {
       setDraft("");
       setReplyTo(null);
+      setExtraPosts([]);
+      setNextPage(2);
       void client.invalidateQueries({ queryKey: key });
       void client.invalidateQueries({ queryKey: ["forum", "recent"] });
     },
@@ -91,7 +118,18 @@ function ThreadContent({ id }: { id: string }) {
     retry: false,
     mutationFn: (post: ForumPost) =>
       markPostSolution(post.id, !post.is_solution),
-    onSuccess: () => void client.invalidateQueries({ queryKey: key }),
+    onSuccess: (updated) => {
+      setExtraPosts((previous) =>
+        previous.map((post) =>
+          post.id === updated.id
+            ? updated
+            : updated.is_solution
+              ? { ...post, is_solution: false }
+              : post,
+        ),
+      );
+      void client.invalidateQueries({ queryKey: key });
+    },
   });
   const canMark =
     !!user &&
@@ -274,7 +312,7 @@ function ThreadContent({ id }: { id: string }) {
             {thread.is_pinned && <Status>Pinned</Status>}
             {thread.is_locked && <Status tone="warning">Locked</Status>}
             <span className="ui-subtle">
-              {thread.views_count ?? 0} views · {posts.length} replies
+              {thread.views_count ?? 0} views · {totalPosts} replies
             </span>
           </div>
         </div>
@@ -316,10 +354,18 @@ function ThreadContent({ id }: { id: string }) {
           Your report has been submitted for review.
         </p>
       )}
+      {solutionPost && !solutionLoaded && (
+        <section aria-label="Accepted solution">
+          <div className="ui-section-heading">
+            <h2>Accepted solution</h2>
+          </div>
+          {renderPost(solutionPost)}
+        </section>
+      )}
       <section aria-label="Discussion replies">
         <div className="ui-section-heading">
           <h2>
-            {posts.length} {posts.length === 1 ? "reply" : "replies"}
+            {totalPosts} {totalPosts === 1 ? "reply" : "replies"}
           </h2>
         </div>
         {posts.length === 0 ? (
@@ -331,6 +377,25 @@ function ThreadContent({ id }: { id: string }) {
           <div className="thread-replies">
             {(roots.length ? roots : posts).map((post) => renderPost(post))}
           </div>
+        )}
+        {loadMore.isError && (
+          <DataError
+            title="More replies could not be loaded"
+            error={loadMore.error}
+            retry={() => loadMore.mutate()}
+          />
+        )}
+        {posts.length < totalPosts && (
+          <button
+            type="button"
+            className="ui-button secondary"
+            disabled={loadMore.isPending}
+            onClick={() => loadMore.mutate()}
+          >
+            {loadMore.isPending
+              ? "Loading more replies…"
+              : "Load more replies (" + (totalPosts - posts.length) + " more)"}
+          </button>
         )}
       </section>
       {thread.is_locked ? (

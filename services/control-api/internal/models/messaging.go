@@ -55,17 +55,21 @@ type Message struct {
 	Content        string     `gorm:"not null" json:"content"`
 	ReadAt         *time.Time `json:"read_at,omitempty"`
 	CreatedAt      time.Time  `json:"created_at"`
-	
+
 	// Enhanced messaging fields
-	Type        string     `gorm:"size:20;default:'text'" json:"type"`
-	ReplyToID   *uuid.UUID `gorm:"type:uuid" json:"reply_to_id,omitempty"`
-	EditedAt    *time.Time `json:"edited_at,omitempty"`
-	IsDeleted   bool       `gorm:"default:false" json:"is_deleted"`
+	Type      string     `gorm:"size:20;default:'text'" json:"type"`
+	ReplyToID *uuid.UUID `gorm:"type:uuid" json:"reply_to_id,omitempty"`
+	EditedAt  *time.Time `json:"edited_at,omitempty"`
+	IsDeleted bool       `gorm:"default:false" json:"is_deleted"`
+	// ClientMsgID is the client-generated idempotency key for the send that
+	// created this message (migration 000177). Unique per
+	// (conversation_id, sender_id) when present.
+	ClientMsgID *string `gorm:"column:client_msg_id;size:128" json:"client_msg_id,omitempty"`
 
 	// Preloaded relations
-	Sender       *User              `gorm:"foreignKey:SenderID" json:"sender,omitempty"`
-	Conversation *Conversation      `gorm:"foreignKey:ConversationID" json:"conversation,omitempty"`
-	Reactions    []MessageReaction  `gorm:"foreignKey:MessageID" json:"reactions,omitempty"`
+	Sender       *User             `gorm:"foreignKey:SenderID" json:"sender,omitempty"`
+	Conversation *Conversation     `gorm:"foreignKey:ConversationID" json:"conversation,omitempty"`
+	Reactions    []MessageReaction `gorm:"foreignKey:MessageID" json:"reactions,omitempty"`
 }
 
 // MessageReaction represents a reaction to a message
@@ -104,6 +108,7 @@ type StartConversationRequest struct {
 	RecipientID uuid.UUID  `json:"recipient_id" binding:"required"`
 	ListingID   *uuid.UUID `json:"listing_id"`
 	Message     string     `json:"message" binding:"required,min=1,max=2000"`
+	ClientMsgID string     `json:"client_msg_id" binding:"omitempty,max=128"`
 }
 
 // SendMessageRequest represents a request to send a message

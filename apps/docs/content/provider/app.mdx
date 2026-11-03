@@ -30,13 +30,41 @@ The app asks you to read this before it does anything, and to confirm that you o
 - Only web traffic is allowed (ports 80, 443, 8080 and 8443), and connections to private or local addresses on your own network are blocked.
 - ProxyHubb's rules say buyers must use the service lawfully, but you are the owner of the connection. If someone misuses it, your internet provider may contact you. **Sharing is not risk-free.**
 
+## What the window shows
+
+While you are sharing, the window shows two kinds of numbers.
+
+**From this computer**, refreshed every few seconds: how long the node has been connected, how much it has shared, how many connections it has now (and how many it has served and how many of those failed), its current speed up and down, and the delay to ProxyHubb's gateway. A dash for the delay means the node has not measured one yet.
+
+**From ProxyHubb's servers**, asked every 5 minutes while you are sharing, and when you press **Refresh** (no more than once every 20 seconds):
+
+| Under *On ProxyHubb* | What it means |
+|----------------------|---------------|
+| *ProxyHubb sees this computer as online.* | The servers list this computer as online. |
+| *…does not show this computer as online yet.* | The servers know this computer but have not marked it online. This is normal for a few minutes after connecting. |
+| *…does not list this computer on your account.* | If you just connected, wait a few minutes and press Refresh. |
+| *…did not accept this computer's key.* | The key may have been revoked in your dashboard. The computer has to be connected again. |
+| *Could not reach ProxyHubb to check.* | Your connection or ProxyHubb may be down. This does not mean sharing has stopped. |
+
+**Earnings** show the last 7 days, the last 30 days, what is waiting to be paid and what has been paid, in SOL: the same figures as the earnings page in your dashboard. Earnings are credited when a buyer's session ends and its usage is settled, so they can lag behind what you have shared.
+
+To ask the servers, the app uses this computer's key, the same way the node does. The window never shows IP addresses.
+
+## When it will not connect
+
+On the *Connecting* and *Something needs attention* screens you can:
+
+- Press **Check my connection** to run the node's checks. It can take a minute. The result is a short list in plain words, such as a firewall blocking the connection, or no internet. If nothing is found it says so. Pause stays available while a check runs.
+- Press **Save support details** to write a file for ProxyHubb support and open its folder. The file is kept in `%APPDATA%\com.proxyhubb.provider\support`, and only the newest five are kept. It leaves out your keys and passwords. It does include folder names on this computer, your account's ID and the end of the node's log, so send it only to ProxyHubb support.
+
 ## Pausing, closing and quitting
 
 | You do this | What happens |
 |-------------|--------------|
 | Press **Pause sharing** | The node stops. It stays stopped, even after a restart, until you press **Resume sharing**. |
+| Press **Stop this node…** (only shown for a node started outside the app) | The app asks you to confirm. If you confirm, the node stops and stays stopped until you press **Resume sharing**. |
 | Close the window | The window hides to the tray. **Sharing keeps going.** |
-| Right-click the tray icon and choose **Quit (stops sharing)** | The node stops and the app closes. The next time you open the app, or sign in with *Start when I sign in* ticked, sharing resumes if it was on. |
+| Right-click the tray icon and choose **Quit (stops sharing)** | The node the app started stops and the app closes. A node started outside the app keeps running; the menu says so. The next time you open the app, or sign in with *Start when I sign in* ticked, sharing resumes if it was on. |
 
 The tray icon's hover text tells you the state: sharing, connecting, paused, or needs attention. *Start when I sign in to Windows* is a checkbox on the main screen; it adds the app to Windows Startup, where you can also turn it off under **Task Manager → Startup apps**.
 
@@ -44,7 +72,7 @@ The tray icon's hover text tells you the state: sharing, connecting, paused, or 
 
 The app and the [Provider CLI](/docs/provider/cli) share one node, so they always agree. If you paired with the app you can also run `provider-node status` in a terminal, and the other way round.
 
-If a node was already running when you opened the app (you started it with the CLI or the website's setup script), the app picks it up, shows it as sharing, and from then on treats it as yours to keep running, including after a restart. Stop it with **Pause sharing** in the app. Stopping it from a terminal while the app is open only makes the app start it again within a few seconds.
+If a node was already running when you opened the app (you started it with the CLI or the website's setup script), the app picks it up and shows it as sharing, marked as started outside the app. The app does not stop a node it did not start unless you ask: press **Stop this node…** and confirm. Pause sharing is not offered for it. Stopping it from a terminal while the app is open only makes the app start it again within a few seconds, because the app keeps your wish to share.
 
 | What | Where |
 |------|-------|
@@ -54,22 +82,32 @@ If a node was already running when you opened the app (you started it with the C
 
 Keep `provider.toml` private: it holds the key that connects this computer to your account.
 
-## Disconnecting a computer
+## Disconnecting a computer, or switching account
 
-Uninstalling the app (Windows **Settings → Apps**) does not delete `provider.toml` and does not revoke the node's key. To disconnect a computer completely:
+Press **Disconnect this computer…** at the bottom of the window (also on the *Something needs attention* screen) and confirm. The app then:
 
-1. Choose **Quit** from the tray icon, then uninstall the app.
-2. In your dashboard, open **Tokens** and revoke the token named `Paired: <your computer's name>`. Revoking it cuts the computer off immediately.
-3. Delete `%APPDATA%\proxyhubb\provider.toml` if you do not need it.
+- stops the node, even one that was started outside the app, because you asked for it by name;
+- moves `provider.toml` aside to `provider.toml.disconnected-<time>` in the same folder, and the node's running totals (`stats.json`) aside next to them, so a computer you connect to a different account starts from zero. Nothing is deleted;
+- returns to the *Connect this computer* screen, where you can connect to the same account or another one.
 
-Paired tokens do not expire, so a lost or retired computer should be revoked rather than left.
+**The key is not revoked yet.** A node cannot revoke its own key, so the kept `provider.toml.disconnected-…` file still holds a working key until you do the last step yourself: in your dashboard open **Tokens** and revoke the token named `Paired: <your computer's name>`. The app shows a reminder with an **Open Tokens** button. Once the key is revoked, delete the kept file.
+
+If the node does not stop in time, nothing is moved and sharing carries on as before.
+
+To retire a computer without using the button (for example the app is already uninstalled), revoke the token the same way and delete `%APPDATA%\proxyhubb\provider.toml`. Uninstalling the app does neither. Paired tokens do not expire, so a lost or retired computer should be revoked rather than left.
+
+## Restart, settings and new versions
+
+- **Restart node** (next to *Pause sharing* while connecting or sharing) stops the node and starts it again. It is for a node that is stuck on *Connecting…*. It is not offered for a node that was started outside the app; use **Stop this node…** for that and then **Resume sharing**.
+- **Node settings** (a fold-out near the bottom) lists the gateways, the connection type, the ports the node may open connections to, the sites it blocks, and what this computer offers ProxyHubb: *Up to N connections and N Mbps*. Those two numbers tell ProxyHubb what the computer offers; the node does not use them to slow your own connection down. The settings are shown for reading and cannot be changed from the app yet. If certificate checks for the gateway are turned off, the window says so.
+- **A newer version** of the app shows a notice at the top with **Get it**, which opens the download page. The app checks when it starts and every few hours, and it does not update itself: you install the new version yourself. Nothing is checked until you have agreed to what sharing means.
 
 ## Troubleshooting
 
 | You see | What to do |
 |---------|-----------|
-| **Connecting…** for more than a minute | Check your internet connection. The window shows the node's last error; if it names the gateway, a firewall or network filter may be blocking outgoing connections to `proxy.proxyhubb.com` on port 3128. You can press **Pause sharing** at any time. |
-| **Something needs attention** | The message says what failed. Press **Try again**; if it keeps failing, run `provider-node doctor` in a terminal for a detailed check. |
+| **Connecting…** for more than a minute | Check your internet connection. The window shows the node's last error; if it names the gateway, a firewall or network filter may be blocking outgoing connections to `proxy.proxyhubb.com` on port 3128. Press **Check my connection** for a plain-words list of what is wrong. You can press **Pause sharing** at any time. |
+| **Something needs attention** | The message says what failed. Press **Try again**; if it keeps failing, press **Check my connection**, and if that does not explain it, **Save support details** and send the file to ProxyHubb support. |
 | *The code expired* | Press **Connect** for a new one. |
 | *The request was denied* | The code was denied in the dashboard. Nothing was connected. Start again and approve it. |
 | A Windows **SmartScreen** warning when installing | Expected for the preview, which is not signed yet. Only continue if you downloaded the installer from ProxyHubb. |

@@ -20,8 +20,8 @@ export function NetworkShell({ children }: NetworkShellProps) {
                         Proxy <span className="text-primary">network</span>
                     </h1>
                     <p className="text-sm text-muted-foreground mt-2 max-w-2xl">
-                        Follow network activity here. The map below shows live listing and node pins; use the
-                        marketplace map for filters, Q&A, and wallet checkout.
+                        Follow network activity here. The map below shows listing and node pins from the
+                        latest marketplace data; use the marketplace map for filters, Q&A, and wallet checkout.
                     </p>
                 </div>
 

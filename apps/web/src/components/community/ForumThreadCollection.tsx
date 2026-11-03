@@ -1,12 +1,14 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { MessageSquare, Plus } from "lucide-react";
 import {
   getPopularThreads,
   getRecentThreads,
   getUnansweredThreads,
+  type ForumThread,
 } from "@/lib/forum-api";
 import {
   DataError,
@@ -40,7 +42,27 @@ export function ForumThreadCollection({ view }: { view: keyof typeof views }) {
     queryKey: ["forum", view],
     queryFn: () => config.load(20),
   });
-  const threads = query.data?.threads ?? [];
+  const [extraThreads, setExtraThreads] = useState<ForumThread[]>([]);
+  const [nextPage, setNextPage] = useState(2);
+  const threads = [...(query.data?.threads ?? [])];
+  for (const thread of extraThreads) {
+    if (!threads.some((item) => item.id === thread.id)) threads.push(thread);
+  }
+  const total = query.data?.total ?? threads.length;
+  const loadMore = useMutation({
+    retry: false,
+    mutationFn: () => config.load(20, nextPage),
+    onSuccess: (result) => {
+      setExtraThreads((previous) => {
+        const merged = [...previous];
+        for (const thread of result.threads) {
+          if (!merged.some((item) => item.id === thread.id)) merged.push(thread);
+        }
+        return merged;
+      });
+      setNextPage((current) => current + 1);
+    },
+  });
   return (
     <div className="ui-page forum-page">
       <PageHeading
@@ -71,11 +93,30 @@ export function ForumThreadCollection({ view }: { view: keyof typeof views }) {
           icon={<MessageSquare size={28} />}
         />
       ) : (
-        <div className="forum-thread-list">
-          {threads.map((thread) => (
-            <ForumThreadCard key={thread.id} thread={thread} />
-          ))}
-        </div>
+        <>
+          <div className="forum-thread-list">
+            {threads.map((thread) => (
+              <ForumThreadCard key={thread.id} thread={thread} />
+            ))}
+          </div>
+          {loadMore.isError && (
+            <DataError
+              title="More discussions could not be loaded"
+              error={loadMore.error}
+              retry={() => loadMore.mutate()}
+            />
+          )}
+          {threads.length < total && (
+            <button
+              type="button"
+              className="ui-button secondary"
+              disabled={loadMore.isPending}
+              onClick={() => loadMore.mutate()}
+            >
+              {loadMore.isPending ? "Loading…" : "Load more discussions"}
+            </button>
+          )}
+        </>
       )}
     </div>
   );

@@ -863,6 +863,58 @@ pub fn print_human(report: &DoctorReport) {
 mod tests {
     use super::*;
 
+    /// The desktop app (apps/provider-app, src-tauri/src/diagnosis.rs) reads exactly these
+    /// fields, and maps `remediation_code` to its own wording. If this fails because a field
+    /// moved or a code was renamed, update the app in the same change.
+    #[test]
+    fn doctor_json_keeps_the_fields_the_desktop_app_reads() {
+        let mut checks = Vec::new();
+        push(&mut checks, "daemon", true, "info", "Provider node running");
+        push_fix(
+            &mut checks,
+            "control_api_health",
+            false,
+            "error",
+            "Cannot reach Control API",
+            "Start the stack",
+            "control_api_unreachable",
+        );
+        let v = serde_json::to_value(finish("/p/provider.toml".into(), checks)).unwrap();
+        assert_eq!(v["ok"], false);
+        assert_eq!(v["config_path"], "/p/provider.toml");
+        assert_eq!(v["checks"][0]["id"], "daemon");
+        assert_eq!(v["checks"][0]["ok"], true);
+        assert_eq!(v["checks"][0]["severity"], "info");
+        assert!(v["checks"][0].get("remediation_code").is_none());
+        assert_eq!(v["checks"][1]["ok"], false);
+        assert_eq!(v["checks"][1]["severity"], "error");
+        assert_eq!(
+            v["checks"][1]["remediation_code"],
+            "control_api_unreachable"
+        );
+    }
+
+    /// The remediation codes the app has wording for exist in this file. A rename here without
+    /// the app would turn a specific finding into the generic one.
+    #[test]
+    fn the_remediation_codes_the_desktop_app_knows_are_still_emitted() {
+        let source = include_str!("doctor.rs");
+        for code in [
+            "config_missing",
+            "control_api_unreachable",
+            "control_api_unhealthy",
+            "provider_auth_failed",
+            "gateway_dns_failed",
+            "gateway_tcp_unreachable",
+            "gateway_tls_failed",
+            "daemon_not_running",
+            "daemon_stale_pid",
+            "metrics_unreachable",
+        ] {
+            assert!(source.contains(&format!("\"{code}\"")), "{code}");
+        }
+    }
+
     #[test]
     fn parses_gateway_targets() {
         assert_eq!(

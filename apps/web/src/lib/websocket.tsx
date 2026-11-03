@@ -151,6 +151,8 @@ export const WS_MESSAGE_TYPES = {
   SYSTEM_ALERT: 'system_alert',
   // Social feature message types
   NEW_MESSAGE: 'new_message',
+  MESSAGE_UPDATED: 'message_updated',
+  MESSAGE_DELETED: 'message_deleted',
   NEW_ORDER: 'new_order',
   NEW_REVIEW: 'new_review',
   NEW_FOLLOWER: 'new_follower',

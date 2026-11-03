@@ -412,7 +412,8 @@ connection_type = "residential"
         # ------------------------------------------------------------------ guided
         Write-Host ''
         Write-Host 'You will right-click the tray icon several times. On Windows 11 it may be hidden: click the ^ arrow next to the clock.' -ForegroundColor White
-        Write-Host 'The menu reads: Open ProxyHubb Provider / Pause sharing / Resume sharing / Quit (stops sharing).' -ForegroundColor White
+        Write-Host 'The menu reads: a grey status line (for example "Sharing" or "Paused") / Open ProxyHubb Provider / Pause sharing / Resume sharing / Quit (stops sharing).' -ForegroundColor White
+        Write-Host 'Only the action that can run now is enabled: Pause while sharing, Resume while paused.' -ForegroundColor White
         if (-not $NoPause) { [void](Read-Host 'Press Enter to launch the app') }
 
         Show-Step '1  Launch' @('The app opens with sharing already on (the profile is pre-agreed). Nothing to click.')
