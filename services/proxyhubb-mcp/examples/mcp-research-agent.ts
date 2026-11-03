@@ -9,6 +9,10 @@
 //   PROXYHUBB_API_KEY=<phub_ key with orders:create> npm run example
 //                                       # orders only, without your JWT
 //   EXAMPLE_COUNTRY=US npm run example  # pick another country
+//   EXAMPLE_URL=https://example.com npm run example
+//                                       # also fetch_url that page through the exit (refused
+//                                       # unless verified; EXAMPLE_REQUIRE_VERIFIED=0 fetches
+//                                       # anyway, labelled unverified)
 //
 // The full proxy URL is never printed (masked via redact.ts). In a real agent
 // you would now hand proxy_url to Playwright/fetch and do the task — then
@@ -87,6 +91,27 @@ try {
     console.log("Hand proxy_url to your browser/fetch now — and only trust the region if assurance=verified.");
   } else if (!hasToken && !hasKey) {
     console.log("Set PROXYHUBB_ACCESS_TOKEN (or an orders:create PROXYHUBB_API_KEY) to also get a session and verify its exit.");
+  }
+
+  const pageUrl = process.env.EXAMPLE_URL?.trim();
+  if (pageUrl && (hasToken || hasKey)) {
+    // What a chat agent would call: no credential comes back, only the page.
+    const page = structured(
+      await client.callTool({
+        name: "fetch_url",
+        arguments: { url: pageUrl, country, require_verified: process.env.EXAMPLE_REQUIRE_VERIFIED !== "0" },
+      }),
+    );
+    const exit = (page.exit ?? {}) as Record<string, unknown>;
+    console.log(
+      `fetch_url: ${String(page.status)}${page.http_status ? ` (HTTP ${String(page.http_status)})` : ""} exit=${String(exit.assurance ?? "-")}${page.code ? ` code=${String(page.code)}` : ""}`,
+    );
+    if (page.status === "fetched") {
+      console.log(`Title: ${String(page.title)}`);
+      console.log(`Text: ${String(page.text ?? "").slice(0, 200).replace(/\s+/g, " ")}…`);
+    } else if (page.message) {
+      console.log(String(page.message));
+    }
   }
 } finally {
   await client.close();

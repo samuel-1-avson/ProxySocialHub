@@ -577,7 +577,8 @@ kbd {
   gap: 1.1rem;
   margin: 0 0 1.5rem;
 }
-.role-grid > :last-child { grid-column: 1 / -1; }
+/* A lone card on the last row spans it; an even count stays a clean grid. */
+.role-grid > :last-child:nth-child(odd) { grid-column: 1 / -1; }
 
 .path-card {
   display: grid;

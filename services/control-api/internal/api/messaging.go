@@ -73,7 +73,7 @@ func getConversations(c *gin.Context) {
 	results := make([]models.ConversationWithPreview, len(conversations))
 	if len(conversations) == 0 {
 		c.JSON(http.StatusOK, gin.H{
-			"conversations": results,
+			"conversations": conversationWithPreviewDTOs(results),
 			"total":         total,
 			"page":          page,
 			"limit":         limit,
@@ -139,7 +139,7 @@ func getConversations(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"conversations": results,
+		"conversations": conversationWithPreviewDTOs(results),
 		"total":         total,
 		"page":          page,
 		"limit":         limit,
@@ -172,6 +172,10 @@ func startConversation(c *gin.Context) {
 		return
 	}
 
+	if rejectIfBlocked(c, userID, req.RecipientID) {
+		return
+	}
+
 	// Check if conversation exists (in either direction)
 	var existingConv models.Conversation
 	err := db.Social().Where(
@@ -193,7 +197,7 @@ func startConversation(c *gin.Context) {
 		tx.Commit()
 
 		db.Social().Preload("User1").Preload("User2").First(&existingConv, "id = ?", existingConv.ID)
-		c.JSON(http.StatusOK, existingConv)
+		c.JSON(http.StatusOK, conversationDTOFrom(existingConv))
 		return
 	}
 
@@ -222,7 +226,7 @@ func startConversation(c *gin.Context) {
 	tx.Commit()
 
 	db.Social().Preload("User1").Preload("User2").First(&conv, "id = ?", conv.ID)
-	c.JSON(http.StatusCreated, conv)
+	c.JSON(http.StatusCreated, conversationDTOFrom(conv))
 }
 
 // getMessages returns messages in a conversation
@@ -271,7 +275,7 @@ func getMessages(c *gin.Context) {
 	tombstoneDeletedAll(messages)
 
 	c.JSON(http.StatusOK, gin.H{
-		"messages": messages,
+		"messages": messageDTOs(messages),
 		"total":    total,
 		"page":     page,
 		"limit":    limit,
@@ -313,6 +317,10 @@ func sendMessage(c *gin.Context) {
 		return
 	}
 
+	if rejectIfBlocked(c, userID, conv.GetOtherParticipant(userID)) {
+		return
+	}
+
 	if req.ReplyToID != nil {
 		var count int64
 		if err := db.Social().Model(&models.Message{}).
@@ -351,7 +359,7 @@ func sendMessage(c *gin.Context) {
 	}
 	ws.BroadcastToUser(recipientID.String(), ws.MsgTypeNewMessage, gin.H{
 		"conversation_id": convID,
-		"message":         msg,
+		"message":         messageDTOFrom(msg),
 	})
 	dispatchUserNotification(c.Request.Context(), userNotification{
 		UserID:     recipientID,
@@ -366,7 +374,7 @@ func sendMessage(c *gin.Context) {
 		Dedupe:     true,
 	})
 
-	c.JSON(http.StatusCreated, msg)
+	c.JSON(http.StatusCreated, messageDTOFrom(msg))
 }
 
 // markAsRead marks all messages as read
@@ -466,16 +474,7 @@ func editMessage(c *gin.Context) {
 	}
 
 	db.Social().Preload("Sender").First(&msg, "id = ?", msg.ID)
-
-	var conv models.Conversation
-	if err := db.Social().First(&conv, "id = ?", convID).Error; err == nil {
-		ws.BroadcastToUser(conv.GetOtherParticipant(userID).String(), ws.MsgTypeMessageUpdated, gin.H{
-			"conversation_id": convID,
-			"message":         msg,
-		})
-	}
-
-	c.JSON(http.StatusOK, msg)
+	c.JSON(http.StatusOK, messageDTOFrom(msg))
 }
 
 // deleteMessage soft-deletes a message
@@ -663,7 +662,7 @@ func searchMessages(c *gin.Context) {
 		Find(&messages)
 
 	c.JSON(http.StatusOK, gin.H{
-		"messages": messages,
+		"messages": messageDTOs(messages),
 		"query":    query,
 	})
 }
