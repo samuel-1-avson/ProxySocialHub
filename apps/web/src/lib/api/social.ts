@@ -19,10 +19,25 @@ export interface Message {
     content: string;
     read_at?: string;
     created_at: string;
+    type?: string;
+    reply_to_id?: string;
+    edited_at?: string;
+    is_deleted?: boolean;
+    reactions?: Array<{
+        message_id?: string;
+        user_id: string;
+        emoji: string;
+        created_at: string;
+    }>;
 }
 
 export interface ConversationWithPreview {
     id: string;
+    /** The API sends these on the row itself, not under `conversation`. */
+    participant1?: string;
+    participant2?: string;
+    last_message_at?: string;
+    created_at?: string;
     conversation: {
         id: string;
         participants?: string[];
@@ -88,7 +103,7 @@ function normalizeUserSummary(value: unknown, fallbackName = 'Unknown'): SocialU
 
     return {
         id,
-        display_name: displayName ?? fallbackName,
+        display_name: displayName ?? username ?? fallbackName,
         username,
         avatar_url: avatarUrl,
     };
@@ -107,6 +122,10 @@ function normalizeConversation(conversation: RawConversation): ConversationWithP
 
     return {
         id: conversationId,
+        participant1: conversation.participant1,
+        participant2: conversation.participant2,
+        last_message_at: conversation.last_message_at,
+        created_at: conversation.created_at,
         conversation: {
             id: conversationId,
             participants: conversation.conversation?.participants,
@@ -176,9 +195,9 @@ export interface ConversationPage {
  * List one page of the user's conversations (newest activity first).
  */
 export async function getConversationsPage(page = 1, limit = 20): Promise<ConversationPage> {
-    const data = await apiGet<{ conversations?: RawConversation[]; total?: number; page?: number; limit?: number; has_more?: boolean }>(
-        `/v1/conversations?page=${page}&limit=${limit}`
-    );
+    // The first page keeps the historical bare URL; later pages name themselves.
+    const path = page <= 1 && limit === 20 ? '/v1/conversations' : `/v1/conversations?page=${page}&limit=${limit}`;
+    const data = await apiGet<{ conversations?: RawConversation[]; total?: number; page?: number; limit?: number; has_more?: boolean }>(path);
     const conversations = (data.conversations || []).map(normalizeConversation);
     const total = Number(data.total ?? conversations.length);
     return {
@@ -193,9 +212,9 @@ export async function getConversationsPage(page = 1, limit = 20): Promise<Conver
 /**
  * List active user conversations
  */
-export async function getConversations() {
-    const page = await getConversationsPage(1);
-    return page.conversations;
+export async function getConversations(page = 1) {
+    const result = await getConversationsPage(page);
+    return result.conversations;
 }
 
 /**
@@ -229,16 +248,49 @@ export async function getMessagesPage(conversationId: string, before?: string): 
     };
 }
 
+/** Conversations come 20 to a page; this is how far a link to one looks. */
+const CONVERSATION_PAGE_SIZE = 20;
+const MAX_CONVERSATION_PAGES = 10;
+
+/** Find one conversation by id, however far down the list it is. */
+export async function findConversation(id: string) {
+    for (let page = 1; page <= MAX_CONVERSATION_PAGES; page += 1) {
+        const rows = await getConversations(page);
+        const found = rows.find((row) => row.id === id);
+        if (found) return found;
+        if (rows.length < CONVERSATION_PAGE_SIZE) return undefined;
+    }
+    return undefined;
+}
+
 /**
- * Fetch messages from a specific conversation
+ * Fetch one page of messages. The API sends the newest first; they come back
+ * oldest first, the order a thread reads in.
  */
-export async function getMessages(conversationId: string) {
-    const page = await getMessagesPage(conversationId);
-    return page.messages;
+export interface MessagesPage {
+    messages: Message[];
+    total: number;
+    page: number;
+    limit: number;
+}
+
+export async function getMessages(conversationId: string, page = 1): Promise<MessagesPage> {
+    const data = await apiGet<{ messages?: Message[]; total?: number; page?: number; limit?: number }>(
+        `/v1/conversations/${conversationId}/messages`,
+        page > 1 ? { page: String(page) } : undefined,
+    );
+    const messages = [...(data.messages || [])].reverse();
+    return {
+        messages,
+        total: Number(data.total ?? messages.length),
+        page: Number(data.page ?? page),
+        limit: Number(data.limit ?? 50),
+    };
 }
 
 /**
  * Mark messages as read, optionally only up to a seen message (watermark).
+ * Without a watermark everything incoming is marked read.
  */
 export async function markConversationRead(conversationId: string, upToMessageId?: string) {
     return apiPost<{ message: string }>(
@@ -250,17 +302,20 @@ export async function markConversationRead(conversationId: string, upToMessageId
 /**
  * Send a message to a conversation
  */
-export async function sendMessage(conversationId: string, content: string) {
-    return apiPost<Message>(`/v1/conversations/${conversationId}/messages`, { content });
+export async function sendMessage(conversationId: string, content: string, clientMsgId?: string) {
+    return apiPost<Message>(`/v1/conversations/${conversationId}/messages`, {
+        content,
+        ...(clientMsgId ? { client_msg_id: clientMsgId } : {}),
+    });
 }
 
 /**
  * Initialize a new chat session
  */
-export async function startConversation(recipientId: string, message = '') {
+export async function startConversation(recipientId: string, message = '', clientMsgId?: string) {
     const data = await apiPost<{ id?: string; conversation_id?: string; conversation?: { id?: string } }>(
         '/v1/conversations',
-        { recipient_id: recipientId, message }
+        { recipient_id: recipientId, message, ...(clientMsgId ? { client_msg_id: clientMsgId } : {}) }
     );
 
     const conversationId = data.conversation_id || data.id || data.conversation?.id || '';

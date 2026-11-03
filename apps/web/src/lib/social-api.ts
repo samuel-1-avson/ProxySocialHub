@@ -298,8 +298,10 @@ export {
     getConversationNormalized as getConversation,
     getConversationsNormalized as getConversations,
     getMessagesNormalized as getMessages,
-    markConversationRead,
+    markConversationReadNormalized as markConversationRead,
+    mergeMessages,
     messageRecipientHref,
+    type MessageThread,
     sendMessageNormalized as sendMessage,
     startConversationNormalized as startConversation,
 } from '@/lib/messaging/social-messaging';

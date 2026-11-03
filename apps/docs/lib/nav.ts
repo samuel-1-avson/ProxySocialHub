@@ -66,11 +66,21 @@ export const NAV: NavItem[] = [
       { href: '/docs/sdks/go', label: 'Go' },
     ],
   },
-  { href: '/docs/api', label: 'API reference', code: '10' },
+  {
+    href: '/docs/agents',
+    label: 'AI agents',
+    code: '10',
+    children: [
+      { href: '/docs/agents', label: 'Overview' },
+      { href: '/docs/agents/mcp', label: 'MCP server' },
+      { href: '/docs/agents/regional-auditor', label: 'Regional Auditor' },
+    ],
+  },
+  { href: '/docs/api', label: 'API reference', code: '11' },
   {
     href: '/docs/marketplace',
     label: 'Marketplace',
-    code: '11',
+    code: '12',
     children: [
       { href: '/docs/marketplace', label: 'Overview' },
       { href: '/docs/marketplace/discovery', label: 'Discovery' },
@@ -82,16 +92,16 @@ export const NAV: NavItem[] = [
   {
     href: '/docs/provider/cli',
     label: 'Provider',
-    code: '12',
+    code: '13',
     children: [
       { href: '/docs/provider/cli', label: 'CLI' },
       { href: '/docs/provider/app', label: 'Provider app' },
       { href: '/docs/provider/nodes', label: 'Nodes' },
     ],
   },
-  { href: '/docs/troubleshooting', label: 'Troubleshooting', code: '13' },
-  { href: '/docs/changelog', label: 'Changelog', code: '14' },
-  { href: '/docs/whitepaper', label: 'Architecture draft', code: '15' },
+  { href: '/docs/troubleshooting', label: 'Troubleshooting', code: '14' },
+  { href: '/docs/changelog', label: 'Changelog', code: '15' },
+  { href: '/docs/whitepaper', label: 'Architecture draft', code: '16' },
 ];
 
 export type FlatNavItem = { href: string; label: string; section: string };

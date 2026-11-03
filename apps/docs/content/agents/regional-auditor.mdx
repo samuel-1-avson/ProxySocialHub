@@ -1,0 +1,87 @@
+---
+title: Regional Auditor
+description: See your website the way visitors in other countries do. A browser per country through a verified ProxyHubb exit, and Meta's Muse Spark model explaining what differs, with evidence.
+---
+
+A site can look fine from your laptop and still hide the sign-up button behind a cookie banner in Ghana, or show cedis to visitors in the US. The Regional Auditor checks your own site from up to two countries and tells you what differs.
+
+<Flow caption="Only a route that verifies is interpreted. Everything else is reported as what it is.">
+  <FlowStep icon="user" title="1. Say what should be true">"Sign-up is usable, prices are in the local currency"</FlowStep>
+  <FlowStep icon="house" title="2. Capture per country" arrow="verified exit">A separate browser per country, through your ProxyHubb order</FlowStep>
+  <FlowStep icon="eye" title="3. Analyse" arrow="screenshots and evidence">Meta's model writes findings that must cite the evidence</FlowStep>
+  <FlowStep icon="checklist" title="4. Fix and rerun" arrow="compare">See what was resolved, what persists and what is new</FlowStep>
+</Flow>
+
+## How it decides what to trust
+
+- The browser **measures its own exit IP** before and after loading your page, looks it up, and compares the result with the country you asked for and the country the provider declared.
+- Only a `verified` route is analysed. `mismatch`, `unverified` (including satellite networks such as Starlink), `direct_egress` and `unavailable` are reported as such and never presented as a country's behaviour.
+- The model's output must follow a strict schema. A validator removes claims the evidence does not support, downgrades unsupported defects to hypotheses, and shows every change it made.
+- Page text and screenshots are treated as untrusted input to the model.
+
+## Run it
+
+The auditor runs on your own computer as a small worker plus the web app. It is not part of proxyhubb.com yet.
+
+You need Node.js 24 or later, git, a Chrome or Chromium browser (set `AUDITOR_CHROME_PATH` if it is not found), and for the AI analysis a Meta Model API key in `MODEL_API_KEY`. Without the key the report says the analysis was not run.
+
+<Steps>
+<Step title="Install">
+
+```bash
+git clone https://github.com/samuel-1-avson/ProxySocialHub.git
+cd ProxySocialHub/apps/web
+npm install
+cd ../../services/regional-auditor
+npm install
+```
+
+</Step>
+<Step title="Try it with synthetic data first">
+
+```bash
+npm run stack -- fixture
+```
+
+This starts the worker and the web app with a fresh shared secret and a bundled demo site. Open `http://localhost:4011`, sign in, then go to **Connections → Audits**. Every page is labelled **Synthetic fixture**.
+
+</Step>
+<Step title="Run a live audit">
+
+Buy one small order per country you want to check, then:
+
+```bash
+npm run stack -- live --api-url https://api.proxyhubb.com --target https://your-site.example
+```
+
+It runs a readiness check first. In **Connections → Audits**, choose **Live**, keep **Use my funded orders**, pick the regions and run. `npm run inspect` prints the latest audit and why each region ended the way it did.
+
+</Step>
+</Steps>
+
+<Callout type="warning" title="Only audit sites you may test">
+The worker visits only the origin you pass as `--target` (plus sub-resources you allow), is read-only, and audits at most 2 regions with 6 checks and 15 MB each. Use it on your own sites, or sites you have permission to test.
+</Callout>
+
+## What you get
+
+- Per country: the exit's assurance, the network, screenshots and request evidence
+- Findings that cite evidence, separated into observed defects, regional differences that may be intentional, and hypotheses
+- **Rerun and compare**: resolved, persisting, new and not-comparable findings, for regions verified in both runs
+- A sanitised HTML or JSON export
+
+## Model and data
+
+The default model is Meta's `muse-spark-1.3` in standard mode, and requests are sent with `store: false`. The training-data ("contributor") model only runs if you set both `AUDITOR_MODEL=muse-spark-1.3-contributor` and `AUDITOR_ALLOW_CONTRIBUTOR_MODE=1`. The report page names the model each audit used.
+
+## If a region does not verify
+
+| A region shows | Meaning |
+|----------------|---------|
+| `unavailable` with `order_not_ready` | The order's session is starting; wait a minute |
+| `unavailable` with `order_region_mismatch` | The order is for a different country than the region you picked |
+| `mismatch` | The exit really is in another country: a true finding about that node |
+| `unverified` | No GeoIP answer, a satellite network, or the declared and measured countries disagree |
+| `direct_egress` | The exit IP is your own machine's: a bypass, or the node is on your own connection. Run them on different connections |
+
+The full design, evaluation results and limitations are in [`docs/hackathon/REGIONAL_AUDITOR.md`](https://github.com/samuel-1-avson/ProxySocialHub/blob/main/docs/hackathon/REGIONAL_AUDITOR.md) on GitHub.
