@@ -23,7 +23,7 @@ export function UpdateBanner({ ipc, app }: { ipc: Ipc; app: AppApi }) {
   );
 }
 
-/** This computer's node settings, for reading. Nothing here can be changed from the app. */
+/** This computer's node settings, for reading. The blocked sites are changed in their own panel. */
 export function NodeSettingsPanel({ ipc }: { ipc: Ipc }) {
   const [open, setOpen] = useState(false);
   const [settings, setSettings] = useState<NodeSettings | null>(null);
@@ -85,7 +85,8 @@ export function NodeSettingsPanel({ ipc }: { ipc: Ipc }) {
           )}
           <p className="muted small">
             The connections and speed tell ProxyHubb what this computer offers. The node does not slow your own
-            connection down to them. These settings cannot be changed from the app yet.
+            connection down to them. Only the blocked sites can be changed from the app, in the Blocked sites panel
+            below.
           </p>
           <p className="muted small path">Settings file: {settings.config_path}</p>
         </>
