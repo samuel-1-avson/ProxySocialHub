@@ -236,17 +236,20 @@ export async function markConversationRead(conversationId: string) {
 /**
  * Send a message to a conversation
  */
-export async function sendMessage(conversationId: string, content: string) {
-    return apiPost<Message>(`/v1/conversations/${conversationId}/messages`, { content });
+export async function sendMessage(conversationId: string, content: string, clientMsgId?: string) {
+    return apiPost<Message>(`/v1/conversations/${conversationId}/messages`, {
+        content,
+        ...(clientMsgId ? { client_msg_id: clientMsgId } : {}),
+    });
 }
 
 /**
  * Initialize a new chat session
  */
-export async function startConversation(recipientId: string, message = '') {
+export async function startConversation(recipientId: string, message = '', clientMsgId?: string) {
     const data = await apiPost<{ id?: string; conversation_id?: string; conversation?: { id?: string } }>(
         '/v1/conversations',
-        { recipient_id: recipientId, message }
+        { recipient_id: recipientId, message, ...(clientMsgId ? { client_msg_id: clientMsgId } : {}) }
     );
 
     const conversationId = data.conversation_id || data.id || data.conversation?.id || '';
