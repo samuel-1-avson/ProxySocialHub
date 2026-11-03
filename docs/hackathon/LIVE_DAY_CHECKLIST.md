@@ -48,6 +48,10 @@ curl -s https://api.proxyhubb.com/v1/listings/facets
   *unverified* and is never interpreted.
 * **Windows or Linux** for the provider app. The macOS download is still v1.0.6 (two versions behind).
 * The machine must stay **on and online** from the first live run until the video is recorded.
+* **Not on the auditor's internet connection.** If a node shares the public IP of the machine running the
+  audit, its exit looks exactly like a bypass and the region is reported as `direct_egress`, never verified.
+  This happened on 2026-11-03: the Ghana order's exit (MTN Ghana, Accra) was the owner PC's own public
+  address, so the node was on the same connection.
 
 What the friend does (no account needed; you approve):
 
@@ -60,7 +64,10 @@ What the friend does (no account needed; you approve):
 5. Create a **listing** for the node (small bandwidth, a normal price: current listings are $0.89 to $1.04 per GB).
 6. Confirm it appears: the facets call above should now list the new country.
 
-The Accra nodes you already have are your Ghana region; keep one running throughout.
+The Accra nodes you already have are your Ghana region; keep one running throughout, on a **different
+connection** from the laptop that runs the audit (for example the node on home broadband and the laptop on a
+phone hotspot, or the node on another device at another address). A node running on the audit laptop itself
+can never verify.
 
 **Gate:** facets lists Ghana **and** a second country, and both nodes show *online* in My nodes.
 
@@ -119,7 +126,7 @@ app. Then:
 | `unavailable`, `order_region_mismatch` | the order is for another country than the region you picked |
 | `mismatch` | the exit really is in another country: a true finding about that node, not a bug |
 | `unverified` | no GeoIP answer, or a satellite network, or declared and measured countries disagree |
-| `failed`, `direct_egress` | **stop**: the request did not use the proxy; do not film |
+| `failed`, `direct_egress` | the exit IP is the audit machine's own IP. Either the request did not use the proxy, or the node is on the same connection as the audit machine (the usual cause with your own nodes). Check the machine's IP (`curl https://api.ipify.org`); if it equals the exit, move the node or the laptop to another connection. Do not film this region |
 | the node is offline | the listing still looks buyable; start the node and retry |
 
 More causes are in `docs/hackathon/REGIONAL_AUDITOR.md` section 13.1.
@@ -151,6 +158,7 @@ the portal's limit). Do it end to end twice.
 - [ ] Never show a token, a proxy password or a secret (the stack never prints its secret; check the
       browser tab, terminal and address bar before you hit record)
 - [ ] Close notifications; browser window about 1280 wide; both nodes confirmed **online** just before you start
+- [ ] The laptop is on a **different connection** from every node it audits through (otherwise `direct_egress`)
 
 **Decision at 09:00 on Nov 4:** if there is still no second country online with an active order, **use
 fallback B**: a live Ghana run, and a second region shown as a clearly labelled synthetic fixture
