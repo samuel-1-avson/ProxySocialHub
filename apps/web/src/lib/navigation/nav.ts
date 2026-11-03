@@ -19,7 +19,6 @@ import {
     MapPin,
     MessageSquare,
     Network,
-    Newspaper,
     Plus,
     Radio,
     Server,
@@ -207,15 +206,15 @@ export const NAV_SECTIONS: NavigationSection[] = [
         id: "community",
         title: "Community",
         items: [
-            navItem("communityForum", "Forum", MessageSquare, {
+            navItem("communityForum", "Discussions", MessageSquare, {
                 policy: "public",
                 description: "Questions and support",
             }),
             navItem("communityMessages", "Messages", Inbox, {
                 description: "Direct messages",
             }),
-            navItem("communityFeed", "Activity", Newspaper, {
-                description: "People you follow"
+            navItem("communityFriends", "People", Users, {
+                description: "Contacts and requests",
             }),
             navItem("communityReferrals", "Invite", Gift, {
                 description: "Invite & earn",
@@ -299,7 +298,7 @@ export function getMobilePrimaryTabs(options: { isProvider: boolean; isConsumer:
         tabs.push(navItem("marketplaceOrders", "Orders", ListOrdered, { policy: "authenticated" }));
     }
 
-    tabs.push(navItem("communityForum", "Forum", MessageSquare, { policy: "public" }));
+    tabs.push(navItem("communityForum", "Discussions", MessageSquare, { policy: "public" }));
     return tabs;
 }
 
