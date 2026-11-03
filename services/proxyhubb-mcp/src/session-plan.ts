@@ -255,14 +255,17 @@ export function checkDraft(raw: unknown, market: MarketListing[]): CheckedPlan {
     note("blocked", "max_price_per_gb", `No active listing${country ? ` in ${country}` : ""} is priced at or below ${usd(buyerCap)}/GB (cheapest: ${usd(cheapest)}/GB).`);
   }
   const ceiling = matching.length > 0 ? Math.max(...matching.map((l) => l.pricePerGB)) : null;
-  // Without a listing, the escrow is priced at the intent's price limit, or a node's price, or $0.99/GB
-  // (control-api session_intent_state.go, session_intent_escrow.go). Always sending a limit keeps the
-  // cost shown here equal to what the buyer is asked to lock.
+  // Without a listing, escrow and settlement are priced at the intent's price limit, else a node's price,
+  // else $0.99/GB, and never at the price of the node that carried the traffic (control-api
+  // session_intent_state.go, session_intent_escrow.go, settlement/intent.go). Always sending a limit keeps
+  // the cost shown here equal to what the buyer locks, and the notes say it is the rate billed.
   if (priceCap === undefined && ceiling !== null && ceiling > 0) {
     priceCap = ceiling;
-    note("info", "max_price_per_gb", `Price limit set to ${usd(ceiling)}/GB, the most expensive matching listing today, so the cost shown is what the escrow locks.`);
+    note("info", "max_price_per_gb", `Price set to ${usd(ceiling)}/GB, the most expensive matching listing today. Usage is billed at this price, whichever provider carries it.`);
   } else if (priceCap === undefined && ceiling === 0) {
     note("info", "max_price_per_gb", "Every matching listing is free, so no price limit is sent; the escrow amount is set when you fund it.");
+  } else if (priceCap !== undefined && ceiling !== null) {
+    note("info", "max_price_per_gb", `Usage is billed at your price limit, ${usd(priceCap)}/GB, whichever provider carries it.`);
   }
 
   let budgetMb: number | undefined;

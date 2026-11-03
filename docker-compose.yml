@@ -466,6 +466,9 @@ services:
       # Server-side only — used by Next.js API routes and rewrite proxy
       - API_URL=http://control-api:8080
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set}
+      # Session assistant (/api/concierge/draft). Empty: it answers 503 and the page keeps the plain form.
+      - MODEL_API_KEY=${MODEL_API_KEY:-}
+      - CONCIERGE_MODEL=${CONCIERGE_MODEL:-muse-spark-1.3}
       # Public vars — must be browser-resolvable (public host/port)
       - NEXT_PUBLIC_API_URL=${API_BASE_URL:-http://localhost:18080}
       - NEXT_PUBLIC_PROXY_ENDPOINT=${NEXT_PUBLIC_PROXY_ENDPOINT:-localhost:8090}
