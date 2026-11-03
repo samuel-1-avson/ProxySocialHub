@@ -191,7 +191,7 @@ pub async fn fetch_control_api_status(cfg: &Config) -> ControlAPIStatus {
     control
 }
 
-async fn resolve_control_bearer(cfg: &Config) -> Result<(String, String)> {
+pub(crate) async fn resolve_control_bearer(cfg: &Config) -> Result<(String, String)> {
     if !cfg.jwt_token.trim().is_empty() {
         return Ok((String::new(), cfg.jwt_token.trim().to_string()));
     }
@@ -202,7 +202,10 @@ async fn resolve_control_bearer(cfg: &Config) -> Result<(String, String)> {
     anyhow::bail!("config has no api_key or jwt_token for Control API")
 }
 
-async fn fetch_control_nodes(api_url: &str, bearer: &str) -> Result<Vec<ControlNodeSummary>> {
+pub(crate) async fn fetch_control_nodes(
+    api_url: &str,
+    bearer: &str,
+) -> Result<Vec<ControlNodeSummary>> {
     let url = format!("{api_url}/v1/provider/nodes");
     let resp = reqwest::Client::new()
         .get(&url)

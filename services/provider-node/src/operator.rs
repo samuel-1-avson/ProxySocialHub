@@ -33,7 +33,7 @@ pub struct ConfigSummary {
     pub signing_configured: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EarningsSummary {
     pub total_earned_sol: f64,
     pub pending_sol: f64,
@@ -163,9 +163,14 @@ fn config_summary_from(cfg: &Config) -> ConfigSummary {
 
 async fn fetch_earnings_summary(cfg: &Config) -> Option<EarningsSummary> {
     let bearer = resolve_bearer(cfg).await.ok()?;
+    fetch_earnings_with(&cfg.control_api_url, &bearer).await
+}
+
+/// The earnings summary, for a caller that already holds a bearer token.
+pub(crate) async fn fetch_earnings_with(api_url: &str, bearer: &str) -> Option<EarningsSummary> {
     let url = format!(
         "{}/v1/provider/earnings/summary",
-        cfg.control_api_url.trim_end_matches('/')
+        api_url.trim_end_matches('/')
     );
     let resp = reqwest::Client::new()
         .get(&url)
