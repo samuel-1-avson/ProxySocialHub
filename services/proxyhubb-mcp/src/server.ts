@@ -78,7 +78,7 @@ server.registerTool(
   {
     title: "Create a capped proxy session for this agent",
     description:
-      "Mint a disposable ProxyHubb session intent and return its proxy_url. Defaults are safe for one agent task: rotating per-request, 100 MB, 20 minutes. Use session_type=sticky for browser work that needs one stable exit. Set max_price_per_gb and allowed_domains to bound spend and reach. If the deployment requires escrow funding, status=funding_required is returned (never bypassed); use list_my_orders and use_my_order to run on an order the owner already paid for. After creating, call verify_exit before trusting the country. Only route traffic to sites you are authorized to access.",
+      "Mint a disposable ProxyHubb session intent and return its proxy_url. Call quote_session first to check the caps and see the most the escrow can lock. Defaults are safe for one agent task: rotating per-request, 100 MB, 20 minutes. Use session_type=sticky for browser work that needs one stable exit. Set max_price_per_gb and allowed_domains to bound spend and reach. If the deployment requires escrow funding, status=funding_required is returned (never bypassed); use list_my_orders and use_my_order to run on an order the owner already paid for. After creating, call verify_exit before trusting the country. Only route traffic to sites you are authorized to access.",
     inputSchema: {
       country: z.string().length(2).optional().describe("Desired exit country (two-letter code). Omit for best available."),
       session_type: z.enum(["rotating", "sticky"]).optional().describe("rotating: many exits; sticky: one stable exit (default rotating)"),
@@ -96,6 +96,28 @@ server.registerTool(
     },
   },
   wrap((a) => handlers.createAgentSession(a) as Promise<Record<string, unknown>>),
+);
+
+server.registerTool(
+  "quote_session",
+  {
+    title: "Check and price a session before creating it",
+    description:
+      "Dry run: checks the same caps create_agent_session takes, plus an optional budget, against today's active listings, and creates nothing. Returns status (ok or blocked), notes explaining every change, max_escrow_usd (the most the session can lock), matching_listings, and create_args to pass to create_agent_session for exactly this session. A budget becomes a bandwidth cap at the price limit; without a price limit, the most expensive matching listing's price is used so the escrow figure is exact. A country without active listings blocks the quote; it is never swapped for another.",
+    inputSchema: {
+      country: z.string().optional().describe("Desired exit country (two-letter code). Omit for any country with active listings."),
+      session_type: z.enum(["rotating", "sticky"]).optional().describe("rotating: many exits; sticky: one stable exit (default rotating)"),
+      rotation: z.enum(["per-request", "time-based", "none"]).optional().describe("Rotation policy (default: per-request for rotating, none for sticky)"),
+      rotation_interval_seconds: z.number().int().positive().optional().describe("For time-based rotation"),
+      max_mb: z.number().positive().optional().describe("Bandwidth cap in MB (5-10240; out-of-range values are clamped and noted)"),
+      time_limit_minutes: z.number().positive().optional().describe("Lifetime cap in minutes (1-240; clamped and noted)"),
+      max_price_per_gb: z.number().optional().describe("Highest provider price per GB to route at"),
+      budget_usd: z.number().optional().describe("Most this session may cost, in USD"),
+      allowed_domains: z.array(z.string()).max(100).optional().describe("Only these hostnames may be reached"),
+      blocked_domains: z.array(z.string()).max(100).optional().describe("These hostnames are refused"),
+    },
+  },
+  wrap((a) => handlers.quoteSession(a) as Promise<Record<string, unknown>>),
 );
 
 server.registerTool(

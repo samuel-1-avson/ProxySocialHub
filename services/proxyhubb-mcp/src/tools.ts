@@ -11,7 +11,14 @@
 // its owner already paid for (list_my_orders / use_my_order), exactly as the
 // Regional Auditor does: active orders only, because asking for an inactive
 // order's credentials can make the control API re-activate its session.
+//
+// quote_session runs the web session assistant's checker and creates nothing.
+// src/session-plan.ts is a byte-for-byte copy of apps/web/src/lib/concierge-plan.ts
+// (the web app is not an ES module package, so it cannot be imported here under
+// NodeNext); test/session-plan.test.ts fails if the two drift.
 
+import { checkDraft, marketFromListings } from "./session-plan.ts";
+import type { PlannedIntent } from "./session-plan.ts";
 import type { ProxyHubbConfig } from "./config.ts";
 import { sessionIntentProxyUrl, stripScheme } from "./config.ts";
 import { ProxyHubbApiError } from "./client.ts";
@@ -250,6 +257,69 @@ export function createToolHandlers(deps: ToolDeps) {
         "Country routing is best-effort until proven: call verify_exit and only trust the session when it returns assurance=verified.",
         `This session is capped at ${maxMb} MB and ${minutes} minutes. Create a new one per task instead of raising caps blindly.`,
       ],
+    };
+  }
+
+  /** The create_agent_session arguments that produce exactly this intent. */
+  function createArgsFor(intent: PlannedIntent): Record<string, unknown> {
+    const out: Record<string, unknown> = {
+      session_type: intent.type,
+      rotation: intent.rotation_type,
+      max_mb: intent.bandwidth_limit / MB,
+      time_limit_minutes: intent.time_limit_minutes,
+    };
+    if (intent.rotation_interval_seconds !== undefined) out.rotation_interval_seconds = intent.rotation_interval_seconds;
+    if (intent.target_geo) out.country = intent.target_geo;
+    if (intent.max_price_per_gb !== undefined) out.max_price_per_gb = intent.max_price_per_gb;
+    if (intent.allowed_domains) out.allowed_domains = intent.allowed_domains;
+    if (intent.blocked_domains) out.blocked_domains = intent.blocked_domains;
+    return out;
+  }
+
+  async function quoteSession(args: {
+    country?: string;
+    session_type?: "rotating" | "sticky";
+    rotation?: "per-request" | "time-based" | "none";
+    rotation_interval_seconds?: number;
+    max_mb?: number;
+    time_limit_minutes?: number;
+    max_price_per_gb?: number;
+    budget_usd?: number;
+    allowed_domains?: string[];
+    blocked_domains?: string[];
+  }) {
+    const market = marketFromListings(await client.searchListings({ limit: 100 }));
+    const plan = checkDraft(
+      {
+        session_type: args.session_type ?? null,
+        country: args.country ?? null,
+        rotation: args.rotation ?? null,
+        rotation_interval_seconds: args.rotation_interval_seconds ?? null,
+        max_mb: args.max_mb ?? null,
+        time_limit_minutes: args.time_limit_minutes ?? null,
+        max_price_per_gb: args.max_price_per_gb ?? null,
+        budget_usd: args.budget_usd ?? null,
+        preferred_tier: null,
+        allowed_domains: args.allowed_domains ?? [],
+        blocked_domains: args.blocked_domains ?? [],
+        // Agents state no purpose, so "unclear" would note it on every quote; the reminder is in `note` instead.
+        purpose_flag: "ok",
+        assumptions: [],
+        cannot_do: [],
+      },
+      market,
+    );
+    return {
+      status: plan.blocked ? "blocked" : "ok",
+      created: false,
+      intent: plan.intent,
+      create_args: plan.blocked ? null : createArgsFor(plan.intent),
+      max_escrow_usd: plan.maxCostUsd,
+      matching_listings: plan.matchingListings,
+      notes: plan.notes.map(({ level, message }) => ({ level, message })),
+      note: plan.blocked
+        ? "Nothing was created. Fix the notes marked blocked and quote again."
+        : "Nothing was created. Pass create_args to create_agent_session to get exactly this session. Active listings are not a guarantee that a provider node is online. Only route traffic to sites you are authorized to access.",
     };
   }
 
@@ -582,6 +652,7 @@ export function createToolHandlers(deps: ToolDeps) {
     listRegions,
     discoverListings,
     createAgentSession,
+    quoteSession,
     verifyExit,
     getSessionUsage,
     closeAgentSession,
