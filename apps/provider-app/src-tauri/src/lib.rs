@@ -4,10 +4,13 @@
 //! and `commands` is the only surface the webview can call.
 
 mod account;
+mod app_update;
 mod commands;
 mod diagnosis;
+mod disconnect;
 mod engine;
 mod node;
+mod node_settings;
 mod settings;
 mod state;
 
@@ -134,6 +137,12 @@ pub fn run() {
             commands::refresh_account,
             commands::run_diagnosis,
             commands::save_support_details,
+            commands::restart_node,
+            commands::disconnect_computer,
+            commands::get_node_settings,
+            commands::get_update_notice,
+            commands::open_tokens_page,
+            commands::open_download_page,
             commands::open_pairing_link,
             commands::open_dashboard,
             commands::get_autostart,

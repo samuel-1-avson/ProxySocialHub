@@ -82,15 +82,25 @@ If a node was already running when you opened the app (you started it with the C
 
 Keep `provider.toml` private: it holds the key that connects this computer to your account.
 
-## Disconnecting a computer
+## Disconnecting a computer, or switching account
 
-Uninstalling the app (Windows **Settings → Apps**) does not delete `provider.toml` and does not revoke the node's key. To disconnect a computer completely:
+Press **Disconnect this computer…** at the bottom of the window (also on the *Something needs attention* screen) and confirm. The app then:
 
-1. Choose **Quit** from the tray icon, then uninstall the app.
-2. In your dashboard, open **Tokens** and revoke the token named `Paired: <your computer's name>`. Revoking it cuts the computer off immediately.
-3. Delete `%APPDATA%\proxyhubb\provider.toml` if you do not need it.
+- stops the node, even one that was started outside the app, because you asked for it by name;
+- moves `provider.toml` aside to `provider.toml.disconnected-<time>` in the same folder, and the node's running totals (`stats.json`) aside next to them, so a computer you connect to a different account starts from zero. Nothing is deleted;
+- returns to the *Connect this computer* screen, where you can connect to the same account or another one.
 
-Paired tokens do not expire, so a lost or retired computer should be revoked rather than left.
+**The key is not revoked yet.** A node cannot revoke its own key, so the kept `provider.toml.disconnected-…` file still holds a working key until you do the last step yourself: in your dashboard open **Tokens** and revoke the token named `Paired: <your computer's name>`. The app shows a reminder with an **Open Tokens** button. Once the key is revoked, delete the kept file.
+
+If the node does not stop in time, nothing is moved and sharing carries on as before.
+
+To retire a computer without using the button (for example the app is already uninstalled), revoke the token the same way and delete `%APPDATA%\proxyhubb\provider.toml`. Uninstalling the app does neither. Paired tokens do not expire, so a lost or retired computer should be revoked rather than left.
+
+## Restart, settings and new versions
+
+- **Restart node** (next to *Pause sharing* while connecting or sharing) stops the node and starts it again. It is for a node that is stuck on *Connecting…*. It is not offered for a node that was started outside the app; use **Stop this node…** for that and then **Resume sharing**.
+- **Node settings** (a fold-out near the bottom) lists the gateways, the connection type, the ports the node may open connections to, the sites it blocks, and what this computer offers ProxyHubb: *Up to N connections and N Mbps*. Those two numbers tell ProxyHubb what the computer offers; the node does not use them to slow your own connection down. The settings are shown for reading and cannot be changed from the app yet. If certificate checks for the gateway are turned off, the window says so.
+- **A newer version** of the app shows a notice at the top with **Get it**, which opens the download page. The app checks when it starts and every few hours, and it does not update itself: you install the new version yourself. Nothing is checked until you have agreed to what sharing means.
 
 ## Troubleshooting
 
