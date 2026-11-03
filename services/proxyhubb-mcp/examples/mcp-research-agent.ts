@@ -3,7 +3,11 @@
 //
 //   npm run example                     # read-only: list regions (live API)
 //   PROXYHUBB_ACCESS_TOKEN=<jwt> npm run example
-//                                       # also mint a capped GH session and verify its exit
+//                                       # also get a GH session and verify its exit: an active
+//                                       # order you already paid for if there is one, otherwise
+//                                       # a newly minted capped session intent
+//   PROXYHUBB_API_KEY=<phub_ key with orders:create> npm run example
+//                                       # orders only, without your JWT
 //   EXAMPLE_COUNTRY=US npm run example  # pick another country
 //
 // The full proxy URL is never printed (masked via redact.ts). In a real agent
@@ -41,9 +45,26 @@ try {
   const regions = structured(await client.callTool({ name: "list_regions", arguments: {} }));
   console.log("Regions:", JSON.stringify(regions.countries));
 
-  if (!process.env.PROXYHUBB_ACCESS_TOKEN?.trim()) {
-    console.log("Set PROXYHUBB_ACCESS_TOKEN to also create a capped session and verify its exit.");
-  } else {
+  const hasToken = Boolean(process.env.PROXYHUBB_ACCESS_TOKEN?.trim());
+  const hasKey = Boolean(process.env.PROXYHUBB_API_KEY?.trim());
+  let proxyUrl: string | null = null;
+
+  if (hasToken || hasKey) {
+    // Prefer an order the owner already paid for: it carries traffic even where new sessions need funding.
+    const mine = structured(await client.callTool({ name: "list_my_orders", arguments: { country } }));
+    const orders = Array.isArray(mine.orders) ? (mine.orders as Record<string, unknown>[]) : [];
+    console.log(`Active ${country} orders: ${orders.length}`);
+    const first = orders[0];
+    if (first) {
+      const used = structured(
+        await client.callTool({ name: "use_my_order", arguments: { order_id: first.order_id, expected_country: country } }),
+      );
+      console.log(`Order ${String(first.order_id)}: ${String(used.status)}${used.code ? ` (${String(used.code)}: ${String(used.message)})` : ""}`);
+      if (typeof used.proxy_url === "string") proxyUrl = used.proxy_url;
+    }
+  }
+
+  if (!proxyUrl && hasToken) {
     const session = structured(
       await client.callTool({
         name: "create_agent_session",
@@ -51,21 +72,21 @@ try {
       }),
     );
     console.log(`Session status: ${String(session.status)} (intent ${String(session.intent_id)})`);
-    if (session.status === "funding_required") {
-      console.log(`Fund first: ${String(session.next_step)}`);
-    } else if (typeof session.proxy_url === "string") {
-      console.log(`Proxy: ${maskProxyUrl(session.proxy_url)}`);
-      const verdict = structured(
-        await client.callTool({
-          name: "verify_exit",
-          arguments: { proxy_url: session.proxy_url, expected_country: country },
-        }),
-      );
-      console.log(
-        `Exit check: assurance=${String(verdict.assurance)} ip=${String(verdict.observed_ip)} geoip=${String(verdict.geoip_country)}`,
-      );
-      console.log("Hand proxy_url to your browser/fetch now — and only trust the region if assurance=verified.");
-    }
+    if (session.status === "funding_required") console.log(`Fund first: ${String(session.next_step)}`);
+    if (typeof session.proxy_url === "string") proxyUrl = session.proxy_url;
+  }
+
+  if (proxyUrl) {
+    console.log(`Proxy: ${maskProxyUrl(proxyUrl)}`);
+    const verdict = structured(
+      await client.callTool({ name: "verify_exit", arguments: { proxy_url: proxyUrl, expected_country: country } }),
+    );
+    console.log(
+      `Exit check: assurance=${String(verdict.assurance)} ip=${String(verdict.observed_ip)} geoip=${String(verdict.geoip_country)}`,
+    );
+    console.log("Hand proxy_url to your browser/fetch now — and only trust the region if assurance=verified.");
+  } else if (!hasToken && !hasKey) {
+    console.log("Set PROXYHUBB_ACCESS_TOKEN (or an orders:create PROXYHUBB_API_KEY) to also get a session and verify its exit.");
   }
 } finally {
   await client.close();
