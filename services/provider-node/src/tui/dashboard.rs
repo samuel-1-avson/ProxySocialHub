@@ -473,7 +473,7 @@ fn render_too_small(frame: &mut ratatui::Frame<'_>, area: Rect) {
             theme::dim(),
         )),
     ];
-    let w = area.width.saturating_sub(4).min(62).max(20);
+    let w = area.width.saturating_sub(4).clamp(20, 62);
     let h = 7.min(area.height);
     let card = Rect::new(
         area.x + area.width.saturating_sub(w) / 2,
@@ -2154,12 +2154,10 @@ fn tunnel_status_style(snap: Option<&OperatorSnapshot>) -> (&'static str, ratatu
     ("STARTING", theme::WARN)
 }
 
+/// Show "AUTH FAIL": the key was refused, or the gateway rejected the handshake. A failed key
+/// exchange that is only an outage (HTTP 502...) is not an auth failure; the node is reconnecting.
 fn is_auth_session_error(err: &str) -> bool {
-    let m = err.to_ascii_lowercase();
-    m.contains("invalid or inactive provider token")
-        || m.contains("provider token expired")
-        || m.contains("auth failed")
-        || (m.contains("authentication failed") && m.contains("token"))
+    crate::ip::is_key_refusal(err) || err.to_ascii_lowercase().contains("auth failed")
 }
 
 fn truncate(s: &str, max: usize) -> String {
@@ -2307,5 +2305,27 @@ mod tests {
         draw_dashboard(&mut terminal, 1000, &mut app, &empty_data(), &idle_flight())
             .expect("draw succeeds");
         assert!(app.narrow, "80 cols is narrow");
+    }
+
+    /// "AUTH FAIL" is for a refused key or a rejected handshake, not for an outage: during a
+    /// deploy the control API answers 502 and the node is simply reconnecting.
+    #[test]
+    fn auth_fail_is_shown_for_a_refusal_and_not_for_a_server_error() {
+        use crate::ip::gateway_token_failure;
+        assert!(is_auth_session_error(&gateway_token_failure(
+            "Invalid or inactive provider token"
+        )));
+        assert!(is_auth_session_error(&gateway_token_failure(
+            "Provider token expired"
+        )));
+        assert!(is_auth_session_error("Auth failed: rejected by gateway"));
+
+        for said in ["HTTP 502 Bad Gateway", "HTTP 500 Internal Server Error"] {
+            assert!(
+                !is_auth_session_error(&gateway_token_failure(said)),
+                "{said} shown as AUTH FAIL"
+            );
+        }
+        assert!(!is_auth_session_error("TCP dial to gw:3128 failed"));
     }
 }

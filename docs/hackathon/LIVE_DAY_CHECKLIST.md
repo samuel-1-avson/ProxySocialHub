@@ -104,6 +104,16 @@ npx wrangler deploy            # serves demo-v1 at https://proxyhubb-regional-au
 
 Do this **early**, even with Ghana only, so any problem surfaces a day before filming.
 
+**As of 2026-11-03 no live run has verified under the current rules.** The 2026-11-02 run's exit was on
+Starlink (now `unverified` by design), and the 2026-11-03 MCP run's node shared the owner's connection
+(`direct_egress`). The first goal is one Ghana region showing **Verified**, from a node on ordinary broadband or
+mobile data and a laptop on a different connection.
+
+- [ ] Start the stack in a **fresh terminal**, and do not set `AUDITOR_MODEL` or
+      `AUDITOR_ALLOW_CONTRIBUTOR_MODE`, so the standard (non-training) model is used
+- [ ] Run it from a checkout of the latest `main` (other sessions sometimes switch the main folder to their
+      own branch; `git log -1` should show the newest merge)
+
 ```bash
 cd services/regional-auditor
 npm run stack -- live --api-url https://api.proxyhubb.com --target https://<your-demo-site>

@@ -8,6 +8,7 @@ import (
 	"hash/crc32"
 	"io"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -23,15 +24,18 @@ const maxKMSBody = 16 * 1024
 var cryptoKeyName = regexp.MustCompile(`^projects/[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}/locations/[a-z0-9-]{1,63}/keyRings/[a-zA-Z0-9_-]{1,63}/cryptoKeys/[a-zA-Z0-9_-]{1,63}$`)
 var keyVersionNumber = regexp.MustCompile(`^[1-9][0-9]*$`)
 var crcTable = crc32.MakeTable(crc32.Castagnoli)
+var serviceAccountEmail = regexp.MustCompile(`^[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9-]{4,61}[a-z0-9]\.iam\.gserviceaccount\.com$`)
 
 // GCPKEK wraps only 32-byte data keys using a dedicated ENCRYPT_DECRYPT key.
 // Its stable ID names a CryptoKey, so primary-version rotation preserves reads.
 // User signing keys remain operator-held and are decrypted in memory to sign.
 type GCPKEK struct {
-	key    string
-	level  string
-	client *http.Client
-	token  func(context.Context) (*oauth2.Token, error)
+	key         string
+	level       string
+	client      *http.Client
+	token       func(context.Context) (*oauth2.Token, error)
+	adc         func(context.Context, string) (*oauth2.Token, error)
+	impersonate string
 }
 
 // NewGCPKEK uses Application Default Credentials (workload identity in deployed
@@ -45,16 +49,62 @@ func NewGCPKEK(key, protectionLevel string) (*GCPKEK, error) {
 		return nil, fmt.Errorf("%w: invalid KMS protection level", ErrKEKUnavailable)
 	}
 	client := &http.Client{Timeout: kmsTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	g := &GCPKEK{key: key, level: protectionLevel, client: client}
-	g.token = func(ctx context.Context) (*oauth2.Token, error) {
+	identity := strings.TrimSpace(os.Getenv("EMBEDDED_WALLET_GCP_KMS_SERVICE_ACCOUNT"))
+	if identity != "" && !serviceAccountEmail.MatchString(identity) {
+		return nil, fmt.Errorf("%w: invalid custody service account", ErrKEKUnavailable)
+	}
+	g := &GCPKEK{key: key, level: protectionLevel, client: client, impersonate: identity}
+	g.adc = func(ctx context.Context, scope string) (*oauth2.Token, error) {
 		ctx = context.WithValue(ctx, oauth2.HTTPClient, client)
-		source, err := google.DefaultTokenSource(ctx, "https://www.googleapis.com/auth/cloudkms")
+		source, err := google.DefaultTokenSource(ctx, scope)
 		if err != nil {
 			return nil, ErrKEKUnavailable
 		}
 		return source.Token()
 	}
+	g.token = g.credentials
 	return g, nil
+}
+
+// A dedicated custody identity can be impersonated from the VM workload
+// identity. This avoids downloadable keys and preserves unrelated signers.
+func (g *GCPKEK) credentials(ctx context.Context) (*oauth2.Token, error) {
+	scope := "https://www.googleapis.com/auth/cloudkms"
+	if g.impersonate != "" {
+		scope = "https://www.googleapis.com/auth/cloud-platform"
+	}
+	base, err := g.adc(ctx, scope)
+	if err != nil || base == nil || !base.Valid() {
+		return nil, ErrKEKUnavailable
+	}
+	if g.impersonate == "" {
+		return base, nil
+	}
+	body := []byte(`{"scope":["https://www.googleapis.com/auth/cloudkms"],"lifetime":"900s"}`)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/"+g.impersonate+":generateAccessToken", bytes.NewReader(body))
+	if err != nil {
+		return nil, ErrKEKUnavailable
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+base.AccessToken)
+	resp, err := g.client.Do(req)
+	if err != nil {
+		return nil, ErrKEKUnavailable
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil, ErrKEKUnavailable
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxKMSBody+1))
+	defer zero(data)
+	var out struct {
+		Token  string    `json:"accessToken"`
+		Expiry time.Time `json:"expireTime"`
+	}
+	if err != nil || len(data) > maxKMSBody || json.Unmarshal(data, &out) != nil || out.Token == "" || !out.Expiry.After(time.Now()) {
+		return nil, ErrKEKUnavailable
+	}
+	return &oauth2.Token{AccessToken: out.Token, TokenType: "Bearer", Expiry: out.Expiry}, nil
 }
 
 func (g *GCPKEK) ID() string                      { return "gcp-kms:v1:" + g.key }

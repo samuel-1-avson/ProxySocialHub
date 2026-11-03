@@ -9,11 +9,14 @@ Use a separate `ENCRYPT_DECRYPT`, `GOOGLE_SYMMETRIC_ENCRYPTION` CryptoKey for ea
 ```dotenv
 EMBEDDED_WALLET_KEK_PROVIDER=gcp-kms
 EMBEDDED_WALLET_GCP_KMS_KEY=projects/PROJECT/locations/REGION/keyRings/embedded-production/cryptoKeys/wallet-dek
+EMBEDDED_WALLET_GCP_KMS_SERVICE_ACCOUNT=custody-runtime@PROJECT.iam.gserviceaccount.com
 EMBEDDED_WALLET_GCP_KMS_READ_KEYS=
 EMBEDDED_WALLET_KMS_PROTECTION_LEVEL=HSM
 ```
 
 Supply an **unversioned** CryptoKey resource. The adapter always calls the fixed HTTPS Cloud KMS endpoint, rejects redirects, checks CRC32C and authenticated additional data, bounds responses and deadlines, and checks the returned resource and protection level. `SOFTWARE` protection requires explicit configuration and applies to every configured reader as well. A strict deployment never falls back to a local key.
+
+When a dedicated service-account email is configured, workload ADC impersonates that identity using a 15-minute token scoped to Cloud KMS. Grant the source VM identity `roles/iam.serviceAccountTokenCreator` on that custody identity only; grant the custody identity crypto access on its key only. Failed impersonation never falls back to the source VM identity. Leave this setting empty when the attached workload identity is already the dedicated custody identity.
 
 The main, development, minimal, full, production and secure Compose configurations forward these variables. GCP overrides inherit them from the base configuration. ADC availability inside the deployed container must be verified with its actual workload identity.
 

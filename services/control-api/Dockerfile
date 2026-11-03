@@ -22,6 +22,9 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -o server \
     main.go
 
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags='-w -s' -o custody-check ./cmd/custody-check
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags='-w -s' -o custody-rewrap ./cmd/custody-rewrap
+
 # Final stage - minimal image
 FROM alpine:3.20
 
@@ -29,6 +32,8 @@ RUN apk add --no-cache ca-certificates tzdata wget && \
     adduser -D -g '' appuser
 
 COPY --from=builder /app/server /server
+COPY --from=builder /app/custody-check /custody-check
+COPY --from=builder /app/custody-rewrap /custody-rewrap
 COPY migrations /app/migrations
 COPY scripts/install-provider-cli.ps1 /app/static/install-provider-cli.ps1
 

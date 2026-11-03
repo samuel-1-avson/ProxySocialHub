@@ -104,6 +104,38 @@ test.describe("focused marketplace purchase", () => {
     ).toHaveAttribute("title", "Premium Austin Pool");
     await expect(page.getByTestId("marketplace-featured-strip")).toHaveCount(0);
   });
+  test("shows a lock and plain words when the location is hidden until a session", async ({
+    page,
+  }) => {
+    await stubMarketplaceBrowse(page);
+    // The public API replaces country and ISP with a sentence, not a code.
+    await page.route(/\/v1\/listings(\?.*)?$/, async (route) => {
+      const { listings, total, page: pageNo } = mockBrowseListingsResponse();
+      await route.fulfill({
+        json: {
+          listings: listings.map((l) => ({
+            ...l,
+            country: "Hidden until session",
+            isp: "Hidden until session",
+          })),
+          total,
+          page: pageNo,
+        },
+      });
+    });
+    await page.goto(`${BASE_URL}/marketplace`, {
+      waitUntil: "domcontentloaded",
+    });
+    const card = page.locator("article.offer-card").first();
+    await expect(card).toBeVisible({ timeout: 30_000 });
+    await expect(card.locator(".offer-region svg")).toBeVisible();
+    await expect(card.locator(".offer-region")).toHaveText("");
+    await expect(card.getByText("Location shared after purchase")).toBeVisible();
+    await expect(page.getByText("Hidden until session")).toHaveCount(0);
+    // The badge is a fixed 40px box built for a two-letter code; nothing wraps.
+    const box = await card.locator(".offer-region").boundingBox();
+    expect(box?.width).toBeLessThanOrEqual(44);
+  });
   test("applies a country filter to the inventory request and URL", async ({
     page,
   }) => {

@@ -41,6 +41,10 @@ services:
       - RUST_LOG=${RUST_LOG:-info}
       - HOST=0.0.0.0
       - PORT=8090
+      - GATEWAY_INTERNAL_HTTP_ADDR=0.0.0.0:8091
+      - BUYER_TLS_ENABLE=true
+      - BUYER_TLS_CERT_FILE=/app/buyer-certs/fullchain.pem
+      - BUYER_TLS_KEY_FILE=/app/buyer-certs/privatekey.pem
       - METRICS_PORT=9090
       - TUNNEL_PORT=3128
       - ENABLE_SOCKS5=${ENABLE_SOCKS5:-0}
@@ -76,11 +80,12 @@ services:
       # J2 multipod
       - EDGE_MODE=colocated
       - EDGE_POD_ID=edge-a
-      - EDGE_PEER_URLS=edge-b@http://edge-gateway-b:8090
+      - EDGE_PEER_URLS=edge-b@http://edge-gateway-b:8091
       - PROVIDER_DIRECTORY_TTL_SECS=${PROVIDER_DIRECTORY_TTL_SECS:-120}
       - ENABLE_DEBUG_ROUTES=${ENABLE_DEBUG_ROUTES:-true}
     volumes:
       - ./certs:/app/certs:ro
+      - ./buyer-certs:/app/buyer-certs:ro
       - ./geoip:/app/geoip:ro
     depends_on:
       control-api:
@@ -106,7 +111,7 @@ services:
           "--tries=1",
           "-O",
           "/dev/null",
-          "http://127.0.0.1:8090/health",
+          "http://127.0.0.1:8091/health",
         ]
       interval: 10s
       timeout: 5s
@@ -134,6 +139,10 @@ services:
       - RUST_LOG=${RUST_LOG:-info}
       - HOST=0.0.0.0
       - PORT=8090
+      - GATEWAY_INTERNAL_HTTP_ADDR=0.0.0.0:8091
+      - BUYER_TLS_ENABLE=true
+      - BUYER_TLS_CERT_FILE=/app/buyer-certs/fullchain.pem
+      - BUYER_TLS_KEY_FILE=/app/buyer-certs/privatekey.pem
       - METRICS_PORT=9090
       - TUNNEL_PORT=3128
       - ENABLE_SOCKS5=${ENABLE_SOCKS5:-0}
@@ -167,11 +176,12 @@ services:
       - SOLANA_KEYPAIR_PATH=${SOLANA_KEYPAIR_PATH:-}
       - EDGE_MODE=colocated
       - EDGE_POD_ID=edge-b
-      - EDGE_PEER_URLS=edge-a@http://edge-gateway-a:8090
+      - EDGE_PEER_URLS=edge-a@http://edge-gateway-a:8091
       - PROVIDER_DIRECTORY_TTL_SECS=${PROVIDER_DIRECTORY_TTL_SECS:-120}
       - ENABLE_DEBUG_ROUTES=${ENABLE_DEBUG_ROUTES:-true}
     volumes:
       - ./certs:/app/certs:ro
+      - ./buyer-certs:/app/buyer-certs:ro
       - ./geoip:/app/geoip:ro
     depends_on:
       control-api:
@@ -197,7 +207,7 @@ services:
           "--tries=1",
           "-O",
           "/dev/null",
-          "http://127.0.0.1:8090/health",
+          "http://127.0.0.1:8091/health",
         ]
       interval: 10s
       timeout: 5s
@@ -214,7 +224,7 @@ services:
     environment:
       # Advertise both tunnel endpoints for provider CLI / docs.
       - PROVIDER_TUNNEL_PUBLIC_ADDRS=${PROVIDER_TUNNEL_PUBLIC_ADDRS:-${PROVIDER_TUNNEL_PUBLIC_ADDR},:3129}
-      - EDGE_GATEWAY_MGMT_URL=${EDGE_GATEWAY_MGMT_URL:-http://edge-gateway-a:8090}
+      - EDGE_GATEWAY_MGMT_URL=${EDGE_GATEWAY_MGMT_URL:-http://edge-gateway-a:8091}
       - EDGE_GATEWAY_BUYER_PORT=${EDGE_GATEWAY_BUYER_PORT:-8090}
       # Wave 5.B: seed logical operators (edge-a / edge-b); health via docker DNS.
       - PROXYHUB_SEED_GATEWAY_OPERATORS=${PROXYHUB_SEED_GATEWAY_OPERATORS:-1}
@@ -230,5 +240,5 @@ services:
       - GATEWAY_OP_B_HOST_ID=${GATEWAY_OP_B_HOST_ID:-primary-loopback}
       - GATEWAY_OP_A_BUYER_URL=${GATEWAY_OP_A_BUYER_URL:-http://127.0.0.1:18090}
       - GATEWAY_OP_B_BUYER_URL=${GATEWAY_OP_B_BUYER_URL:-http://127.0.0.1:18091}
-      - GATEWAY_OP_A_HEALTH_URL=${GATEWAY_OP_A_HEALTH_URL:-http://edge-gateway-a:8090/health}
-      - GATEWAY_OP_B_HEALTH_URL=${GATEWAY_OP_B_HEALTH_URL:-http://edge-gateway-b:8090/health}
+      - GATEWAY_OP_A_HEALTH_URL=${GATEWAY_OP_A_HEALTH_URL:-http://edge-gateway-a:8091/health}
+      - GATEWAY_OP_B_HEALTH_URL=${GATEWAY_OP_B_HEALTH_URL:-http://edge-gateway-b:8091/health}

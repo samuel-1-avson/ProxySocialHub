@@ -111,7 +111,8 @@ export function evaluateAssurance(input: {
   if (input.ownDirectIp && input.observedIp === input.ownDirectIp) {
     return {
       assurance: "direct_egress",
-      reason: "The observed egress IP equals this process's own direct IP, so traffic bypassed the regional exit.",
+      reason:
+        "The observed egress IP equals this machine's own direct IP. Either traffic bypassed the regional exit, or the exit node is on this machine's own internet connection (for example your own node on your own line); from here the two look the same, so the exit is not trusted. If this IP is your connection's, run the node and this agent on different connections.",
     };
   }
   const country = input.geoip?.country ?? null;

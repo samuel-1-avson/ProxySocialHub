@@ -389,7 +389,9 @@ function EditOffer({
         boundNode &&
         listing.provider_node_id
       ) {
-        const secret = loadProviderSigningKey(listing.provider_node_id);
+        const secret = loadProviderSigningKey(listing.provider_node_id, {
+          allowLegacyFallback: false,
+        });
         const freshDeviceHotkey = secret
           ? await publicKeyFromProviderSecret(secret)
           : "";

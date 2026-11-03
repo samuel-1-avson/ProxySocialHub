@@ -2,13 +2,19 @@ import {
   Activity,
   Cable,
   Coins,
+  Inbox,
   LayoutDashboard,
   ListChecks,
+  MessageSquareText,
+  Network,
   Server,
+  ShieldCheck,
   Store,
+  Users,
   type LucideIcon,
 } from "lucide-react";
 import type { WorkspaceMode } from "@/lib/store/workspace-store";
+import { ROUTES } from "@/lib/navigation/routes";
 import { STANDALONE_EXPLORER_ORIGIN } from "@/lib/navigation/explorer-redirects.mjs";
 export interface WorkspaceDestination {
   label: string;
@@ -16,6 +22,45 @@ export interface WorkspaceDestination {
   icon: LucideIcon;
   legacyPaths: string[];
 }
+
+// One canonical community destination set (F08), shared by the workspace
+// sidebar and header search. Forum surfaces live under /help/forum (the
+// /community/forum paths remain as legacy aliases for active state only);
+// the retired activity feed is deliberately absent so no navigation lands
+// on the archive. Workspace "Activity" (/app/activity) is a different
+// surface and is not listed here.
+export const COMMUNITY_DESTINATIONS: WorkspaceDestination[] = [
+  {
+    label: "Discussions",
+    href: ROUTES.communityForum,
+    icon: MessageSquareText,
+    legacyPaths: ["/community/forum"],
+  },
+  {
+    label: "Messages",
+    href: ROUTES.communityMessages,
+    icon: Inbox,
+    legacyPaths: ["/community/messages", "/dashboard/messages"],
+  },
+  {
+    label: "People",
+    href: ROUTES.communityFriends,
+    icon: Users,
+    legacyPaths: ["/friends"],
+  },
+  {
+    label: "Network status",
+    href: ROUTES.network,
+    icon: Network,
+    legacyPaths: [],
+  },
+  {
+    label: "Governance",
+    href: "/governance",
+    icon: ShieldCheck,
+    legacyPaths: [],
+  },
+];
 export const SHARED_WORKSPACE_TOOLS = [
   { label: 'API keys', href: '/dashboard/settings/api-keys' },
   { label: 'Account data & export', href: '/dashboard/settings/account' },

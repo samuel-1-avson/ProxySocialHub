@@ -23,7 +23,7 @@ on:
       services:
         description: 'Images to publish'
         type: choice
-        options: [web, explorer, all]
+        options: [web, explorer, security, all]
         default: web
       deploy_web:
         description: 'Roll only the production web container after publishing'
@@ -54,6 +54,8 @@ jobs:
             echo 'matrix={"service":[{"name":"web","context":".","dockerfile":"apps/web/Dockerfile","platforms":"linux/amd64"}]}' >> "$GITHUB_OUTPUT"
           elif [ "$SERVICES" = explorer ]; then
             echo 'matrix={"service":[{"name":"explorer","context":".","dockerfile":"apps/explorer/Dockerfile","platforms":"linux/amd64"}]}' >> "$GITHUB_OUTPUT"
+          elif [ "$SERVICES" = security ]; then
+            echo 'matrix={"service":[{"name":"control-api","context":".","dockerfile":"services/control-api/Dockerfile","platforms":"linux/amd64"},{"name":"edge-gateway","context":"./services/edge-gateway","dockerfile":"Dockerfile","platforms":"linux/amd64"},{"name":"web","context":".","dockerfile":"apps/web/Dockerfile","platforms":"linux/amd64"}]}' >> "$GITHUB_OUTPUT"
           else
             echo 'matrix={"service":[{"name":"control-api","context":".","dockerfile":"services/control-api/Dockerfile","platforms":"linux/amd64"},{"name":"edge-gateway","context":"./services/edge-gateway","dockerfile":"Dockerfile","platforms":"linux/amd64,linux/arm64"},{"name":"provider-node","context":"./services/provider-node","dockerfile":"Dockerfile","platforms":"linux/amd64,linux/arm64"},{"name":"groth16-prover","context":"./services/groth16-prover","dockerfile":"Dockerfile","platforms":"linux/amd64"},{"name":"web","context":".","dockerfile":"apps/web/Dockerfile","platforms":"linux/amd64"}]}' >> "$GITHUB_OUTPUT"
           fi

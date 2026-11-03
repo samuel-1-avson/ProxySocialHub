@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { loadIpc, type Ipc } from './ipc';
 import { Consent } from './screens/Consent';
 import { Connecting, Paused, Problem, Sharing } from './screens/Home';
+import { UpdateBanner } from './screens/Manage';
 import { NeedsPairing, Pairing } from './screens/Pair';
 import { useApp } from './useApp';
 
@@ -20,7 +21,8 @@ export function App() {
   return <Screens ipc={ipc} />;
 }
 
-function Screens({ ipc }: { ipc: Ipc }) {
+/** Exported so the screen tests can drive the same state machine the window runs. */
+export function Screens({ ipc }: { ipc: Ipc }) {
   const app = useApp(ipc);
   const { state } = app;
 
@@ -59,6 +61,8 @@ function Screens({ ipc }: { ipc: Ipc }) {
         <span className="logo" aria-hidden="true">R</span>
         <span>ProxyHubb Provider</span>
       </header>
+      {/* Not before the person has agreed to anything: the first screen is only the consent. */}
+      {state && state.kind !== 'needs_consent' && <UpdateBanner ipc={ipc} app={app} />}
       {screen}
       {app.error && (
         <div className="banner warn" role="alert">

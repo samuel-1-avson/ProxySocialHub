@@ -7,13 +7,6 @@ export async function getFeed(page = 1): Promise<{ events: FeedEvent[] }> {
     return getSocialFeed(page);
 }
 
-type FeedCallback = (event: FeedEvent) => void;
-
-export function subscribeToFeed(_callback: FeedCallback): () => void {
-    const interval = setInterval(() => {}, 10000);
-    return () => clearInterval(interval);
-}
-
 export async function getWhaleAlerts(): Promise<FeedEvent[]> {
     const response = await fetchWithAuth(`${API_BASE_URL}/v1/feed/whales`);
     if (!response.ok) throw new Error('Failed to fetch whale alerts');

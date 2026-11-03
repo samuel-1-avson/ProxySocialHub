@@ -168,6 +168,14 @@ export async function getPeopleYouMayKnow(limit = 10): Promise<{ suggestions: Su
     return res.json();
 }
 
+/** Persist a "not interested" dismissal so the suggestion never reappears. */
+export async function dismissSuggestion(userId: string): Promise<void> {
+    const res = await fetchWithAuth(`${API_BASE}/v1/discover/people/${userId}/dismiss`, {
+        method: "POST",
+    });
+    if (!res.ok) throw new Error("Failed to dismiss suggestion");
+}
+
 export async function getMutualFriends(userId: string): Promise<{ friends: Friendship[]; count: number }> {
     const res = await fetchWithAuth(`${API_BASE}/v1/users/${userId}/mutual-friends`);
     if (!res.ok) {

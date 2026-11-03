@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   ArrowUpRight,
-  ChevronDown,
   CircleHelp,
   Inbox,
   LogOut,
@@ -11,12 +10,12 @@ import {
   Settings,
   Shield,
   Wallet,
-  Wrench,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useRole } from "@/hooks/useRole";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import {
+  COMMUNITY_DESTINATIONS,
   WORKSPACE_DESTINATIONS,
   WORKSPACE_TOOLS,
   SHARED_WORKSPACE_TOOLS,
@@ -52,17 +51,17 @@ export function WorkspaceHeader() {
       : "Your account");
   const destinations = [
     ...WORKSPACE_DESTINATIONS[mode],
-    { label: "Community forum", href: "/help/forum" },
-    { label: "Activity feed", href: "/community/feed" },
-    { label: "Governance", href: "/governance" },
+    ...COMMUNITY_DESTINATIONS,
     { label: "Settings", href: "/app/settings" },
     { label: "Wallet", href: "/app/wallet" },
-    { label: "Inbox", href: "/messages" },
     { label: "Help & support", href: "/help" },
     ...WORKSPACE_TOOLS[mode],
     ...SHARED_WORKSPACE_TOOLS,
     ...(isAdmin ? [{ label: "Administration", href: "/dashboard/admin" }] : []),
-  ];
+  ].filter(
+    (item, index, all) =>
+      all.findIndex((candidate) => candidate.href === item.href) === index,
+  );
   return (
     <>
       <header className="workspace-header">
@@ -93,8 +92,6 @@ export function WorkspaceHeader() {
           <button
             className="workspace-account-button"
             aria-label="Account menu"
-            aria-haspopup="dialog"
-            aria-expanded={accountOpen}
             onClick={() => setAccountOpen(true)}
           >
             {user ? accountName.slice(0, 2).toUpperCase() : "→"}
@@ -144,43 +141,37 @@ export function WorkspaceHeader() {
             ? "Signed in to ProxyHubb"
             : "Browse public offers or sign in to access your account."
         }
-        className="workspace-account-dialog"
-        contentClassName="workspace-account-content"
       >
         <WorkspaceSwitcher onSwitch={() => setAccountOpen(false)} />
         <div className="workspace-account-preferences">
           <ThemeSelect />
         </div>
-        <nav className="workspace-menu-list" aria-label="Account navigation">
+        <div className="workspace-menu-list mt-5">
           <Link href="/app/settings" onClick={() => setAccountOpen(false)}>
-            <Settings size={18} aria-hidden="true" />
+            <Settings size={17} />
             Settings
           </Link>
           <Link href="/app/wallet" onClick={() => setAccountOpen(false)}>
-            <Wallet size={18} aria-hidden="true" />
+            <Wallet size={17} />
             Wallet & balances
           </Link>
           <Link
             href="/messages"
             onClick={() => setAccountOpen(false)}
           >
-            <Inbox size={18} aria-hidden="true" />
+            <Inbox size={17} />
             Inbox & messages
           </Link>
           <Link href="/help" onClick={() => setAccountOpen(false)}>
-            <CircleHelp size={18} aria-hidden="true" />
+            <CircleHelp size={17} />
             Help & support
           </Link>
           <a href={explorerHref()}>
-            <ArrowUpRight size={18} aria-hidden="true" />
+            <ArrowUpRight size={17} />
             Open standalone Explorer
           </a>
-          <details className="workspace-account-tools">
-            <summary>
-              <Wrench size={18} aria-hidden="true" />
-              <span>Tools for this workspace</span>
-              <ChevronDown size={16} aria-hidden="true" />
-            </summary>
+          <details>
+            <summary className="ui-link cursor-pointer p-3">Tools for this workspace</summary>
             <nav className="workspace-menu-list max-h-[35dvh] overflow-y-auto" aria-label="Workspace tools">
               {[...WORKSPACE_TOOLS[mode], ...SHARED_WORKSPACE_TOOLS].map(tool => (
                 <Link key={tool.href} href={tool.href} onClick={() => setAccountOpen(false)}>{tool.label}</Link>
@@ -189,19 +180,18 @@ export function WorkspaceHeader() {
           </details>
           {isAdmin && (
             <Link href="/dashboard/admin" onClick={() => setAccountOpen(false)}>
-              <Shield size={18} aria-hidden="true" />
+              <Shield size={17} />
               Administration
             </Link>
           )}
           {user ? (
             <button
-              className="workspace-sign-out"
               onClick={() => {
                 setAccountOpen(false);
                 void logout();
               }}
             >
-              <LogOut size={18} aria-hidden="true" />
+              <LogOut size={17} />
               Sign out
             </button>
           ) : (
@@ -209,7 +199,7 @@ export function WorkspaceHeader() {
               Sign in with a wallet →
             </Link>
           )}
-        </nav>
+        </div>
       </Modal>
     </>
   );
