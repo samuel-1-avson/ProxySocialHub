@@ -31,8 +31,13 @@ carries the traffic and keeps ~95% of the price, settled per session on Solana.
 | `get_session_usage` | Metered usage by session, intent details, or account usage (credentials redacted) |
 | `close_agent_session` | Terminate a live session; for intents, honestly reports expiry (no revocation endpoint exists) |
 
-## Safety model (agents get an allowance, not your wallet)
+## Safety model (agents spend a prepaid allowance)
 
+- **Today the credential is your full login.** `PROXYHUBB_ACCESS_TOKEN` is your
+  website session token: it can do anything your account can, for up to 24
+  hours. The server only uses it for the routes listed here, but treat it like a
+  password. A limited agent key that can only use your paid orders is planned
+  ([plan](../../docs/plans/MCP_AGENT_INTEGRATION_PLAN_2026-11-03.md), Phase 1).
 - Sessions are minted with **your account JWT** (`PROXYHUBB_ACCESS_TOKEN`), so
   plan limits, metering and escrow apply exactly as in the web app. This server
   never signs transactions and never funds escrow.
