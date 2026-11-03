@@ -5,7 +5,7 @@
 //! Optional fallback: GitHub Releases (only works when the repo/assets are public).
 
 use anyhow::{anyhow, bail, Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;
@@ -46,6 +46,69 @@ struct GhRelease {
 struct GhAsset {
     name: String,
     browser_download_url: String,
+}
+
+/// The newest published installer of one package type, as the Control API lists it. Nothing is
+/// downloaded. The desktop app compares `version` with its own version (the node cannot know it).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LatestRelease {
+    pub package_type: String,
+    pub version: String,
+    pub filename: String,
+}
+
+/// Package types a caller may ask about. Anything else never reaches the URL.
+const KNOWN_PACKAGE_TYPES: [&str; 2] = ["daemon", "desktop"];
+
+/// Only a known package type may reach the URL.
+fn validate_package_type(package_type: &str) -> Result<()> {
+    if KNOWN_PACKAGE_TYPES.contains(&package_type) {
+        Ok(())
+    } else {
+        bail!("unknown package type {package_type:?}")
+    }
+}
+
+/// Read the Control API's `GET /v1/cli/downloads/latest` answer.
+pub fn parse_latest_release(package_type: &str, body: &str) -> Result<LatestRelease> {
+    #[derive(Deserialize)]
+    struct Body {
+        version: String,
+        #[serde(default)]
+        filename: Option<String>,
+    }
+    let parsed: Body = serde_json::from_str(body).context("parse Control API latest")?;
+    let version = parsed.version.trim().trim_start_matches('v').to_string();
+    if version.is_empty() {
+        bail!("Control API returned an empty version");
+    }
+    Ok(LatestRelease {
+        package_type: package_type.to_string(),
+        version,
+        filename: parsed.filename.unwrap_or_default(),
+    })
+}
+
+/// Ask the Control API for the newest installer of `package_type` ("desktop" or "daemon").
+pub async fn latest_release(package_type: &str) -> Result<LatestRelease> {
+    validate_package_type(package_type)?;
+    let (os, arch) = current_target();
+    let url = format!(
+        "{}/v1/cli/downloads/latest?platform={os}&arch={arch}&package_type={package_type}",
+        update_api_base()
+    );
+    let resp = http_client(20)?
+        .get(&url)
+        .send()
+        .await
+        .context("Control API latest request failed")?;
+    if !resp.status().is_success() {
+        bail!("Control API latest HTTP {}", resp.status());
+    }
+    parse_latest_release(
+        package_type,
+        &resp.text().await.context("read Control API latest")?,
+    )
 }
 
 /// Check for a newer provider-node release (no download).
@@ -408,4 +471,63 @@ fn parse_ver(s: &str) -> [u64; 3] {
         out[i] = digits.parse().unwrap_or(0);
     }
     out
+}
+
+#[cfg(test)]
+mod latest_release_tests {
+    use super::*;
+
+    /// The Control API's real answer for the desktop installer, as fetched on 2026-11-03.
+    const REAL_DESKTOP_ANSWER: &str = r#"{"arch":"x64","checksum":"21d77c18f8bf21393b1c0d119ee0fa9022a7a385605fa5d3ae71a17e856d6792","download_url":"https://api.proxyhubb.com/v1/cli/download?platform=windows&arch=amd64&version=0.1.2&package_type=desktop","file_size":4701332,"filename":"provider-desktop-0.1.2-windows-amd64.exe","package_type":"desktop","platform":"Windows","version":"0.1.2"}"#;
+
+    #[test]
+    fn the_real_answer_gives_the_version_and_file_name() {
+        let r = parse_latest_release("desktop", REAL_DESKTOP_ANSWER).unwrap();
+        assert_eq!(
+            r,
+            LatestRelease {
+                package_type: "desktop".into(),
+                version: "0.1.2".into(),
+                filename: "provider-desktop-0.1.2-windows-amd64.exe".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn a_leading_v_and_padding_are_dropped_from_the_version() {
+        let r = parse_latest_release("desktop", r#"{"version":" v1.2.3 "}"#).unwrap();
+        assert_eq!(r.version, "1.2.3");
+        assert_eq!(r.filename, "");
+    }
+
+    #[test]
+    fn an_empty_or_missing_version_or_unreadable_body_is_an_error() {
+        for body in [
+            r#"{"version":""}"#,
+            r#"{"version":"v"}"#,
+            r#"{}"#,
+            "not json",
+            "",
+        ] {
+            assert!(parse_latest_release("desktop", body).is_err(), "{body:?}");
+        }
+    }
+
+    #[test]
+    fn the_report_is_the_json_the_desktop_app_reads() {
+        let v = serde_json::to_value(parse_latest_release("desktop", REAL_DESKTOP_ANSWER).unwrap())
+            .unwrap();
+        assert_eq!(v["version"], "0.1.2");
+        assert_eq!(v["package_type"], "desktop");
+        assert_eq!(v["filename"], "provider-desktop-0.1.2-windows-amd64.exe");
+    }
+
+    #[test]
+    fn only_known_package_types_may_reach_the_url() {
+        assert!(validate_package_type("desktop").is_ok());
+        assert!(validate_package_type("daemon").is_ok());
+        for bad in ["", "../etc", "desktop&x=1", "DESKTOP", "bundle", " desktop"] {
+            assert!(validate_package_type(bad).is_err(), "{bad:?}");
+        }
+    }
 }
