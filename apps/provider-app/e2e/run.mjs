@@ -23,7 +23,8 @@ const E = process.env;
 const APP_EXE = E.APP_EXE ?? join(appDir, 'src-tauri', 'target', 'debug', 'proxyhubb-provider-app.exe');
 const API = E.E2E_API ?? 'http://127.0.0.1:18099';
 const OWNER = E.E2E_OWNER_ID;
-// Run one scenario that needs no control-api (E2E_ONLY=resume-pause); unset runs them all.
+// Run one scenario that needs no control-api and no Docker (E2E_ONLY=resume-pause, or
+// E2E_ONLY=hidden for the hidden start and single instance); unset runs them all.
 const ONLY = E.E2E_ONLY ?? '';
 const CDP_PORT = Number(E.CDP_PORT ?? 9444);
 const OUT = resolve(E.E2E_OUT ?? join(here, 'artifacts'));
@@ -389,8 +390,8 @@ try {
     await happyPath();
     await deniedPath();
     await cancelPath();
-    await hiddenAndSingleInstance();
   }
+  if (!ONLY || ONLY === 'hidden') await hiddenAndSingleInstance();
   if (!ONLY || ONLY === 'resume-pause') await resumeThenPause();
   failed = results.some((r) => !r.ok);
 } catch (e) {
