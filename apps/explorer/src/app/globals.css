@@ -524,3 +524,5 @@ body { -webkit-font-smoothing: antialiased; }
 .explorer-not-found .ui-eyebrow { margin-top: 44px; }
 .explorer-not-found h1 { margin-block: 14px; font-size: clamp(32px, 6vw, 50px); letter-spacing: -.05em; line-height: 1.1; }
 .explorer-not-found > p:last-of-type { max-width: 45ch; color: var(--muted-foreground); }
+.explorer-stale { margin-bottom: 18px; padding: 14px 18px; background: var(--card); border: 1px solid var(--border); border-left: 3px solid var(--warning); border-radius: 8px; color: var(--foreground); font-size: 14px; }
+.explorer-stale p { margin: 6px 0 0; color: var(--muted-foreground); font-size: 13px; line-height: 1.6; }

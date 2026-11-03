@@ -35,6 +35,21 @@ const observed = (value: unknown) =>
   typeof value === "string" && !Number.isNaN(new Date(value).getTime())
     ? new Date(value).toLocaleString()
     : "Observation time unavailable";
+// The indexer polls every 15 s, so being a few minutes behind is already unusual.
+const STALE_AFTER_SECONDS = 300;
+const age = (seconds: number) => {
+  if (seconds < 60) return "under a minute";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours} h ${minutes % 60} min`;
+  return `${Math.floor(hours / 24)} days`;
+};
+const indexLag = (data?: Data) =>
+  typeof data?.indexed_lag_seconds === "number" &&
+  Number.isFinite(data.indexed_lag_seconds)
+    ? data.indexed_lag_seconds
+    : undefined;
 const subscribe = () => () => {};
 function usePublic(
   resource: PublicResource,
@@ -202,6 +217,23 @@ function Theme({ system = false }: { system?: boolean }) {
   const dark = mounted && resolvedTheme === "dark";
   return <button type="button" className="ph-theme-toggle" disabled={!mounted} aria-label={mounted ? `Switch to ${dark ? "light" : "dark"} theme` : "Loading color theme"} onClick={() => setTheme(dark ? "light" : "dark")}><ThemeSymbol dark={dark} /></button>;
 }
+function StaleNotice({ metrics }: { metrics: ReturnType<typeof usePublic> }) {
+  const lag = indexLag(metrics.data);
+  if (lag === undefined || lag <= STALE_AFTER_SECONDS) return null;
+  return (
+    <div className="explorer-stale" role="status">
+      <strong>Indexed data is {age(lag)} old.</strong>
+      <p>
+        The newest block shown is from {observed(metrics.data?.indexed_head_time)}.
+        Transactions and blocks after that time are not shown yet.
+      </p>
+    </div>
+  );
+}
+function FreshnessNotice() {
+  const metrics = usePublic("metrics");
+  return <StaleNotice metrics={metrics} />;
+}
 function Status({ value }: { value: unknown }) {
   const label = text(value, "Unknown");
   return (
@@ -319,9 +351,11 @@ function Search() {
 }
 function MetricSummary() {
   const metrics = usePublic("metrics");
+  const lag = indexLag(metrics.data);
   return (
     <>
       <SourceState source={metrics} />
+      <StaleNotice metrics={metrics} />
       <section className="ui-stats explorer-stats">
         <Stat
           label="Active nodes"
@@ -345,7 +379,7 @@ function MetricSummary() {
         <Stat
           label="Latest indexed block"
           value={num(metrics.data?.block_height, 0)}
-          detail="Source block height"
+          detail={lag === undefined ? "Source block height" : `Newest block is ${age(lag)} old`}
         />
       </section>
       {metrics.data && (
@@ -548,6 +582,7 @@ function Ledger({ blocks = false, preview = false }: { blocks?: boolean; preview
         </Link>
         <Link href="/search">Address lookup</Link>
       </nav>
+      {!preview && <FreshnessNotice />}
       <SourceState source={source} />
       {source.data && (
         <div
