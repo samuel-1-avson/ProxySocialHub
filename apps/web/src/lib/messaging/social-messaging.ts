@@ -50,6 +50,11 @@ export function mapApiMessage(message: ApiMessage): Message {
         content: message.content,
         read_at: message.read_at,
         created_at: message.created_at,
+        type: message.type as Message['type'],
+        reply_to_id: message.reply_to_id,
+        edited_at: message.edited_at,
+        is_deleted: message.is_deleted,
+        reactions: message.reactions,
     };
 }
 
