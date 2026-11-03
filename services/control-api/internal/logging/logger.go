@@ -14,16 +14,22 @@ var Logger zerolog.Logger
 
 // Init initializes the structured logger
 func Init() {
+	initTo(os.Stdout)
+}
+
+// initTo writes the logger's output to stdout, with secrets masked (see redact.go).
+func initTo(stdout io.Writer) {
 	env := os.Getenv("ENV")
+	masked := NewRedactingWriter(stdout)
 
 	var output io.Writer
 	if env == "production" {
 		// JSON output for production (log aggregation)
-		output = os.Stdout
+		output = masked
 	} else {
 		// Pretty console output for development
 		output = zerolog.ConsoleWriter{
-			Out:        os.Stdout,
+			Out:        masked,
 			TimeFormat: time.RFC3339,
 		}
 	}
