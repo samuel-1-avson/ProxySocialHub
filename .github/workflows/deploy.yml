@@ -147,6 +147,7 @@ jobs:
           cache-to: type=gha,mode=max
           platforms: ${{ matrix.service.platforms }}
           build-args: |
+            NEXT_PUBLIC_GOOGLE_CLIENT_ID=${{ vars.GOOGLE_CLIENT_ID || '' }}
             NEXT_PUBLIC_PROXY_ENDPOINT=${{ vars.NEXT_PUBLIC_PROXY_ENDPOINT || 'proxy.proxyhubb.com:8090' }}
             NEXT_PUBLIC_GATEWAY_URL=${{ vars.NEXT_PUBLIC_GATEWAY_URL || 'https://proxy.proxyhubb.com' }}
             NEXT_PUBLIC_APP_URL=https://proxyhubb.com
