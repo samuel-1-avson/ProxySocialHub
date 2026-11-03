@@ -16,7 +16,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::Deserialize;
 
 use crate::account::{parse_account, AccountFacts};
+use crate::app_update::parse_latest_release;
 use crate::diagnosis::{findings_from, Diagnosis};
+use crate::disconnect::{friendly_unpair_error, parse_unpair, DisconnectResult};
+use crate::node_settings::{parse_node_settings, NodeSettings};
 use crate::state::{Metrics, NodeFacts, RetryFacts};
 
 /// The only place the app sends a person's browser.
@@ -29,6 +32,12 @@ const ACCOUNT_TIMEOUT: Duration = Duration::from_secs(45);
 const DOCTOR_TIMEOUT: Duration = Duration::from_secs(90);
 /// The support file runs the same checks, then reads the logs.
 const BUNDLE_TIMEOUT: Duration = Duration::from_secs(120);
+/// `unpair` waits up to 8 s for the node to stop, then moves two files.
+const UNPAIR_TIMEOUT: Duration = Duration::from_secs(60);
+/// Reading a settings file; nothing on the network.
+const SETTINGS_TIMEOUT: Duration = Duration::from_secs(15);
+/// One small request; the node gives up on its own after 20 s.
+const LATEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// How long `start --background` may take. It normally returns in about a second and waits at
 /// most 20 s for the node to write its PID file; this only bounds a starter that never returns,
@@ -409,6 +418,46 @@ impl Sidecar {
         } else {
             Err("The support file could not be made.".to_string())
         }
+    }
+
+    /// `unpair --json`: stop the node and move its settings aside. Only after the node reports
+    /// success is this computer disconnected; every failure here means nothing was changed.
+    pub fn unpair(&self) -> Result<DisconnectResult, String> {
+        let (status, printed) = self
+            .run_to_exit(&["unpair", "--json"], UNPAIR_TIMEOUT)
+            .map_err(|e| {
+                if e.kind() == std::io::ErrorKind::TimedOut {
+                    "The disconnect took too long and was stopped. Please try again.".to_string()
+                } else {
+                    "This computer could not be disconnected. Nothing was changed.".to_string()
+                }
+            })?;
+        if !status.success() {
+            return Err(friendly_unpair_error(&printed));
+        }
+        parse_unpair(&printed).map_err(|_| {
+            "The disconnect could not be confirmed. Please check and try again.".to_string()
+        })
+    }
+
+    /// `config show --json`: this computer's node settings, for reading. Nothing on the network.
+    pub fn settings(&self) -> Result<NodeSettings, String> {
+        let (_status, printed) = self
+            .run_to_exit(&["config", "show", "--json"], SETTINGS_TIMEOUT)
+            .map_err(|_| "This computer's settings could not be read.".to_string())?;
+        parse_node_settings(&printed)
+            .map_err(|_| "This computer's settings could not be read.".to_string())
+    }
+
+    /// `latest-release --package desktop --json`: the version of the newest published installer.
+    pub fn latest_release(&self) -> Result<String, String> {
+        let (_status, printed) = self
+            .run_to_exit(
+                &["latest-release", "--package", "desktop", "--json"],
+                LATEST_TIMEOUT,
+            )
+            .map_err(|e| format!("could not run provider-node: {e}"))?;
+        parse_latest_release(&printed).map(|r| r.version)
     }
 
     /// `stop`: ends the detached daemon if one is running.

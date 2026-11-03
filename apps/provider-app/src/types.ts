@@ -82,3 +82,33 @@ export interface Finding {
 export interface Diagnosis {
   findings: Finding[];
 }
+
+// Mirrors src-tauri/src/node_settings.rs, disconnect.rs and app_update.rs.
+
+/** This computer's node settings, for reading. The app cannot change any of them. */
+export interface NodeSettings {
+  config_path: string;
+  gateways: string[];
+  /** "yamux" or "quic". */
+  transport: string;
+  use_tls: boolean;
+  /** Gateway certificate checks are off. Only ever for development. */
+  tls_skip_verify: boolean;
+  /** What this computer OFFERS ProxyHubb. The node does not use these to slow anything down. */
+  max_connections: number;
+  bandwidth_limit_mbps: number;
+  allowed_ports: number[];
+  blocked_hosts: string[];
+  connection_type: string;
+}
+
+export interface DisconnectResult {
+  /** Where the settings file was kept (it still holds the key); `null` when there was none. */
+  archived_config: string | null;
+}
+
+/** A newer installer than this app exists. */
+export interface UpdateNotice {
+  latest: string;
+  current: string;
+}

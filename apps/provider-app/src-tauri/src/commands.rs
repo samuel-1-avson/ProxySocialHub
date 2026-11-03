@@ -16,9 +16,12 @@ use tauri::{AppHandle, Emitter, Manager, State, Wry};
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_opener::OpenerExt as _;
 
+use crate::app_update::UpdateNotice;
 use crate::diagnosis::Diagnosis;
+use crate::disconnect::DisconnectResult;
 use crate::engine::AppCore;
 use crate::node::{is_allowed_link, locate_sidecar, Sidecar};
+use crate::node_settings::NodeSettings;
 use crate::state::{tooltip_for, tray_view_for, AppState, TrayView};
 
 pub type Core = AppCore<Sidecar>;
@@ -69,9 +72,15 @@ pub const TRAY_ID: &str = "main-tray";
 /// Events the UI listens for.
 pub const STATE_EVENT: &str = "app://state";
 pub const PAIRING_ENDED_EVENT: &str = "app://pairing-ended";
+/// A newer installer was found (payload: the notice) or none is newer (payload: null).
+pub const UPDATE_EVENT: &str = "app://update";
 
 /// Where "Open my dashboard" goes. Fixed: not an argument.
 const DASHBOARD_URL: &str = "https://proxyhubb.com/dashboard/provider";
+/// Where a disconnected computer's key is revoked ("Paired: <computer>"). Fixed, as above.
+const TOKENS_URL: &str = "https://proxyhubb.com/dashboard/provider/tokens";
+/// Where the newest installer is. Fixed, as above.
+const DOWNLOAD_URL: &str = "https://proxyhubb.com/dashboard/provider/cli#desktop-app";
 
 /// How often the node is checked and the window refreshed.
 const SUPERVISE_INTERVAL: Duration = Duration::from_secs(5);
@@ -139,6 +148,9 @@ pub fn spawn_supervisor(app: AppHandle, core: Arc<Core>) {
 /// node must not go unwatched meanwhile.
 pub fn spawn_remote_refresher(app: AppHandle, core: Arc<Core>) {
     thread::spawn(move || loop {
+        if core.refresh_update() {
+            let _ = app.emit(UPDATE_EVENT, core.update_notice());
+        }
         if core.refresh_remote(false) {
             emit_state(&app, &core);
         }
@@ -254,6 +266,58 @@ pub async fn save_support_details(
         Ok(file.display().to_string())
     })
     .await?
+}
+
+/// Restart a node the app started (not one started elsewhere: that is stopped only after the
+/// person confirmed, by `stop_outside_node`).
+#[tauri::command]
+pub async fn restart_node(app: AppHandle, core: State<'_, Arc<Core>>) -> Result<(), String> {
+    let core = Arc::clone(&core);
+    blocking(move || {
+        let result = core.restart_node();
+        emit_state(&app, &core);
+        result
+    })
+    .await?
+}
+
+/// Disconnect this computer from its account. The window asks the person to confirm first, and
+/// tells them the key still has to be revoked in the dashboard.
+#[tauri::command]
+pub async fn disconnect_computer(
+    app: AppHandle,
+    core: State<'_, Arc<Core>>,
+) -> Result<DisconnectResult, String> {
+    let core = Arc::clone(&core);
+    blocking(move || {
+        let result = core.disconnect();
+        emit_state(&app, &core);
+        result
+    })
+    .await?
+}
+
+/// This computer's node settings, for reading. Nothing here can change them.
+#[tauri::command]
+pub async fn get_node_settings(core: State<'_, Arc<Core>>) -> Result<NodeSettings, String> {
+    let core = Arc::clone(&core);
+    blocking(move || core.node_settings()).await?
+}
+
+/// The notice about a newer installer, if there is one. Cheap: it reads what was last found.
+#[tauri::command]
+pub fn get_update_notice(core: State<'_, Arc<Core>>) -> Option<UpdateNotice> {
+    core.update_notice()
+}
+
+#[tauri::command]
+pub fn open_tokens_page(app: AppHandle) -> Result<(), String> {
+    open_checked(&app, TOKENS_URL)
+}
+
+#[tauri::command]
+pub fn open_download_page(app: AppHandle) -> Result<(), String> {
+    open_checked(&app, DOWNLOAD_URL)
 }
 
 /// Stop a node the app did not start. The window asks the person to confirm first; a plain
