@@ -68,13 +68,15 @@ pub enum AppState {
     Connecting {
         detail: Option<String>,
         retry: Option<RetryFacts>,
+        /// The node was started outside the app. Stopping it asks first.
+        managed_externally: bool,
     },
     Sharing {
         uptime_seconds: u64,
         bytes_up: u64,
         bytes_down: u64,
         active_connections: i32,
-        /// The node was started outside the app. Pause and Quit leave it running.
+        /// The node was started outside the app. Pause does not stop it; stopping it asks first.
         managed_externally: bool,
     },
     Paused,
@@ -119,6 +121,7 @@ pub fn derive_state(
         return AppState::Connecting {
             detail: facts.last_error.clone(),
             retry: facts.retry.clone(),
+            managed_externally: facts.externally_started,
         };
     }
     // Not running.
@@ -131,6 +134,7 @@ pub fn derive_state(
             None => AppState::Connecting {
                 detail: None,
                 retry: None,
+                managed_externally: false,
             },
         };
     }
@@ -147,6 +151,72 @@ pub fn tooltip_for(state: &AppState) -> &'static str {
         AppState::Sharing { .. } => "ProxyHubb Provider: sharing",
         AppState::Paused => "ProxyHubb Provider: paused",
         AppState::Problem { .. } => "ProxyHubb Provider: needs attention",
+    }
+}
+
+/// What the tray menu shows for a state: one status line, and which actions can be taken right
+/// now. Pure, so the rules are tested without a tray.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrayView {
+    pub status: String,
+    pub pause_enabled: bool,
+    pub resume_enabled: bool,
+    pub quit_label: &'static str,
+}
+
+pub fn tray_view_for(state: &AppState) -> TrayView {
+    // (status line, Pause enabled, Resume enabled, a node the app did not start is running)
+    let (status, pause_enabled, resume_enabled, outside) = match state {
+        AppState::NeedsConsent | AppState::NeedsPairing | AppState::Pairing { .. } => {
+            ("Not set up yet".to_string(), false, false, false)
+        }
+        AppState::Connecting {
+            managed_externally: true,
+            ..
+        } => (
+            "Connecting (started outside this app)".to_string(),
+            false,
+            false,
+            true,
+        ),
+        AppState::Connecting { .. } => ("Connecting…".to_string(), true, false, false),
+        AppState::Sharing {
+            managed_externally: true,
+            ..
+        } => (
+            "Sharing (started outside this app)".to_string(),
+            false,
+            false,
+            true,
+        ),
+        AppState::Sharing {
+            active_connections, ..
+        } => (
+            format!("Sharing · {}", connections_text(*active_connections)),
+            true,
+            false,
+            false,
+        ),
+        AppState::Paused => ("Paused".to_string(), false, true, false),
+        // Resume doubles as "Try again" here.
+        AppState::Problem { .. } => ("Needs attention".to_string(), false, true, false),
+    };
+    TrayView {
+        status,
+        pause_enabled,
+        resume_enabled,
+        quit_label: if outside {
+            "Quit (the node keeps running)"
+        } else {
+            "Quit (stops sharing)"
+        },
+    }
+}
+
+fn connections_text(n: i32) -> String {
+    match n.max(0) {
+        1 => "1 connection".to_string(),
+        n => format!("{n} connections"),
     }
 }
 
@@ -257,6 +327,7 @@ mod tests {
             AppState::Connecting {
                 detail: None,
                 retry: None,
+                managed_externally: false,
             }
         );
         facts.last_error = Some("gateway unreachable".into());
@@ -265,6 +336,7 @@ mod tests {
             AppState::Connecting {
                 detail: Some("gateway unreachable".into()),
                 retry: None,
+                managed_externally: false,
             }
         );
     }
@@ -281,6 +353,7 @@ mod tests {
             AppState::Connecting {
                 detail: None,
                 retry: None,
+                managed_externally: false,
             }
         );
         let mut facts = paired();
@@ -315,6 +388,7 @@ mod tests {
             tooltip_for(&AppState::Connecting {
                 detail: None,
                 retry: None,
+                managed_externally: false,
             }),
             "ProxyHubb Provider: connecting"
         );
@@ -360,6 +434,18 @@ mod tests {
     }
 
     #[test]
+    fn an_externally_started_node_is_flagged_while_it_connects_too() {
+        let mut facts = running(false);
+        facts.externally_started = true;
+        match derive_state(true, true, None, &facts) {
+            AppState::Connecting {
+                managed_externally, ..
+            } => assert!(managed_externally),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
     fn states_serialize_with_a_kind_tag_the_ui_can_switch_on() {
         let json = serde_json::to_value(AppState::Paused).unwrap();
         assert_eq!(json, serde_json::json!({ "kind": "paused" }));
@@ -377,5 +463,60 @@ mod tests {
         .unwrap();
         assert_eq!(json["kind"], "pairing");
         assert_eq!(json["user_code"], "BCDF-GHJK");
+        let json = serde_json::to_value(AppState::Connecting {
+            detail: None,
+            retry: None,
+            managed_externally: true,
+        })
+        .unwrap();
+        assert_eq!(json["managed_externally"], true);
+    }
+
+    #[test]
+    fn the_tray_offers_only_the_actions_that_can_run_now() {
+        let sharing = |n: i32, outside: bool| AppState::Sharing {
+            uptime_seconds: 0,
+            bytes_up: 0,
+            bytes_down: 0,
+            active_connections: n,
+            managed_externally: outside,
+        };
+
+        let mine = tray_view_for(&sharing(3, false));
+        assert_eq!(mine.status, "Sharing · 3 connections");
+        assert!(mine.pause_enabled && !mine.resume_enabled);
+        assert_eq!(mine.quit_label, "Quit (stops sharing)");
+        assert_eq!(
+            tray_view_for(&sharing(1, false)).status,
+            "Sharing · 1 connection"
+        );
+
+        // Pause never stops a node the app did not start, so the menu does not offer it.
+        let theirs = tray_view_for(&sharing(0, true));
+        assert_eq!(theirs.status, "Sharing (started outside this app)");
+        assert!(!theirs.pause_enabled);
+        assert_eq!(theirs.quit_label, "Quit (the node keeps running)");
+
+        let paused = tray_view_for(&AppState::Paused);
+        assert!(!paused.pause_enabled && paused.resume_enabled);
+
+        // Resume doubles as "Try again" after a problem.
+        let problem = tray_view_for(&AppState::Problem { reason: "x".into() });
+        assert!(problem.resume_enabled);
+
+        let connecting = tray_view_for(&AppState::Connecting {
+            detail: None,
+            retry: None,
+            managed_externally: false,
+        });
+        assert!(connecting.pause_enabled);
+
+        for s in [AppState::NeedsConsent, AppState::NeedsPairing] {
+            let v = tray_view_for(&s);
+            assert_eq!(
+                (v.status.as_str(), v.pause_enabled, v.resume_enabled),
+                ("Not set up yet", false, false)
+            );
+        }
     }
 }

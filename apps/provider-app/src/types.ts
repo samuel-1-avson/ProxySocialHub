@@ -14,6 +14,8 @@ export type AppState =
         gateway_total: number;
         updated_at_unix: number;
       } | null;
+      /** Started outside the app: Stop asks first and only then stops it. */
+      managed_externally: boolean;
     }
   | {
       kind: 'sharing';
