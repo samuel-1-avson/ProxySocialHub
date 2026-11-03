@@ -22,7 +22,7 @@ describe("assurance", () => {
     assert.equal(r.assurance, "unavailable");
   });
 
-  it("direct_egress when the exit equals our own IP (bypass)", () => {
+  it("direct_egress when the exit equals our own IP (bypass, or a node on our own connection)", () => {
     const r = evaluateAssurance({
       requestedCountry: "GH",
       observedIp: "198.51.100.9",
@@ -30,6 +30,8 @@ describe("assurance", () => {
       ownDirectIp: "198.51.100.9",
     });
     assert.equal(r.assurance, "direct_egress");
+    assert.match(r.reason, /bypassed/);
+    assert.match(r.reason, /own internet connection/);
   });
 
   it("unverified (never verified) on a satellite network, even when the estimate matches", () => {
