@@ -8,6 +8,7 @@ const API_BASE = process.env.TEST_API_URL || 'http://localhost:18080';
 
 test.describe('governance & community smoke (local)', () => {
     test('public API: execution readiness + beta catalog', async ({ request }) => {
+        test.skip(!process.env.TEST_API_URL, 'Set TEST_API_URL for the live-API smoke');
         const readiness = await request.get(`${API_BASE}/v1/governance/execution-readiness`);
         expect(readiness.ok()).toBeTruthy();
         const body = await readiness.json();
@@ -32,13 +33,11 @@ test.describe('governance & community smoke (local)', () => {
         ).toBeVisible({ timeout: 30_000 });
     });
 
-    test('beta program page renders task catalog', async ({ page }) => {
+    test('beta program page redirects to its archive', async ({ page }) => {
+        // The beta program is archived; the old URL lands on the archive page.
         await page.goto('/community/beta', { waitUntil: 'domcontentloaded' });
-        await expect(page.getByRole('heading', { name: /ProxyHubb Beta Testers/i })).toBeVisible({
-            timeout: 30_000,
-        });
-        await expect(page.getByText(/Week 1/i)).toBeVisible();
-        await expect(page.getByRole('link', { name: 'Discord #beta-testers' })).toBeVisible();
+        await expect(page).toHaveURL(/\/help\/community\/archive\/beta/, { timeout: 30_000 });
+        await expect(page.locator('main')).toBeVisible();
     });
 
     test('governance create shows templates', async ({ page }) => {

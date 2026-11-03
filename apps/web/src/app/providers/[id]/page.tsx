@@ -54,27 +54,38 @@ export default function ProviderProfilePage() {
 
     if (loading) {
         return (
-            <div className="flex flex-col items-center justify-center min-h-[60vh]">
+            <main className="flex flex-col items-center justify-center min-h-[60vh]">
                 <Loader2 className="w-12 h-12 animate-spin text-primary" />
                 <p className="mt-4 font-sans text-sm text-muted-foreground font-bold">Retrieving Profile...</p>
-            </div>
+            </main>
         );
     }
 
     if (error) {
         return (
-            <div className="flex flex-col items-center justify-center min-h-[60vh]">
+            <main className="flex flex-col items-center justify-center min-h-[60vh]">
                 <AlertCircle className="w-12 h-12 text-destructive mb-4" />
                 <h2 className="text-xl font-bold mb-2">Error</h2>
                 <p className="text-muted-foreground mb-6">{error}</p>
                 <Link href="/marketplace" className="px-6 py-2 bg-primary rounded-lg font-bold">
                     Back to Marketplace
                 </Link>
-            </div>
+            </main>
         );
     }
 
-    if (!profile) return null;
+    if (!profile) {
+        return (
+            <main className="flex flex-col items-center justify-center min-h-[60vh]">
+                <AlertCircle className="w-12 h-12 text-destructive mb-4" />
+                <h2 className="text-xl font-bold mb-2">Provider not found</h2>
+                <p className="text-muted-foreground mb-6">This provider profile is unavailable.</p>
+                <Link href="/marketplace" className="px-6 py-2 bg-primary rounded-lg font-bold">
+                    Back to Marketplace
+                </Link>
+            </main>
+        );
+    }
 
     // Use actual data from the profile
     const totalBandwidth = profile.total_bandwidth_sold > 0

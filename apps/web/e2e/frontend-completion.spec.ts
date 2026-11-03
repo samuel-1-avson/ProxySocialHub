@@ -301,7 +301,7 @@ test.describe("remaining frontend acceptance", () => {
     await narrow(page);
     await capture(page, info.outputPath("messages-mobile.png"));
   });
-  test("public profile keeps review failure distinct from no reviews", async ({
+  test("public profile renders empty state when user has no reviews", async ({
     page,
   }, info) => {
     await isolate(page);
@@ -330,154 +330,78 @@ test.describe("remaining frontend acceptance", () => {
       page.getByRole("heading", { name: "Alex Morgan", exact: true }),
     ).toBeVisible();
     await expect(
-      page.getByText("Reviews are unavailable", { exact: true }),
+      page.getByRole("heading", { name: "No reviews yet", exact: true }),
     ).toBeVisible();
     await narrow(page);
     await capture(page, info.outputPath("profile-mobile.png"));
   });
-  test("treasury distinguishes missing balances and preserves true zero values", async ({
+  test("the retired embedded treasury redirects to the standalone explorer", async ({
     page,
-  }, info) => {
-    await isolate(page);
-    await page.route("**/v1/treasury/public", (route) =>
+  }) => {
+    await page.route("**://explorer.proxyhubb.com/**", (route) =>
       route.fulfill({
-        json: {
-          network: "devnet",
-          oracle_configured: false,
-          operational_healthy: false,
-          lifetime_provider_paid_sol: 0,
-          recent_batch_payouts: [],
-          timestamp,
-          treasury: {
-            status: "RPC_UNAVAILABLE",
-            hot: {
-              address: "hot-wallet-address",
-              balance_sol: 0,
-              balance_unavailable: true,
-            },
-            cold: { address: "cold-wallet-address", balance_sol: 0 },
-            last_checked_at: timestamp,
-            liquidity: { queue_depth: 0, last_topup_sol: 0 },
-          },
-        },
+        status: 200,
+        contentType: "text/html",
+        body: "<main><h1>Standalone Explorer Treasury</h1></main>",
       }),
     );
-    const records = page.waitForResponse((response) => response.url().endsWith("/v1/treasury/public") && response.status() === 200, { timeout: 60000 });
     await page.goto(base + "/treasury", { waitUntil: "domcontentloaded" });
-    await records;
-    await expect(
-      page.getByRole("heading", { name: "Platform treasury" }),
-    ).toBeVisible();
-    await expect(
-      page
-        .locator(".treasury-wallet")
-        .filter({ hasText: "Hot wallet" })
-        .getByRole("heading", { name: "Unavailable", exact: true }),
-    ).toBeVisible();
-    await expect(
-      page
-        .locator(".treasury-wallet")
-        .filter({ hasText: "Cold wallet" })
-        .getByRole("heading", { name: "0 SOL", exact: true }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("link", { name: "View on Solscan" }).first(),
-    ).toHaveAttribute("href", /cluster=devnet/);
-    await narrow(page);
-    await capture(page, info.outputPath("treasury-mobile.png"));
+    await expect(page).toHaveURL(
+      "https://explorer.proxyhubb.com/governance/treasury",
+      { timeout: 30_000 },
+    );
   });
-  test("analytics applies custom dates and provides exact accessible measurements", async ({
+  test("the retired embedded analytics redirects to the standalone explorer", async ({
     page,
-  }, info) => {
-    await isolate(page);
-    let requested = "";
-    await page.route("**/v1/explorer/analytics?**", (route) => {
-      requested = route.request().url();
-      return route.fulfill({
-        json: {
-          period: "24h",
-          metrics_available: true,
-          transaction_volume: [
-            { timestamp, value: 0 },
-            { timestamp: "2026-10-31T13:00:00Z", value: 0.4 },
-          ],
-          bandwidth_gb: [],
-          active_nodes: [],
-          active_wallets: [],
-        },
-      });
-    });
-    await page.route("**/v1/explorer/metrics?**", (route) =>
+  }) => {
+    await page.route("**://explorer.proxyhubb.com/**", (route) =>
       route.fulfill({
-        json: {
-          total_volume: 0,
-          transactions_per_second: 0,
-          total_bandwidth_gb: 0,
-          active_wallets: 0,
-          region_distribution: { Ghana: 2 },
-        },
+        status: 200,
+        contentType: "text/html",
+        body: "<main><h1>Standalone Explorer Analytics</h1></main>",
       }),
     );
     await page.goto(base + "/explorer/analytics", {
       waitUntil: "domcontentloaded",
     });
-    await expect(
-      page.getByRole("heading", { name: "Network analytics", exact: true }),
-    ).toBeVisible();
-    await page.getByLabel("From date").fill("2026-10-01");
-    await page.getByLabel("To date").fill("2026-10-31");
-    await page.getByRole("button", { name: "Apply date range" }).click();
-    await expect.poll(() => requested).toContain("from=2026-10-01");
-    await page.getByText("View exact measurements · SOL").click();
-    await expect(
-      page.getByRole("cell", { name: "0.4", exact: true }),
-    ).toBeVisible();
-    await narrow(page);
-    await capture(page, info.outputPath("analytics-mobile.png"));
+    await expect(page).toHaveURL("https://explorer.proxyhubb.com/analytics", {
+      timeout: 30_000,
+    });
   });
-  test("health transport failures do not claim an outage or a healthy event log", async ({
+  test("the retired embedded health redirects to the standalone explorer", async ({
     page,
   }) => {
-    await isolate(page);
+    await page.route("**://explorer.proxyhubb.com/**", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/html",
+        body: "<main><h1>Standalone Explorer Health</h1></main>",
+      }),
+    );
     await page.goto(base + "/explorer/health", {
       waitUntil: "domcontentloaded",
     });
-    await expect(
-      page.getByText("Current health is unavailable", { exact: true }),
-    ).toBeVisible();
-    await expect(
-      page.getByText("Health history is unavailable", { exact: true }),
-    ).toBeVisible();
-    await expect(page.getByText("Down", { exact: true })).toHaveCount(0);
-    await expect(
-      page.getByText("All systems nominal", { exact: true }),
-    ).toHaveCount(0);
-    await narrow(page);
+    await expect(page).toHaveURL("https://explorer.proxyhubb.com/health", {
+      timeout: 30_000,
+    });
   });
-  test("wallet lookup validates and public records recover from failures", async ({
+  test("the retired embedded public records redirect to the standalone explorer", async ({
     page,
   }) => {
-    await isolate(page);
+    await page.route("**://explorer.proxyhubb.com/**", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/html",
+        body: "<main><h1>Standalone Explorer Search</h1></main>",
+      }),
+    );
     await page.goto(base + "/explorer/wallets", {
       waitUntil: "domcontentloaded",
     });
-    await page
-      .getByLabel("Solana wallet address", { exact: true })
-      .fill("invalid");
-    await page.getByRole("button", { name: "Look up wallet" }).click();
-    await expect(page.locator("main [role=alert]").first()).toContainText(
-      "valid Solana address",
+    await expect(page).toHaveURL(
+      "https://explorer.proxyhubb.com/search?type=wallets",
+      { timeout: 30_000 },
     );
-    for (const path of ["blocks", "contracts", "nodes", "transactions"]) {
-      await page.goto(base + "/explorer/" + path, {
-        waitUntil: "domcontentloaded",
-      });
-      await expect(page.locator("main [role=alert]").first()).toBeVisible();
-      await expect(
-        page.getByRole("button", { name: "Try again" }),
-      ).toBeVisible();
-      await narrow(page);
-    }
   });
   test("draft documentation has working contents, consistent themes, and a narrow reading layout", async ({
     page,

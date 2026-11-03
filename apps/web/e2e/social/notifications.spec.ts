@@ -1,130 +1,123 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
+import { seedSignedAuth } from "../fixtures/signed-auth";
 
-test.describe("Notification Center", () => {
-    test.beforeEach(async ({ page }) => {
-        // Login before each test
-        await page.goto("/login");
-        await page.fill("[name='email']", process.env.TEST_USER_EMAIL || "");
-        await page.fill("[name='password']", process.env.TEST_USER_PASSWORD || "");
-        await page.click("button[type='submit']");
-        await page.waitForURL("/dashboard");
-    });
+const base = process.env.TEST_BASE_URL || "http://localhost:4011";
+const me = "buyer-route-policy-user";
 
-    test("should display notification bell with correct aria attributes", async ({ page }) => {
-        const bellButton = page.locator("[aria-label*='Notifications']");
-        
-        await expect(bellButton).toBeVisible();
-        await expect(bellButton).toHaveAttribute("aria-haspopup", "menu");
-        await expect(bellButton).toHaveAttribute("aria-expanded", "false");
-    });
+const sampleNotification = {
+  id: "n1",
+  user_id: me,
+  type: "friend_request",
+  title: "New friend request",
+  body: "Ron Asker wants to connect",
+  is_read: false,
+  channels_delivered: ["in_app"],
+  created_at: "2026-11-01T10:00:00Z",
+};
 
-    test("should open notification dropdown on click", async ({ page }) => {
-        const bellButton = page.locator("[aria-label*='Notifications']");
-        await bellButton.click();
+async function stubNotificationCenter(page: Page) {
+  const calls = { readAll: 0 };
+  let unread = 1;
+  await page.routeWebSocket((url) => !url.pathname.includes("/_next/"), (socket) => socket.close());
+  await page.route("**/v1/**", (route) =>
+    route.fulfill({ status: 503, json: { error: "Not available in this test" } }),
+  );
+  await page.route(/\/v1\/notifications\?/, (route) =>
+    route.fulfill({
+      json: { notifications: unread ? [sampleNotification] : [{ ...sampleNotification, is_read: true }], total: 1, page: 1, limit: 100 },
+    }),
+  );
+  await page.route(/\/v1\/notifications\/unread-count$/, (route) =>
+    route.fulfill({ json: { count: unread } }),
+  );
+  await page.route(/\/v1\/notifications\/read-all$/, (route) => {
+    calls.readAll += 1;
+    unread = 0;
+    return route.fulfill({ json: { message: "All notifications marked as read" } });
+  });
+  return calls;
+}
 
-        const dropdown = page.locator("[role='menu']");
-        await expect(dropdown).toBeVisible();
-        await expect(bellButton).toHaveAttribute("aria-expanded", "true");
-    });
+// The NotificationCenter bell is mounted in WorkspaceHeader.
+test.describe("Notification center", () => {
+  test.setTimeout(120000);
 
-    test("should close dropdown on Escape key", async ({ page }) => {
-        const bellButton = page.locator("[aria-label*='Notifications']");
-        await bellButton.click();
+  test("bell shows the unread count, opens the menu, and Escape closes it", async ({ page }) => {
+    await stubNotificationCenter(page);
+    await seedSignedAuth(page, base, "buyer");
+    await page.goto(base + "/marketplace", { waitUntil: "domcontentloaded" });
 
-        const dropdown = page.locator("[role='menu']");
-        await expect(dropdown).toBeVisible();
+    const bell = page.getByRole("button", { name: /Notifications \(1 unread\)/ });
+    await expect(bell).toBeVisible({ timeout: 30000 });
+    await bell.click();
+    await expect(page.getByRole("menu")).toBeVisible();
+    await expect(page.getByText("Ron Asker wants to connect")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu")).toHaveCount(0);
+  });
 
-        await page.keyboard.press("Escape");
-        await expect(dropdown).not.toBeVisible();
-        await expect(bellButton).toHaveAttribute("aria-expanded", "false");
-    });
+  test("mark all as read clears the unread badge", async ({ page }) => {
+    const calls = await stubNotificationCenter(page);
+    await seedSignedAuth(page, base, "buyer");
+    await page.goto(base + "/marketplace", { waitUntil: "domcontentloaded" });
 
-    test("should trap focus within dropdown when open", async ({ page }) => {
-        const bellButton = page.locator("[aria-label*='Notifications']");
-        await bellButton.click();
-
-        const dropdown = page.locator("[role='menu']");
-        await expect(dropdown).toBeVisible();
-
-        // Tab through all focusable elements
-        const focusableElements = await dropdown.locator("button, a").all();
-        expect(focusableElements.length).toBeGreaterThan(0);
-
-        // Press Tab multiple times and verify focus stays within dropdown
-        for (let i = 0; i < focusableElements.length + 2; i++) {
-            await page.keyboard.press("Tab");
-            const activeElement = await page.evaluate(() => document.activeElement?.closest("[role='menu']"));
-            expect(activeElement).toBeTruthy();
-        }
-    });
-
-    test("should navigate to notification settings", async ({ page }) => {
-        const bellButton = page.locator("[aria-label*='Notifications']");
-        await bellButton.click();
-
-        const settingsLink = page.locator("[aria-label='Notification settings']");
-        await settingsLink.click();
-
-        await expect(page).toHaveURL("/dashboard/settings/notifications");
-    });
-
-    test("should mark all notifications as read", async ({ page }) => {
-        const bellButton = page.locator("[aria-label*='Notifications']");
-        await bellButton.click();
-
-        const markAllButton = page.locator("[aria-label='Mark all notifications as read']");
-        
-        // Only test if button exists (has unread notifications)
-        if (await markAllButton.isVisible().catch(() => false)) {
-            await markAllButton.click();
-            
-            // Verify notifications are marked as read
-            await expect(page.locator("[role='menu'] [role='listitem']").first()).toHaveClass(/bg-primary\/5/);
-        }
-    });
+    await page.getByRole("button", { name: /Notifications/ }).first().click();
+    await page.getByRole("button", { name: "Mark all notifications as read" }).click();
+    await expect.poll(() => calls.readAll).toBeGreaterThan(0);
+    await expect(
+      page.getByRole("button", { name: "Notifications", exact: true }),
+    ).toBeVisible({ timeout: 30000 });
+  });
 });
 
-test.describe("Notification Settings", () => {
-    test.beforeEach(async ({ page }) => {
-        await page.goto("/login");
-        await page.fill("[name='email']", process.env.TEST_USER_EMAIL || "");
-        await page.fill("[name='password']", process.env.TEST_USER_PASSWORD || "");
-        await page.click("button[type='submit']");
-        await page.goto("/dashboard/settings/notifications");
-    });
+const fullPreferences = {
+  user_id: me,
+  social_in_app: true,
+  social_email: false,
+  social_push: false,
+  business_in_app: true,
+  business_email: false,
+  business_push: false,
+  community_in_app: true,
+  community_email: false,
+  community_push: false,
+  system_in_app: true,
+  system_email: false,
+  system_push: false,
+  email_digest_frequency: "immediate",
+  digest_day: "monday",
+  digest_hour: 9,
+  updated_at: "2026-11-01T10:00:00Z",
+};
 
-    test("should display notification preferences", async ({ page }) => {
-        await expect(page.locator("h1")).toContainText("Notification Settings");
-        await expect(page.locator("text=Social")).toBeVisible();
-        await expect(page.locator("text=Business")).toBeVisible();
-        await expect(page.locator("text=Community")).toBeVisible();
-    });
+test.describe("Notification settings", () => {
+  test.setTimeout(120000);
 
-    test("should toggle notification preferences", async ({ page }) => {
-        const socialEmailToggle = page.locator("button").filter({ hasText: /Email/ }).first();
-        
-        // Get initial state
-        const initialClass = await socialEmailToggle.getAttribute("class");
-        
-        // Click to toggle
-        await socialEmailToggle.click();
-        
-        // Wait for save
-        await expect(page.locator("text=Saved")).toBeVisible();
-        
-        // Verify state changed
-        const newClass = await socialEmailToggle.getAttribute("class");
-        expect(newClass).not.toBe(initialClass);
+  test("toggling a live channel and changing digest frequency save via the API", async ({ page }) => {
+    const puts: Array<Record<string, unknown>> = [];
+    await page.routeWebSocket((url) => !url.pathname.includes("/_next/"), (socket) => socket.close());
+    await page.route("**/v1/**", (route) =>
+      route.fulfill({ status: 503, json: { error: "Not available in this test" } }),
+    );
+    await page.route(/\/v1\/notification-preferences$/, (route) => {
+      if (route.request().method() === "PUT" || route.request().method() === "PATCH") {
+        puts.push(route.request().postDataJSON() as Record<string, unknown>);
+        return route.fulfill({ json: { ...fullPreferences, ...puts[puts.length - 1] } });
+      }
+      return route.fulfill({ json: fullPreferences });
     });
+    await seedSignedAuth(page, base, "buyer");
+    await page.goto(base + "/app/settings?tab=preferences", { waitUntil: "domcontentloaded" });
 
-    test("should change digest frequency", async ({ page }) => {
-        const frequencySelect = page.locator("select").first();
-        
-        await frequencySelect.selectOption("daily");
-        await expect(page.locator("text=Saved")).toBeVisible();
-        
-        // Verify day and time selectors appear
-        await expect(page.locator("text=Day")).toBeVisible();
-        await expect(page.locator("text=Time")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Notifications", exact: true })).toBeVisible({ timeout: 30000 });
+    await page.getByLabel("Social activity in app").uncheck();
+    await page.getByLabel(/Email digest/).selectOption("daily");
+    await page.getByRole("button", { name: "Save preferences" }).click();
+    await expect.poll(() => puts.length).toBeGreaterThan(0);
+    expect(puts[puts.length - 1]).toMatchObject({
+      social_in_app: false,
+      email_digest_frequency: "daily",
     });
+    await expect(page.getByText("Preferences saved.")).toBeVisible({ timeout: 30000 });
+  });
 });

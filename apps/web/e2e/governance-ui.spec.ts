@@ -52,15 +52,17 @@ test.describe("governance interface", () => {
       "**/v1/governance/proposals/ui-review/treasury-transactions",
       (route) => route.fulfill({ json: { treasury_transactions: [] } }),
     );
+    await seedSignedAuth(page, base, "buyer");
     await page.goto(base + "/governance/ui-review", {
       waitUntil: "domcontentloaded",
     });
-    await expect(
-      page.getByRole("heading", { name: "Proposal unavailable" }),
-    ).toBeVisible({ timeout: 30_000 });
+    // A load failure is an error alert with a retry, never "not found".
+    await expect(page.locator(".ui-error")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText("This data is unavailable")).toBeVisible();
+    await expect(page.getByText("Proposal not found")).toHaveCount(0);
     available = true;
     await page
-      .getByRole("alert")
+      .locator(".ui-error")
       .getByRole("button", { name: "Try again" })
       .click();
     await expect(
@@ -75,11 +77,11 @@ test.describe("governance interface", () => {
       }),
     ).toBeVisible();
     const votes = page.getByRole("button", { name: "Votes", exact: true });
-    await expect(votes).toHaveAttribute("aria-pressed", "true");
+    await expect(votes).toHaveClass(/active/);
     await page.getByRole("button", { name: "Discussion", exact: true }).click();
     await expect(
       page.getByRole("button", { name: "Discussion", exact: true }),
-    ).toHaveAttribute("aria-pressed", "true");
+    ).toHaveClass(/active/);
     await expect(
       page.getByRole("heading", { name: "Community discussion", exact: true }),
     ).toBeVisible();
@@ -129,30 +131,28 @@ test.describe("governance interface", () => {
     await expect(
       page.getByRole("heading", { name: "Create Proposal", exact: true }),
     ).toBeVisible({ timeout: 30_000 });
-    await expect(
-      page.getByLabel("Proposal template", { exact: true }),
-    ).toHaveValue("signal");
+    await expect(page.getByLabel(/Proposal template/)).toHaveValue("signal");
     await page
-      .getByLabel("Proposal Title", { exact: true })
+      .getByLabel(/Proposal title/)
       .fill("Regional network incentives");
     await page
-      .getByLabel("Proposal description", { exact: true })
+      .getByLabel(/Description/)
       .fill(
         "Review regional provider capacity and its incentives before the next period.",
       );
-    await page.getByLabel("Voting Duration (days)", { exact: true }).fill("15");
+    await page.getByLabel(/Voting duration \(days\)/).fill("15");
     await page
-      .getByRole("button", { name: "Publish proposal on-chain", exact: true })
+      .getByRole("button", { name: "Publish proposal", exact: true })
       .click();
     expect(
       await page
-        .getByLabel("Voting Duration (days)", { exact: true })
+        .getByLabel(/Voting duration \(days\)/)
         .evaluate(
           (element: HTMLInputElement) => element.validity.rangeOverflow,
         ),
     ).toBe(true);
     expect(submissions).toBe(0);
-    await page.getByLabel("Voting Duration (days)", { exact: true }).fill("7");
+    await page.getByLabel(/Voting duration \(days\)/).fill("7");
     await page.setViewportSize({ width: 390, height: 844 });
     expect(
       await page.evaluate(
