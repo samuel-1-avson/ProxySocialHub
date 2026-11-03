@@ -121,6 +121,51 @@ function MessagesContent() {
       }),
     [client, subscribe, user?.id],
   );
+  useEffect(() => {
+    const replaceMessage = (
+      conversationId: string,
+      update: (message: Message) => Message,
+      messageId: string,
+    ) => {
+      client.setQueryData<{ messages: Message[] }>(
+        ["inbox", "messages", user?.id, conversationId],
+        (previous) =>
+          previous
+            ? {
+                messages: previous.messages.map((item) =>
+                  item.id === messageId ? update(item) : item,
+                ),
+              }
+            : previous,
+      );
+      void client.invalidateQueries({
+        queryKey: ["inbox", "conversations", user?.id],
+      });
+    };
+    const offUpdated = subscribe(WS_MESSAGE_TYPES.MESSAGE_UPDATED, (event) => {
+      const payload = event.data as
+        | { conversation_id?: string; message?: Message }
+        | undefined;
+      if (!payload?.conversation_id || !payload.message?.id) return;
+      const updated = payload.message;
+      replaceMessage(payload.conversation_id, () => updated, updated.id);
+    });
+    const offDeleted = subscribe(WS_MESSAGE_TYPES.MESSAGE_DELETED, (event) => {
+      const payload = event.data as
+        | { conversation_id?: string; message_id?: string }
+        | undefined;
+      if (!payload?.conversation_id || !payload.message_id) return;
+      replaceMessage(
+        payload.conversation_id,
+        (item) => ({ ...item, content: "", is_deleted: true }),
+        payload.message_id,
+      );
+    });
+    return () => {
+      offUpdated();
+      offDeleted();
+    };
+  }, [client, subscribe, user?.id]);
   return (
     <div className="ui-page inbox-page">
       <PageHeading
@@ -200,7 +245,10 @@ function MessagesContent() {
                   <span className="inbox-conversation-copy">
                     <strong>{name(conversation)}</strong>
                     <span>
-                      {conversation.last_message?.content || "No messages yet"}
+                      {conversation.last_message?.is_deleted
+                        ? "This message was deleted."
+                        : conversation.last_message?.content ||
+                          "No messages yet"}
                     </span>
                   </span>
                   <span className="inbox-conversation-meta">
