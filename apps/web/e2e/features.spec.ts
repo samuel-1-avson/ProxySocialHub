@@ -1,40 +1,39 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+import { seedSignedAuth } from './fixtures/signed-auth';
 
 const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:4011';
+
+async function stubApiDown(page: Page) {
+    await page.routeWebSocket((url) => !url.pathname.includes('/_next/'), (socket) => socket.close());
+    await page.route('**/v1/**', (route) => route.fulfill({ status: 503, json: { error: 'Not available in this test' } }));
+}
 
 // ==================== Wallet Tests ====================
 
 test.describe('Wallet', () => {
     test.beforeEach(async ({ page }) => {
-        await page.goto(`${BASE_URL}`);
-        await page.evaluate(() => {
-            localStorage.setItem('access_token', 'mock-test-token');
-            localStorage.setItem('user', JSON.stringify({
-                id: 'test-user',
-                email: 'test@example.com',
-                role: 'buyer'
-            }));
-        });
+        await stubApiDown(page);
+        await seedSignedAuth(page, BASE_URL, 'buyer');
     });
 
     test('should display wallet page', async ({ page }) => {
+        // The legacy /dashboard/wallet URL redirects to the current page.
         await page.goto(`${BASE_URL}/dashboard/wallet`);
-        await expect(page.getByText(/wallet|balance/i).first()).toBeVisible({ timeout: 10000 });
+        await expect(page).toHaveURL(/\/app\/wallet/, { timeout: 30000 });
+        await expect(page.getByRole('heading', { name: 'Your payment wallet' }).first()).toBeVisible({ timeout: 30000 });
     });
 
-    test('should show deposit button', async ({ page }) => {
-        await page.goto(`${BASE_URL}/dashboard/wallet`);
-        await expect(page.getByRole('button', { name: /deposit/i })).toBeVisible({ timeout: 10000 });
+    test('should show the wallet view tabs', async ({ page }) => {
+        await page.goto(`${BASE_URL}/app/wallet`);
+        const views = page.getByRole('navigation', { name: 'Wallet views' });
+        await expect(views.getByRole('link', { name: 'Your wallet' })).toBeVisible({ timeout: 30000 });
+        await expect(views.getByRole('link', { name: 'Account funds' })).toBeVisible();
+        await expect(views.getByRole('link', { name: 'Activity' })).toBeVisible();
     });
 
-    test('should show withdraw button', async ({ page }) => {
-        await page.goto(`${BASE_URL}/dashboard/wallet`);
-        await expect(page.getByRole('button', { name: /withdraw/i })).toBeVisible({ timeout: 10000 });
-    });
-
-    test('should display transaction history', async ({ page }) => {
-        await page.goto(`${BASE_URL}/dashboard/wallet`);
-        await expect(page.getByText(/transaction|history/i).first()).toBeVisible({ timeout: 10000 });
+    test('should open the activity view for transaction history', async ({ page }) => {
+        await page.goto(`${BASE_URL}/app/wallet?tab=history`);
+        await expect(page.getByRole('navigation', { name: 'Wallet views' }).getByRole('link', { name: 'Activity' })).toHaveAttribute('aria-current', 'page', { timeout: 30000 });
     });
 });
 
@@ -47,9 +46,36 @@ test.describe('Marketplace', () => {
     });
 
     test('should display listing cards', async ({ page }) => {
+        await page.route(/\/v1\/listings(\?.*)?$/, (route) => route.fulfill({
+            json: {
+                listings: [{
+                    id: 'listing-accra-1',
+                    seller_id: 'seller-1',
+                    node_id: 'node-1',
+                    title: 'Accra Residential Pool',
+                    description: 'Residential proxies in Ghana',
+                    price_per_gb: 0.0025,
+                    min_purchase_gb: 1,
+                    available_bandwidth_gb: 500,
+                    max_concurrency: 10,
+                    proxy_type: 'residential',
+                    protocol: 'http',
+                    status: 'active',
+                    country: 'GH',
+                    city: 'Accra',
+                    uptime_percent: 99.5,
+                    avg_latency_ms: 80,
+                    success_rate: 99,
+                    quality_score: 95,
+                }],
+                total: 1,
+                page: 1,
+            },
+        }));
+        await page.route(/\/v1\/listings\/(featured|facets|collections)(\?.*)?$/, (route) => route.fulfill({ json: { listings: [], collections: [], total: 0 } }));
         await page.goto(`${BASE_URL}/marketplace`);
-        // Look for price or listing indicators
-        await expect(page.getByText(/gb|price/i).first()).toBeVisible({ timeout: 10000 });
+        await expect(page.getByText('Accra Residential Pool')).toBeVisible({ timeout: 30000 });
+        await expect(page.getByText(/GB/i).first()).toBeVisible();
     });
 
     test('should have search functionality', async ({ page }) => {
@@ -75,29 +101,27 @@ test.describe('Marketplace', () => {
 
 test.describe('Security Settings', () => {
     test.beforeEach(async ({ page }) => {
-        await page.goto(`${BASE_URL}`);
-        await page.evaluate(() => {
-            localStorage.setItem('access_token', 'mock-test-token');
-            localStorage.setItem('user', JSON.stringify({
-                id: 'test-user',
-                email: 'test@example.com',
-                role: 'buyer'
-            }));
-        });
+        await stubApiDown(page);
+        // 2FA not enabled: the API answers 400, which the UI reads as "off".
+        await page.route('**/v1/2fa/backup-codes', (route) => route.fulfill({ status: 400, json: { error: 'Two-factor authentication is not enabled' } }));
+        await seedSignedAuth(page, BASE_URL, 'buyer');
     });
 
     test('should display security settings page', async ({ page }) => {
+        // The legacy /dashboard/security URL redirects to the settings tab.
         await page.goto(`${BASE_URL}/dashboard/security`);
-        await expect(page.getByText(/security|two-factor/i).first()).toBeVisible({ timeout: 10000 });
+        await expect(page).toHaveURL(/tab=security/, { timeout: 30000 });
+        await expect(page.getByRole('heading', { name: 'Two-factor authentication' })).toBeVisible({ timeout: 30000 });
     });
 
     test('should show 2FA setup option', async ({ page }) => {
-        await page.goto(`${BASE_URL}/dashboard/security`);
-        await expect(page.getByText(/two-factor|2fa|authenticator/i).first()).toBeVisible({ timeout: 10000 });
+        await page.goto(`${BASE_URL}/app/settings?tab=security`);
+        await expect(page.getByRole('button', { name: 'Set up authenticator' })).toBeVisible({ timeout: 30000 });
+        await expect(page.getByText('Not enabled')).toBeVisible();
     });
 
     test('should have sessions tab', async ({ page }) => {
-        await page.goto(`${BASE_URL}/dashboard/security`);
+        await page.goto(`${BASE_URL}/app/settings?tab=security`);
         const sessionsTab = page.getByRole('tab', { name: /sessions/i });
         if (await sessionsTab.isVisible()) {
             await sessionsTab.click();
