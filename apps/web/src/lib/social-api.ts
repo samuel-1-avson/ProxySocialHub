@@ -1,7 +1,8 @@
 // Social API - ProxySocialHub marketplace features
 import { fetchWithAuth } from './auth';
+import type { Notification } from './notifications-api';
 
-const API_BASE = ''; // relative — proxied by Next.js rewrite in next.config.ts
+const API_BASE = ''; // relative â€” proxied by Next.js rewrite in next.config.ts
 
 // ============== Types ==============
 export interface User {
@@ -143,7 +144,7 @@ export interface FeedEvent {
 }
 
 // ============== Notifications API ==============
-export async function getNotifications(): Promise<{ notifications: any[] }> {
+export async function getNotifications(): Promise<{ notifications: Notification[] }> {
     const res = await fetchWithAuth(`${API_BASE}/v1/notifications`);
     if (!res.ok) {
         if (res.status === 404) return { notifications: [] };
@@ -505,10 +506,10 @@ export async function applyForProvider(data: {
     return res.json();
 }
 
-export async function getProviderApplicationStatus(): Promise<{ status: string; application: ProviderApplication }> {
+export async function getProviderApplicationStatus(): Promise<{ status: string; application: ProviderApplication | null }> {
     const res = await fetchWithAuth(`${API_BASE}/v1/provider/status`);
     if (!res.ok) {
-        if (res.status === 404) return { status: 'none', application: null as any };
+        if (res.status === 404) return { status: 'none', application: null };
         throw new Error('Failed to check status');
     }
     return res.json();
