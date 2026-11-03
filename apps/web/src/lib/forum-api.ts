@@ -111,13 +111,22 @@ export async function getCategoryThreads(
     return res.json();
 }
 
-export async function getThread(id: string): Promise<{ thread: ForumThread; posts: ForumPost[] }> {
+export interface ThreadResponse {
+    thread: ForumThread;
+    posts: ForumPost[];
+    total_posts: number;
+    page: number;
+    limit: number;
+    solution_post?: ForumPost | null;
+}
+
+export async function getThread(id: string): Promise<ThreadResponse> {
     const res = await publicApiFetch(`${API_BASE}/v1/forum/threads/${id}`);
     if (!res.ok) throw new Error(res.status === 404 ? "Discussion not found" : "Discussion service is unavailable. Try again in a moment.");
     return res.json();
 }
 
-export async function getThreadBySlug(slug: string): Promise<{ thread: ForumThread; posts: ForumPost[] }> {
+export async function getThreadBySlug(slug: string): Promise<ThreadResponse> {
     const res = await publicApiFetch(`${API_BASE}/v1/forum/threads/slug/${slug}`);
     if (!res.ok) throw new Error(res.status === 404 ? "Discussion not found" : "Discussion service is unavailable. Try again in a moment.");
     return res.json();
@@ -206,40 +215,60 @@ export async function voteThread(threadId: string, voteType: "up" | "down"): Pro
 
 // ============== Search & Discovery ==============
 
-export async function searchForum(query: string): Promise<{ threads: ForumThread[]; total: number }> {
-    const res = await publicApiFetch(`${API_BASE}/v1/forum/search?q=${encodeURIComponent(query)}`);
+export interface ThreadListPage {
+    threads: ForumThread[];
+    total: number;
+    page: number;
+    limit: number;
+    has_more: boolean;
+}
+
+function emptyThreadPage(page: number, limit: number): ThreadListPage {
+    return { threads: [], total: 0, page, limit, has_more: false };
+}
+
+export async function searchForum(query: string, page = 1): Promise<ThreadListPage> {
+    const res = await publicApiFetch(`${API_BASE}/v1/forum/search?q=${encodeURIComponent(query)}&page=${page}`);
     if (!res.ok) {
-        if (res.status === 401 || res.status === 404) return { threads: [], total: 0 };
+        if (res.status === 401 || res.status === 404) return emptyThreadPage(page, 20);
         throw new Error("Search failed");
     }
-    return res.json();
+    const data = await res.json();
+    return {
+        threads: data.threads ?? [],
+        total: data.total ?? 0,
+        page: data.page ?? page,
+        limit: data.limit ?? 20,
+        has_more: (data.page ?? page) * (data.limit ?? 20) < (data.total ?? 0),
+    };
 }
 
-export async function getRecentThreads(limit = 20): Promise<{ threads: ForumThread[] }> {
-    const res = await publicApiFetch(`${API_BASE}/v1/forum/recent?limit=${limit}`);
+async function getThreadCollection(path: string, limit: number, page: number, label: string): Promise<ThreadListPage> {
+    const res = await publicApiFetch(`${API_BASE}${path}?limit=${limit}&page=${page}`);
     if (!res.ok) {
-        if (res.status === 401 || res.status === 404) return { threads: [] };
-        throw new Error("Failed to fetch recent threads");
+        if (res.status === 401 || res.status === 404) return emptyThreadPage(page, limit);
+        throw new Error("Failed to fetch " + label + " threads");
     }
-    return res.json();
+    const data = await res.json();
+    return {
+        threads: data.threads ?? [],
+        total: data.total ?? 0,
+        page: data.page ?? page,
+        limit: data.limit ?? limit,
+        has_more: Boolean(data.has_more),
+    };
 }
 
-export async function getPopularThreads(limit = 20): Promise<{ threads: ForumThread[] }> {
-    const res = await publicApiFetch(`${API_BASE}/v1/forum/popular?limit=${limit}`);
-    if (!res.ok) {
-        if (res.status === 401 || res.status === 404) return { threads: [] };
-        throw new Error("Failed to fetch popular threads");
-    }
-    return res.json();
+export async function getRecentThreads(limit = 20, page = 1): Promise<ThreadListPage> {
+    return getThreadCollection("/v1/forum/recent", limit, page, "recent");
 }
 
-export async function getUnansweredThreads(limit = 20): Promise<{ threads: ForumThread[] }> {
-    const res = await publicApiFetch(`${API_BASE}/v1/forum/unanswered?limit=${limit}`);
-    if (!res.ok) {
-        if (res.status === 401 || res.status === 404) return { threads: [] };
-        throw new Error("Failed to fetch unanswered threads");
-    }
-    return res.json();
+export async function getPopularThreads(limit = 20, page = 1): Promise<ThreadListPage> {
+    return getThreadCollection("/v1/forum/popular", limit, page, "popular");
+}
+
+export async function getUnansweredThreads(limit = 20, page = 1): Promise<ThreadListPage> {
+    return getThreadCollection("/v1/forum/unanswered", limit, page, "unanswered");
 }
 
 // ============== User Threads ==============
