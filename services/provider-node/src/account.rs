@@ -65,7 +65,10 @@ pub fn build_report(
         earnings,
     };
     if let Err(message) = bearer {
-        report.auth_rejected = key_was_refused(&message);
+        // Did the server refuse the key, as opposed to being unreachable or failing? One check
+        // decides this for the whole node (see `ip::is_key_refusal` for why the word "token" and
+        // a bare 401/403 are not enough).
+        report.auth_rejected = crate::ip::is_key_refusal(&message);
         report.error = Some(message);
         return report;
     }
@@ -85,21 +88,6 @@ pub fn build_report(
         Err(message) => report.error = Some(message),
     }
     report
-}
-
-/// Did the server refuse the key (as opposed to being unreachable or failing)?
-///
-/// The phrases are specific to a refusal on purpose. Do not add the bare word "token": the node's
-/// own error text ends with advice that always says it ("Create a fresh token in Dashboard..."),
-/// so a 502 during a deploy would read as a revoked key (`main.rs`'s
-/// `is_fatal_provider_auth_error` has that problem). The tests with the real message shape pin it.
-fn key_was_refused(message: &str) -> bool {
-    let said = message.to_ascii_lowercase();
-    said.contains("invalid or inactive provider token")
-        || said.contains("provider token expired")
-        || said.contains("unauthorized")
-        || said.contains("http 401")
-        || said.contains("http 403")
 }
 
 fn is_online(status: &str) -> bool {
@@ -246,8 +234,6 @@ mod tests {
         for said in [
             "invalid or inactive provider token",
             "provider token expired",
-            "HTTP 401 Unauthorized",
-            "HTTP 403 Forbidden",
         ] {
             let msg = exchange_failure(said);
             let r = build_report("a", Err(msg.clone()), Ok(Vec::new()), None);
@@ -265,6 +251,10 @@ mod tests {
             exchange_failure("HTTP 502 Bad Gateway"),
             exchange_failure("HTTP 500 Internal Server Error"),
             exchange_failure("HTTP 429 Too Many Requests"),
+            // A proxy or firewall can answer 401/403 for its own reasons: only the control API's
+            // own words count as the key being refused.
+            exchange_failure("HTTP 401 Unauthorized"),
+            exchange_failure("HTTP 403 Forbidden"),
         ] {
             let r = build_report("a", Err(msg.clone()), Ok(Vec::new()), None);
             assert!(!r.auth_rejected && !r.reachable, "{msg}");
