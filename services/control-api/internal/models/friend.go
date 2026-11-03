@@ -44,4 +44,14 @@ type Friendship struct {
 	Friend User `gorm:"foreignKey:FriendID" json:"friend,omitempty"`
 }
 
+// SuggestionDismissal records that a user dismissed a people suggestion so
+// it is not resurfaced (F10, migration 000177).
+type SuggestionDismissal struct {
+	UserID          uuid.UUID `gorm:"type:uuid;primaryKey" json:"user_id"`
+	DismissedUserID uuid.UUID `gorm:"type:uuid;primaryKey" json:"dismissed_user_id"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
+func (SuggestionDismissal) TableName() string { return "suggestion_dismissals" }
+
 // BeforeCreate hooks can be added here if needed
