@@ -1,7 +1,9 @@
 // Thin client for the existing ProxyHubb control API (/v1). This MCP server
-// wraps the public contract only: session intents, listings/facets, usage and
-// session termination. It never funds escrow and never bypasses plan limits —
-// a deployment that answers `session_escrow_required` is surfaced as-is.
+// wraps the public contract only: session intents, listings/facets, usage,
+// session termination, and reading the caller's own marketplace orders. It
+// never funds escrow, never buys, pays for or cancels an order, and never
+// bypasses plan limits — a deployment that answers `session_escrow_required`
+// is surfaced as-is.
 
 import type { ProxyHubbConfig } from "./config.ts";
 
@@ -43,6 +45,11 @@ export class ProxyHubbClient {
 
   get hasAccessToken(): boolean {
     return this.#cfg.accessToken.length > 0;
+  }
+
+  /** The order routes accept the account JWT or an API key with the orders:create scope. */
+  get canReadOrders(): boolean {
+    return this.#cfg.accessToken.length > 0 || this.#cfg.apiKey.length > 0;
   }
 
   async #request(method: string, path: string, body?: unknown): Promise<unknown> {
@@ -109,5 +116,23 @@ export class ProxyHubbClient {
   /** POST /v1/sessions/:id/terminate — real sessions only; intents expire (see tools). */
   terminateSession(sessionId: string): Promise<unknown> {
     return this.#request("POST", `/v1/sessions/${encodeURIComponent(sessionId)}/terminate`);
+  }
+
+  /** GET /v1/orders — the caller's own marketplace orders. */
+  listOrders(limit = 100): Promise<unknown> {
+    return this.#request("GET", `/v1/orders?limit=${limit}`);
+  }
+
+  /** GET /v1/orders/:id */
+  getOrder(orderId: string): Promise<unknown> {
+    return this.#request("GET", `/v1/orders/${encodeURIComponent(orderId)}`);
+  }
+
+  /**
+   * GET /v1/orders/:id/credentials. Only call this for an ACTIVE order: for an order in another
+   * state the control API may try to re-activate its session.
+   */
+  getOrderCredentials(orderId: string): Promise<unknown> {
+    return this.#request("GET", `/v1/orders/${encodeURIComponent(orderId)}/credentials`);
   }
 }
