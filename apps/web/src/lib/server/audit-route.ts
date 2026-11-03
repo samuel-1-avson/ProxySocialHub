@@ -16,6 +16,7 @@ const MAX_BODY_BYTES = 16 * 1024;
 export async function withAuditUser(
   request: NextRequest,
   handler: (user: AuditUser) => Promise<Response>,
+  signInMessage = "Sign in to use audits.",
 ): Promise<Response> {
   const mutating = !["GET", "HEAD"].includes(request.method.toUpperCase());
   if (mutating) {
@@ -31,11 +32,11 @@ export async function withAuditUser(
       if (!originHost || originHost !== host) return errorJson(403, "cross_origin", "Cross-origin requests are not allowed.");
     }
     if (!request.headers.get("authorization")?.toLowerCase().startsWith("bearer ")) {
-      return errorJson(401, "unauthorized", "Sign in to use audits.");
+      return errorJson(401, "unauthorized", signInMessage);
     }
   }
   const user = await resolveAuditUser(request);
-  if (!user) return errorJson(401, "unauthorized", "Sign in to use audits.");
+  if (!user) return errorJson(401, "unauthorized", signInMessage);
   return handler(user);
 }
 
