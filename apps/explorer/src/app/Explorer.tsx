@@ -56,7 +56,9 @@ function usePublic(
   useEffect(() => {
     const controller = new AbortController();
     let current = true;
+    let loadedAt = 0;
     const load = async () => {
+      loadedAt = Date.now();
       setResult((previous) =>
         previous.key === key
           ? { ...previous, loading: !previous.data }
@@ -90,11 +92,19 @@ function usePublic(
       }
     };
     void load();
-    const interval = window.setInterval(() => void load(), 60_000);
+    // A hidden tab does not poll. When it comes back, refresh if the data is over 30 s old.
+    const interval = window.setInterval(() => {
+      if (!document.hidden) void load();
+    }, 60_000);
+    const resume = () => {
+      if (!document.hidden && Date.now() - loadedAt > 30_000) void load();
+    };
+    document.addEventListener("visibilitychange", resume);
     return () => {
       current = false;
       controller.abort();
       window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", resume);
     };
   }, [key, resource, id, page, filterKey, version]);
   return {
