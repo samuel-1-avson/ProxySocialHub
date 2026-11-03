@@ -46,12 +46,12 @@ const (
 // User maps to the 'profiles' table in Supabase
 type User struct {
 	ID        uuid.UUID  `gorm:"type:uuid;primary_key" json:"id"` // References auth.users
-	Email     string     `gorm:"unique" json:"email"`              // nullable stub after vault cutover
+	Email     string     `gorm:"unique" json:"email"`             // nullable stub after vault cutover
 	EmailHash *string    `gorm:"column:email_hash;size:64" json:"-"`
 	Role      string     `gorm:"not null" json:"role"` // 'buyer', 'provider', 'admin'
 	Status    UserStatus `gorm:"type:varchar(50);default:'active'" json:"status"`
-	TrustTier TrustTier `gorm:"default:'new'" json:"trust_tier"`
-	KYCStatus KYCStatus `gorm:"type:varchar(50);default:'none'" json:"kyc_status"`
+	TrustTier TrustTier  `gorm:"default:'new'" json:"trust_tier"`
+	KYCStatus KYCStatus  `gorm:"type:varchar(50);default:'none'" json:"kyc_status"`
 
 	// Social Profile fields
 	DisplayName   *string        `gorm:"size:100" json:"display_name,omitempty"`
@@ -83,18 +83,29 @@ type User struct {
 	Verified       bool    `gorm:"default:false" json:"verified"`
 
 	// Provider Stats
-	ProviderSince         *time.Time `json:"provider_since,omitempty"`
-	TotalBandwidthSold    float64    `gorm:"default:0" json:"total_bandwidth_sold"`
-	WalletAddress         *string    `gorm:"size:64;index" json:"wallet_address,omitempty"`    // Solana wallet address (base58)
+	ProviderSince      *time.Time `json:"provider_since,omitempty"`
+	TotalBandwidthSold float64    `gorm:"default:0" json:"total_bandwidth_sold"`
+	WalletAddress      *string    `gorm:"size:64;index" json:"wallet_address,omitempty"` // Solana wallet address (base58)
 
 	// Auth / Verification
 	VerificationToken *string `gorm:"size:255" json:"-"`
 	EmailVerified     bool    `gorm:"default:false" json:"email_verified"`
 
 	// Online presence
-	IsOnline     bool       `gorm:"default:false;index:idx_user_online" json:"is_online"`
-	LastSeenAt   *time.Time `json:"last_seen_at,omitempty"`
-	ScheduledDeletionAt *time.Time `gorm:"index" json:"scheduled_deletion_at,omitempty"`
+	IsOnline               bool       `gorm:"default:false;index:idx_user_online" json:"is_online"`
+	LastSeenAt             *time.Time `json:"last_seen_at,omitempty"`
+	ScheduledDeletionAt    *time.Time `gorm:"index" json:"scheduled_deletion_at,omitempty"`
+	ProfilePublic          bool       `json:"-"`
+	Discoverable           bool       `json:"-"`
+	MapVisible             bool       `json:"-"`
+	MapPrecision           string     `gorm:"default:'country'" json:"-"`
+	PresenceVisible        bool       `json:"-"`
+	ActivityPublic         bool       `json:"-"`
+	ContactMode            string     `gorm:"default:'contacts'" json:"-"`
+	AnalyticsOptIn         bool       `json:"-"`
+	AllowDirectConnections bool       `json:"-"`
+	PublicChainConsent     bool       `json:"-"`
+	PrivacyUpdatedAt       *time.Time `json:"-"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

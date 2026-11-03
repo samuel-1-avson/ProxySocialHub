@@ -33,10 +33,10 @@ export function bypassesProxy(hostname: string): boolean {
 // through proxy.onRequest instead. The route lives in memory and in
 // storage.session (proxyHost/proxyPort, written by connectOrder) so it survives
 // the background page being unloaded.
-type FirefoxRoute = { host: string; port: number } | null;
+type FirefoxRoute = { host: string; port: number; protocol: "http" | "https" } | null;
 let firefoxRoute: FirefoxRoute = null;
 
-type FirefoxProxyInfo = { type: 'direct' } | { type: 'http'; host: string; port: number };
+type FirefoxProxyInfo = { type: 'direct' } | { type: 'http' | 'https'; host: string; port: number };
 type FirefoxProxyApi = {
   onRequest: {
     addListener: (cb: (details: { url: string }) => FirefoxProxyInfo, filter: { urls: string[] }) => void;
@@ -62,15 +62,15 @@ export function installFirefoxProxyRouting(onError: (message: string) => void): 
       } catch {
         return { type: 'direct' };
       }
-      return { type: 'http', host: firefoxRoute.host, port: firefoxRoute.port };
+      return { type: firefoxRoute.protocol, host: firefoxRoute.host, port: firefoxRoute.port };
     },
     { urls: ['<all_urls>'] },
   );
   firefoxProxy().onError.addListener((error) => onError(error?.message ?? ''));
-  void chrome.storage.session.get(['proxyHost', 'proxyPort', 'connectionState']).then((stored) => {
+  void chrome.storage.session.get(['proxyHost', 'proxyPort', 'proxyProtocol', 'connectionState']).then((stored) => {
     const on = stored.connectionState === 'on' || stored.connectionState === 'lost';
-    if (on && typeof stored.proxyHost === 'string' && typeof stored.proxyPort === 'number') {
-      firefoxRoute = { host: stored.proxyHost, port: stored.proxyPort };
+    if (on && stored.proxyProtocol === 'https' && typeof stored.proxyHost === 'string' && typeof stored.proxyPort === 'number') {
+      firefoxRoute = { host: stored.proxyHost, port: stored.proxyPort, protocol: "https" };
     }
   });
 }
@@ -144,9 +144,9 @@ export function setDirectProxy(): Promise<void> {
   });
 }
 
-export async function setHmacHttpProxy(host: string, port: number): Promise<void> {
+export async function setHmacHttpProxy(host: string, port: number, protocol: "http" | "https" = "https"): Promise<void> {
   if (IS_FIREFOX) {
-    firefoxRoute = { host, port };
+    firefoxRoute = { host, port, protocol };
     await enableWebRTCProtection();
     return;
   }
@@ -156,7 +156,7 @@ export async function setHmacHttpProxy(host: string, port: number): Promise<void
         value: {
           mode: 'fixed_servers',
           rules: {
-            singleProxy: { scheme: 'http', host, port },
+            singleProxy: { scheme: protocol, host, port },
             bypassList: PROXY_BYPASS_LIST,
           },
         },

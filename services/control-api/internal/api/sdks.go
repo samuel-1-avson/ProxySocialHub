@@ -18,14 +18,14 @@ import (
 type SDKLanguage string
 
 const (
-	LanguagePython  SDKLanguage = "python"
-	LanguageNodeJS  SDKLanguage = "nodejs"
-	LanguageGolang  SDKLanguage = "golang"
-	LanguageCurl    SDKLanguage = "curl"
-	LanguageRuby    SDKLanguage = "ruby"
-	LanguagePHP     SDKLanguage = "php"
-	LanguageJava    SDKLanguage = "java"
-	LanguageDotNet  SDKLanguage = "dotnet"
+	LanguagePython SDKLanguage = "python"
+	LanguageNodeJS SDKLanguage = "nodejs"
+	LanguageGolang SDKLanguage = "golang"
+	LanguageCurl   SDKLanguage = "curl"
+	LanguageRuby   SDKLanguage = "ruby"
+	LanguagePHP    SDKLanguage = "php"
+	LanguageJava   SDKLanguage = "java"
+	LanguageDotNet SDKLanguage = "dotnet"
 )
 
 // SDKExample represents a code example
@@ -39,11 +39,11 @@ type SDKExample struct {
 
 // GenerateCodeRequest represents a code generation request
 type GenerateCodeRequest struct {
-	Language   string `json:"language" binding:"required"`
-	SessionID  string `json:"session_id,omitempty"`
-	UseCase    string `json:"use_case" binding:"required"` // basic, rotating, sticky, scraping
-	ProxyHost  string `json:"proxy_host,omitempty"`
-	ProxyPort  int    `json:"proxy_port,omitempty"`
+	Language  string `json:"language" binding:"required"`
+	SessionID string `json:"session_id,omitempty"`
+	UseCase   string `json:"use_case" binding:"required"` // basic, rotating, sticky, scraping
+	ProxyHost string `json:"proxy_host,omitempty"`
+	ProxyPort int    `json:"proxy_port,omitempty"`
 }
 
 // GenerateCodeResponse represents a code generation response
@@ -59,13 +59,13 @@ func RegisterSDKRoutes(rg *gin.RouterGroup) {
 	{
 		// Get examples for a language
 		sdks.GET("/:language/examples", getSDKExamples)
-		
+
 		// Generate custom code
 		sdks.POST("/generate-code", generateProxyCode)
-		
+
 		// Get all supported languages
 		sdks.GET("/languages", getSupportedLanguages)
-		
+
 		// Download SDK package
 		sdks.GET("/:language/download", downloadSDK)
 	}
@@ -83,7 +83,7 @@ func getSupportedLanguages(c *gin.Context) {
 		{"id": "java", "name": "Java", "icon": "☕", "version": "11+", "popular": false},
 		{"id": "dotnet", "name": ".NET", "icon": "🔷", "version": "6.0+", "popular": false},
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"languages": languages,
 	})
@@ -93,18 +93,18 @@ func getSupportedLanguages(c *gin.Context) {
 func getSDKExamples(c *gin.Context) {
 	language := SDKLanguage(c.Param("language"))
 	sessionID := c.Query("session_id")
-	
+
 	// Validate language
 	if !isValidLanguage(language) {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": fmt.Sprintf("Unsupported language: %s", language),
+			"error":               fmt.Sprintf("Unsupported language: %s", language),
 			"supported_languages": []string{"python", "nodejs", "golang", "curl", "ruby", "php", "java", "dotnet"},
 		})
 		return
 	}
-	
+
 	examples := generateExamples(language, sessionID)
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"language": language,
 		"examples": examples,
@@ -118,7 +118,7 @@ func generateProxyCode(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	
+
 	// Set defaults
 	if req.ProxyHost == "" {
 		req.ProxyHost = "proxy.proxyhubb.com"
@@ -126,7 +126,7 @@ func generateProxyCode(c *gin.Context) {
 	if req.ProxyPort == 0 {
 		_, req.ProxyPort, _ = BuyerProxyConnectInfo()
 	}
-	
+
 	language := SDKLanguage(req.Language)
 	if !isValidLanguage(language) {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -134,14 +134,14 @@ func generateProxyCode(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	code, filename, err := generateCode(language, req)
 	if err != nil {
 		logging.Error(err).Str("language", req.Language).Msg("Failed to generate code")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate code"})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, GenerateCodeResponse{
 		Language: req.Language,
 		Code:     code,
@@ -152,17 +152,17 @@ func generateProxyCode(c *gin.Context) {
 // downloadSDK provides SDK package download
 func downloadSDK(c *gin.Context) {
 	language := SDKLanguage(c.Param("language"))
-	
+
 	if !isValidLanguage(language) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported language"})
 		return
 	}
-	
+
 	// For now, return installation instructions
 	c.JSON(http.StatusOK, gin.H{
-		"language": language,
+		"language":     language,
 		"installation": getInstallationInstructions(language),
-		"package_url": fmt.Sprintf("https://github.com/proxyhubb/sdk-%s", language),
+		"package_url":  fmt.Sprintf("https://github.com/proxyhubb/sdk-%s", language),
 	})
 }
 
@@ -184,7 +184,7 @@ func generateExamples(language SDKLanguage, sessionID string) []SDKExample {
 	}
 	password := "YOUR_SESSION_PASSWORD"
 	proxyHost, proxyPort, _ := BuyerProxyConnectInfo()
-	
+
 	examples := []SDKExample{
 		{
 			Language:    string(language),
@@ -215,7 +215,7 @@ func generateExamples(language SDKLanguage, sessionID string) []SDKExample {
 			Filename:    getFilename(language, "scraping"),
 		},
 	}
-	
+
 	return examples
 }
 
@@ -225,7 +225,7 @@ func generateCode(language SDKLanguage, req GenerateCodeRequest) (string, string
 		username = "YOUR_SESSION_ID"
 	}
 	password := "YOUR_SESSION_PASSWORD"
-	
+
 	switch req.UseCase {
 	case "basic":
 		return generateBasicExample(language, username, password, req.ProxyHost, req.ProxyPort), getFilename(language, "basic"), nil
@@ -251,18 +251,18 @@ func getFilename(language SDKLanguage, useCase string) string {
 		LanguageJava:   ".java",
 		LanguageDotNet: ".cs",
 	}
-	
+
 	ext, ok := extensions[language]
 	if !ok {
 		ext = ".txt"
 	}
-	
+
 	return fmt.Sprintf("proxyhub_%s%s", useCase, ext)
 }
 
 func generateBasicExample(lang SDKLanguage, username, password, host string, port int) string {
-	proxyURL := fmt.Sprintf("http://%s:%s@%s:%d", username, password, host, port)
-	
+	proxyURL := fmt.Sprintf("%s://%s:%s@%s:%d", buyerProxyScheme(), username, password, host, port)
+
 	switch lang {
 	case LanguagePython:
 		return fmt.Sprintf(`import requests
@@ -355,8 +355,8 @@ echo ""  # New line`, proxyURL)
 }
 
 func generateRotatingExample(lang SDKLanguage, username, password, host string, port int) string {
-	proxyURL := fmt.Sprintf("http://%s:%s@%s:%d", username, password, host, port)
-	
+	proxyURL := fmt.Sprintf("%s://%s:%s@%s:%d", buyerProxyScheme(), username, password, host, port)
+
 	switch lang {
 	case LanguagePython:
 		return fmt.Sprintf(`import requests
@@ -437,8 +437,8 @@ makeRequests();`, host, port, username, password)
 
 func generateStickyExample(lang SDKLanguage, username, password, host string, port int) string {
 	// For sticky sessions, we use the same proxy config but maintain session
-	proxyURL := fmt.Sprintf("http://%s:%s@%s:%d", username, password, host, port)
-	
+	proxyURL := fmt.Sprintf("%s://%s:%s@%s:%d", buyerProxyScheme(), username, password, host, port)
+
 	switch lang {
 	case LanguagePython:
 		return fmt.Sprintf(`import requests
@@ -531,8 +531,8 @@ stickySession();`, host, port, username, password)
 }
 
 func generateScrapingExample(lang SDKLanguage, username, password, host string, port int) string {
-	proxyURL := fmt.Sprintf("http://%s:%s@%s:%d", username, password, host, port)
-	
+	proxyURL := fmt.Sprintf("%s://%s:%s@%s:%d", buyerProxyScheme(), username, password, host, port)
+
 	switch lang {
 	case LanguagePython:
 		return fmt.Sprintf(`import requests
@@ -649,7 +649,7 @@ func getTemplate(name string, content string) *template.Template {
 	if tmpl, ok := templateCache[name]; ok {
 		return tmpl
 	}
-	
+
 	tmpl := template.Must(template.New(name).Parse(content))
 	templateCache[name] = tmpl
 	return tmpl

@@ -22,22 +22,25 @@ const (
 	MsgTypeNotification   = "notification"
 	MsgTypeSystemAlert    = "system_alert"
 	// Social feature message types
-	MsgTypeNewMessage  = "new_message"
-	MsgTypeNewOrder    = "new_order"
-	MsgTypeNewReview   = "new_review"
-	MsgTypeNewFollower = "new_follower"
-	MsgTypeOrderUpdate = "order_update"
-	MsgTypeNewListing  = "new_listing"
+	MsgTypeNewMessage     = "new_message"
+	MsgTypeMessageUpdated = "message_updated"
+	MsgTypeMessageDeleted = "message_deleted"
+	MsgTypeNewOrder       = "new_order"
+	MsgTypeNewReview      = "new_review"
+	MsgTypeNewFollower    = "new_follower"
+	MsgTypeOrderUpdate    = "order_update"
+	MsgTypeNewListing     = "new_listing"
 )
 
 // Client represents a WebSocket client
 type Client struct {
-	ID     string
-	UserID string
-	Role   string
-	Conn   *websocket.Conn
-	Send   chan []byte
-	Hub    *Hub
+	ID        string
+	UserID    string
+	Role      string
+	Conn      *websocket.Conn
+	Send      chan []byte
+	Hub       *Hub
+	Authorize func() bool
 }
 
 // Hub manages all WebSocket connections
@@ -214,6 +217,9 @@ func (c *Client) WritePump() {
 	for {
 		select {
 		case message, ok := <-c.Send:
+			if c.Authorize != nil && !c.Authorize() {
+				return
+			}
 			c.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if !ok {
 				c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
@@ -237,6 +243,9 @@ func (c *Client) WritePump() {
 			}
 
 		case <-ticker.C:
+			if c.Authorize != nil && !c.Authorize() {
+				return
+			}
 			c.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return

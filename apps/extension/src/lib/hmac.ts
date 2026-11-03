@@ -4,6 +4,7 @@ export const CAPABILITY_PREFIX = 'phubb1.';
 export const SOAK_PORT = 18091;
 
 export type ProxyCredentialFields = {
+  protocol?: string;
   username?: string;
   password?: string;
   legacy_password?: string;
@@ -21,6 +22,7 @@ export type CredentialsEnvelope = ProxyCredentialFields & {
 };
 
 export type HmacConnectTarget = {
+  protocol: "http" | "https";
   username: string;
   password: string;
   host: string;
@@ -84,5 +86,10 @@ export function hmacConnectTarget(envelope: CredentialsEnvelope): HmacConnectTar
   if (port === SOAK_PORT) {
     throw new Error('Host-A soak :18091 is not the public Connect target');
   }
-  return { username, password, host, port, endpoint: `${host}:${port}` };
+  const protocol = creds.protocol;
+  const local = host === "localhost" || host === "127.0.0.1" || host === "[::1]";
+  if (protocol !== "https" && !(protocol === "http" && local)) {
+    throw new Error("Encrypted proxy transport is required. Refresh the credentials or contact support.");
+  }
+  return { username, password, host, port, protocol, endpoint: `${host}:${port}` };
 }

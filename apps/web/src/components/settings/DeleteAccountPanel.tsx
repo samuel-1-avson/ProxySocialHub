@@ -10,6 +10,9 @@ import { getErrorMessage } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/patterns/ConfirmDialog";
+import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
+import { apiGet, apiPost } from "@/lib/api/client";
+import { useQuery } from "@tanstack/react-query";
 
 const CONFIRM_PHRASE = "DELETE MY ACCOUNT";
 
@@ -42,7 +45,7 @@ export function DataExportPanel() {
       <div>
         <h3 className="text-sm font-semibold text-foreground">Download your data</h3>
         <p className="mt-2 text-sm text-muted-foreground">
-          Exports profile, orders, listings, reviews, and ledger entries as a ZIP.
+          Downloads your account, privacy settings, transactions, messages, social contributions, and security history. The archive includes a data inventory and excludes usable secrets.
         </p>
       </div>
       {error ? <p className="text-sm text-[var(--destructive)]">{error}</p> : null}
@@ -61,6 +64,11 @@ export function DeleteAccountPanel() {
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
 
+  const [credential, setCredential] = useState("");
+  const [code, setCode] = useState("");
+  const deletion = useQuery({ queryKey:["account-deletion",user?.id], queryFn:()=>apiGet<{scheduled_deletion_at:string|null;restriction_reason?:string}>("/v1/gdpr/deletion"), enabled:!!user });
+  const mfa = useQuery({queryKey:["mfa-status",user?.id],queryFn:()=>apiGet<{enabled:boolean}>("/v1/security/mfa/status"),enabled:!!user});
+
   const handleDeleteAccount = async () => {
     setDeleting(true);
     setError("");
@@ -68,7 +76,9 @@ export function DeleteAccountPanel() {
       let nonce: string | undefined;
       let signature: string | undefined;
 
-      if (user?.wallet_address) {
+      if (user?.managed_wallet?.address) {
+        if (!credential) { setError("Confirm with your linked Google account first."); return; }
+      } else if (user?.wallet_address) {
         if (!signMessage || !connected || !publicKey) {
           setError(
             "Connect the Solana wallet linked to your account to sign the deletion request."
@@ -84,7 +94,7 @@ export function DeleteAccountPanel() {
         signature = signed.signature;
       }
 
-      await deleteAccount(CONFIRM_PHRASE, { nonce, signature });
+      await deleteAccount(CONFIRM_PHRASE, { nonce, signature, google_credential:credential || undefined, code:code || undefined });
       setShowModal(false);
       await logout();
       window.location.href = "/";
@@ -106,11 +116,13 @@ export function DeleteAccountPanel() {
           <div>
             <h3 className="text-sm font-semibold text-foreground">Delete account</h3>
             <p className="mt-2 text-sm text-muted-foreground">
-              Permanently removes node configurations, credentials, and schedules profile
-              deletion. This cannot be undone.
+              Schedules deletion after 30 days and hides your public profile and map presence now. Settle active services and funds first. Required payment records and public blockchain history remain. Managed wallet keys are destroyed only after empty-wallet verification; funds sent after closure may be unrecoverable.
             </p>
           </div>
         </div>
+        {deletion.data?.scheduled_deletion_at && <div><p role="status">Deletion scheduled: {new Date(deletion.data.scheduled_deletion_at).toLocaleDateString()}</p><Button variant="outline" onClick={async()=>{try{await apiPost("/v1/gdpr/deletion/cancel",{});await deletion.refetch();}catch(err){setError(getErrorMessage(err));}}}>Cancel scheduled deletion</Button></div>}
+        {deletion.data?.restriction_reason && <p role="status">{deletion.data.restriction_reason}</p>}
+        {error && !showModal && <p role="alert">{error}</p>}
         <Button
           type="button"
           variant="danger"
@@ -127,7 +139,7 @@ export function DeleteAccountPanel() {
         open={showModal}
         onOpenChange={setShowModal}
         title="Delete your account"
-        description="This removes active node configurations, wallet credentials, and schedules profile deletion."
+        description="Deletion has a 30-day grace period. Signing in or cancelling before the due date stops it. Public chain records cannot be erased."
         confirmPhrase={CONFIRM_PHRASE}
         confirmLabel={deleting ? "Deleting…" : "Delete account"}
         destructive
@@ -135,11 +147,12 @@ export function DeleteAccountPanel() {
         error={error}
         onConfirm={handleDeleteAccount}
       >
-        {user?.wallet_address ? (
+        {user?.managed_wallet?.address ? <div><GoogleSignInButton onCredential={(value)=>{setCredential(value);setError("");}} />{credential && <p role="status">Google confirmation received.</p>}</div> : user?.wallet_address ? (
           <p className="text-sm text-muted-foreground">
             A wallet signature is required. Connect your linked wallet before confirming.
           </p>
         ) : null}
+        {mfa.data?.enabled && <label>Authenticator or backup code<input className="ui-input" value={code} onChange={(e)=>setCode(e.target.value)} autoComplete="one-time-code" maxLength={32} /></label>}
       </ConfirmDialog>
     </>
   );

@@ -575,7 +575,7 @@ func TestGetMarketplaceMap_IncludeNodes(t *testing.T) {
 	if activeNode == nil {
 		t.Fatal("expected active node point")
 	}
-	if activeNode.Purchasable || activeNode.Status != "active" || activeNode.ActiveSessions != 4 {
+	if activeNode.Purchasable || activeNode.Status != "active" || activeNode.ActiveSessions != 0 {
 		t.Fatalf("unexpected active node payload: %#v", activeNode)
 	}
 	if activeNode.TrustBadge == "" || activeNode.TrustLabel == "" {

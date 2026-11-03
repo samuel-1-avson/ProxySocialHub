@@ -5,6 +5,7 @@ import { createContext, useCallback, useContext, useState, useEffect, useRef, Re
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import bs58 from 'bs58';
+import { MfaChallengeDialog } from '@/components/auth/MfaChallengeDialog';
 import { captureReferralCodeFromSearch, clearReferralCode, peekReferralCode } from '@/lib/referral';
 
 // Browser auth calls should stay same-origin and flow through the Next.js
@@ -22,6 +23,8 @@ let accessTokenCache: string | null = null;
 function apiUrl(path: string): string {
   return API_BASE_URL ? `${API_BASE_URL}${path}` : path;
 }
+
+type AuthLoginResponse = { token?: string; refresh_token?: string; user?: Record<string, unknown>; error?: string; mfa_required?: boolean; challenge_token?: string };
 
 type AuthRefreshResponse = {
   token?: string;
@@ -325,6 +328,22 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<WalletUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [mfaChallenge, setMfaChallenge] = useState<string | null>(null);
+  const mfaPending = useRef<{ resolve: (value: AuthLoginResponse) => void; reject: (error: Error) => void } | null>(null);
+  const resolveLogin = async (data: AuthLoginResponse): Promise<AuthLoginResponse> => {
+    if (!data.mfa_required) return data;
+    if (!data.challenge_token) throw new Error("Verification request missing");
+    mfaPending.current?.reject(new Error("Sign-in restarted"));
+    setMfaChallenge(data.challenge_token);
+    return new Promise<AuthLoginResponse>((resolve, reject) => { mfaPending.current = { resolve, reject }; });
+  };
+  const cancelMFA = () => { mfaPending.current?.reject(new Error("Sign-in cancelled")); mfaPending.current = null; setMfaChallenge(null); };
+  const verifyMFA = async (code: string) => {
+    const response = await fetch(apiUrl("/v1/auth/mfa/verify"), { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ challenge_token: mfaChallenge, code }) });
+    const data = await parseJsonResponse<AuthLoginResponse>(response, "Sign-in verification");
+    if (!response.ok || !data.token) throw new Error(data.error || "Verification failed");
+    const pending = mfaPending.current; mfaPending.current = null; setMfaChallenge(null); pending?.resolve(data);
+  };
   const router = useRouter();
   const queryClient = useQueryClient();
 
@@ -447,11 +466,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         credentials: 'include',
       });
 
-      const loginData = await parseJsonResponse<{ token?: string; refresh_token?: string; user?: any; error?: string }>(loginRes, 'Wallet login');
+      let loginData = await parseJsonResponse<AuthLoginResponse>(loginRes, 'Wallet login');
       if (!loginRes.ok) {
         throw new Error(loginData.error || 'Login failed');
       }
 
+      loginData = await resolveLogin(loginData);
       const { token, refresh_token: refreshToken, user: apiUser } = loginData;
       if (!token || !apiUser) {
         throw new Error('Wallet login response missing token or user payload');
@@ -484,11 +504,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         credentials: 'include',
       });
 
-      const loginData = await parseJsonResponse<{ token?: string; refresh_token?: string; user?: WalletUser; error?: string }>(loginRes, 'Google login');
+      let loginData = await parseJsonResponse<AuthLoginResponse>(loginRes, 'Google login');
       if (!loginRes.ok) {
         throw new Error(loginData.error || 'Google sign-in failed');
       }
 
+      loginData = await resolveLogin(loginData);
       const { token, refresh_token: refreshToken } = loginData;
       if (!token) {
         throw new Error('Google login response missing token');
@@ -505,6 +526,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
+    cancelMFA();
     try {
       await fetch(apiUrl('/v1/auth/logout'), { method: 'POST', credentials: 'include' });
     } catch {
@@ -531,6 +553,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider value={{ user, isLoading, isAuthenticated: !!user, walletLogin, googleLogin, logout, getAccessToken, refreshUser }}>
       {children}
+      {mfaChallenge && <MfaChallengeDialog onVerify={verifyMFA} onCancel={cancelMFA} />}
     </AuthContext.Provider>
   );
 }

@@ -186,15 +186,16 @@ func sellerProfileFromUser(u *models.User) *domain.SellerPublicProfile {
 	if u == nil {
 		return nil
 	}
+	public := u.ToPublicProfile()
 	return &domain.SellerPublicProfile{
 		ID:           u.ID,
-		DisplayName:  u.DisplayName,
+		DisplayName:  public.DisplayName,
 		Username:     u.Username,
-		AvatarURL:    u.AvatarURL,
+		AvatarURL:    public.AvatarURL,
 		TrustTier:    string(u.TrustTier),
 		Role:         u.Role,
-		IsOnline:     u.IsOnline,
-		LastSeenAt:   u.LastSeenAt,
+		IsOnline:     public.IsOnline,
+		LastSeenAt:   public.LastSeenAt,
 		AvgRating:    u.AvgRating,
 		ReviewsCount: u.ReviewsCount,
 		CreatedAt:    u.CreatedAt,

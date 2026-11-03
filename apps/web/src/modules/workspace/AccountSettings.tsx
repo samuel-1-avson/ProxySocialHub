@@ -31,6 +31,8 @@ import {
   type NotificationPreference,
 } from "@/lib/notifications-api";
 import { Modal } from "@/components/patterns/Modal";
+import { PrivacySettings } from "@/components/settings/PrivacySettings";
+import { DataExportPanel, DeleteAccountPanel } from "@/components/settings/DeleteAccountPanel";
 import ReferralPage from "@/components/settings/ReferralsPanel";
 import {
   PageHeading,
@@ -44,6 +46,7 @@ import {
 export function AccountSettings() {
   const params = useSearchParams();
   const tab = [
+    "privacy",
     "preferences",
     "security",
     "devices",
@@ -68,6 +71,7 @@ export function AccountSettings() {
         <nav className="settings-nav" aria-label="Settings views">
           {[
             { key: "profile", label: "Profile", icon: UserRound },
+            { key: "privacy", label: "Privacy", icon: ShieldCheck },
             {
               key: "preferences",
               label: "Preferences",
@@ -94,6 +98,8 @@ export function AccountSettings() {
         <div className="settings-content">
           {tab === "profile" ? (
             <ProfileSettings />
+          ) : tab === "privacy" ? (
+            <><PrivacySettings /><DataExportPanel /><DeleteAccountPanel /></>
           ) : tab === "preferences" ? (
             <Preferences />
           ) : tab === "security" ? (
@@ -531,7 +537,7 @@ function Authentication() {
     mutationFn: () =>
       apiPost<{ backup_codes: string[] }>(
         "/v1/2fa/backup-codes/regenerate",
-        {},
+        { code },
       ),
     onSuccess: (data) => {
       setCodes(data.backup_codes ?? []);
@@ -733,8 +739,9 @@ function Authentication() {
         open={regenerateOpen}
         onOpenChange={setRegenerateOpen}
         title="Replace backup codes?"
-        description="Previously issued backup codes will stop working."
+        description="Verify with an authenticator or backup code. Previously issued backup codes will stop working."
       >
+        <label className="ui-field">Verification code<input className="ui-input" autoComplete="one-time-code" value={code} onChange={(e) => setCode(e.target.value)} minLength={6} maxLength={32} /></label>
         {regenerate.isError && <DataError error={regenerate.error} />}
         <button
           className="ui-button"

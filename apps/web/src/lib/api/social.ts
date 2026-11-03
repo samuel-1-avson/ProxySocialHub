@@ -19,6 +19,16 @@ export interface Message {
     content: string;
     read_at?: string;
     created_at: string;
+    type?: string;
+    reply_to_id?: string;
+    edited_at?: string;
+    is_deleted?: boolean;
+    reactions?: Array<{
+        message_id?: string;
+        user_id: string;
+        emoji: string;
+        created_at: string;
+    }>;
 }
 
 export interface ConversationWithPreview {
@@ -164,37 +174,106 @@ export async function getFeed() {
     return events.map(normalizeFeedEvent);
 }
 
+export interface ConversationPage {
+    conversations: ConversationWithPreview[];
+    total: number;
+    page: number;
+    limit: number;
+    has_more: boolean;
+}
+
+/**
+ * List one page of the user's conversations (newest activity first).
+ */
+export async function getConversationsPage(page = 1, limit = 20): Promise<ConversationPage> {
+    const data = await apiGet<{ conversations?: RawConversation[]; total?: number; page?: number; limit?: number; has_more?: boolean }>(
+        `/v1/conversations?page=${page}&limit=${limit}`
+    );
+    const conversations = (data.conversations || []).map(normalizeConversation);
+    const total = Number(data.total ?? conversations.length);
+    return {
+        conversations,
+        total,
+        page: Number(data.page ?? page),
+        limit: Number(data.limit ?? limit),
+        has_more: data.has_more ?? page * limit < total,
+    };
+}
+
 /**
  * List active user conversations
  */
 export async function getConversations() {
-    const data = await apiGet<{ conversations?: RawConversation[] } | RawConversation[]>('/v1/conversations');
-    const conversations = Array.isArray(data) ? data : data.conversations || [];
-    return conversations.map(normalizeConversation);
+    const page = await getConversationsPage(1);
+    return page.conversations;
+}
+
+/**
+ * Fetch one conversation preview by id (deep links beyond the loaded pages).
+ */
+export async function getConversation(conversationId: string): Promise<ConversationWithPreview> {
+    const data = await apiGet<RawConversation>(`/v1/conversations/${conversationId}`);
+    return normalizeConversation(data);
+}
+
+export interface MessagePage {
+    messages: Message[];
+    total: number;
+    has_more: boolean;
+}
+
+/**
+ * Fetch one newest-first page of messages. Pass `before` (a message id) to
+ * continue strictly older than the oldest message already held.
+ */
+export async function getMessagesPage(conversationId: string, before?: string): Promise<MessagePage> {
+    const query = before ? `?before=${encodeURIComponent(before)}` : '';
+    const data = await apiGet<{ messages: Message[]; total?: number; has_more?: boolean }>(
+        `/v1/conversations/${conversationId}/messages${query}`
+    );
+    const messages = data.messages || [];
+    return {
+        messages,
+        total: Number(data.total ?? messages.length),
+        has_more: Boolean(data.has_more),
+    };
 }
 
 /**
  * Fetch messages from a specific conversation
  */
 export async function getMessages(conversationId: string) {
-    const data = await apiGet<{ messages: Message[] }>(`/v1/conversations/${conversationId}/messages`);
-    return data.messages || [];
+    const page = await getMessagesPage(conversationId);
+    return page.messages;
+}
+
+/**
+ * Mark messages as read, optionally only up to a seen message (watermark).
+ */
+export async function markConversationRead(conversationId: string, upToMessageId?: string) {
+    return apiPost<{ message: string }>(
+        `/v1/conversations/${conversationId}/read`,
+        upToMessageId ? { up_to_message_id: upToMessageId } : {}
+    );
 }
 
 /**
  * Send a message to a conversation
  */
-export async function sendMessage(conversationId: string, content: string) {
-    return apiPost<Message>(`/v1/conversations/${conversationId}/messages`, { content });
+export async function sendMessage(conversationId: string, content: string, clientMsgId?: string) {
+    return apiPost<Message>(`/v1/conversations/${conversationId}/messages`, {
+        content,
+        ...(clientMsgId ? { client_msg_id: clientMsgId } : {}),
+    });
 }
 
 /**
  * Initialize a new chat session
  */
-export async function startConversation(recipientId: string, message = '') {
+export async function startConversation(recipientId: string, message = '', clientMsgId?: string) {
     const data = await apiPost<{ id?: string; conversation_id?: string; conversation?: { id?: string } }>(
         '/v1/conversations',
-        { recipient_id: recipientId, message }
+        { recipient_id: recipientId, message, ...(clientMsgId ? { client_msg_id: clientMsgId } : {}) }
     );
 
     const conversationId = data.conversation_id || data.id || data.conversation?.id || '';

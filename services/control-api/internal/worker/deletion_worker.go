@@ -1,6 +1,9 @@
 package worker
 
 import (
+	"context"
+	"github.com/proxyhubb/control-api/internal/accountclosure"
+	"gorm.io/gorm/clause"
 	"log"
 	"strings"
 	"time"
@@ -51,9 +54,33 @@ func purgeExpiredAccounts() {
 
 // purgeUserAccount removes user-owned rows across app tables, then profile and auth user.
 func purgeUserAccount(userID uuid.UUID, email string) error {
-	log.Printf("[GDPRDeletionWorker] Purging user ID %s (Email: %s)...", userID, email)
+	log.Printf("[GDPRDeletionWorker] Purging account %s", userID)
 
 	return db.DB.Transaction(func(tx *gorm.DB) error {
+		var locked models.User
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&locked, "id = ?", userID).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return nil
+			}
+			return err
+		}
+		if locked.ScheduledDeletionAt == nil || locked.ScheduledDeletionAt.After(time.Now()) {
+			return nil
+		}
+		if err := accountclosure.Check(context.Background(), tx, userID, true); err != nil {
+			return err
+		}
+		if err := tx.Exec("UPDATE audit_logs SET actor_email = '', ip_address = NULL, user_agent = NULL, metadata = '{}' WHERE actor_id = ?", userID).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ?", userID).Delete(&models.EmbeddedWallet{}).Error; err != nil {
+			return err
+		}
+		for _, table := range []string{"auth_mfa_challenges", "refresh_token_families", "user_identities", "payout_destinations", "marketplace_funnel_events"} {
+			if err := tx.Exec("DELETE FROM "+table+" WHERE user_id = ?", userID).Error; err != nil {
+				return err
+			}
+		}
 		// 000116 append-only guard: allow GDPR DELETE of ledger rows in this txn only.
 		if err := tx.Exec("SELECT set_config('app.wallet_ledger_allow_mutate', 'gdpr_delete', true)").Error; err != nil {
 			return err

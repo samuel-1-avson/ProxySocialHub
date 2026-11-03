@@ -13,6 +13,7 @@ import {
   removeFriend,
 } from "@/lib/friends-api";
 import { PeopleYouMayKnow } from "@/components/PeopleYouMayKnow";
+import { messageRecipientHref } from "@/lib/messaging/social-messaging";
 import { Modal } from "@/components/patterns/Modal";
 import {
   DataError,
@@ -248,10 +249,7 @@ export default function FriendsPage() {
                       <div className="ui-actions">
                         <Link
                           className="ui-button small secondary"
-                          href={
-                            "/messages?recipient=" +
-                            encodeURIComponent(item.friend_id)
-                          }
+                          href={messageRecipientHref(item.friend_id)}
                           aria-label={"Message " + name}
                         >
                           <MessageSquare size={14} />

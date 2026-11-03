@@ -164,7 +164,7 @@ var (
 		if err != nil {
 			return "", err
 		}
-		if err := signer.SignTransaction(tx); err != nil {
+		if err := signer.SignTransactionContext(ctx, tx); err != nil {
 			return "", err
 		}
 		sig, err := oracle.SendSignedTransaction(ctx, tx)
@@ -283,7 +283,7 @@ func respondManagedBuyerError(c *gin.Context, err error) {
 			"error": "This payment option is for accounts with a ProxyHubb wallet. Pay with your own Solana wallet instead.",
 			"code":  "not_managed_wallet",
 		})
-	case errors.Is(err, custody.ErrLocalKEKInStrictEnv), errors.Is(err, custody.ErrKEKNotConfigured):
+	case errors.Is(err, custody.ErrLocalKEKInStrictEnv), errors.Is(err, custody.ErrKEKNotConfigured), errors.Is(err, custody.ErrKEKUnavailable), errors.Is(err, custody.ErrUnknownKEK):
 		logging.Error(err).Msg("fiat: managed wallet key store unavailable")
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Card payments are temporarily unavailable"})
 	default:
@@ -1079,7 +1079,7 @@ func processFiatPayment(ctx context.Context, reference string) (*models.FiatPaym
 				recordFiatError(&p, fmt.Errorf("build funding tx: %w", err))
 				return &p, err
 			}
-			if err := buyer.signer.SignTransaction(tx); err != nil {
+			if err := buyer.signer.SignTransactionContext(ctx, tx); err != nil {
 				recordFiatError(&p, fmt.Errorf("sign funding tx: %w", err))
 				return &p, err
 			}

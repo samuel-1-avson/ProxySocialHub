@@ -112,7 +112,6 @@ func TestSalesBuyerProjection(t *testing.T) {
 
 	buyer := testutil.CreateTestUser(t, testutil.UniqueEmail("sales_buyer"), "buyer")
 	tax := "TAX-SALES-1"
-	buyerEmail := buyer.Email
 	buyer.TaxID = &tax
 	if err := db.DB.Save(buyer).Error; err != nil {
 		t.Fatalf("set buyer tax: %v", err)
@@ -143,7 +142,9 @@ func TestSalesBuyerProjection(t *testing.T) {
 	if _, present := embedded["tax_id"]; present {
 		t.Fatal("sales buyer must not expose tax_id")
 	}
-	if embedded["email"] != buyerEmail {
-		t.Fatalf("sales buyer keeps contact email, got %v", embedded["email"])
+	for _, key := range []string{"email", "wallet_address", "tax_id", "kyc_status"} {
+		if _, present := embedded[key]; present {
+			t.Fatalf("sales buyer exposes %s", key)
+		}
 	}
 }

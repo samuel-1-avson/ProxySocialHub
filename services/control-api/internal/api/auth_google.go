@@ -29,6 +29,7 @@ type googleIdentity struct {
 	Subject       string
 	Email         string
 	EmailVerified bool
+	IssuedAt      int64
 }
 
 // verifyGoogleToken checks signature, audience, issuer and expiry. A var so tests can stub it.
@@ -42,7 +43,7 @@ var verifyGoogleToken = func(ctx context.Context, credential, clientID string) (
 	}
 	email, _ := payload.Claims["email"].(string)
 	verified, _ := payload.Claims["email_verified"].(bool)
-	return googleIdentity{Subject: payload.Subject, Email: email, EmailVerified: verified}, nil
+	return googleIdentity{Subject: payload.Subject, Email: email, EmailVerified: verified, IssuedAt: payload.IssuedAt}, nil
 }
 
 // googleLogin signs a user in with a Google ID token. First sign-in creates the account
@@ -78,10 +79,10 @@ func googleLogin(c *gin.Context) {
 		return
 	}
 
-	user, created, err := findOrCreateGoogleUser(identity, req.ReferralCode)
+	user, created, err := findOrCreateGoogleUserContext(c.Request.Context(), identity, req.ReferralCode)
 	if err != nil {
 		log.Printf("[AUTH] google: account for sub=%s…: %v", maskAddress(identity.Subject), err)
-		if errors.Is(err, custody.ErrKEKNotConfigured) || errors.Is(err, custody.ErrLocalKEKInStrictEnv) {
+		if errors.Is(err, custody.ErrKEKNotConfigured) || errors.Is(err, custody.ErrLocalKEKInStrictEnv) || errors.Is(err, custody.ErrKEKUnavailable) {
 			c.JSON(http.StatusServiceUnavailable, ErrorResponse{Error: "Sign-up is temporarily unavailable"})
 			return
 		}
@@ -92,23 +93,15 @@ func googleLogin(c *gin.Context) {
 		log.Printf("[AUTH] Created new Google user %s", user.ID)
 	}
 
-	walletAddress := ""
-	if user.WalletAddress != nil {
-		walletAddress = *user.WalletAddress
-	}
-	authSession, err := issueAuthSession(user, walletAddress, cfg.Auth.JWTSecret)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to generate token"})
-		return
-	}
-	authSession.User = user
-	applyAuthSessionCookies(c, authSession)
-	recordLoginDeviceSession(c, user.ID)
-	c.JSON(http.StatusOK, authSession)
+	completeLoginOrChallenge(c, user, cfg.Auth.JWTSecret)
 }
 
 // findOrCreateGoogleUser resolves the account by Google `sub` (never by email).
 func findOrCreateGoogleUser(identity googleIdentity, referralCode string) (models.User, bool, error) {
+	return findOrCreateGoogleUserContext(context.Background(), identity, referralCode)
+}
+
+func findOrCreateGoogleUserContext(ctx context.Context, identity googleIdentity, referralCode string) (models.User, bool, error) {
 	var link models.UserIdentity
 	err := db.DB.Where("provider = ? AND subject = ?", models.IdentityProviderGoogle, identity.Subject).First(&link).Error
 	if err == nil {
@@ -118,11 +111,7 @@ func findOrCreateGoogleUser(identity googleIdentity, referralCode string) (model
 		}
 		now := time.Now()
 		db.DB.Model(&link).Update("last_login_at", now)
-		if user.ScheduledDeletionAt != nil {
-			db.DB.Model(&user).Update("scheduled_deletion_at", nil)
-			user.ScheduledDeletionAt = nil
-			log.Printf("[AUTH] Cancelled scheduled deletion for user %s on Google login", user.ID)
-		}
+
 		return user, false, nil
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -136,7 +125,7 @@ func findOrCreateGoogleUser(identity googleIdentity, referralCode string) (model
 
 	email := models.NormalizeEmail(identity.Email)
 	var user models.User
-	err = db.DB.Transaction(func(tx *gorm.DB) error {
+	err = db.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		created, err := createAccount(tx, email, "user_"+uuid.NewString()[:8], nil)
 		if err != nil {
 			return err

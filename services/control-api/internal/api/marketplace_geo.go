@@ -61,8 +61,8 @@ func RegisterMarketplaceGeoRoutes(rg *gin.RouterGroup) {
 	limit := RateLimitWithConfig(30, time.Minute)
 	rg.GET("/marketplace/proof-policy", getListingProofPolicy)
 	geoDeprecated := deprecatedMarketplaceGeoHeaders()
-	rg.GET("/listings/geo", limit, geoDeprecated, getMarketplaceGeo)
-	rg.GET("/marketplace/geo", limit, geoDeprecated, getMarketplaceGeo)
+	rg.GET("/listings/geo", limit, geoDeprecated, retiredMarketplaceGeo)
+	rg.GET("/marketplace/geo", limit, geoDeprecated, retiredMarketplaceGeo)
 	rg.GET("/marketplace/map", limit, getMarketplaceMap)
 	rg.GET("/map/points", limit, getMarketplaceMap)
 }
@@ -141,6 +141,7 @@ type marketplaceMapFilters struct {
 }
 
 type marketplaceGeoRow struct {
+	MapPrecision              string
 	ListingID                 string     `gorm:"column:listing_id"`
 	Title                     string     `gorm:"column:title"`
 	SellerID                  string     `gorm:"column:seller_id"`
@@ -179,6 +180,7 @@ type marketplaceGeoRow struct {
 }
 
 type marketplaceMapNodeRow struct {
+	MapPrecision      string
 	NodeID            string     `gorm:"column:node_id"`
 	Name              string     `gorm:"column:name"`
 	Lat               float64    `gorm:"column:lat"`
@@ -261,25 +263,12 @@ func buildMarketplaceMapFilters(c *gin.Context) marketplaceMapFilters {
 
 func marketplaceMapCacheKey(c *gin.Context, filters marketplaceMapFilters) string {
 	values := url.Values{}
-	for key, vals := range c.Request.URL.Query() {
-		if key == "bbox" {
-			continue
-		}
-		for _, value := range vals {
-			values.Add(key, value)
+	for _, key := range []string{"country", "proxy_type", "protocol", "min_price", "max_price", "min_uptime", "max_latency", "purchasable_only", "include_nodes", "active_nodes_only", "validator", "include_catalog", "include", "bbox"} {
+		if value := c.Query(key); value != "" {
+			values.Set(key, value)
 		}
 	}
-	if !values.Has("purchasable_only") && filters.PurchasableOnly {
-		values.Set("purchasable_only", "true")
-	}
-	if !values.Has("include_proofs") {
-		values.Set("include_proofs", strconv.FormatBool(filters.IncludeProofs))
-	}
-	if west, south, east, north, ok := parseBBox(filters.BBoxRaw); ok {
-		qw, qs, qe, qn := geo.QuantizeBBox(west, south, east, north, 0.5)
-		values.Set("bbox", fmt.Sprintf("%.1f,%.1f,%.1f,%.1f", qw, qs, qe, qn))
-	}
-	return "marketplace:map:" + values.Encode()
+	return "marketplace:map:privacy-v2:" + values.Encode()
 }
 
 // parseBBox parses west,south,east,north from a query string.
@@ -326,6 +315,7 @@ SELECT
     pl.id::text AS listing_id,
     pl.title,
     pl.seller_id::text AS seller_id,
+ privacy_owner.map_precision AS map_precision,
     pl.status,
     pl.proxy_type,
     pl.protocol,
@@ -379,6 +369,7 @@ SELECT
     pn.latest_heartbeat_signed_at AS heartbeat_signed_at,
     COALESCE(pn.latest_heartbeat_verification_error, '') AS heartbeat_verification_error
 FROM proxy_listings pl
+JOIN profiles privacy_owner ON privacy_owner.id = pl.seller_id AND privacy_owner.map_visible = true
 LEFT JOIN LATERAL (
     SELECT
         pn.id,
@@ -478,7 +469,7 @@ WHERE pl.status = 'active'
 	for _, r := range rows {
 		purchasable := r.AvailableBandwidthGB > 0
 		anchor := geo.MapGeoAnchor(r.NodeID, r.SellerID, r.ListingID)
-		lat, lon, fallbackGeo := geo.ApplyMapCoords(r.Lat, r.Lon, r.Country, r.City, r.Region, anchor)
+		lat, lon, fallbackGeo := publicMapCoords(r.Lat, r.Lon, r.Country, r.City, r.Region, anchor, r.MapPrecision)
 		centroidOK := fallbackGeo != "unknown"
 		if hasBBox && !geo.PinInBBox(lat, lon, west, south, east, north) {
 			continue
@@ -505,10 +496,10 @@ WHERE pl.status = 'active'
 			SLASource:                 r.SLASource,
 			GeoResolved:               geoResolved || r.GeoResolved,
 			Purchasable:               purchasable,
-			ActiveSessions:            r.ActiveSessions,
+			ActiveSessions:            0,
 			MaxConcurrency:            r.MaxConcurrency,
 			ListingOfferVerified:      r.ListingOfferVerified,
-			ListingOfferHash:          r.ListingOfferHash,
+			ListingOfferHash:          "",
 			ListingOfferSigner:        r.ListingOfferSigner,
 			ListingOfferSignedAt:      proofTimeString(r.ListingOfferSignedAt),
 			ListingOfferError:         r.ListingOfferError,
@@ -532,25 +523,15 @@ WHERE pl.status = 'active'
 // stale value captured when the listing was created (a Ghana node once
 // pinned to Boston under a stale "US" listing country).
 func getMarketplaceMap(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
 	filters := buildMarketplaceMapFilters(c)
-	cacheKey := marketplaceMapCacheKey(c, filters)
-
-	if redisClient.Client != nil {
-		if cached, err := redisClient.Client.Get(c, cacheKey).Result(); err == nil && cached != "" {
-			var resp MarketplaceMapResponse
-			if err := json.Unmarshal([]byte(cached), &resp); err == nil {
-				resp.Discovery = discoveryHonestyMeta()
-				c.JSON(http.StatusOK, resp)
-				return
-			}
-		}
-	}
 
 	query := `
 SELECT
     pl.id::text AS listing_id,
     pl.title,
     pl.seller_id::text AS seller_id,
+ privacy_owner.map_precision AS map_precision,
     pl.status,
     pl.proxy_type,
     pl.protocol,
@@ -604,6 +585,7 @@ SELECT
     pn.latest_heartbeat_signed_at AS heartbeat_signed_at,
     COALESCE(pn.latest_heartbeat_verification_error, '') AS heartbeat_verification_error
 FROM proxy_listings pl
+JOIN profiles privacy_owner ON privacy_owner.id = pl.seller_id AND privacy_owner.map_visible = true
 LEFT JOIN LATERAL (
     SELECT
         pn.id,
@@ -719,23 +701,7 @@ WHERE pl.status <> 'deleted'`
 	}
 
 	west, south, east, north, hasBBox := parseBBox(filters.BBoxRaw)
-	if hasBBox {
-		pw, ps, pe, pn := geo.ExpandBBox(west, south, east, north, 2.5)
-		query += fmt.Sprintf(` AND (
-			(
-				(ABS(COALESCE(en.latitude, 0)) > 0.01 OR ABS(COALESCE(en.longitude, 0)) > 0.01)
-				AND COALESCE(en.latitude, 0) BETWEEN $%d AND $%d
-				AND COALESCE(en.longitude, 0) BETWEEN $%d AND $%d
-			)
-			OR (
-				ABS(COALESCE(en.latitude, 0)) <= 0.01
-				AND ABS(COALESCE(en.longitude, 0)) <= 0.01
-				AND COALESCE(NULLIF(pn.country, ''), NULLIF(en.country, ''), NULLIF(pl.country, ''), NULLIF(gw.country_code, ''), '') <> ''
-			)
-		)`, argN, argN+1, argN+2, argN+3)
-		args = append(args, ps, pn, pw, pe)
-		argN += 4
-	}
+
 	query += " ORDER BY pl.status ASC, pl.created_at DESC LIMIT 5000"
 
 	var rows []marketplaceGeoRow
@@ -748,7 +714,7 @@ WHERE pl.status <> 'deleted'`
 	points := make([]MarketplaceMapPoint, 0, len(rows))
 	for _, r := range rows {
 		anchor := geo.MapGeoAnchor(r.NodeID, r.SellerID, r.ListingID)
-		lat, lon, fallbackGeo := geo.ApplyMapCoords(r.Lat, r.Lon, r.Country, r.City, r.Region, anchor)
+		lat, lon, fallbackGeo := publicMapCoords(r.Lat, r.Lon, r.Country, r.City, r.Region, anchor, r.MapPrecision)
 		// Never publish unresolved/raw GeoIP coordinates on the public map.
 		if fallbackGeo == "unknown" {
 			continue
@@ -760,7 +726,11 @@ WHERE pl.status <> 'deleted'`
 		// Display the same sanitized place the pin was resolved from, never
 		// a raw foreign city next to another country's pin.
 		dispCountry, dispCity, dispRegion := geo.SanitizeMapPlace(r.Country, r.City, r.Region)
-		listingGeoSource := marketplaceGeoSource(r, fallbackGeo)
+		listingGeoSource := fallbackGeo
+		if r.MapPrecision != "city" {
+			r.City = ""
+			r.Region = ""
+		}
 		listingGeoMeta := geo.BuildMapGeoMeta(listingGeoSource)
 		networkClass := coarseNetworkClass(r.ProxyType, "")
 		badge := mapTrustBadge(r.UptimePercent, r.QualityScore, r.SuccessRate, r.QualityScore >= 90)
@@ -791,12 +761,12 @@ WHERE pl.status <> 'deleted'`
 			TrustBadge:                badge,
 			TrustLabel:                mapTrustLabel(badge),
 			IsValidator:               false,
-			ActiveSessions:            r.ActiveSessions,
+			ActiveSessions:            0,
 			SLASource:                 r.SLASource,
 			GeoSource:                 listingGeoSource,
 			Geo:                       &listingGeoMeta,
 			ListingOfferVerified:      r.ListingOfferVerified,
-			ListingOfferHash:          r.ListingOfferHash,
+			ListingOfferHash:          "",
 			ProviderRegisteredOnChain: r.ProviderRegisteredOnChain,
 		}
 		points = append(points, pt)
@@ -815,7 +785,7 @@ WHERE pl.status <> 'deleted'`
 	nodeCount := len(points) - listingCount
 
 	if includeCatalogMap(c) {
-		if err := enrichMarketplaceMapCatalog(points, catalogViewerFromContext(c)); err != nil {
+		if err := enrichMarketplaceMapCatalog(points, nil); err != nil {
 			logging.Error(err).Msg("[Marketplace] catalog enrich on map points failed")
 		}
 	}
@@ -829,7 +799,6 @@ WHERE pl.status <> 'deleted'`
 		GeneratedAt:  time.Now().UTC(),
 		Discovery:    discoveryHonestyMeta(),
 	}
-	cacheResponse(c, cacheKey, resp, 30*time.Second)
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -872,6 +841,7 @@ func marketplaceMapNodePoints(filters marketplaceMapFilters, west, south, east, 
 	query := db.DB.Table("explorer_nodes en").
 		Select(`
             en.node_id,
+ privacy_owner.map_precision AS map_precision,
             en.name,
             en.latitude AS lat,
             en.longitude AS lon,
@@ -946,6 +916,7 @@ func marketplaceMapNodePoints(filters marketplaceMapFilters, west, south, east, 
                 LIMIT 1
             ) pn ON TRUE
         `)
+	query = query.Joins("JOIN profiles privacy_owner ON privacy_owner.id = pn_live.user_id AND privacy_owner.map_visible = true")
 	// Never plot soft-deleted provider nodes or orphan explorer footprints.
 	// Dead/deleted inventory must not appear on the public map.
 	query = query.Where(`
@@ -1006,21 +977,6 @@ func marketplaceMapNodePoints(filters marketplaceMapFilters, west, south, east, 
 	if filters.MinUptime != nil {
 		query = query.Where("en.uptime_percent >= ?", *filters.MinUptime)
 	}
-	if hasBBox {
-		pw, ps, pe, pn := geo.ExpandBBox(west, south, east, north, 2.5)
-		query = query.Where(`
-            (
-                (ABS(COALESCE(en.latitude, 0)) > 0.01 OR ABS(COALESCE(en.longitude, 0)) > 0.01)
-                AND COALESCE(en.latitude, 0) BETWEEN ? AND ?
-                AND COALESCE(en.longitude, 0) BETWEEN ? AND ?
-            )
-            OR (
-                ABS(COALESCE(en.latitude, 0)) <= 0.01
-                AND ABS(COALESCE(en.longitude, 0)) <= 0.01
-                AND COALESCE(NULLIF(TRIM(en.country), ''), NULLIF(TRIM(pn.country), ''), NULLIF(TRIM(n.country_code), ''), '') <> ''
-            )
-        `, ps, pn, pw, pe)
-	}
 
 	var rows []marketplaceMapNodeRow
 	if err := query.Order("en.is_active DESC, en.uptime_percent DESC").Limit(5000).Scan(&rows).Error; err != nil {
@@ -1032,8 +988,12 @@ func marketplaceMapNodePoints(filters marketplaceMapFilters, west, south, east, 
 		country := normalizeMarketplaceMapCountry(r.Country)
 		region := normalizeMarketplaceMapText(r.Region)
 		city := normalizeMarketplaceMapText(r.City)
+		if r.MapPrecision != "city" {
+			city = ""
+			region = ""
+		}
 		anchor := geo.MapGeoAnchor(r.NodeID, "", "")
-		lat, lon, fallbackGeo := geo.ApplyMapCoords(r.Lat, r.Lon, country, city, region, anchor)
+		lat, lon, fallbackGeo := publicMapCoords(r.Lat, r.Lon, country, city, region, anchor, r.MapPrecision)
 		if fallbackGeo == "unknown" {
 			continue
 		}
@@ -1074,7 +1034,7 @@ func marketplaceMapNodePoints(filters marketplaceMapFilters, west, south, east, 
 			TrustBadge:           badge,
 			TrustLabel:           mapTrustLabel(badge),
 			IsValidator:          r.IsValidator,
-			ActiveSessions:       r.ActiveSessions,
+			ActiveSessions:       0,
 			GeoSource:            nodeGeoSource,
 			Geo:                  &nodeGeoMeta,
 			AvailableBandwidthGB: 0,

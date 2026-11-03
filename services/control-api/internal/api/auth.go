@@ -18,7 +18,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/mr-tron/base58"
 	"github.com/proxyhubb/control-api/internal/config"
-	"github.com/proxyhubb/control-api/internal/crypto"
 	"github.com/proxyhubb/control-api/internal/custody"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
@@ -54,10 +53,12 @@ func RegisterAuthRoutes(r *gin.RouterGroup) {
 		auth.POST("/wallet/challenge", StrictRateLimit(), getAuthChallenge)
 		auth.POST("/wallet/login", StrictRateLimit(), walletLogin)
 		auth.POST("/google", StrictRateLimit(), googleLogin)
+		auth.POST("/mfa/verify", StrictRateLimit(), verifyMFALogin)
 		auth.POST("/refresh", StrictRateLimit(), refreshSession)
 		auth.POST("/logout", StrictRateLimit(), logoutSession)
 		log.Printf("[AUTH] Wallet + Google sign-in enabled (/auth/dev/login disabled)")
 		auth.GET("/me", getMe)
+		auth.GET("/capabilities", authCapabilities)
 	}
 }
 
@@ -217,7 +218,7 @@ func walletLogin(c *gin.Context) {
 	}
 
 	if !isValid {
-		RecordAuditLog(c, models.AuditAuthLoginFailed, models.AuditSeverityWarning, nil, "wallet", req.Address, "Invalid signature login attempt", false)
+		recordFailedWalletLogin(c, req.Address)
 		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "Invalid signature (Solana verification failed)"})
 		return
 	}
@@ -229,10 +230,14 @@ func walletLogin(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Database error"})
 		return
 	}
+	if found && !user.IsActive() {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Account is unavailable"})
+		return
+	}
 	if !found {
 		// User not found → Create new user (default role "buyer").
 		tx := db.DB.Begin()
-		username := "user_" + req.Address[:8]
+		username := "user_" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
 		email := req.Address + "@wallet.proxyhubb.com"
 		address := req.Address
 
@@ -269,12 +274,7 @@ func walletLogin(c *gin.Context) {
 				user.WalletAddress = &req.Address
 			}
 		}
-		// User exists -> Check if account has scheduled deletion and cancel it
-		if user.ScheduledDeletionAt != nil {
-			db.DB.Model(&user).Update("scheduled_deletion_at", nil)
-			user.ScheduledDeletionAt = nil
-			log.Printf("[AUTH] Cancelled scheduled deletion for user %s on wallet login", user.ID)
-		}
+
 	}
 
 	// Keep linked_wallets in sync with profile identity (marketplace escrow requires it).
@@ -294,16 +294,7 @@ func walletLogin(c *gin.Context) {
 		return
 	}
 
-	authSession, err := issueAuthSession(user, req.Address, cfg.Auth.JWTSecret)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to generate token"})
-		return
-	}
-
-	authSession.User = user
-	applyAuthSessionCookies(c, authSession)
-	recordLoginDeviceSession(c, user.ID)
-	c.JSON(http.StatusOK, authSession)
+	completeLoginOrChallenge(c, user, cfg.Auth.JWTSecret)
 }
 
 // findUserForWalletLogin resolves a profile by wallet_address or wallet signup email.
@@ -374,26 +365,8 @@ func GetMe(c *gin.Context) {
 func getMe(c *gin.Context) {
 	userIDValue, exists := c.Get("user_id")
 	if !exists {
-		tokenString := ""
-		authHeader := c.GetHeader("Authorization")
-		if strings.HasPrefix(authHeader, "Bearer ") {
-			tokenString = strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
-		} else if cookieToken, err := c.Cookie(accessTokenStorageKey); err == nil {
-			tokenString = strings.TrimSpace(cookieToken)
-		}
-
-		if tokenString == "" {
-			c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "Missing or invalid authorization token"})
-			return
-		}
-
-		cfg, _ := config.Load()
-		claims, err := crypto.ValidateToken(tokenString, cfg.Auth.JWTSecret)
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "Invalid token"})
-			return
-		}
-		userIDValue = claims.UserID
+		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "Authentication required"})
+		return
 	}
 
 	var user models.User

@@ -207,7 +207,7 @@ test.describe("remaining frontend acceptance", () => {
   }) => {
     await isolate(page, "buyer");
     let ready = false;
-    await page.route("**/v1/conversations", (route) =>
+    await page.route(/\/v1\/conversations(?:\?.*)?$/, (route) =>
       route.fulfill(
         ready
           ? { json: { conversations: [] } }
@@ -247,7 +247,7 @@ test.describe("remaining frontend acceptance", () => {
       other_participant_name: "Provider " + id,
       unread_count: 0,
     }));
-    await page.route("**/v1/conversations", (route) =>
+    await page.route(/\/v1\/conversations(?:\?.*)?$/, (route) =>
       route.fulfill({ json: { conversations } }),
     );
     await page.route(
