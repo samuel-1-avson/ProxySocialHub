@@ -74,6 +74,8 @@ export function GoogleSignInButton({
     const router = useRouter();
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [newAccountsAvailable,setNewAccountsAvailable]=useState<boolean|null>(null);
+    useEffect(()=>{let cancelled=false;void fetch("/v1/auth/capabilities").then((res)=>res.ok?res.json():null).then((data:{managed_wallet_signup?:boolean}|null)=>{if(!cancelled&&typeof data?.managed_wallet_signup==="boolean")setNewAccountsAvailable(data.managed_wallet_signup);}).catch(()=>{});return()=>{cancelled=true;};},[]);
 
     const handleCredential = async (credential: string) => {
         if (onCredential) {
@@ -147,6 +149,7 @@ export function GoogleSignInButton({
                     </div>
                 )}
             </div>
+            {!onCredential && newAccountsAvailable===false && <p className="text-center text-xs text-muted-foreground">Existing Google accounts can sign in. New account creation is temporarily unavailable.</p>}
             {error && (
                 <p role="alert" className="text-center text-xs text-warning">
                     {error}

@@ -163,8 +163,6 @@ func TracingMiddleware(serviceName string) gin.HandlerFunc {
 				semconv.HTTPRoute(c.FullPath()),
 				semconv.HTTPScheme(c.Request.URL.Scheme),
 				semconv.NetHostName(c.Request.Host),
-				attribute.String("http.client_ip", c.ClientIP()),
-				attribute.String("http.user_agent", c.Request.UserAgent()),
 			),
 		)
 		defer span.End()

@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/proxyhubb/control-api/internal/authstate"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
 	redisClient "github.com/proxyhubb/control-api/internal/redis"
@@ -66,6 +67,12 @@ func authenticateAPIKey(c *gin.Context) (ok bool, aborted bool) {
 		return false, true
 	}
 
+	role, err := authstate.Validate(apiKey.UserID.String(), "", false)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Account unavailable"})
+		return false, true
+	}
+	c.Set("userRole", role)
 	c.Set("user_id", apiKey.UserID)
 	c.Set("userID", apiKey.UserID.String())
 	c.Set("api_key_id", apiKey.ID)

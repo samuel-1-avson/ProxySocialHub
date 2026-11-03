@@ -267,7 +267,7 @@ func getExtensionBootstrap(c *gin.Context) {
 		"proxy": gin.H{
 			"endpoint":          func() string { _, _, e := BuyerProxyConnectInfo(); return e }(),
 			"auth_for_endpoint": publishedBuyerAuthHMAC,
-			"protocol":          "http",
+			"protocol":          buyerProxyScheme(),
 		},
 		"connect_ready": true,
 		"note":          "PR-D: unpacked build can set Chrome HTTP CONNECT to HMAC proxy.proxyhubb.com:8090. Turn off does not unpair.",

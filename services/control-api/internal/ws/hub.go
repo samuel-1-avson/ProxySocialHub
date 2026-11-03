@@ -34,12 +34,13 @@ const (
 
 // Client represents a WebSocket client
 type Client struct {
-	ID     string
-	UserID string
-	Role   string
-	Conn   *websocket.Conn
-	Send   chan []byte
-	Hub    *Hub
+	ID        string
+	UserID    string
+	Role      string
+	Conn      *websocket.Conn
+	Send      chan []byte
+	Hub       *Hub
+	Authorize func() bool
 }
 
 // Hub manages all WebSocket connections
@@ -216,6 +217,9 @@ func (c *Client) WritePump() {
 	for {
 		select {
 		case message, ok := <-c.Send:
+			if c.Authorize != nil && !c.Authorize() {
+				return
+			}
 			c.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if !ok {
 				c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
@@ -239,6 +243,9 @@ func (c *Client) WritePump() {
 			}
 
 		case <-ticker.C:
+			if c.Authorize != nil && !c.Authorize() {
+				return
+			}
 			c.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return

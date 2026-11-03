@@ -1,9 +1,38 @@
 package gateways
 
 import (
+	"github.com/proxyhubb/control-api/internal/testutil"
 	"os"
 	"testing"
 )
+
+func TestDisabledOperatorStaysExcludedAfterReseeding(t *testing.T) {
+	testutil.SetupTestDB(t)
+	t.Setenv("PROXYHUB_SEED_GATEWAY_OPERATORS", "1")
+	t.Setenv("GATEWAY_OP_A_STATUS", "active")
+	t.Setenv("GATEWAY_OP_B_STATUS", "disabled")
+	for restart := 0; restart < 2; restart++ {
+		if err := SeedFromEnv(); err != nil {
+			t.Fatal(err)
+		}
+		active, err := ListActive(false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		foundA := false
+		for _, operator := range active {
+			if operator.Slug == "edge-b" {
+				t.Fatal("disabled endpoint was re-enabled by restart")
+			}
+			if operator.Slug == "edge-a" {
+				foundA = true
+			}
+		}
+		if !foundA {
+			t.Fatal("active primary endpoint was excluded")
+		}
+	}
+}
 
 func TestBondEnforceEnabled_DefaultOff(t *testing.T) {
 	t.Setenv("PROXYHUB_GATEWAY_OPERATOR_BOND_ENFORCE", "")

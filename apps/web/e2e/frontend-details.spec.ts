@@ -209,7 +209,9 @@ test.describe("frontend details and public content", () => {
     await expect(
       page.getByRole("heading", { name: "Latest conversations" }),
     ).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByRole("link", { name: thread.title })).toBeVisible();
+    await expect(page.getByRole("link", { name: thread.title })).toBeVisible({
+      timeout: 30_000,
+    });
     await page.getByLabel("Search discussions", { exact: true }).fill("SOCKS5");
     await page
       .getByRole("search")

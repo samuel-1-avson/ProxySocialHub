@@ -43,34 +43,13 @@ func getFeed(c *gin.Context) {
 	var events []models.FeedEvent
 	var total int64
 
-	query := db.Social().Model(&models.FeedEvent{})
+	query := db.Social().Model(&models.FeedEvent{}).Where("event_type IN ?", publicActivityTypes()).Where("EXISTS (SELECT 1 FROM profiles p WHERE p.id = feed_events.actor_id AND p.activity_public = true)")
 
 	if len(followingIDs) > 0 {
 		// Get events from followed users
 		query = query.Where("actor_id IN ?", followingIDs)
 	} else {
 		// No follows, show all public events
-		// TRY REDIS CACHE FIRST (For Page 1)
-		if page == 1 && redisClient.Client != nil {
-			val, err := redisClient.Client.LRange(context.Background(), "public:feed", 0, int64(limit-1)).Result()
-			if err == nil && len(val) > 0 {
-				var cachedEvents []models.FeedEvent
-				for _, v := range val {
-					var e models.FeedEvent
-					json.Unmarshal([]byte(v), &e)
-					cachedEvents = append(cachedEvents, e)
-				}
-				// Return cached
-				c.JSON(http.StatusOK, gin.H{
-					"events": feedEventDTOs(cachedEvents),
-					"total":  100, // Estimate
-					"page":   page,
-					"limit":  limit,
-					"source": "cache",
-				})
-				return
-			}
-		}
 
 		query = query.Where("event_type IN ?", []string{
 			string(models.FeedEventNewListing),
@@ -112,7 +91,7 @@ func discoverProviders(c *gin.Context) {
 	var total int64
 
 	query := db.DB.Model(&models.User{}).
-		Where("role = ?", "provider")
+		Where("role = ? AND profile_public = ? AND discoverable = ?", "provider", true, true)
 
 	// Exclude already followed users
 	if userIDStr != "" {
@@ -194,6 +173,15 @@ func PublishFeedEvent(event models.FeedEvent) {
 // publishFeedEvent is PublishFeedEvent with the Redis client chosen by the
 // caller, for goroutines that must not read the package-level client later.
 func publishFeedEvent(rc redisClient.RedisClient, event models.FeedEvent) {
+	if event.ActorID == nil || !isPublicActivityType(event.EventType) {
+		return
+	}
+	var visible bool
+	if db.DB.Table("profiles").Select("activity_public").Where("id = ?", event.ActorID).Scan(&visible).Error != nil || !visible {
+		return
+	}
+	event.Actor = nil
+
 	// 1. WebSocket Broadcast
 	BroadcastToAll(string(event.EventType), feedEventDTOFrom(event))
 

@@ -82,7 +82,8 @@ func findMessageByClientKey(convID, senderID uuid.UUID, clientKey string) (model
 // and a message with that key already exists, it returns the stored
 // message with created=false and writes nothing, so an ambiguous retry
 // can neither duplicate the message nor re-deliver it.
-func createMessageChecked(convID, senderID uuid.UUID, content string, replyToID *uuid.UUID, clientKey string) (msg models.Message, created bool, err error) {
+func createMessageChecked(convID, senderID uuid.UUID, content string, replyToID *uuid.UUID, clientKey string, messageType ...string) (msg models.Message, created bool, err error) {
+	content = privacy.MaskPII(content)
 	if clientKey != "" {
 		existing, ferr := findMessageByClientKey(convID, senderID, clientKey)
 		if ferr == nil {
@@ -98,6 +99,9 @@ func createMessageChecked(convID, senderID uuid.UUID, content string, replyToID 
 		SenderID:       senderID,
 		Content:        content,
 		ReplyToID:      replyToID,
+	}
+	if len(messageType) > 0 {
+		msg.Type = messageType[0]
 	}
 	if clientKey != "" {
 		msg.ClientMsgID = &clientKey
@@ -131,6 +135,31 @@ func createMessageChecked(convID, senderID uuid.UUID, content string, replyToID 
 		return models.Message{}, false, err
 	}
 	return msg, created, nil
+}
+
+// deliverNewMessage emits the realtime + notification side effects for a
+// message that has already committed. Callers must only invoke it for
+// freshly created messages, never for idempotent replays.
+func deliverNewMessage(c *gin.Context, conv models.Conversation, msg models.Message, senderID uuid.UUID) {
+	recipientID := conv.GetOtherParticipant(senderID)
+	ws.BroadcastToUser(recipientID.String(), ws.MsgTypeNewMessage, gin.H{
+		"conversation_id": conv.ID,
+		"message":         messageDTOFrom(msg),
+	})
+	convID := conv.ID
+	actorID := senderID
+	dispatchUserNotification(c.Request.Context(), userNotification{
+		UserID:     recipientID,
+		Type:       models.NotificationMessage,
+		Title:      "New message",
+		Body:       truncate(msg.Content, 160),
+		ActionURL:  "/messages?conversation=" + convID.String(),
+		ActionType: "open_conversation",
+		ActorID:    &actorID,
+		TargetType: "conversation",
+		TargetID:   &convID,
+		Dedupe:     true,
+	})
 }
 
 // getConversations returns the current user's conversations
@@ -306,15 +335,11 @@ func startConversation(c *gin.Context) {
 	if rejectIfBlocked(c, userID, req.RecipientID) {
 		return
 	}
-
-	// First messages go through the same checked, idempotent send path
-	// as subsequent sends (F05).
 	clientKey, valid := resolveClientMsgID(c, req.ClientMsgID)
 	if !valid {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "client_msg_id is too long"})
 		return
 	}
-
 	// Check if conversation exists (in either direction)
 	var existingConv models.Conversation
 	err := db.Social().Where(
@@ -323,16 +348,19 @@ func startConversation(c *gin.Context) {
 	).First(&existingConv).Error
 
 	if err == nil {
+		if rejectContact(c, userID, req.RecipientID, existingConv.ListingID, &existingConv.ID) {
+			return
+		}
 		msg, created, cerr := createMessageChecked(existingConv.ID, userID, safeContent, nil, clientKey)
 		if cerr != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send message"})
 			return
 		}
+		db.Social().Preload("User1").Preload("User2").First(&existingConv, "id = ?", existingConv.ID)
 		if created {
 			db.Social().Preload("Sender").First(&msg, "id = ?", msg.ID)
-			announceMessage(c, userID, existingConv.ID, req.RecipientID, msg)
+			deliverNewMessage(c, existingConv, msg, userID)
 		}
-		db.Social().Preload("User1").Preload("User2").First(&existingConv, "id = ?", existingConv.ID)
 		c.JSON(http.StatusOK, conversationDTOFrom(existingConv))
 		return
 	}
@@ -341,6 +369,9 @@ func startConversation(c *gin.Context) {
 		return
 	}
 
+	if rejectContact(c, userID, req.RecipientID, req.ListingID, nil) {
+		return
+	}
 	// Create the conversation and its first message atomically.
 	conv := models.Conversation{
 		Participant1:  userID,
@@ -366,10 +397,9 @@ func startConversation(c *gin.Context) {
 		return
 	}
 
-	db.Social().Preload("Sender").First(&msg, "id = ?", msg.ID)
-	announceMessage(c, userID, conv.ID, req.RecipientID, msg)
-
 	db.Social().Preload("User1").Preload("User2").First(&conv, "id = ?", conv.ID)
+	db.Social().Preload("Sender").First(&msg, "id = ?", msg.ID)
+	deliverNewMessage(c, conv, msg, userID)
 	c.JSON(http.StatusCreated, conversationDTOFrom(conv))
 }
 
@@ -506,7 +536,7 @@ func sendMessage(c *gin.Context) {
 		return
 	}
 
-	if rejectIfBlocked(c, userID, conv.GetOtherParticipant(userID)) {
+	if rejectContact(c, userID, conv.GetOtherParticipant(userID), conv.ListingID, &conv.ID) {
 		return
 	}
 
@@ -696,6 +726,14 @@ func editMessage(c *gin.Context) {
 		return
 	}
 
+	var editConv models.Conversation
+	if db.Social().First(&editConv, "id = ?", convID).Error != nil {
+		c.JSON(404, gin.H{"error": "Conversation not found"})
+		return
+	}
+	if rejectContact(c, userID, editConv.GetOtherParticipant(userID), editConv.ListingID, &convID) {
+		return
+	}
 	// Check edit window (5 minutes)
 	if time.Since(msg.CreatedAt) > 5*time.Minute {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Edit window expired"})
@@ -714,6 +752,14 @@ func editMessage(c *gin.Context) {
 	}
 
 	db.Social().Preload("Sender").First(&msg, "id = ?", msg.ID)
+	var conv models.Conversation
+	if err := db.Social().First(&conv, "id = ?", convID).Error; err == nil {
+		ws.BroadcastToUser(conv.GetOtherParticipant(userID).String(), ws.MsgTypeMessageUpdated, gin.H{
+			"conversation_id": convID,
+			"message":         messageDTOFrom(msg),
+		})
+	}
+
 	c.JSON(http.StatusOK, messageDTOFrom(msg))
 }
 
@@ -808,6 +854,14 @@ func addReaction(c *gin.Context) {
 		return
 	}
 
+	var reactionConv models.Conversation
+	if db.Social().First(&reactionConv, "id = ?", msg.ConversationID).Error != nil {
+		c.JSON(404, gin.H{"error": "Conversation not found"})
+		return
+	}
+	if rejectContact(c, userID, reactionConv.GetOtherParticipant(userID), reactionConv.ListingID, &reactionConv.ID) {
+		return
+	}
 	reaction := models.MessageReaction{
 		MessageID: msgID,
 		UserID:    userID,

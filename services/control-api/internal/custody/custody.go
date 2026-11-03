@@ -9,6 +9,8 @@
 package custody
 
 import (
+	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
@@ -58,9 +60,18 @@ func CreateSolanaWallet(tx *gorm.DB, kek KEK, userID uuid.UUID) (models.Embedded
 	if err != nil {
 		return models.EmbeddedWallet{}, err
 	}
-	wrappedDEK, err := kek.Wrap(dek)
+	wrappedDEK, err := wrapContext(tx.Statement.Context, kek, dek)
 	if err != nil {
 		return models.EmbeddedWallet{}, err
+	}
+	// Do not commit a wallet with an unreadable key (e.g. encrypt-only IAM).
+	recovered, err := unwrapContext(tx.Statement.Context, kek, wrappedDEK)
+	if err != nil {
+		return models.EmbeddedWallet{}, err
+	}
+	defer zero(recovered)
+	if !bytes.Equal(recovered, dek) {
+		return models.EmbeddedWallet{}, fmt.Errorf("%w: wallet key recovery check failed", ErrKEKUnavailable)
 	}
 
 	row := models.EmbeddedWallet{
@@ -95,6 +106,7 @@ func FindWallet(db *gorm.DB, userID uuid.UUID) (models.EmbeddedWallet, error) {
 type Signer struct {
 	row models.EmbeddedWallet
 	kek KEK
+	ctx context.Context
 }
 
 // NewSigner loads the user's wallet for signing.
@@ -103,10 +115,11 @@ func NewSigner(db *gorm.DB, kek KEK, userID uuid.UUID) (*Signer, error) {
 	if err != nil {
 		return nil, err
 	}
-	if row.KEKID != kek.ID() {
-		return nil, fmt.Errorf("custody: wallet sealed with %q, configured KEK is %q", row.KEKID, kek.ID())
+	reader, err := resolveKey(kek, row.KEKID)
+	if err != nil {
+		return nil, err
 	}
-	return &Signer{row: row, kek: kek}, nil
+	return &Signer{row: row, kek: reader, ctx: db.Statement.Context}, nil
 }
 
 // Address is the wallet's base58 Solana address.
@@ -114,7 +127,15 @@ func (s *Signer) Address() string { return s.row.Address }
 
 // Sign returns an ed25519 signature over msg.
 func (s *Signer) Sign(msg []byte) ([]byte, error) {
-	dek, err := s.kek.Unwrap(s.row.WrappedDEK)
+	ctx := s.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return s.SignContext(ctx, msg)
+}
+
+func (s *Signer) SignContext(ctx context.Context, msg []byte) ([]byte, error) {
+	dek, err := unwrapContext(ctx, s.kek, s.row.WrappedDEK)
 	if err != nil {
 		return nil, err
 	}

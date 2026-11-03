@@ -132,9 +132,9 @@ type NodeUpdate struct {
 
 // LinkTopologyUpdate signals that map_node_links changed; clients should refetch GET /v1/map/links.
 type LinkTopologyUpdate struct {
-	Action             string `json:"action"`
-	LinkCount          int    `json:"link_count"`
-	TopologyAvailable  bool   `json:"topology_available"`
+	Action            string `json:"action"`
+	LinkCount         int    `json:"link_count"`
+	TopologyAvailable bool   `json:"topology_available"`
 }
 
 // clientEntry holds a connection alongside the topics it subscribed to.
@@ -378,7 +378,7 @@ func (h *ExplorerHub) sendInitialData(client *websocket.Conn) {
 
 	// Active nodes (for map initialization)
 	var nodes []models.ExplorerNode
-	db.DB.Where("is_active = ?", true).
+	explorerPrivacyQuery(db.DB.Model(&models.ExplorerNode{})).Where("is_active = ?", true).
 		Select("node_id, latitude, longitude, is_active, is_validator, uptime_percent, active_sessions, country, region, city, isp").
 		Order("uptime_percent DESC").
 		Limit(100).
@@ -653,6 +653,9 @@ func NotifyNewBlock(block *models.ExplorerBlock) {
 // NotifyNodeUpdate notifies all clients about a node status change.
 // Lat/Lon are hub/centroid-snapped to match GET /v1/marketplace/map.
 func NotifyNodeUpdate(node *models.ExplorerNode) {
+	if node == nil || !publicExplorerNodeVisible(node.NodeID) {
+		return
+	}
 	if hub == nil {
 		return
 	}
@@ -662,13 +665,13 @@ func NotifyNodeUpdate(node *models.ExplorerNode) {
 
 func snapExplorerNodeUpdate(node *models.ExplorerNode) NodeUpdate {
 	anchor := geo.MapGeoAnchor(node.NodeID, node.ProviderUserID, "")
-	lat, lon, _ := geo.ApplyMapCoords(node.Latitude, node.Longitude, node.Country, node.City, node.Region, anchor)
+	lat, lon, _ := publicMapCoords(0, 0, node.Country, "", "", anchor, "country")
 	return NodeUpdate{
-		NodeID:         node.NodeID,
+		NodeID:         mapOpaqueID("node", node.NodeID),
 		OpaqueNodeID:   mapOpaqueID("node", node.NodeID),
 		IsActive:       node.IsActive,
 		UptimePercent:  node.UptimePercent,
-		ActiveSessions: node.ActiveSessions,
+		ActiveSessions: 0,
 		Latitude:       lat,
 		Longitude:      lon,
 	}

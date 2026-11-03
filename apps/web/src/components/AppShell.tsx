@@ -19,7 +19,7 @@ interface AppShellProps {
 export function AppShell({
   children,
   showMobileTabBar = true,
-  maxWidthClassName = "max-w-7xl",
+  maxWidthClassName = "max-w-[1400px]",
   contentClassName = "",
   withWallet = true,
 }: AppShellProps) {

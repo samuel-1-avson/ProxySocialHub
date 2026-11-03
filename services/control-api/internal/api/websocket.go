@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/proxyhubb/control-api/internal/authstate"
 	"github.com/proxyhubb/control-api/internal/redis"
 	"github.com/proxyhubb/control-api/internal/ws"
 )
@@ -78,6 +79,9 @@ var upgrader = websocket.Upgrader{
 func HandleWebSocket(c *gin.Context) {
 	userID := c.GetString("userID")
 	role := c.GetString("userRole")
+	familyID := c.GetString("auth_session_id")
+	expiresAt, _ := c.Get("auth_expires_at")
+	deadline, _ := expiresAt.(time.Time)
 
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
@@ -92,6 +96,10 @@ func HandleWebSocket(c *gin.Context) {
 		Conn:   conn,
 		Send:   make(chan []byte, 256),
 		Hub:    ws.GetHub(),
+		Authorize: func() bool {
+			_, err := authstate.Validate(userID, familyID, true)
+			return err == nil && time.Now().Before(deadline)
+		},
 	}
 
 	ws.GetHub().Register <- client
@@ -140,7 +148,13 @@ func issueWSTicket(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to issue ticket"})
 		return
 	}
-	if err := redis.StoreWSTicket(ticket, userID, role, 60*time.Second); err != nil {
+	value, _ := c.Get("auth_expires_at")
+	expiresAt, _ := value.(time.Time)
+	if c.GetString("auth_session_id") == "" || expiresAt.IsZero() {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "browser session required"})
+		return
+	}
+	if err := redis.StoreWSTicket(ticket, userID, role, 60*time.Second, c.GetString("auth_session_id"), expiresAt.Format(time.RFC3339Nano)); err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ticket store unavailable"})
 		return
 	}

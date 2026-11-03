@@ -44,8 +44,6 @@ func Init() {
 func RequestLogger() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
-		path := c.Request.URL.Path
-		query := c.Request.URL.RawQuery
 
 		// Process request
 		c.Next()
@@ -53,16 +51,9 @@ func RequestLogger() gin.HandlerFunc {
 		// Calculate latency
 		latency := time.Since(start)
 
-		// Get user ID if available
-		userID := ""
-		if id, exists := c.Get("user_id"); exists {
-			// Handle both string and uuid.UUID types to be safe
-			switch v := id.(type) {
-			case string:
-				userID = v
-			case interface{ String() string }:
-				userID = v.String()
-			}
+		path := c.FullPath()
+		if path == "" {
+			path = "unmatched"
 		}
 
 		// Get request ID from header or generate
@@ -84,12 +75,8 @@ func RequestLogger() gin.HandlerFunc {
 			Str("request_id", requestID).
 			Str("method", c.Request.Method).
 			Str("path", path).
-			Str("query", query).
 			Int("status", c.Writer.Status()).
 			Dur("latency", latency).
-			Str("ip", c.ClientIP()).
-			Str("user_agent", c.Request.UserAgent()).
-			Str("user_id", userID).
 			Int("body_size", c.Writer.Size()).
 			Msg("request")
 
@@ -98,7 +85,7 @@ func RequestLogger() gin.HandlerFunc {
 			for _, e := range c.Errors {
 				Logger.Error().
 					Str("request_id", requestID).
-					Err(e.Err).
+					Uint64("error_type", uint64(e.Type)).
 					Msg("request error")
 			}
 		}

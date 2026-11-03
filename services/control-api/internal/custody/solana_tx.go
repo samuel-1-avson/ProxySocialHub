@@ -1,6 +1,7 @@
 package custody
 
 import (
+	"context"
 	"fmt"
 
 	sol "github.com/gagliardetto/solana-go"
@@ -9,6 +10,14 @@ import (
 // SignTransaction adds this wallet's signature to tx. The wallet must be one of
 // the transaction's required signers; other signer slots are left untouched.
 func (s *Signer) SignTransaction(tx *sol.Transaction) error {
+	ctx := s.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return s.SignTransactionContext(ctx, tx)
+}
+
+func (s *Signer) SignTransactionContext(ctx context.Context, tx *sol.Transaction) error {
 	addr, err := sol.PublicKeyFromBase58(s.row.Address)
 	if err != nil {
 		return fmt.Errorf("custody: invalid wallet address: %w", err)
@@ -29,7 +38,7 @@ func (s *Signer) SignTransaction(tx *sol.Transaction) error {
 	if err != nil {
 		return fmt.Errorf("custody: marshal message: %w", err)
 	}
-	sig, err := s.Sign(msg)
+	sig, err := s.SignContext(ctx, msg)
 	if err != nil {
 		return err
 	}

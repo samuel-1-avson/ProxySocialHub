@@ -14,10 +14,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/proxyhubb/control-api/internal/authstate"
 	"github.com/proxyhubb/control-api/internal/crypto"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/security"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 const (
@@ -38,7 +41,7 @@ type refreshRequest struct {
 }
 
 func authAccessTokenTTL() time.Duration {
-	const defaultMinutes = 24 * 60
+	const defaultMinutes = 15
 
 	if raw := strings.TrimSpace(os.Getenv("ACCESS_TOKEN_TTL_MINUTES")); raw != "" {
 		if minutes, err := strconv.Atoi(raw); err == nil && minutes > 0 {
@@ -62,44 +65,85 @@ func authRefreshTokenTTL() time.Duration {
 }
 
 func issueAuthSession(user models.User, walletAddress string, jwtSecret string) (authSessionResponse, error) {
-	accessTTL := authAccessTokenTTL()
-	accessToken, err := crypto.GenerateToken(
-		user.ID,
-		user.Role,
-		user.Email,
-		walletAddress,
-		jwtSecret,
-		accessTTL,
-	)
+	return issueRequestAuthSession(nil, user, jwtSecret)
+}
+
+// Device rows, refresh families and JWT sid are one authorization session.
+func issueRequestAuthSession(c *gin.Context, user models.User, jwtSecret string) (authSessionResponse, error) {
+	if !user.IsActive() || !refreshTokenStorageReady() {
+		return authSessionResponse{}, authstate.ErrInactive
+	}
+	accessTTL, refreshTTL := authAccessTokenTTL(), authRefreshTokenTTL()
+	var settings models.UserSettings
+	if err := db.DB.Where("user_id = ?", user.ID).First(&settings).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return authSessionResponse{}, err
+	}
+	if settings.SessionTimeout > 0 && time.Duration(settings.SessionTimeout)*time.Minute < refreshTTL {
+		refreshTTL = time.Duration(settings.SessionTimeout) * time.Minute
+	}
+	if accessTTL > refreshTTL {
+		accessTTL = refreshTTL
+	}
+	raw, record, err := newRefreshTokenRecord(user.ID, "", "", refreshTTL)
 	if err != nil {
 		return authSessionResponse{}, err
 	}
-
-	response := authSessionResponse{
-		Token:                accessToken,
-		AccessTokenExpiresAt: time.Now().Add(accessTTL),
+	ip, ua := "0.0.0.0", ""
+	if c != nil {
+		ip, ua = c.ClientIP(), c.Request.UserAgent()
 	}
-
-	if !refreshTokenStorageReady() {
-		return response, nil
-	}
-
-	refreshTTL := authRefreshTokenTTL()
-	rawRefreshToken, record, err := newRefreshTokenRecord(user.ID, "", "", refreshTTL)
+	info := security.DescribeUserAgent(ua)
+	device := models.UserSession{ID: uuid.New(), UserID: user.ID, TokenFamily: record.FamilyID, RefreshToken: record.TokenHash, IPAddress: ip, UserAgent: ua, DeviceType: info.DeviceType, Browser: info.Browser, OS: info.OS, IsActive: true, ExpiresAt: record.ExpiresAt}
+	err = db.DB.Transaction(func(tx *gorm.DB) error {
+		// Serialize login/limit changes for this account, including simultaneous logins.
+		var account struct{ Status string }
+		if e := tx.Table("profiles").Clauses(clause.Locking{Strength: "UPDATE"}).Select("status").Where("id = ?", user.ID).Take(&account).Error; e != nil {
+			return e
+		}
+		if account.Status != "active" && account.Status != "pending" {
+			return authstate.ErrInactive
+		}
+		if e := tx.Create(&record).Error; e != nil {
+			return e
+		}
+		if e := tx.Create(&device).Error; e != nil {
+			return e
+		}
+		limit := settings.MaxConcurrentSessions
+		if limit <= 0 {
+			limit = 5
+		}
+		var rows []models.UserSession
+		if e := tx.Where("user_id = ? AND is_active = ?", user.ID, true).Order("created_at DESC, id DESC").Find(&rows).Error; e != nil {
+			return e
+		}
+		for i := limit; i < len(rows); i++ {
+			if e := revokeAuthFamily(tx, rows[i].TokenFamily); e != nil {
+				return e
+			}
+		}
+		return nil
+	})
 	if err != nil {
-		log.Printf("[AUTH] Failed to create refresh token material for user %s: %v", user.ID, err)
-		return response, nil
+		return authSessionResponse{}, err
 	}
-
-	if err := db.DB.Create(&record).Error; err != nil {
-		log.Printf("[AUTH] Failed to persist refresh token for user %s: %v", user.ID, err)
-		return response, nil
+	token, err := crypto.GenerateSessionToken(user.ID, user.Role, record.FamilyID, jwtSecret, accessTTL)
+	if err != nil {
+		_ = revokeAuthFamily(db.DB, record.FamilyID)
+		return authSessionResponse{}, err
 	}
+	if c != nil {
+		c.Set("auth_session_id", record.FamilyID)
+	}
+	return authSessionResponse{Token: token, RefreshToken: raw, AccessTokenExpiresAt: time.Now().Add(accessTTL), RefreshTokenExpiresAt: &record.ExpiresAt, User: user.ToAccountIdentity()}, nil
+}
 
-	response.RefreshToken = rawRefreshToken
-	response.RefreshTokenExpiresAt = &record.ExpiresAt
-
-	return response, nil
+func revokeAuthFamily(tx *gorm.DB, familyID string) error {
+	now := time.Now()
+	if err := tx.Model(&models.RefreshTokenFamily{}).Where("family_id = ?", familyID).Updates(map[string]interface{}{"revoked_at": now, "is_current": false}).Error; err != nil {
+		return err
+	}
+	return tx.Model(&models.UserSession{}).Where("token_family = ?", familyID).Updates(map[string]interface{}{"is_active": false, "revoked_at": now, "revoke_reason": "Session revoked"}).Error
 }
 
 func refreshSession(c *gin.Context) {
@@ -157,10 +201,10 @@ func refreshSession(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found"})
 		return
 	}
-
-	walletAddress := ""
-	if user.WalletAddress != nil {
-		walletAddress = *user.WalletAddress
+	if _, err := authstate.Validate(user.ID.String(), current.FamilyID, true); err != nil {
+		revokeRefreshTokenFamily(current.FamilyID)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "account or session inactive"})
+		return
 	}
 
 	jwtSecret, err := requireJWTSecret()
@@ -169,12 +213,16 @@ func refreshSession(c *gin.Context) {
 		return
 	}
 
+	// A rotation never extends the original authenticated session lifetime.
+	refreshTTL := time.Until(current.ExpiresAt)
 	accessTTL := authAccessTokenTTL()
-	accessToken, err := crypto.GenerateToken(
+	if accessTTL > refreshTTL {
+		accessTTL = refreshTTL
+	}
+	accessToken, err := crypto.GenerateSessionToken(
 		user.ID,
 		user.Role,
-		user.Email,
-		walletAddress,
+		current.FamilyID,
 		jwtSecret,
 		accessTTL,
 	)
@@ -183,7 +231,6 @@ func refreshSession(c *gin.Context) {
 		return
 	}
 
-	refreshTTL := authRefreshTokenTTL()
 	newRawRefreshToken, nextRecord, err := newRefreshTokenRecord(user.ID, current.FamilyID, current.TokenID, refreshTTL)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to rotate refresh token"})
@@ -191,17 +238,24 @@ func refreshSession(c *gin.Context) {
 	}
 
 	tx := db.DB.Begin()
-	if err := tx.Model(&models.RefreshTokenFamily{}).
-		Where("id = ?", current.ID).
-		Updates(map[string]interface{}{"is_current": false}).Error; err != nil {
+	// Atomic claim: exactly one concurrent request may rotate this token.
+	claim := tx.Model(&models.RefreshTokenFamily{}).Where("id = ? AND is_current = ? AND revoked_at IS NULL", current.ID, true).Update("is_current", false)
+	if claim.Error != nil || claim.RowsAffected != 1 {
 		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to rotate refresh token"})
+		revokeRefreshTokenFamily(current.FamilyID)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "refresh token already rotated"})
 		return
 	}
 
 	if err := tx.Create(&nextRecord).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to persist refresh token"})
+		return
+	}
+	deviceUpdate := tx.Model(&models.UserSession{}).Where("user_id = ? AND token_family = ? AND is_active = ?", user.ID, current.FamilyID, true).Updates(map[string]interface{}{"refresh_token": nextRecord.TokenHash, "last_active_at": now, "expires_at": nextRecord.ExpiresAt})
+	if deviceUpdate.Error != nil || deviceUpdate.RowsAffected != 1 {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update device session"})
 		return
 	}
 
@@ -217,7 +271,7 @@ func refreshSession(c *gin.Context) {
 		RefreshToken:          newRawRefreshToken,
 		AccessTokenExpiresAt:  now.Add(accessTTL),
 		RefreshTokenExpiresAt: &nextRecord.ExpiresAt,
-		User:                  user,
+		User:                  user.ToAccountIdentity(),
 	})
 }
 
@@ -316,13 +370,7 @@ func revokeRefreshTokenFamily(familyID string) {
 		return
 	}
 
-	now := time.Now()
-	if err := db.DB.Model(&models.RefreshTokenFamily{}).
-		Where("family_id = ? AND revoked_at IS NULL", familyID).
-		Updates(map[string]interface{}{
-			"revoked_at": now,
-			"is_current": false,
-		}).Error; err != nil {
+	if err := db.DB.Transaction(func(tx *gorm.DB) error { return revokeAuthFamily(tx, familyID) }); err != nil {
 		log.Printf("[AUTH] Failed to revoke refresh token family %s: %v", familyID, err)
 	}
 }

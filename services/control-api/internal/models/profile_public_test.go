@@ -4,12 +4,15 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestToPublicProfileOmitsKYCAndISP(t *testing.T) {
 	isp := "CLOUDFLARE, INC."
 	loc := "@global"
+	now := time.Now()
 	u := User{
+		ProfilePublic: true, PresenceVisible: true, LastSeenAt: &now,
 		KYCStatus: KYCStatusApproved,
 		ISP:       &isp,
 		Location:  &loc,

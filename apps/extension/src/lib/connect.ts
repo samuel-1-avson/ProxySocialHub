@@ -79,6 +79,7 @@ export async function connectOrder(orderId: string, listingTitle = ''): Promise<
     proxyPass: target.password,
     proxyHost: target.host,
     proxyPort: target.port,
+    proxyProtocol: target.protocol,
     connectedOrderId: orderId,
     connectedTitle: listingTitle,
     connectionState: 'on',
@@ -89,7 +90,7 @@ export async function connectOrder(orderId: string, listingTitle = ''): Promise<
     await chrome.storage.session.remove('sessionExpiresAt');
   }
   try {
-    await setHmacHttpProxy(target.host, target.port);
+    await setHmacHttpProxy(target.host, target.port, target.protocol);
   } catch (err) {
     await rollbackProxy();
     throw err;
@@ -231,10 +232,10 @@ export async function markConnectionLost(fatal: boolean): Promise<void> {
 
 /** After browser restart, session HMAC is gone but chrome.proxy can persist. Clear if we have no secrets. */
 export async function ensureProxyMatchesSession(): Promise<void> {
-  const stored = await chrome.storage.session.get(['proxyUser', 'proxyPass', 'sessionExpiresAt']);
+  const stored = await chrome.storage.session.get(['proxyUser', 'proxyPass', 'proxyProtocol', 'sessionExpiresAt']);
   const user = typeof stored.proxyUser === 'string' ? stored.proxyUser : '';
   const pass = typeof stored.proxyPass === 'string' ? stored.proxyPass : '';
-  if (user && pass) {
+  if (user && pass && stored.proxyProtocol === "https") {
     const exp = stored.sessionExpiresAt;
     if (typeof exp === 'number' && exp > 1e9 && exp <= Date.now()) {
       await applySessionExpired();

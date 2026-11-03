@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, type ReactNode } from "react";
+import { useRef, type ReactNode, type RefObject } from "react";
 import {
   Dialog,
   DialogContent,
@@ -34,6 +34,8 @@ export interface ModalProps {
   contentClassName?: string;
   /** Test id on the dialog content */
   testId?: string;
+  /** Explicit trigger for dialogs opened after an asynchronous action. */
+  returnFocusRef?: RefObject<HTMLElement | null>;
 }
 
 /**
@@ -52,6 +54,7 @@ export function Modal({
   className,
   contentClassName,
   testId,
+  returnFocusRef,
 }: ModalProps) {
   const returnFocus = useRef<HTMLElement | null>(null);
   return (
@@ -65,8 +68,9 @@ export function Modal({
               : null;
         }}
         onCloseAutoFocus={(event) => {
-          const target = returnFocus.current?.isConnected
-            ? returnFocus.current
+          const trigger = returnFocusRef?.current ?? returnFocus.current;
+          const target = trigger?.isConnected
+            ? trigger
             : document.getElementById("main-content");
           if (target) {
             event.preventDefault();
@@ -76,17 +80,29 @@ export function Modal({
         data-testid={testId}
         hideCloseButton={hideCloseButton}
         {...(!description ? { "aria-describedby": undefined } : {})}
-        className={cn(SIZE_CLASS[size], "gap-0 p-0", className)}
+        className={cn(SIZE_CLASS[size], "flex flex-col gap-0 overflow-hidden p-0", className)}
       >
-        <DialogHeader className="border-b border-border px-6 py-4 text-left">
+        <DialogHeader
+          className={cn(
+            "shrink-0 border-b border-border px-5 py-5 text-left sm:px-6",
+            !hideCloseButton && "pr-16 sm:pr-16",
+          )}
+        >
           <DialogTitle>{title}</DialogTitle>
           {description ? (
             <DialogDescription>{description}</DialogDescription>
           ) : null}
         </DialogHeader>
-        <div className={cn("px-6 py-5", contentClassName)}>{children}</div>
+        <div
+          className={cn(
+            "min-h-0 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6",
+            contentClassName,
+          )}
+        >
+          {children}
+        </div>
         {footer ? (
-          <DialogFooter className="border-t border-border px-6 py-4 sm:justify-end">
+          <DialogFooter className="shrink-0 border-t border-border px-5 py-4 sm:justify-end sm:px-6">
             {footer}
           </DialogFooter>
         ) : null}

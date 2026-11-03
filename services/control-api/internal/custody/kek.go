@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 )
 
@@ -23,25 +22,12 @@ type KEK interface {
 var (
 	// ErrKEKNotConfigured means EMBEDDED_WALLET_KEK is missing or malformed.
 	ErrKEKNotConfigured = errors.New("custody: EMBEDDED_WALLET_KEK must be 32 bytes, hex encoded")
+	ErrKEKUnavailable   = errors.New("custody: key management unavailable")
+	ErrUnknownKEK       = errors.New("custody: wallet key is not in the configured key ring")
 	// ErrLocalKEKInStrictEnv refuses an env-var key outside local development
 	// (docs/custody-split.md: no raw key material in env for real funds).
 	ErrLocalKEKInStrictEnv = errors.New("custody: local EMBEDDED_WALLET_KEK is not allowed in production/staging/testnet; use KMS")
 )
-
-// strictEnv mirrors the fail-closed rule used for the oracle/treasury KMS signers.
-func strictEnv() bool {
-	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
-	return env == "production" || env == "prod" || env == "staging" || env == "testnet"
-}
-
-// DefaultKEK returns the configured key-encryption key. Only the local (env)
-// KEK exists today; a Cloud KMS KEK is required before strict environments.
-func DefaultKEK() (KEK, error) {
-	if strictEnv() {
-		return nil, ErrLocalKEKInStrictEnv
-	}
-	return NewLocalKEK(os.Getenv("EMBEDDED_WALLET_KEK"))
-}
 
 // LocalKEK is an AES-256-GCM key-encryption key read from the environment.
 // It is deliberately separate from ENCRYPTION_KEY (which protects emails and PII).
@@ -60,6 +46,7 @@ func NewLocalKEK(hexKey string) (*LocalKEK, error) {
 	if err != nil || len(key) != 32 {
 		return nil, ErrKEKNotConfigured
 	}
+	defer zero(key)
 	aead, err := newGCM(key)
 	if err != nil {
 		return nil, err
