@@ -12,6 +12,21 @@ import (
 	"github.com/proxyhubb/control-api/internal/ws"
 )
 
+// tombstoneDeleted clears the content of soft-deleted messages so ordinary
+// read paths return a content-free tombstone (F03). The stored row is
+// untouched; retention of the original text is a product/policy decision.
+func tombstoneDeleted(m *models.Message) {
+	if m != nil && m.IsDeleted {
+		m.Content = ""
+	}
+}
+
+func tombstoneDeletedAll(messages []models.Message) {
+	for i := range messages {
+		tombstoneDeleted(&messages[i])
+	}
+}
+
 // RegisterMessagingRoutes registers messaging-related routes
 func RegisterMessagingRoutes(rg *gin.RouterGroup) {
 	rg.GET("/conversations", getConversations)
@@ -81,6 +96,7 @@ func getConversations(c *gin.Context) {
 		ORDER BY conversation_id, created_at DESC
 	`, convIDs).Scan(&lastMsgs).Error; err == nil {
 		for _, m := range lastMsgs {
+			tombstoneDeleted(&m)
 			lastByConv[m.ConversationID] = m
 		}
 	}
@@ -256,6 +272,7 @@ func getMessages(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch messages"})
 		return
 	}
+	tombstoneDeletedAll(messages)
 
 	c.JSON(http.StatusOK, gin.H{
 		"messages": messageDTOs(messages),
@@ -434,6 +451,11 @@ func editMessage(c *gin.Context) {
 		return
 	}
 
+	if msg.IsDeleted {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Message has been deleted"})
+		return
+	}
+
 	// Check edit window (5 minutes)
 	if time.Since(msg.CreatedAt) > 5*time.Minute {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Edit window expired"})
@@ -503,6 +525,11 @@ func deleteMessage(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	ws.BroadcastToUser(conv.GetOtherParticipant(userID).String(), ws.MsgTypeMessageDeleted, gin.H{
+		"conversation_id": convID,
+		"message_id":      msgID,
+	})
 
 	c.JSON(http.StatusOK, gin.H{"message": "Message deleted"})
 }
