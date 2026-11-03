@@ -3,6 +3,7 @@ package models
 import (
 	"crypto/rand"
 	"encoding/base32"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,8 +17,10 @@ type UserSettings struct {
 
 	// MFA/TOTP Settings
 	TwoFactorEnabled     bool       `gorm:"default:false" json:"two_factor_enabled"`
-	TwoFactorSecret      string     `gorm:"type:varchar(64)" json:"-"` // Encrypted, never exposed
-	TwoFactorBackupCodes string     `gorm:"type:text" json:"-"`        // JSON array of hashed backup codes
+	TwoFactorSecret      string     `gorm:"type:text" json:"-"`
+	LastTOTPHash         string     `json:"-"`
+	LastTOTPAt           *time.Time `json:"-"`
+	TwoFactorBackupCodes string     `gorm:"type:text" json:"-"` // JSON array of hashed backup codes
 	TwoFactorVerifiedAt  *time.Time `json:"two_factor_verified_at,omitempty"`
 
 	// Session Settings
@@ -49,6 +52,49 @@ func (UserSettings) TableName() string {
 func (s *UserSettings) BeforeCreate(tx *gorm.DB) error {
 	if s.ID == uuid.Nil {
 		s.ID = uuid.New()
+	}
+	return nil
+}
+
+func (s *UserSettings) BeforeSave(tx *gorm.DB) error {
+	if s.TwoFactorSecret != "" && !isEncryptedField(s.TwoFactorSecret) && CredentialEncryptFn != nil {
+		enc, err := encryptField(s.TwoFactorSecret)
+		if err != nil {
+			return err
+		}
+		s.TwoFactorSecret = enc
+	}
+	return nil
+}
+
+func (s *UserSettings) AfterFind(tx *gorm.DB) error { return s.decryptMFASecret() }
+func (s *UserSettings) AfterSave(tx *gorm.DB) error { return s.decryptMFASecret() }
+func (s *UserSettings) decryptMFASecret() error {
+	if isEncryptedField(s.TwoFactorSecret) {
+		if CredentialDecryptFn == nil {
+			return errors.New("MFA encryption unavailable")
+		}
+		plain, err := decryptField(s.TwoFactorSecret)
+		if err != nil {
+			return err
+		}
+		s.TwoFactorSecret = plain
+	}
+	return nil
+}
+
+func MigrateMFASecrets(tx *gorm.DB) error {
+	if tx == nil || CredentialEncryptFn == nil {
+		return errors.New("MFA encryption unavailable")
+	}
+	var rows []UserSettings
+	if err := tx.Where("two_factor_secret IS NOT NULL AND two_factor_secret <> '' AND two_factor_secret NOT LIKE 'ENC:%'").Find(&rows).Error; err != nil {
+		return err
+	}
+	for i := range rows {
+		if err := tx.Save(&rows[i]).Error; err != nil {
+			return err
+		}
 	}
 	return nil
 }

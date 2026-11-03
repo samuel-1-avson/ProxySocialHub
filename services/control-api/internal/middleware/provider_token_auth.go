@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/proxyhubb/control-api/internal/authstate"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
 )
@@ -75,7 +76,7 @@ func validateJWT(tokenStr string) (string, error) {
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 		}
 		return []byte(secret), nil
-	}, jwt.WithValidMethods([]string{"HS256"}))
+	}, jwt.WithValidMethods([]string{"HS256"}), jwt.WithExpirationRequired())
 
 	if err != nil || !parsed.Valid {
 		return "", errors.New("invalid JWT")
@@ -91,6 +92,13 @@ func validateJWT(tokenStr string) (string, error) {
 		return "", errors.New("missing sub claim")
 	}
 
+	if kind, _ := claims["knd"].(string); kind != "" {
+		return "", errors.New("browser access token required")
+	}
+	sid, _ := claims["sid"].(string)
+	if _, err := authstate.Validate(sub, sid, true); err != nil {
+		return "", err
+	}
 	return sub, nil
 }
 
@@ -108,6 +116,9 @@ func validateProviderToken(rawToken string) (*models.ProviderToken, error) {
 		return nil, errors.New("token expired")
 	}
 
+	if _, err := authstate.Validate(token.UserID.String(), "", false); err != nil {
+		return nil, err
+	}
 	return &token, nil
 }
 

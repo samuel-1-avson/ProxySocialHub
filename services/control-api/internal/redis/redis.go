@@ -97,25 +97,25 @@ type SessionData struct {
 	CredentialPasswordHash string `json:"credential_password_hash,omitempty"`
 
 	// Wave 3.3 / W5.C.2 — platform HMAC order credential bound into the session blob.
-	OrderID                       string `json:"order_id,omitempty"`
-	CredentialProofUsernameHash   string `json:"credential_proof_username_hash,omitempty"`
-	CredentialProofPayloadHash    string `json:"credential_proof_payload_hash,omitempty"`
-	CredentialProofSignature      string `json:"credential_proof_signature,omitempty"`
-	CredentialProofIssuedAt       int64  `json:"credential_proof_issued_at,omitempty"`
-	CredentialProofExpiresAt      int64  `json:"credential_proof_expires_at,omitempty"`
+	OrderID                     string `json:"order_id,omitempty"`
+	CredentialProofUsernameHash string `json:"credential_proof_username_hash,omitempty"`
+	CredentialProofPayloadHash  string `json:"credential_proof_payload_hash,omitempty"`
+	CredentialProofSignature    string `json:"credential_proof_signature,omitempty"`
+	CredentialProofIssuedAt     int64  `json:"credential_proof_issued_at,omitempty"`
+	CredentialProofExpiresAt    int64  `json:"credential_proof_expires_at,omitempty"`
 
 	// Wave 7.A — Ed25519 session capability (Redis is a cache; edge verifies locally).
-	CapabilityVersion         string `json:"capability_version,omitempty"`
-	CapabilityOfferHash       string `json:"capability_offer_hash,omitempty"`
-	CapabilityBuyerID         string `json:"capability_buyer_id,omitempty"`
-	CapabilityExpiresAt       int64  `json:"capability_expires_at,omitempty"`
-	CapabilityBandwidthLimit  int64  `json:"capability_bandwidth_limit,omitempty"`
-	CapabilityOperatorPubkey  string `json:"capability_operator_pubkey,omitempty"`
-	CapabilityUsernameHash    string `json:"capability_username_hash,omitempty"`
-	CapabilityIssuedAt        int64  `json:"capability_issued_at,omitempty"`
-	CapabilitySignature       string `json:"capability_signature,omitempty"`
-	CapabilityIssuerPubkey    string `json:"capability_issuer_pubkey,omitempty"`
-	CapabilityToken           string `json:"capability_token,omitempty"`
+	CapabilityVersion        string `json:"capability_version,omitempty"`
+	CapabilityOfferHash      string `json:"capability_offer_hash,omitempty"`
+	CapabilityBuyerID        string `json:"capability_buyer_id,omitempty"`
+	CapabilityExpiresAt      int64  `json:"capability_expires_at,omitempty"`
+	CapabilityBandwidthLimit int64  `json:"capability_bandwidth_limit,omitempty"`
+	CapabilityOperatorPubkey string `json:"capability_operator_pubkey,omitempty"`
+	CapabilityUsernameHash   string `json:"capability_username_hash,omitempty"`
+	CapabilityIssuedAt       int64  `json:"capability_issued_at,omitempty"`
+	CapabilitySignature      string `json:"capability_signature,omitempty"`
+	CapabilityIssuerPubkey   string `json:"capability_issuer_pubkey,omitempty"`
+	CapabilityToken          string `json:"capability_token,omitempty"`
 }
 
 func Init() error {
@@ -220,11 +220,18 @@ func StoreSession(sessionID string, data *SessionData, ttl time.Duration) error 
 
 // --- WS ticket store (short-lived, single-use WebSocket auth tickets) ---
 
-func StoreWSTicket(ticket string, userID string, role string, ttl time.Duration) error {
+func StoreWSTicket(ticket string, userID string, role string, ttl time.Duration, session ...string) error {
 	if Client == nil {
 		return fmt.Errorf("redis client not initialized")
 	}
-	payload, err := json.Marshal(map[string]string{"user_id": userID, "role": role})
+	data := map[string]string{"user_id": userID, "role": role}
+	if len(session) > 0 {
+		data["session_id"] = session[0]
+	}
+	if len(session) > 1 {
+		data["expires_at"] = session[1]
+	}
+	payload, err := json.Marshal(data)
 	if err != nil {
 		return err
 	}
@@ -233,20 +240,25 @@ func StoreWSTicket(ticket string, userID string, role string, ttl time.Duration)
 
 // ConsumeWSTicket atomically reads and deletes a ticket (single-use).
 func ConsumeWSTicket(ticket string) (userID string, role string, err error) {
+	userID, role, _, _, err = ConsumeWSTicketSession(ticket)
+	return
+}
+
+func ConsumeWSTicketSession(ticket string) (userID string, role string, familyID string, expiresAt time.Time, err error) {
 	if Client == nil {
-		return "", "", fmt.Errorf("redis client not initialized")
+		return "", "", "", time.Time{}, fmt.Errorf("redis client not initialized")
 	}
 	key := "ws_ticket:" + ticket
-	val, err := Client.Get(ctx, key).Result()
+	val, err := Client.GetDel(ctx, key).Result()
 	if err != nil {
-		return "", "", fmt.Errorf("ws ticket invalid or expired")
+		return "", "", "", time.Time{}, fmt.Errorf("ws ticket invalid or expired")
 	}
-	Client.Del(ctx, key)
 	var m map[string]string
 	if err := json.Unmarshal([]byte(val), &m); err != nil {
-		return "", "", fmt.Errorf("ws ticket corrupt")
+		return "", "", "", time.Time{}, fmt.Errorf("ws ticket corrupt")
 	}
-	return m["user_id"], m["role"], nil
+	expiresAt, _ = time.Parse(time.RFC3339Nano, m["expires_at"])
+	return m["user_id"], m["role"], m["session_id"], expiresAt, nil
 }
 
 func GetSession(sessionID string) (*SessionData, error) {

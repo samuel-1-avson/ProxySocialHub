@@ -1,7 +1,7 @@
 package api
 
 import (
-	"fmt"
+	"encoding/json"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -12,7 +12,8 @@ import (
 
 // RecordAuditLog creates a new audit log entry
 func RecordAuditLog(c *gin.Context, eventType models.AuditEventType, severity models.AuditSeverity, actorID *uuid.UUID, targetType, targetID, description string, success bool) {
-	metadata := fmt.Sprintf(`{"ip": "%s", "ua": "%s"}`, c.ClientIP(), c.Request.UserAgent())
+	data, _ := json.Marshal(map[string]string{"ip": c.ClientIP(), "ua": c.Request.UserAgent()})
+	metadata := string(data)
 
 	log := models.AuditLog{
 		EventType:   eventType,

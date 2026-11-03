@@ -497,7 +497,9 @@ func CleanupTestData(t *testing.T, tables ...string) {
 func CreateTestUser(t *testing.T, email, role string) *models.User {
 	t.Helper()
 
+	// General marketplace fixtures deliberately opt in. Account-creation and privacy tests verify private defaults separately.
 	user := &models.User{
+		ProfilePublic: true, Discoverable: true, MapVisible: true, MapPrecision: "city", PresenceVisible: true, ActivityPublic: true, ContactMode: "everyone",
 		ID:        uuid.New(),
 		Email:     email,
 		Role:      role,
@@ -590,6 +592,7 @@ func CreateTestListing(t *testing.T, sellerID uuid.UUID) *models.ProxyListing {
 	listing := &models.ProxyListing{
 		SellerID:             sellerID,
 		Title:                "test listing",
+		AllowDirectMessage:   true,
 		PricePerGB:           1,
 		AvailableBandwidthGB: 10,
 		MaxConcurrency:       1,

@@ -1,7 +1,9 @@
 package api
 
 import (
+	"errors"
 	"fmt"
+	"gorm.io/gorm"
 	"net/http"
 	"time"
 
@@ -9,7 +11,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
-	"github.com/proxyhubb/control-api/internal/ws"
 )
 
 // RegisterListingSocialRoutes registers social integration routes for listings
@@ -131,13 +132,14 @@ func getListingSocialContext(c *gin.Context) {
 	}
 
 	// Build provider social info
+	publicProvider := listing.Seller.ToPublicProfile()
 	providerInfo := ProviderSocialInfo{
 		ID:              listing.Seller.ID,
 		Username:        safeString(listing.Seller.Username),
-		DisplayName:     safeString(listing.Seller.DisplayName),
-		AvatarURL:       safeString(listing.Seller.AvatarURL),
-		IsOnline:        listing.Seller.IsOnline,
-		LastSeenAt:      listing.Seller.LastSeenAt,
+		DisplayName:     safeString(publicProvider.DisplayName),
+		AvatarURL:       safeString(publicProvider.AvatarURL),
+		IsOnline:        publicProvider.IsOnline,
+		LastSeenAt:      publicProvider.LastSeenAt,
 		AvgRating:       listing.Seller.AvgRating,
 		ReviewsCount:    listing.Seller.ReviewsCount,
 		TotalBandwidth:  listing.Seller.TotalBandwidthSold,
@@ -146,8 +148,8 @@ func getListingSocialContext(c *gin.Context) {
 
 	context := ListingSocialContext{
 		ListingID:           listingID,
-		ActiveSessionsCount: int(activeSessionsCount),
-		TotalSessionsCount:  int(totalSessionsCount),
+		ActiveSessionsCount: 0,
+		TotalSessionsCount:  0,
 		AllowDirectMessage:  listing.AllowDirectMessage,
 		Provider:            providerInfo,
 		IsFollowed:          isFollowed,
@@ -160,9 +162,10 @@ func getListingSocialContext(c *gin.Context) {
 
 // ListingInquiryRequest represents a request to inquire about a listing
 type ListingInquiryRequest struct {
-	Message    string  `json:"message" binding:"required,min=1,max=1000"`
-	Intent     string  `json:"intent"`      // "web_scraping", "vpn", "gaming", etc.
-	ExpectedGB float64 `json:"expected_gb"` // Expected monthly usage
+	Message     string  `json:"message" binding:"required,min=1,max=1000"`
+	Intent      string  `json:"intent"` // "web_scraping", "vpn", "gaming", etc.
+	ClientMsgID string  `json:"client_msg_id" binding:"max=128"`
+	ExpectedGB  float64 `json:"expected_gb"` // Expected monthly usage
 }
 
 // createListingInquiry creates a conversation from a listing inquiry
@@ -198,6 +201,9 @@ func createListingInquiry(c *gin.Context) {
 	}
 
 	providerID := listing.SellerID
+	if rejectContact(c, buyerID, providerID, &listingID, nil) {
+		return
+	}
 
 	// Get or create conversation
 	conversation, err := getOrCreateConversation(buyerID, providerID, &listingID)
@@ -215,64 +221,23 @@ func createListingInquiry(c *gin.Context) {
 		enrichedMessage += "\n[Expected usage: " + formatGB(req.ExpectedGB) + "]"
 	}
 
-	// Create message
-	message := models.Message{
-		ConversationID: conversation.ID,
-		SenderID:       buyerID,
-		Content:        enrichedMessage,
-		Type:           "listing_inquiry",
-	}
-
-	if err := db.Social().Create(&message).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send message"})
+	key, valid := resolveClientMsgID(c, req.ClientMsgID)
+	if !valid {
+		c.JSON(400, gin.H{"error": "Invalid message key"})
 		return
 	}
-
-	// Update conversation last message time
-	db.Social().Model(&conversation).Update("last_message_at", time.Now())
-
-	// Track inquiry for analytics
-	trackInquiry(listingID, buyerID, providerID, req.Intent, req.ExpectedGB)
-
-	// Send real-time notification to provider
-	ws.BroadcastToUser(providerID.String(), ws.MsgTypeNewMessage, gin.H{
-		"conversation_id": conversation.ID,
-		"listing_id":      listingID,
-		"buyer_id":        buyerID,
-		"message_preview": truncate(req.Message, 100),
-		"type":            "listing_inquiry",
-	})
-	dispatchUserNotification(c.Request.Context(), userNotification{
-		UserID:     providerID,
-		Type:       models.NotificationMessage,
-		Title:      "New listing inquiry",
-		Body:       truncate(req.Message, 160),
-		ActionURL:  "/messages?conversation=" + conversation.ID.String(),
-		ActionType: "open_conversation",
-		ActorID:    &buyerID,
-		TargetType: "conversation",
-		TargetID:   &conversation.ID,
-		Dedupe:     true,
-	})
-
-	// Create feed event
-	feedEvent := models.CreateFeedEvent(
-		&buyerID,
-		models.FeedEventType("listing_inquiry"),
-		"listing_inquiry",
-		&listingID,
-		"inquired about "+listing.Title,
-		map[string]interface{}{
-			"listing_title": listing.Title,
-			"intent":        req.Intent,
-			"expected_gb":   req.ExpectedGB,
-		},
-	)
-	db.Social().Create(feedEvent)
+	message, created, err := createMessageChecked(conversation.ID, buyerID, enrichedMessage, nil, key, "listing_inquiry")
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to send inquiry"})
+		return
+	}
+	if created {
+		deliverNewMessage(c, *conversation, message, buyerID)
+	}
 
 	c.JSON(http.StatusCreated, gin.H{
 		"conversation_id": conversation.ID,
-		"message":         message,
+		"message":         messageDTOFrom(message),
 		"provider":        providerID,
 	})
 }
@@ -289,6 +254,9 @@ func getOrCreateConversation(user1ID, user2ID uuid.UUID, listingID *uuid.UUID) (
 
 	if err == nil {
 		return &conversation, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
 	}
 
 	// Create new conversation
@@ -317,14 +285,12 @@ func getListingQA(c *gin.Context) {
 	var threads []models.ForumThread
 	db.Social().
 		Preload("Author").
-		Preload("Posts").
-		Preload("Posts.Author").
 		Where("listing_id = ?", listingID).
 		Order("created_at DESC").
 		Find(&threads)
 
 	c.JSON(http.StatusOK, gin.H{
-		"questions": threads,
+		"questions": forumThreadDTOs(threads),
 		"count":     len(threads),
 	})
 }
@@ -570,7 +536,8 @@ func getBuyerRelationshipDetail(c *gin.Context) {
 type RefillOfferRequest struct {
 	BonusGB         float64 `json:"bonus_gb"`         // Extra GB offered
 	DiscountPercent float64 `json:"discount_percent"` // % off regular price
-	Message         string  `json:"message"`          // Custom message
+	Message         string  `json:"message" binding:"max=1000"`
+	ClientMsgID     string  `json:"client_msg_id" binding:"max=128"` // Custom message
 }
 
 // sendRefillOffer sends a refill offer to a buyer
@@ -593,6 +560,9 @@ func sendRefillOffer(c *gin.Context) {
 		return
 	}
 
+	if rejectContact(c, providerID, buyerID, nil, nil) {
+		return
+	}
 	// Get or create conversation
 	conversation, err := getOrCreateConversation(providerID, buyerID, nil)
 	if err != nil {
@@ -612,36 +582,19 @@ func sendRefillOffer(c *gin.Context) {
 		offerMessage += "\n" + req.Message
 	}
 
-	message := models.Message{
-		ConversationID: conversation.ID,
-		SenderID:       providerID,
-		Content:        offerMessage,
-		Type:           "refill_offer",
-	}
-
-	if err := db.Social().Create(&message).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send offer"})
+	key, valid := resolveClientMsgID(c, req.ClientMsgID)
+	if !valid {
+		c.JSON(400, gin.H{"error": "Invalid message key"})
 		return
 	}
-
-	// Notify buyer
-	ws.BroadcastToUser(buyerID.String(), ws.MsgTypeNewMessage, gin.H{
-		"conversation_id": conversation.ID,
-		"type":            "refill_offer",
-		"preview":         "Special refill offer from provider",
-	})
-	dispatchUserNotification(c.Request.Context(), userNotification{
-		UserID:     buyerID,
-		Type:       models.NotificationRefillOffer,
-		Title:      "Special refill offer",
-		Body:       truncate(req.Message, 160),
-		ActionURL:  "/messages?conversation=" + conversation.ID.String(),
-		ActionType: "open_conversation",
-		ActorID:    &providerID,
-		TargetType: "conversation",
-		TargetID:   &conversation.ID,
-		Dedupe:     true,
-	})
+	message, created, err := createMessageChecked(conversation.ID, providerID, offerMessage, nil, key, "refill_offer")
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to send offer"})
+		return
+	}
+	if created {
+		deliverNewMessage(c, *conversation, message, providerID)
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":         "Offer sent",
@@ -671,21 +624,33 @@ func updatePresence(c *gin.Context) {
 func getUserPresence(c *gin.Context) {
 	userID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		c.JSON(400, gin.H{"error": "Invalid user ID"})
 		return
 	}
-
-	var user models.User
-	if err := db.DB.Select("id", "is_online", "last_seen_at").First(&user, "id = ?", userID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+	var u models.User
+	if db.DB.First(&u, "id = ?", userID).Error != nil {
+		c.JSON(404, gin.H{"error": "User not found"})
 		return
 	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"user_id":      userID,
-		"is_online":    user.IsOnline,
-		"last_seen_at": user.LastSeenAt,
-	})
+	viewer, has := GetUserID(c)
+	visible := u.PresenceVisible
+	if has && viewer != userID {
+		if blocked, err := blockedBetween(viewer, userID); err != nil || blocked {
+			visible = false
+		}
+	}
+	if has && viewer == userID {
+		visible = true
+	}
+	var seen *time.Time
+	online := false
+	if visible && u.LastSeenAt != nil && time.Since(*u.LastSeenAt) < 2*time.Minute {
+		rounded := u.LastSeenAt.Truncate(5 * time.Minute)
+		seen = &rounded
+		online = u.IsOnline && time.Since(*u.LastSeenAt) < 2*time.Minute
+	}
+	c.Header("Cache-Control", "no-store")
+	c.JSON(200, gin.H{"user_id": userID, "is_online": online, "last_seen_at": seen})
 }
 
 // Helper functions
@@ -848,9 +813,9 @@ func mapRelationship(r models.ProviderBuyerRelationship) RelationshipResponse {
 	}
 
 	if r.Buyer != nil {
-		resp.BuyerEmail = r.Buyer.Email
-		if r.Buyer.DisplayName != nil {
-			resp.BuyerName = *r.Buyer.DisplayName
+		public := r.Buyer.ToPublicProfile()
+		if public.DisplayName != nil {
+			resp.BuyerName = *public.DisplayName
 		} else if r.Buyer.Username != nil {
 			resp.BuyerName = *r.Buyer.Username
 		} else {
@@ -860,8 +825,8 @@ func mapRelationship(r models.ProviderBuyerRelationship) RelationshipResponse {
 		if r.Buyer.Username != nil {
 			resp.BuyerUsername = *r.Buyer.Username
 		}
-		if r.Buyer.AvatarURL != nil {
-			resp.BuyerAvatar = *r.Buyer.AvatarURL
+		if public.AvatarURL != nil {
+			resp.BuyerAvatar = *public.AvatarURL
 		}
 	}
 
@@ -881,8 +846,9 @@ func mapBuyerRelationship(r models.ProviderBuyerRelationship) BuyerRelationshipR
 	}
 
 	if r.Provider != nil {
-		if r.Provider.DisplayName != nil {
-			resp.ProviderName = *r.Provider.DisplayName
+		public := r.Provider.ToPublicProfile()
+		if public.DisplayName != nil {
+			resp.ProviderName = *public.DisplayName
 		} else if r.Provider.Username != nil {
 			resp.ProviderName = *r.Provider.Username
 		} else {
@@ -891,8 +857,8 @@ func mapBuyerRelationship(r models.ProviderBuyerRelationship) BuyerRelationshipR
 		if r.Provider.Username != nil {
 			resp.ProviderUsername = *r.Provider.Username
 		}
-		if r.Provider.AvatarURL != nil {
-			resp.ProviderAvatar = *r.Provider.AvatarURL
+		if public.AvatarURL != nil {
+			resp.ProviderAvatar = *public.AvatarURL
 		}
 	}
 

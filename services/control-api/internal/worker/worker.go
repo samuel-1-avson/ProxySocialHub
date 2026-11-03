@@ -21,6 +21,7 @@ func StartAll(queue events.EventQueue) {
 	StartTelemetryWorker()
 	StartPricingEvaluator() // AI-Native dynamic proxy pricing engine
 	StartGDPRDeletionWorker()
+	StartPrivacyRetentionWorker()
 
 	log.Printf("[Worker] All background services initialized")
 }
@@ -34,7 +35,7 @@ func StartConsumers(queue events.EventQueue) {
 
 	// Consumer for User Logged In events
 	err := queue.Subscribe(context.Background(), events.EventTypeUserLoggedIn, func(event events.Event) error {
-		log.Printf("🔹 [Worker] User logged in: %s (IP: %s)", event.Payload["email"], event.Payload["ip"])
+		log.Printf("[Worker] Account sign-in event processed")
 		return nil
 	})
 

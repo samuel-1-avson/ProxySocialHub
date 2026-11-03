@@ -425,6 +425,8 @@ type DeviceInfo struct {
 	OS         string
 }
 
+func DescribeUserAgent(userAgent string) DeviceInfo { return parseUserAgent(userAgent) }
+
 func parseUserAgent(userAgent string) DeviceInfo {
 	info := DeviceInfo{
 		DeviceType: "desktop",

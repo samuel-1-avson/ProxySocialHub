@@ -1,10 +1,27 @@
 package api
 
 import (
+	"os"
+	"strings"
 	"sync"
 
 	"github.com/proxyhubb/control-api/internal/config"
 )
+
+// TLS is the public default. Plain HTTP must be explicitly selected for local
+// development; the server and edge reject it in strict environments.
+func buyerProxyScheme() string {
+	for _, name := range []string{"ENVIRONMENT", "APP_ENV", "GO_ENV"} {
+		switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+		case "production", "prod", "staging", "testnet":
+			return "https"
+		}
+	}
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("BUYER_PROXY_SCHEME")), "http") {
+		return "http"
+	}
+	return "https"
+}
 
 var (
 	gatewayMu         sync.RWMutex

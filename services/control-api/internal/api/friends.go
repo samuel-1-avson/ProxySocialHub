@@ -67,6 +67,15 @@ func sendFriendRequest(c *gin.Context) {
 		return
 	}
 
+	if rejectIfBlocked(c, senderID, targetID) {
+		return
+	}
+
+	var target models.User
+	if db.DB.First(&target, "id = ?", targetID).Error != nil || target.ContactMode == "nobody" {
+		c.JSON(403, gin.H{"error": "Contact requests unavailable"})
+		return
+	}
 	// Check if already friends
 	var existingFriendship models.Friendship
 	if err := db.Social().Where("user_id = ? AND friend_id = ?", senderID, targetID).First(&existingFriendship).Error; err == nil {
@@ -111,7 +120,7 @@ func sendFriendRequest(c *gin.Context) {
 		Dedupe:     true,
 	})
 
-	c.JSON(http.StatusOK, req)
+	c.JSON(http.StatusOK, friendRequestDTOFrom(req))
 }
 
 // @Summary      Accept friend request
@@ -149,6 +158,10 @@ func acceptFriendRequest(c *gin.Context) {
 
 	if req.Status != models.FriendRequestPending {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Request is not pending"})
+		return
+	}
+
+	if rejectIfBlocked(c, receiverID, req.SenderID) {
 		return
 	}
 
@@ -305,7 +318,7 @@ func listFriendRequests(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, requests)
+	c.JSON(http.StatusOK, friendRequestDTOs(requests))
 }
 
 // getFriendshipStatus returns the relationship state between the current user and a target user.
@@ -414,7 +427,7 @@ func listFriends(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, friends)
+	c.JSON(http.StatusOK, friendshipDTOs(friends))
 }
 
 type friendUserSummary struct {
@@ -436,6 +449,7 @@ type suggestedUserResponse struct {
 }
 
 func summarizeFriendUser(user models.User) friendUserSummary {
+	public := user.ToPublicProfile()
 	username := user.ID.String()
 	if user.Username != nil && *user.Username != "" {
 		username = *user.Username
@@ -444,11 +458,11 @@ func summarizeFriendUser(user models.User) friendUserSummary {
 	return friendUserSummary{
 		ID:          user.ID,
 		Username:    username,
-		DisplayName: user.DisplayName,
-		AvatarURL:   user.AvatarURL,
-		Bio:         user.Bio,
-		IsOnline:    user.IsOnline,
-		LastSeenAt:  user.LastSeenAt,
+		DisplayName: public.DisplayName,
+		AvatarURL:   public.AvatarURL,
+		Bio:         public.Bio,
+		IsOnline:    public.IsOnline,
+		LastSeenAt:  public.LastSeenAt,
 	}
 }
 
@@ -487,9 +501,17 @@ func getPeopleYouMayKnow(c *gin.Context) {
 		}
 	}
 
+	blockedIDs, err := blockedCounterpartyIDs(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load blocked users"})
+		return
+	}
+	excluded = append(excluded, blockedIDs...)
+
 	var users []models.User
 	if err := db.Social().
 		Where("id NOT IN ?", excluded).
+		Where("profile_public = ? AND discoverable = ?", true, true).
 		Where("status NOT IN ?", []models.UserStatus{models.UserStatusSuspended, models.UserStatusBanned}).
 		Order("followers_count DESC, created_at DESC").
 		Limit(limit).
@@ -547,5 +569,5 @@ func getMutualFriends(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"friends": mutual, "count": len(mutual)})
+	c.JSON(http.StatusOK, gin.H{"friends": friendshipDTOs(mutual), "count": len(mutual)})
 }

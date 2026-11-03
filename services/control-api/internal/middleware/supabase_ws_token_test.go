@@ -16,9 +16,7 @@ func ctxWithRequest(req *http.Request) *gin.Context {
 	return c
 }
 
-// FE-01 support: browsers cannot set headers on WebSocket handshakes, so the
-// realtime client passes ?token=. That must ONLY be honored on genuine upgrade
-// requests — never on regular API calls (query strings get logged).
+// Browser realtime uses single-use tickets. Reusable query tokens are rejected.
 func TestAuthTokenFromRequestWebSocketQueryToken(t *testing.T) {
 	t.Run("authorization header wins", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/v1/ws", nil)
@@ -36,12 +34,12 @@ func TestAuthTokenFromRequestWebSocketQueryToken(t *testing.T) {
 		}
 	})
 
-	t.Run("query token accepted on websocket upgrade", func(t *testing.T) {
+	t.Run("query token rejected on websocket upgrade", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/v1/ws?token=query-token", nil)
 		req.Header.Set("Upgrade", "websocket")
 		req.Header.Set("Connection", "Upgrade")
-		if got := authTokenFromRequest(ctxWithRequest(req)); got != "query-token" {
-			t.Fatalf("expected query token on upgrade, got %q", got)
+		if got := authTokenFromRequest(ctxWithRequest(req)); got != "" {
+			t.Fatalf("query token must be ignored on upgrade, got %q", got)
 		}
 	})
 

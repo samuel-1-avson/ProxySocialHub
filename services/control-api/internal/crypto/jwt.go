@@ -9,6 +9,7 @@ import (
 )
 
 const TokenKindExtension = "ext"
+const TokenKindMFA = "mfa"
 
 // TokenKindProviderNode marks a JWT minted from a provider CLI token (pt_...). It
 // carries the same user id as a normal session, so middleware must scope it to the
@@ -16,14 +17,26 @@ const TokenKindExtension = "ext"
 const TokenKindProviderNode = "pnode"
 
 type CustomClaims struct {
-	UserID   string `json:"sub"`
-	Role     string `json:"role"`
-	Email    string `json:"email,omitempty"`
-	Wallet   string `json:"wallet,omitempty"`
-	Kind     string `json:"knd,omitempty"`
-	DeviceID string `json:"did,omitempty"`
-	ExtID    string `json:"xid,omitempty"`
+	UserID    string `json:"sub"`
+	Role      string `json:"role"`
+	Email     string `json:"email,omitempty"`
+	Wallet    string `json:"wallet,omitempty"`
+	Kind      string `json:"knd,omitempty"`
+	DeviceID  string `json:"did,omitempty"`
+	ExtID     string `json:"xid,omitempty"`
+	SessionID string `json:"sid,omitempty"`
 	jwt.RegisteredClaims
+}
+
+func GenerateSessionToken(userID uuid.UUID, role, familyID, secret string, duration time.Duration) (string, error) {
+	claims := CustomClaims{UserID: userID.String(), Role: role, SessionID: familyID,
+		RegisteredClaims: jwt.RegisteredClaims{ExpiresAt: jwt.NewNumericDate(time.Now().Add(duration)), IssuedAt: jwt.NewNumericDate(time.Now()), Issuer: "proxyhubb-control-api"}}
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(secret))
+}
+
+func GenerateMFAChallenge(userID uuid.UUID, challengeID uuid.UUID, secret string) (string, error) {
+	claims := CustomClaims{UserID: userID.String(), Kind: TokenKindMFA, RegisteredClaims: jwt.RegisteredClaims{ID: challengeID.String(), ExpiresAt: jwt.NewNumericDate(time.Now().Add(5 * time.Minute)), Issuer: "proxyhubb-control-api"}}
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(secret))
 }
 
 func (c *CustomClaims) IsExtensionDevice() bool {

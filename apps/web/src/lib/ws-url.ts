@@ -75,16 +75,6 @@ export function getRealtimeWsUrl(): string {
 }
 
 /**
- * Appends the access token as a query parameter. Browsers cannot set
- * Authorization headers on WebSocket handshakes; the control-api accepts
- * ?token= only on genuine upgrade requests (see authTokenFromRequest).
- */
-export function withWsToken(url: string, token: string): string {
-    const separator = url.includes('?') ? '&' : '?';
-    return `${url}${separator}token=${encodeURIComponent(token)}`;
-}
-
-/**
  * Appends a short-lived single-use WS ticket (?ticket=). Preferred over
  * ?token= because the ticket keeps the JWT out of the URL (and server logs).
  */
@@ -101,8 +91,7 @@ function ticketApiBase(): string {
 }
 
 /**
- * Prefer POST /v1/ws/ticket then fall back to ?token=.
- * Keeps JWT out of URLs when the ticket endpoint is available.
+ * Use a short-lived single-use ticket. Failure keeps the connection closed.
  */
 export async function resolveAuthedWsUrl(wsUrl: string, accessToken: string): Promise<string> {
     const apiBase = ticketApiBase();
@@ -118,7 +107,7 @@ export async function resolveAuthedWsUrl(wsUrl: string, accessToken: string): Pr
             }
         }
     } catch {
-        // ticket endpoint unavailable — use token fallback
+        // Keep the connection closed until a ticket can be issued.
     }
-    return withWsToken(wsUrl, accessToken);
+    throw new Error("Realtime authentication unavailable. Try again shortly.");
 }

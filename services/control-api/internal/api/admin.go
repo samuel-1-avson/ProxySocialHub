@@ -151,7 +151,7 @@ func banUser(c *gin.Context) {
 	}
 
 	user.Status = models.UserStatusBanned
-	if result := db.DB.Save(&user); result.Error != nil {
+	if err := setAccountUnavailable(user.ID, user.Status); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to ban user"})
 		return
 	}
@@ -353,7 +353,7 @@ func getPendingPayouts(c *gin.Context) {
 }
 
 type ProcessPayoutRequest struct {
-	Phone          string  `json:"phone"` // legacy, ignored (kept for request compat)
+	Phone          string  `json:"phone"`  // legacy, ignored (kept for request compat)
 	Amount         float64 `json:"amount"` // deprecated SOL float; amount_lamports wins
 	AmountLamports int64   `json:"amount_lamports"`
 	IdempotencyKey string  `json:"idempotency_key"`
@@ -562,7 +562,7 @@ func suspendUser(c *gin.Context) {
 	}
 
 	user.Status = models.UserStatusSuspended
-	if result := db.DB.Save(&user); result.Error != nil {
+	if err := setAccountUnavailable(user.ID, user.Status); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to suspend user"})
 		return
 	}

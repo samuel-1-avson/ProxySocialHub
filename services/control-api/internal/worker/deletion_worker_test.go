@@ -36,6 +36,12 @@ func TestPurgeUserAccount_RemovesWalletAndLedger(t *testing.T) {
 		t.Fatalf("schedule delete: %v", err)
 	}
 
+	if err := purgeUserAccount(user.ID, user.Email); err == nil {
+		t.Fatal("funded account was purged")
+	}
+	if err := db.DB.Model(&wallet).Updates(map[string]interface{}{"balance_sol": 0, "balance_lamports": 0, "earnings_payable_lamports": 0}).Error; err != nil {
+		t.Fatal(err)
+	}
 	if err := purgeUserAccount(user.ID, user.Email); err != nil {
 		t.Fatalf("purge: %v", err)
 	}

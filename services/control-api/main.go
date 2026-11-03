@@ -22,8 +22,8 @@ import (
 	"github.com/proxyhubb/control-api/internal/config"
 	"github.com/proxyhubb/control-api/internal/core/services"
 	cryptoPkg "github.com/proxyhubb/control-api/internal/crypto"
-	"github.com/proxyhubb/control-api/internal/decentralization"
 	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/decentralization"
 	gatewayPkg "github.com/proxyhubb/control-api/internal/gateway"
 	"github.com/proxyhubb/control-api/internal/gateways"
 	"github.com/proxyhubb/control-api/internal/gov"
@@ -36,7 +36,6 @@ import (
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/monitoring"
 	internalNats "github.com/proxyhubb/control-api/internal/nats"
-	wsHub "github.com/proxyhubb/control-api/internal/ws"
 	"github.com/proxyhubb/control-api/internal/ops"
 	"github.com/proxyhubb/control-api/internal/pricing"
 	"github.com/proxyhubb/control-api/internal/providergate"
@@ -45,6 +44,7 @@ import (
 	solanaClient "github.com/proxyhubb/control-api/internal/solana"
 	"github.com/proxyhubb/control-api/internal/treasury"
 	"github.com/proxyhubb/control-api/internal/worker"
+	wsHub "github.com/proxyhubb/control-api/internal/ws"
 )
 
 func main() {
@@ -173,6 +173,9 @@ func main() {
 	}
 	models.CredentialEncryptFn = cryptoPkg.Encrypt
 	models.CredentialDecryptFn = cryptoPkg.Decrypt
+	if err := models.MigrateMFASecrets(db.DB); err != nil {
+		log.Fatalf("Cannot protect MFA seeds: %v", err)
+	}
 	log.Println("Session credential encryption hooks registered")
 
 	// Wave 5.B: seed J2 logical gateway operators into discovery registry.
@@ -410,7 +413,11 @@ func main() {
 		worker.RegisterEscrowEventListener()
 	}
 
-	r := gin.Default()
+	if env := strings.ToLower(os.Getenv("ENVIRONMENT")); (env == "production" || env == "prod" || env == "staging" || env == "testnet") && strings.EqualFold(os.Getenv("BUYER_PROXY_SCHEME"), "http") {
+		log.Fatal("BUYER_PROXY_SCHEME must be https in this environment")
+	}
+	r := gin.New()
+	r.Use(logging.RequestLogger(), gin.Recovery())
 	r.RedirectTrailingSlash = false
 	r.RemoveExtraSlash = false
 
@@ -603,11 +610,11 @@ func main() {
 		api.RegisterNetworkRoutes(v1)                  // Public network aggregate (dashboard + landing)
 		api.RegisterPassPublicRoutes(v1)               // Access Pass catalog (NFT entitlements)
 		api.RegisterGatewayOperatorPublicRoutes(v1)    // Wave 5.B: gateway operator discovery
-		api.RegisterP2PSignalingRoutes(v1)           // Track 3.2: P2P WebRTC/QUIC signaling
+		api.RegisterP2PSignalingRoutes(v1)             // Track 3.2: P2P WebRTC/QUIC signaling
 	}
 
 	// Public Routes (No Authentication Required)
-	api.RegisterProviderAuthRoute(v1) // CLI auth endpoint must be public
+	api.RegisterProviderAuthRoute(v1)           // CLI auth endpoint must be public
 	api.RegisterProviderPairingPublicRoutes(v1) // Device pairing: the node has no credentials yet; device_code is the proof
 
 	// Bulk Proxy + B2B purchase API: JWT session or X-API-Key (phub_ / pk_)
@@ -625,6 +632,7 @@ func main() {
 	protected.Use(middleware.RequireAuth())
 	protected.Use(middleware.RestrictExtensionDevice())
 	{
+		api.RegisterPrivacyRoutes(protected)
 		providerOps := protected.Group("/")
 		providerOps.Use(middleware.RequireProviderRole())
 		{
@@ -844,15 +852,15 @@ func main() {
 
 	// Start Liquidity Manager (Phase 5.2)
 	oracleConfig := solanaClient.Config{
-		RPCEndpoints:           rpcEndpoints,
-		OracleKeypairPath:      os.Getenv("SOLANA_ORACLE_KEYPAIR"),
+		RPCEndpoints:      rpcEndpoints,
+		OracleKeypairPath: os.Getenv("SOLANA_ORACLE_KEYPAIR"),
 		TreasuryHotKeypairPath: func() string {
 			if v := strings.TrimSpace(os.Getenv("SOLANA_TREASURY_HOT_KEYPAIR")); v != "" {
 				return v
 			}
 			return strings.TrimSpace(os.Getenv("SOLANA_TREASURY_KEYPAIR"))
 		}(),
-		Network:                solanaClient.EffectiveSolanaNetwork(),
+		Network: solanaClient.EffectiveSolanaNetwork(),
 	}
 	if oracleConfig.OracleKeypairPath == "" {
 		oracleConfig.OracleKeypairPath = "oracle-keypair.json"

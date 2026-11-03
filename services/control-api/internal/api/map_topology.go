@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -40,9 +41,9 @@ type mapLinkResponse struct {
 }
 
 type mapLinksMeta struct {
-	Count              int  `json:"count"`
-	WindowMinutes      int  `json:"window_minutes"`
-	TopologyAvailable  bool `json:"topology_available"`
+	Count             int  `json:"count"`
+	WindowMinutes     int  `json:"window_minutes"`
+	TopologyAvailable bool `json:"topology_available"`
 }
 
 type mapLinksResponse struct {
@@ -51,9 +52,15 @@ type mapLinksResponse struct {
 }
 
 func getMapLinks(c *gin.Context) {
-	minSessions := 1
+	if os.Getenv("PUBLIC_TOPOLOGY_ENABLED") != "true" {
+		c.Header("Cache-Control", "no-store")
+		c.JSON(200, mapLinksResponse{Links: []mapLinkResponse{}, Meta: mapLinksMeta{WindowMinutes: 60, TopologyAvailable: false}})
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	minSessions := 5
 	if raw := strings.TrimSpace(c.Query("min_sessions")); raw != "" {
-		if v, err := strconv.Atoi(raw); err == nil && v > 0 {
+		if v, err := strconv.Atoi(raw); err == nil && v >= 5 {
 			minSessions = v
 		}
 	}
@@ -65,7 +72,7 @@ func getMapLinks(c *gin.Context) {
 		}
 	}
 
-	kinds := parseKindsParam(c.Query("kinds"))
+	kinds := []string{models.MapLinkKindSessionAggregate}
 	var bbox *topology.BBox
 	if box, ok := parseMapLinksBBox(c.Query("bbox")); ok {
 		bbox = &box
@@ -84,6 +91,9 @@ func getMapLinks(c *gin.Context) {
 
 	links := make([]mapLinkResponse, 0, len(rows))
 	for _, row := range rows {
+		if row.LinkKind != models.MapLinkKindSessionAggregate || row.ActiveSessions < 5 || row.SourceKind != "region" || row.TargetKind != "region" {
+			continue
+		}
 		if !geo.IsGlobeCoord(row.SourceLat, row.SourceLon) || !geo.IsGlobeCoord(row.TargetLat, row.TargetLon) {
 			continue
 		}

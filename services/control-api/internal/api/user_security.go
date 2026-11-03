@@ -2,10 +2,9 @@ package api
 
 import (
 	"encoding/json"
-	"fmt"
-	"log"
+	"errors"
+	"gorm.io/gorm/clause"
 	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -13,6 +12,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/security"
+	"gorm.io/gorm"
 )
 
 var (
@@ -33,9 +33,9 @@ func RegisterSecurityRoutes(r *gin.RouterGroup) {
 	{
 		// MFA/TOTP
 		sec.GET("/mfa/status", getMFAStatus)
-		sec.POST("/mfa/setup", setupMFA)
-		sec.POST("/mfa/verify", verifyMFASetup)
-		sec.POST("/mfa/disable", disableMFA)
+		sec.POST("/mfa/setup", StrictRateLimit(), setupMFA)
+		sec.POST("/mfa/verify", StrictRateLimit(), verifyMFASetup)
+		sec.POST("/mfa/disable", StrictRateLimit(), disableMFA)
 
 		// Sessions
 		sec.GET("/sessions", getActiveSessions)
@@ -54,10 +54,10 @@ func RegisterSecurityRoutes(r *gin.RouterGroup) {
 	twoFA := r.Group("/2fa")
 	{
 		twoFA.GET("/backup-codes", getBackupCodes)
-		twoFA.POST("/setup", setupMFA)
-		twoFA.POST("/enable", verifyMFASetup)
-		twoFA.POST("/disable", disableMFA)
-		twoFA.POST("/backup-codes/regenerate", regenerateBackupCodes)
+		twoFA.POST("/setup", StrictRateLimit(), setupMFA)
+		twoFA.POST("/enable", StrictRateLimit(), verifyMFASetup)
+		twoFA.POST("/disable", StrictRateLimit(), disableMFA)
+		twoFA.POST("/backup-codes/regenerate", StrictRateLimit(), regenerateBackupCodes)
 	}
 }
 
@@ -77,6 +77,10 @@ func getMFAStatus(c *gin.Context) {
 
 	var settings models.UserSettings
 	if err := db.DB.Where("user_id = ?", userID).First(&settings).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(503, gin.H{"error": "Security settings unavailable"})
+			return
+		}
 		c.JSON(http.StatusOK, gin.H{
 			"enabled":     false,
 			"verified_at": nil,
@@ -94,7 +98,7 @@ func getMFAStatus(c *gin.Context) {
 type MFASetupResponse struct {
 	Secret      string   `json:"secret"`
 	QRCodeURL   string   `json:"qr_code_url"` // Keep for compatibility
-	QRCode      string   `json:"qr_code"`     // Added for frontend (Google Chart API URL)
+	QRCode      string   `json:"qr_code"`     // Legacy field; render QR locally from OTPAuthURL.
 	OTPAuthURL  string   `json:"otpauth_url"` // Added for frontend
 	BackupCodes []string `json:"backup_codes,omitempty"`
 }
@@ -105,53 +109,56 @@ type MFASetupResponse struct {
 // @Success 200 {object} MFASetupResponse
 // @Router /v1/security/mfa/setup [post]
 func setupMFA(c *gin.Context) {
-	userID, ok := GetUserID(c)
+	uid, ok := GetUserID(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		c.JSON(401, gin.H{"error": "Authentication required"})
 		return
 	}
-
-	// Get user
 	var user models.User
-	if err := db.DB.Where("id = ?", userID).First(&user).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+	if db.DB.First(&user, "id = ?", uid).Error != nil {
+		c.JSON(404, gin.H{"error": "Account unavailable"})
 		return
 	}
-
-	// Generate secret
 	secret, err := mfaService.GenerateSecret()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate secret"})
+		c.JSON(503, gin.H{"error": "MFA setup unavailable"})
 		return
 	}
-
-	var settings models.UserSettings
-	if err := db.DB.Where("user_id = ?", userID).First(&settings).Error; err != nil {
-		settings = models.UserSettings{UserID: userID}
-	}
-
-	settings.TwoFactorSecret = secret
-	// Clear backup codes count during setup (regenerate on verify confirmation)
-	settings.TwoFactorBackupCodes = ""
-	settings.TwoFactorEnabled = false
-	settings.TwoFactorVerifiedAt = nil
-
-	if settings.ID == uuid.Nil {
-		db.DB.Create(&settings)
-	} else {
-		db.DB.Save(&settings)
-	}
-
-	// Generate QR code URL and Google Chart API fallback
-	qrURL := mfaService.GenerateQRCodeURL(user.Email, secret)
-	googleChartURL := fmt.Sprintf("https://chart.googleapis.com/chart?chs=200x200&chld=M|0&cht=qr&chl=%s", url.QueryEscape(qrURL))
-
-	c.JSON(http.StatusOK, MFASetupResponse{
-		Secret:     secret,
-		QRCodeURL:  googleChartURL,
-		QRCode:     googleChartURL,
-		OTPAuthURL: qrURL,
+	enabled := false
+	err = db.DB.Transaction(func(tx *gorm.DB) error {
+		var account models.User
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&account, "id = ?", uid).Error; err != nil {
+			return err
+		}
+		var settings models.UserSettings
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", uid).First(&settings).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		if settings.TwoFactorEnabled {
+			enabled = true
+			return nil
+		}
+		if settings.ID == uuid.Nil {
+			settings = models.UserSettings{UserID: uid}
+		}
+		settings.TwoFactorSecret = secret
+		settings.TwoFactorBackupCodes = ""
+		settings.TwoFactorVerifiedAt = nil
+		settings.LastTOTPHash = ""
+		settings.LastTOTPAt = nil
+		return tx.Save(&settings).Error
 	})
+	if err != nil {
+		c.JSON(503, gin.H{"error": "Cannot save MFA setup"})
+		return
+	}
+	if enabled {
+		c.JSON(409, gin.H{"error": "Verify and disable the existing factor before replacing it"})
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	c.JSON(200, MFASetupResponse{Secret: secret, OTPAuthURL: mfaService.GenerateQRCodeURL("Account "+uid.String()[:8], secret)})
 }
 
 // @Summary Verify MFA setup with code
@@ -162,66 +169,59 @@ func setupMFA(c *gin.Context) {
 // @Success 200 {object} gin.H
 // @Router /v1/security/mfa/verify [post]
 func verifyMFASetup(c *gin.Context) {
-	userID, ok := GetUserID(c)
+	uid, ok := GetUserID(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		c.JSON(401, gin.H{"error": "Authentication required"})
 		return
 	}
-
 	var req struct {
-		Code string `json:"code" binding:"required"`
+		Code string `json:"code" binding:"required,len=6"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if c.ShouldBindJSON(&req) != nil {
+		c.JSON(400, gin.H{"error": "A six-digit code is required"})
 		return
 	}
-
-	var settings models.UserSettings
-	if err := db.DB.Where("user_id = ?", userID).First(&settings).Error; err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "MFA not setup"})
-		return
-	}
-
-	if settings.TwoFactorSecret == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "MFA not setup"})
-		return
-	}
-
-	// Verify the code
-	if !mfaService.VerifyTOTP(settings.TwoFactorSecret, req.Code) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid TOTP code"})
-		return
-	}
-
-	// Generate backup codes upon successful verification
-	codes, hashedCodes, err := mfaService.GenerateBackupCodes(8)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate backup codes"})
-		return
-	}
-
-	hashedJSON, _ := json.Marshal(hashedCodes)
-	settings.TwoFactorBackupCodes = string(hashedJSON)
-
-	// Enable MFA
-	now := time.Now()
-	settings.TwoFactorEnabled = true
-	settings.TwoFactorVerifiedAt = &now
-
-	if err := db.DB.Save(&settings).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable MFA settings"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"message":      "MFA enabled successfully",
-		"enabled":      true,
-		"verified_at":  now,
-		"backup_codes": codes,
+	var codes []string
+	var verified time.Time
+	err := db.DB.Transaction(func(tx *gorm.DB) error {
+		var settings models.UserSettings
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", uid).First(&settings).Error; err != nil {
+			return err
+		}
+		if settings.TwoFactorEnabled || settings.TwoFactorSecret == "" || !verifyFactor(&settings, req.Code) {
+			return errors.New("MFA setup unavailable or invalid code")
+		}
+		plain, hashes, err := mfaService.GenerateBackupCodes(8)
+		if err != nil {
+			return err
+		}
+		codes = plain
+		data, err := json.Marshal(hashes)
+		if err != nil {
+			return err
+		}
+		verified = time.Now()
+		settings.TwoFactorEnabled = true
+		settings.TwoFactorVerifiedAt = &verified
+		settings.TwoFactorBackupCodes = string(data)
+		return tx.Save(&settings).Error
 	})
+	if err != nil {
+		c.JSON(400, gin.H{"error": "MFA setup unavailable or invalid code"})
+		return
+	}
+	RecordAuditLog(c, models.AuditAuthMFAEnabled, models.AuditSeverityInfo, &uid, "user", uid.String(), "MFA enabled", true)
+	c.Header("Cache-Control", "no-store")
+	c.JSON(200, gin.H{"enabled": true, "verified_at": verified, "backup_codes": codes})
 }
 
-// getBackupCodes returns the remaining backup codes count
+// @Summary Disable MFA
+// @Tags security
+// @Accept json
+// @Produce json
+// @Param request body struct{Code string} true "TOTP or backup code"
+// @Success 200 {object} gin.H
+// @Router /v1/security/mfa/disable [post]
 func getBackupCodes(c *gin.Context) {
 	userID, ok := GetUserID(c)
 	if !ok {
@@ -247,91 +247,65 @@ func getBackupCodes(c *gin.Context) {
 
 // regenerateBackupCodes regenerates fresh backup codes for the user
 func regenerateBackupCodes(c *gin.Context) {
-	userID, ok := GetUserID(c)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	var settings models.UserSettings
-	if err := db.DB.Where("user_id = ?", userID).First(&settings).Error; err != nil || !settings.TwoFactorEnabled {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "MFA not enabled"})
-		return
-	}
-
-	codes, hashedCodes, err := mfaService.GenerateBackupCodes(8)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate backup codes"})
-		return
-	}
-
-	hashedJSON, _ := json.Marshal(hashedCodes)
-	settings.TwoFactorBackupCodes = string(hashedJSON)
-
-	if err := db.DB.Save(&settings).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save backup codes"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"backup_codes": codes,
+	verifiedSecurityChange(c, func(settings *models.UserSettings) (gin.H, error) {
+		codes, hashes, err := mfaService.GenerateBackupCodes(8)
+		if err != nil {
+			return nil, err
+		}
+		data, err := json.Marshal(hashes)
+		if err != nil {
+			return nil, err
+		}
+		settings.TwoFactorBackupCodes = string(data)
+		return gin.H{"backup_codes": codes}, nil
 	})
 }
 
-// @Summary Disable MFA
-// @Tags security
-// @Accept json
-// @Produce json
-// @Param request body struct{Code string} true "TOTP or backup code"
-// @Success 200 {object} gin.H
-// @Router /v1/security/mfa/disable [post]
 func disableMFA(c *gin.Context) {
-	userID, ok := GetUserID(c)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	var req struct {
-		Code string `json:"code" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	var settings models.UserSettings
-	if err := db.DB.Where("user_id = ?", userID).First(&settings).Error; err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "MFA not enabled"})
-		return
-	}
-
-	// Verify with TOTP or backup code
-	valid := mfaService.VerifyTOTP(settings.TwoFactorSecret, req.Code)
-
-	if !valid {
-		// Try backup codes
-		var hashedCodes []string
-		json.Unmarshal([]byte(settings.TwoFactorBackupCodes), &hashedCodes)
-		valid, _ = mfaService.VerifyBackupCode(req.Code, hashedCodes)
-	}
-
-	if !valid {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid code"})
-		return
-	}
-
-	// Disable MFA
-	settings.TwoFactorEnabled = false
-	settings.TwoFactorSecret = ""
-	settings.TwoFactorBackupCodes = ""
-	settings.TwoFactorVerifiedAt = nil
-	db.DB.Save(&settings)
-
-	c.JSON(http.StatusOK, gin.H{
-		"message": "MFA disabled successfully",
-		"enabled": false,
+	verifiedSecurityChange(c, func(settings *models.UserSettings) (gin.H, error) {
+		settings.TwoFactorEnabled = false
+		settings.TwoFactorSecret = ""
+		settings.TwoFactorBackupCodes = ""
+		settings.TwoFactorVerifiedAt = nil
+		settings.LastTOTPHash = ""
+		settings.LastTOTPAt = nil
+		return gin.H{"enabled": false, "message": "MFA disabled"}, nil
 	})
+}
+
+func verifiedSecurityChange(c *gin.Context, change func(*models.UserSettings) (gin.H, error)) {
+	uid, ok := GetUserID(c)
+	if !ok {
+		c.JSON(401, gin.H{"error": "Authentication required"})
+		return
+	}
+	var req map[string]string
+	if c.ShouldBindJSON(&req) != nil || len(req["code"]) < 6 || len(req["code"]) > 32 {
+		c.JSON(400, gin.H{"error": "Current authenticator or backup code required"})
+		return
+	}
+	var result gin.H
+	err := db.DB.Transaction(func(tx *gorm.DB) error {
+		var settings models.UserSettings
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", uid).First(&settings).Error; err != nil {
+			return err
+		}
+		if !settings.TwoFactorEnabled || !verifyFactor(&settings, req["code"]) {
+			return errors.New("verification failed")
+		}
+		var err error
+		result, err = change(&settings)
+		if err != nil {
+			return err
+		}
+		return tx.Save(&settings).Error
+	})
+	if err != nil {
+		c.JSON(403, gin.H{"error": "Verification failed or MFA is not enabled"})
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	c.JSON(200, result)
 }
 
 // ==================== Session Endpoints ====================
@@ -355,9 +329,9 @@ func getActiveSessions(c *gin.Context) {
 	}
 
 	// Mark current session
-	currentIP := c.ClientIP()
+	currentFamily := c.GetString("auth_session_id")
 	for i := range sessions {
-		if sessions[i].IPAddress == currentIP {
+		if sessions[i].TokenFamily == currentFamily {
 			// This is likely the current session
 			sessions[i].DeviceType = sessions[i].DeviceType + " (current)"
 		}
@@ -393,7 +367,7 @@ func revokeSession(c *gin.Context) {
 		return
 	}
 
-	if err := sessionService.RevokeSession(sessionUUID, "User requested"); err != nil {
+	if err := db.DB.Transaction(func(tx *gorm.DB) error { return revokeAuthFamily(tx, session.TokenFamily) }); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to revoke session"})
 		return
 	}
@@ -413,28 +387,18 @@ func revokeAllSessions(c *gin.Context) {
 		return
 	}
 
-	if err := sessionService.RevokeAllSessions(userID, "User requested logout from all devices"); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to revoke sessions"})
+	if err := db.DB.Transaction(func(tx *gorm.DB) error {
+		now := time.Now()
+		if err := tx.Model(&models.UserSession{}).Where("user_id = ?", userID).Updates(map[string]interface{}{"is_active": false, "revoked_at": now, "revoke_reason": "User requested logout from all devices"}).Error; err != nil {
+			return err
+		}
+		return tx.Model(&models.RefreshTokenFamily{}).Where("user_id = ?", userID).Updates(map[string]interface{}{"is_current": false, "revoked_at": now}).Error
+	}); err != nil {
+		c.JSON(503, gin.H{"error": "Failed to revoke sessions"})
 		return
 	}
-
-	revokeAllRefreshTokenFamilies(userID)
 
 	c.JSON(http.StatusOK, gin.H{"message": "All sessions revoked"})
-}
-
-func recordLoginDeviceSession(c *gin.Context, userID uuid.UUID) {
-	if sessionService == nil {
-		return
-	}
-	ip := c.ClientIP()
-	if ip == "" {
-		ip = "0.0.0.0"
-	}
-	ua := c.Request.UserAgent()
-	if _, _, err := sessionService.CreateSession(userID, ip, ua, authRefreshTokenTTL()); err != nil {
-		log.Printf("[AUTH] device session record failed for %s: %v", userID, err)
-	}
 }
 
 // ==================== Settings Endpoints ====================
@@ -484,8 +448,8 @@ func updateSecuritySettings(c *gin.Context) {
 	}
 
 	var req struct {
-		SessionTimeout         *int    `json:"session_timeout"`
-		MaxConcurrentSessions  *int    `json:"max_concurrent_sessions"`
+		SessionTimeout         *int    `json:"session_timeout" binding:"omitempty,gte=5,lte=43200"`
+		MaxConcurrentSessions  *int    `json:"max_concurrent_sessions" binding:"omitempty,gte=1,lte=20"`
 		NotifyOnNewLogin       *bool   `json:"notify_on_new_login"`
 		NotifyOnPasswordChange *bool   `json:"notify_on_password_change"`
 		PreferredLanguage      *string `json:"preferred_language"`
@@ -499,8 +463,11 @@ func updateSecuritySettings(c *gin.Context) {
 
 	var settings models.UserSettings
 	if err := db.DB.Where("user_id = ?", userID).First(&settings).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(503, gin.H{"error": "Security settings unavailable"})
+			return
+		}
 		settings = models.UserSettings{UserID: userID}
-		db.DB.Create(&settings)
 	}
 
 	// Update fields if provided
@@ -526,7 +493,36 @@ func updateSecuritySettings(c *gin.Context) {
 		settings.Timezone = *req.Timezone
 	}
 
-	db.DB.Save(&settings)
+	if err := db.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(&settings).Error; err != nil {
+			return err
+		}
+		if req.SessionTimeout != nil {
+			deadline := time.Now().Add(time.Duration(settings.SessionTimeout) * time.Minute)
+			if err := tx.Model(&models.UserSession{}).Where("user_id = ? AND expires_at > ?", userID, deadline).Update("expires_at", deadline).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&models.RefreshTokenFamily{}).Where("user_id = ? AND expires_at > ?", userID, deadline).Update("expires_at", deadline).Error; err != nil {
+				return err
+			}
+		}
+		if req.MaxConcurrentSessions != nil {
+			var devices []models.UserSession
+			if err := tx.Where("user_id = ? AND is_active = ?", userID, true).Order("created_at DESC,id DESC").Find(&devices).Error; err != nil {
+				return err
+			}
+			for i := settings.MaxConcurrentSessions; i < len(devices); i++ {
+				if err := revokeAuthFamily(tx, devices[i].TokenFamily); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}); err != nil {
+		c.JSON(503, gin.H{"error": "Cannot save security settings"})
+		return
+	}
+	c.Header("Cache-Control", "no-store")
 	c.JSON(http.StatusOK, settings)
 }
 
@@ -538,32 +534,20 @@ func updateSecuritySettings(c *gin.Context) {
 // @Success 200 {array} models.LoginAttempt
 // @Router /v1/security/attempts [get]
 func getLoginAttempts(c *gin.Context) {
-	userID, ok := GetUserID(c)
+	uid, ok := GetUserID(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		c.JSON(401, gin.H{"error": "Authentication required"})
 		return
 	}
-
-	// Get user's wallet/address
-	var user models.User
-	if err := db.DB.Where("id = ?", userID).First(&user).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+	var logs []models.AuditLog
+	if err := db.DB.Where("actor_id = ? AND event_type IN ?", uid, []models.AuditEventType{models.AuditAuthLogin, models.AuditAuthLoginFailed}).Order("created_at DESC").Limit(50).Find(&logs).Error; err != nil {
+		c.JSON(503, gin.H{"error": "Security history unavailable"})
 		return
 	}
-
-	// Find attempts by wallet address
-	var attempts []models.LoginAttempt
-	var identifier string
-	if user.WalletAddress != nil {
-		identifier = *user.WalletAddress
+	attempts := make([]models.LoginAttempt, 0, len(logs))
+	for _, event := range logs {
+		attempts = append(attempts, models.LoginAttempt{ID: event.ID, Identifier: uid.String(), IdentifierType: "account", Success: event.Success, FailureReason: event.Description, IPAddress: event.IPAddress, UserAgent: event.UserAgent, CreatedAt: event.CreatedAt})
 	}
-
-	if identifier != "" {
-		db.DB.Where("identifier = ?", identifier).
-			Order("created_at DESC").
-			Limit(20).
-			Find(&attempts)
-	}
-
-	c.JSON(http.StatusOK, gin.H{"attempts": attempts})
+	c.Header("Cache-Control", "no-store")
+	c.JSON(200, gin.H{"attempts": attempts})
 }

@@ -2450,8 +2450,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 return Err(format!("BUYER_TLS_ENABLE set but TLS init failed: {e}").into());
             }
         },
-        None => None,
+        None => {
+            if std::env::var("BUYER_TLS_ENABLE").is_ok_and(|v| v == "true" || v == "1") {
+                return Err("Buyer TLS is enabled but certificates are missing".into());
+            }
+            None
+        },
     };
+
+    let strict_privacy_env = ["ENVIRONMENT", "APP_ENV", "RUST_ENV"].iter().any(|key| { let value = std::env::var(key).unwrap_or_default().to_lowercase(); matches!(value.as_str(), "production" | "prod" | "staging" | "testnet") });
+    if state.config.serves_buyer_connect()
+        && (!cfg!(debug_assertions) || strict_privacy_env)
+        && buyer_tls_acceptor.is_none()
+    {
+        return Err("Buyer TLS and valid certificates are required in this environment".into());
+    }
 
     if let Some(metrics_addr) = state.config.metrics_socket_addr() {
         let metrics_listener = TcpListener::bind(metrics_addr).await?;

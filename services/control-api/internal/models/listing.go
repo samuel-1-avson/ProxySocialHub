@@ -16,8 +16,8 @@ const (
 	ListingStatusPendingReview ListingStatus = "pending_review"
 	ListingStatusPaused        ListingStatus = "paused"
 	ListingStatusSoldOut       ListingStatus = "sold_out"
-	ListingStatusDelisted      ListingStatus = "delisted"       // Wave 3.5 — rejected/delisted, appealable
-	ListingStatusUnderAppeal   ListingStatus = "under_appeal"   // Wave 3.5 — seller appeal open
+	ListingStatusDelisted      ListingStatus = "delisted"     // Wave 3.5 — rejected/delisted, appealable
+	ListingStatusUnderAppeal   ListingStatus = "under_appeal" // Wave 3.5 — seller appeal open
 	ListingStatusDeleted       ListingStatus = "deleted"
 )
 
@@ -87,7 +87,7 @@ type ProxyListing struct {
 	SavesCount          int  `gorm:"default:0" json:"saves_count"`
 	OrdersCount         int  `gorm:"default:0" json:"orders_count"`
 	ActiveSessionsCount int  `gorm:"default:0" json:"active_sessions_count"`
-	AllowDirectMessage  bool `gorm:"default:true" json:"allow_direct_message"`
+	AllowDirectMessage  bool `gorm:"default:false" json:"allow_direct_message"`
 
 	Status    ListingStatus `gorm:"size:50;default:'active';index:idx_listing_status" json:"status"`
 	CreatedAt time.Time     `json:"created_at"`
@@ -146,35 +146,35 @@ type SavedListing struct {
 
 // CreateListingRequest represents a request to create a new listing
 type CreateListingRequest struct {
-	Title                string         `json:"title" binding:"required,min=5,max=200"`
-	Description          string         `json:"description" binding:"max=2000"`
-	ProviderNodeID       *uuid.UUID     `json:"provider_node_id"`
-	ProxyType            ProxyType      `json:"proxy_type" binding:"required"`
-	Protocol             string         `json:"protocol" binding:"required"`
-	RotationType         string         `json:"rotation_type"`
-	Country              string         `json:"country"`
-	ISP                  string         `json:"isp" binding:"max=100"`
-	PricePerGB           float64        `json:"price_per_gb" binding:"required,gt=0"`
-	MinPurchaseGB        float64        `json:"min_purchase_gb" binding:"gte=0"`
-	AvailableBandwidthGB float64        `json:"available_bandwidth_gb" binding:"required,gt=0"`
-	MaxConcurrency       int            `json:"max_concurrency" binding:"gte=1,lte=100"`
-	BulkDiscounts        []BulkDiscount `json:"bulk_discounts" binding:"omitempty,max=32,dive"`
-	ListingOfferExpiresAt int64         `json:"listing_offer_expires_at"`
-	Proof                ProviderProof `json:"proof"`
+	Title                 string         `json:"title" binding:"required,min=5,max=200"`
+	Description           string         `json:"description" binding:"max=2000"`
+	ProviderNodeID        *uuid.UUID     `json:"provider_node_id"`
+	ProxyType             ProxyType      `json:"proxy_type" binding:"required"`
+	Protocol              string         `json:"protocol" binding:"required"`
+	RotationType          string         `json:"rotation_type"`
+	Country               string         `json:"country"`
+	ISP                   string         `json:"isp" binding:"max=100"`
+	PricePerGB            float64        `json:"price_per_gb" binding:"required,gt=0"`
+	MinPurchaseGB         float64        `json:"min_purchase_gb" binding:"gte=0"`
+	AvailableBandwidthGB  float64        `json:"available_bandwidth_gb" binding:"required,gt=0"`
+	MaxConcurrency        int            `json:"max_concurrency" binding:"gte=1,lte=100"`
+	BulkDiscounts         []BulkDiscount `json:"bulk_discounts" binding:"omitempty,max=32,dive"`
+	ListingOfferExpiresAt int64          `json:"listing_offer_expires_at"`
+	Proof                 ProviderProof  `json:"proof"`
 }
 
 // UpdateListingRequest represents a request to update a listing
 type UpdateListingRequest struct {
-	Title                *string        `json:"title" binding:"omitempty,min=5,max=200"`
-	Description          *string        `json:"description" binding:"omitempty,max=2000"`
-	PricePerGB           *float64       `json:"price_per_gb" binding:"omitempty,gt=0"`
-	MinPurchaseGB        *float64       `json:"min_purchase_gb" binding:"omitempty,gte=0"`
-	AvailableBandwidthGB *float64       `json:"available_bandwidth_gb" binding:"omitempty,gte=0"`
-	MaxConcurrency       *int           `json:"max_concurrency" binding:"omitempty,gte=1,lte=100"`
-	BulkDiscounts        []BulkDiscount `json:"bulk_discounts" binding:"omitempty,max=32,dive"`
-	Status               *ListingStatus `json:"status" binding:"omitempty,oneof=active paused"`
-	ListingOfferExpiresAt int64         `json:"listing_offer_expires_at"`
-	Proof                ProviderProof `json:"proof"`
+	Title                 *string        `json:"title" binding:"omitempty,min=5,max=200"`
+	Description           *string        `json:"description" binding:"omitempty,max=2000"`
+	PricePerGB            *float64       `json:"price_per_gb" binding:"omitempty,gt=0"`
+	MinPurchaseGB         *float64       `json:"min_purchase_gb" binding:"omitempty,gte=0"`
+	AvailableBandwidthGB  *float64       `json:"available_bandwidth_gb" binding:"omitempty,gte=0"`
+	MaxConcurrency        *int           `json:"max_concurrency" binding:"omitempty,gte=1,lte=100"`
+	BulkDiscounts         []BulkDiscount `json:"bulk_discounts" binding:"omitempty,max=32,dive"`
+	Status                *ListingStatus `json:"status" binding:"omitempty,oneof=active paused"`
+	ListingOfferExpiresAt int64          `json:"listing_offer_expires_at"`
+	Proof                 ProviderProof  `json:"proof"`
 }
 
 type ProviderProof struct {
