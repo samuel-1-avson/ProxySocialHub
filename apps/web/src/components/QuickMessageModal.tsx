@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { CheckCircle2, Loader2, MessageSquare, Send } from "lucide-react";
 import { getAccessTokenSilently, useAuth } from "@/lib/auth";
 import { Modal } from "@/components/patterns/Modal";
+import { messageRecipientHref } from "@/lib/messaging/social-messaging";
 
 interface QuickMessageModalProps {
   isOpen: boolean;
@@ -70,7 +71,7 @@ function InquiryForm({ isOpen, onClose, listingId, listingTitle, providerId, pro
         <CheckCircle2 className="text-primary" size={32} aria-hidden />
         <p className="text-sm text-muted-foreground">Your question about <strong className="text-foreground">{listingTitle}</strong> was sent.</p>
         <div className="ui-actions">
-          <Link className="ui-button" href={"/messages?recipient=" + encodeURIComponent(providerId)}>Open inbox</Link>
+          <Link className="ui-button" href={messageRecipientHref(providerId)}>Open inbox</Link>
           <button type="button" className="ui-button secondary" onClick={onClose}>Done</button>
         </div>
       </div> : <form onSubmit={(event) => void send(event)} className="space-y-5">

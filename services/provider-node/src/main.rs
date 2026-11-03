@@ -1,3 +1,4 @@
+mod account;
 mod config;
 mod config_validate;
 mod daemon_ctrl;
@@ -14,12 +15,14 @@ mod proofs;
 mod proxy;
 mod runtime_state;
 mod service;
+mod settings_view;
 mod stats;
 mod status;
 mod support;
 mod sys;
 mod tui;
 mod tunnel;
+mod unpair;
 mod update;
 mod watch;
 
@@ -246,6 +249,45 @@ enum Commands {
         local: bool,
     },
 
+    /// What ProxyHubb's servers say about this computer, and your earnings (asks the Control API)
+    Account {
+        /// Path to configuration file
+        #[arg(short, long)]
+        config: Option<String>,
+
+        /// Emit JSON for scripts: one object on stdout and nothing else. For programs driving
+        /// this command, such as the desktop app.
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Disconnect this computer from its account: stop the node and move provider.toml aside
+    Unpair {
+        /// Path to configuration file
+        #[arg(short, long)]
+        config: Option<String>,
+
+        /// Machine-readable output: one JSON object on stdout and nothing else, and no prompt.
+        /// For programs driving this command, such as the desktop app.
+        #[arg(long)]
+        json: bool,
+
+        /// Skip the confirmation prompt
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
+
+    /// Print the newest published installer version (asks the Control API; nothing is downloaded)
+    LatestRelease {
+        /// "desktop" (the Provider app) or "daemon" (this CLI)
+        #[arg(long, default_value = "desktop")]
+        package: String,
+
+        /// Emit JSON for scripts
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Pre-flight checks for config, auth, gateway, and local daemon
     Doctor {
         /// Path to configuration file
@@ -308,6 +350,16 @@ enum Commands {
 
 #[derive(Subcommand)]
 enum ConfigCommands {
+    /// Show this computer's node settings (never a key or token)
+    Show {
+        /// Path to configuration file
+        #[arg(short, long)]
+        config: Option<String>,
+
+        /// Emit JSON for scripts
+        #[arg(long)]
+        json: bool,
+    },
     /// Validate provider.toml and print fixes for blocking issues
     Validate {
         /// Path to configuration file
@@ -568,6 +620,71 @@ async fn main() -> anyhow::Result<()> {
                 println!("provider_hotkey = \"{}\"", generated.public_key);
                 println!();
                 println!("Add provider_signing_key to provider.toml to enable signed heartbeats.");
+            }
+        }
+
+        Commands::Config {
+            command: ConfigCommands::Show { config, json },
+        } => {
+            // With --json, stdout is the view and nothing else (as with `status --json`).
+            if !json {
+                init_logging(false);
+            }
+            let config_path = config
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(config::Config::default_config_path);
+            let view = settings_view::collect(&config_path);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&view)?);
+            } else {
+                settings_view::print_human(&view);
+            }
+        }
+
+        Commands::Unpair { config, json, yes } => {
+            if !json {
+                init_logging(false);
+            }
+            let config_path = config
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(config::Config::default_config_path);
+            if !json && !yes {
+                println!(
+                    "This stops the node and moves {} aside.",
+                    config_path.display()
+                );
+                println!(
+                    "The key in it stays valid until you revoke it in your dashboard (Tokens)."
+                );
+                print!("Disconnect this computer? [y/N] ");
+                let _ = std::io::Write::flush(&mut std::io::stdout());
+                let mut line = String::new();
+                std::io::stdin().read_line(&mut line)?;
+                if !matches!(line.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
+                    println!("Cancelled.");
+                    return Ok(());
+                }
+            }
+            let report = unpair::run(config_path).await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                unpair::print_human(&report);
+            }
+        }
+
+        Commands::LatestRelease { package, json } => {
+            if !json {
+                init_logging(false);
+            }
+            let latest = update::latest_release(&package).await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&latest)?);
+            } else {
+                println!(
+                    "Latest {} release: v{} ({})",
+                    latest.package_type, latest.version, latest.filename
+                );
             }
         }
 
@@ -990,8 +1107,27 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
+        Commands::Account { config, json } => {
+            // With --json, stdout is the report and nothing else (as with `status --json`).
+            if !json {
+                init_logging(false);
+            }
+            let config_path = config
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(config::Config::default_config_path);
+            let report = account::collect(config_path).await;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                account::print_human(&report);
+            }
+        }
+
         Commands::Doctor { config, json } => {
-            init_logging(false);
+            // Same rule as `status --json`: logging goes to stdout, which would mix into the JSON.
+            if !json {
+                init_logging(false);
+            }
             let config_path = config
                 .map(std::path::PathBuf::from)
                 .unwrap_or_else(config::Config::default_config_path);
@@ -1174,13 +1310,11 @@ fn next_gateway_index(current: usize, total: usize, session_succeeded: bool) -> 
     }
 }
 
-/// True when reconnecting cannot succeed until the operator replaces api_key.
+/// True when reconnecting cannot succeed until the operator replaces api_key: the Control API
+/// said the key is invalid, inactive or expired. An outage or a server error is not that, and
+/// must not stop the loop; see `ip::is_key_refusal` for what counts and why.
 fn is_fatal_provider_auth_error(msg: &str) -> bool {
-    let m = msg.to_ascii_lowercase();
-    m.contains("invalid or inactive provider token")
-        || m.contains("provider token expired")
-        || (m.contains("authentication failed")
-            && (m.contains("token") || m.contains("api key") || m.contains("unauthorized")))
+    ip::is_key_refusal(msg)
 }
 
 fn write_pid_file(path: &std::path::Path) -> anyhow::Result<()> {
@@ -1526,6 +1660,82 @@ mod pair_config_tests {
         );
     }
 }
+#[cfg(test)]
+mod fatal_auth_tests {
+    use super::*;
+
+    /// What a failed key exchange really says: the server's words, then advice that is appended
+    /// to every failure and always contains the word "token".
+    fn exchange_failure(server_said: &str) -> String {
+        ip::gateway_token_failure(server_said)
+    }
+
+    /// Reconnecting is worth trying again: the key is fine, the servers are not (a deploy, an
+    /// overloaded proxy, a rate limit). Stopping the loop here leaves a healthy node dead.
+    #[test]
+    fn a_server_that_is_down_or_failing_never_stops_the_reconnect_loop() {
+        let mut messages: Vec<String> = [
+            "HTTP 502 Bad Gateway",
+            "HTTP 503 Service Unavailable",
+            "HTTP 504 Gateway Timeout",
+            "HTTP 500 Internal Server Error",
+            "HTTP 429 Too Many Requests",
+            "Internal server error: security misconfiguration",
+            "Failed to issue gateway token",
+        ]
+        .iter()
+        .map(|said| exchange_failure(said))
+        .collect();
+        // Not even reaching the server.
+        messages.push(
+            "Failed to connect to Control API: error sending request for url \
+             (https://api.proxyhubb.com/v1/provider/gateway-token)"
+                .to_string(),
+        );
+        for msg in messages {
+            assert!(!is_fatal_provider_auth_error(&msg), "stopped for: {msg}");
+        }
+    }
+
+    /// An answer that is not from the control API says nothing about the key, so it is not a
+    /// reason to stop either: a proxy or a firewall can answer 401/403 for its own reasons.
+    #[test]
+    fn a_401_or_403_that_is_not_the_servers_own_refusal_is_not_fatal() {
+        for said in ["HTTP 401 Unauthorized", "HTTP 403 Forbidden"] {
+            let msg = exchange_failure(said);
+            assert!(!is_fatal_provider_auth_error(&msg), "stopped for: {msg}");
+        }
+    }
+
+    /// The control API said the key is no good (these are its own words, from
+    /// `issueGatewayToken`): nothing will change until the person replaces it.
+    #[test]
+    fn a_key_the_server_itself_refused_stops_the_loop() {
+        for said in [
+            "Invalid or inactive provider token",
+            "Provider token expired",
+        ] {
+            let msg = exchange_failure(said);
+            assert!(is_fatal_provider_auth_error(&msg), "kept going for: {msg}");
+        }
+    }
+
+    /// The advice alone must never read as a refusal, or every failure would.
+    #[test]
+    fn the_advice_appended_to_every_failure_is_not_a_refusal() {
+        assert!(!is_fatal_provider_auth_error(&exchange_failure("")));
+    }
+
+    /// The gateway rejecting the handshake ("Auth failed: ...") has never stopped the loop, and
+    /// this change does not make it start.
+    #[test]
+    fn a_gateway_handshake_rejection_is_still_retried() {
+        assert!(!is_fatal_provider_auth_error(
+            "Auth failed: rejected by gateway"
+        ));
+    }
+}
+
 #[cfg(test)]
 mod gateway_tests {
     use super::*;

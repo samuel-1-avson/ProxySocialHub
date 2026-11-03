@@ -111,11 +111,34 @@ pub async fn exchange_gateway_token(api_url: &str, api_key: &str) -> Result<Gate
         .await
         .unwrap_or(GatewayTokenError { error: None });
     let msg = err.error.unwrap_or_else(|| format!("HTTP {status}"));
-    anyhow::bail!(
-        "Authentication failed: {msg}. Create a fresh token in Dashboard → Provider → Connect, \
+    anyhow::bail!(gateway_token_failure(&msg));
+}
+
+/// Did the Control API say the key itself is no good (invalid, inactive or expired)? If so,
+/// reconnecting cannot succeed until the person replaces it. These are the control API's own
+/// words from `issueGatewayToken`; nothing else counts, because stopping is expensive and a
+/// retry is cheap.
+///
+/// Do NOT match on the bare word "token", on "authentication failed", or on a bare 401/403. The
+/// text of a failed exchange always ends with advice containing "token" (see
+/// [`gateway_token_failure`]), so any such rule makes every failure look like a refusal: a 502
+/// during a deploy stopped the daemon for good. A proxy or firewall can also answer 401/403 for
+/// its own reasons. The tests in `main.rs` (`fatal_auth_tests`) pin all of this.
+pub fn is_key_refusal(msg: &str) -> bool {
+    let m = msg.to_ascii_lowercase();
+    m.contains("invalid or inactive provider token") || m.contains("provider token expired")
+}
+
+/// The error text for a failed gateway-token exchange: what the server said (or `HTTP <status>`
+/// when it said nothing readable), then advice for fixing a bad key. The advice is appended to
+/// EVERY failure, an outage included, so it always contains the word "token"; see
+/// [`is_key_refusal`].
+pub fn gateway_token_failure(server_said: &str) -> String {
+    format!(
+        "Authentication failed: {server_said}. Create a fresh token in Dashboard → Provider → Connect, \
          paste the install script (writes %APPDATA%\\proxyhubb\\provider.toml on Windows), \
          or run: provider-node join --force --api-key <token> --node-id <node_id>, then restart."
-    );
+    )
 }
 
 /// Validate an API key and return (user_id, tunnel JWT) for edge-gateway AUTH.

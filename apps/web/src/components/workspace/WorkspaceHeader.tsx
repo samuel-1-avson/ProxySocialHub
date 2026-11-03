@@ -15,6 +15,7 @@ import { useAuth } from "@/lib/auth";
 import { useRole } from "@/hooks/useRole";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import {
+  COMMUNITY_DESTINATIONS,
   WORKSPACE_DESTINATIONS,
   WORKSPACE_TOOLS,
   SHARED_WORKSPACE_TOOLS,
@@ -50,17 +51,17 @@ export function WorkspaceHeader() {
       : "Your account");
   const destinations = [
     ...WORKSPACE_DESTINATIONS[mode],
-    { label: "Community forum", href: "/community/forum" },
-    { label: "Activity feed", href: "/community/feed" },
-    { label: "Governance", href: "/governance" },
+    ...COMMUNITY_DESTINATIONS,
     { label: "Settings", href: "/app/settings" },
     { label: "Wallet", href: "/app/wallet" },
-    { label: "Inbox", href: "/messages" },
     { label: "Help & support", href: "/help" },
     ...WORKSPACE_TOOLS[mode],
     ...SHARED_WORKSPACE_TOOLS,
     ...(isAdmin ? [{ label: "Administration", href: "/dashboard/admin" }] : []),
-  ];
+  ].filter(
+    (item, index, all) =>
+      all.findIndex((candidate) => candidate.href === item.href) === index,
+  );
   return (
     <>
       <header className="workspace-header">

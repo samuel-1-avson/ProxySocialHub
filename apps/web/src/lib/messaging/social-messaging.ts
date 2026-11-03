@@ -4,9 +4,11 @@
  */
 
 import {
-    findConversation as fetchConversation,
+    findConversation as findConversationInPages,
+    getConversation as fetchConversationById,
     getConversations as fetchConversations,
-    getMessages as fetchMessages,
+    getConversationsPage as fetchConversationsPage,
+    getMessagesPage as fetchMessagesPage,
     markConversationRead as postMarkRead,
     startConversation as postStartConversation,
     type ConversationWithPreview,
@@ -64,9 +66,16 @@ export function mapApiMessage(message: ApiMessage): Message {
     };
 }
 
-export async function getConversationsNormalized(): Promise<{ conversations: Conversation[] }> {
-    const rows = await fetchConversations();
-    return { conversations: rows.map(mapApiConversation) };
+export async function getConversationsNormalized(
+    page = 1,
+): Promise<{ conversations: Conversation[]; total: number; page: number; has_more: boolean }> {
+    const result = await fetchConversationsPage(page);
+    return {
+        conversations: result.conversations.map(mapApiConversation),
+        total: result.total,
+        page: result.page,
+        has_more: result.has_more,
+    };
 }
 
 /** A thread: its messages oldest first, and whether older ones can still be loaded. */
@@ -76,13 +85,27 @@ export interface MessageThread {
     hasMore: boolean;
 }
 
-export async function getMessagesNormalized(conversationId: string, page = 1): Promise<MessageThread> {
-    const result = await fetchMessages(conversationId, page);
+// Messages are returned in display order (oldest first). The API serves
+// newest-first pages with an ID tie-breaker; reversing yields a stable
+// chronological order. Pass `before` (the oldest message id already
+// displayed) to continue strictly older than it, so new arrivals cannot
+// shift history the way offset pages do (F04).
+export async function getMessagesNormalized(
+    conversationId: string,
+    before?: string,
+): Promise<MessageThread> {
+    const page = await fetchMessagesPage(conversationId, before);
     return {
-        messages: result.messages.map(mapApiMessage),
-        page: result.page,
-        hasMore: result.page * result.limit < result.total,
+        messages: page.messages.map(mapApiMessage).reverse(),
+        page: 1,
+        hasMore: page.has_more,
     };
+}
+
+// Canonical "message this user" deep link (F06). All surfaces build
+// recipient links through here so the parameter contract stays in one place.
+export function messageRecipientHref(userId: string): string {
+    return "/messages?recipient=" + encodeURIComponent(userId);
 }
 
 /** Add messages to a thread without duplicating any, keeping time order. */
@@ -95,26 +118,38 @@ export function mergeMessages(...lists: Message[][]): Message[] {
 }
 
 export async function getConversationNormalized(id: string): Promise<Conversation | undefined> {
-    const row = await fetchConversation(id);
-    return row ? mapApiConversation(row) : undefined;
+    // Prefer the single-conversation endpoint (F04); fall back to scanning
+    // list pages if it is unavailable.
+    try {
+        const row = await fetchConversationById(id);
+        return mapApiConversation(row);
+    } catch {
+        const row = await findConversationInPages(id).catch(() => undefined);
+        return row ? mapApiConversation(row) : undefined;
+    }
 }
 
-export async function markConversationReadNormalized(conversationId: string): Promise<void> {
-    await postMarkRead(conversationId);
+export async function markConversationReadNormalized(conversationId: string, upToMessageId?: string): Promise<void> {
+    await postMarkRead(conversationId, upToMessageId);
 }
 
 export async function sendMessageNormalized(
     conversationId: string,
     content: string,
     replyToId?: string,
+    clientMsgId?: string,
 ): Promise<Message> {
-    const payload = replyToId ? { content, reply_to_id: replyToId } : { content };
+    const payload = {
+        content,
+        ...(replyToId ? { reply_to_id: replyToId } : {}),
+        ...(clientMsgId ? { client_msg_id: clientMsgId } : {}),
+    };
     const message = await apiPost<ApiMessage>(`/v1/conversations/${conversationId}/messages`, payload);
     return mapApiMessage(message);
 }
 
-export async function startConversationNormalized(recipientId: string, message: string): Promise<Conversation> {
-    const started = await postStartConversation(recipientId, message);
+export async function startConversationNormalized(recipientId: string, message: string, clientMsgId?: string): Promise<Conversation> {
+    const started = await postStartConversation(recipientId, message, clientMsgId);
     const conversationId = started.conversation_id || started.id;
     // The first message is already accepted. A failed preview refresh must not
     // turn that successful write into a retryable send failure.
