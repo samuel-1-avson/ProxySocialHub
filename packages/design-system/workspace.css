@@ -258,7 +258,8 @@ select option:disabled {
   text-decoration: none;
   font-weight: 500;
 }
-.workspace-primary a.active {
+.workspace-primary a.active,
+.workspace-secondary a.active {
   color: var(--foreground);
   background: var(--secondary);
   font-weight: 600;
@@ -354,9 +355,69 @@ select option:disabled {
   max-width: 95px;
 }
 .workspace-account-preferences {
-  margin-top: 16px;
-  padding: 16px 0;
+  padding: 4px 0 16px;
   border-bottom: 1px solid var(--border);
+}
+.workspace-account-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.workspace-account-content .workspace-switcher {
+  min-height: 48px;
+  padding-inline: 12px;
+}
+.workspace-account-content .workspace-theme select {
+  min-width: 104px;
+  max-width: none;
+  padding-right: 34px;
+  border: 1px solid var(--border);
+}
+.workspace-account-content .workspace-menu-list {
+  gap: 3px;
+}
+.workspace-account-content .workspace-menu-list > a,
+.workspace-account-content .workspace-menu-list > button {
+  min-height: 46px;
+}
+.workspace-account-content .workspace-menu-list svg {
+  flex: none;
+  color: var(--muted-foreground);
+}
+.workspace-account-tools summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 46px;
+  padding: 10px 12px;
+  border-radius: 7px;
+  color: var(--foreground);
+  font-size: 14px;
+  list-style: none;
+  cursor: pointer;
+}
+.workspace-account-tools summary::-webkit-details-marker {
+  display: none;
+}
+.workspace-account-tools summary:hover {
+  background: var(--secondary);
+}
+.workspace-account-tools summary > svg:last-child {
+  margin-left: auto;
+  transition: transform var(--dur-fast);
+}
+.workspace-account-tools[open] summary > svg:last-child {
+  transform: rotate(180deg);
+}
+.workspace-account-tools nav {
+  margin: 4px 0 8px 21px;
+  padding-left: 14px;
+  border-left: 1px solid var(--border);
+}
+.workspace-account-content .workspace-sign-out {
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 7px 7px;
 }
 .workspace-account-preferences .workspace-theme {
   justify-content: space-between;
@@ -402,6 +463,9 @@ select option:disabled {
   margin: 0 auto;
   padding: 38px 42px 72px;
   min-height: calc(100dvh - 70px);
+  min-width: 0;
+  /* Resize immediately even when a page supplies an entrance animation duration. */
+  transition-property: none;
 }
 .workspace-menu-list {
   display: flex;
@@ -439,6 +503,12 @@ select option:disabled {
   align-items: flex-end;
   justify-content: space-between;
   flex-wrap: wrap;
+}
+.ui-page-header > div:first-child {
+  min-width: 0;
+}
+.ui-page-header > .ui-actions {
+  flex-shrink: 0;
 }
 .ui-eyebrow {
   font-size: 12px;
@@ -1159,8 +1229,8 @@ fieldset.ui-choice-group {
     gap: 8px;
   }
   .workspace-account-button {
-    min-width: 30px;
-    height: 30px;
+    min-width: 40px;
+    height: 40px;
   }
   .workspace-content {
     padding: 28px 18px calc(96px + env(safe-area-inset-bottom));
