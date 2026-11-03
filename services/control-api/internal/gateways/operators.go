@@ -127,7 +127,7 @@ func seedJ2Defaults(gdb *gorm.DB) error {
 			HostID:       hostA,
 			OrgID:        orgA,
 			Bonded:       envBonded("GATEWAY_OP_A_BONDED", true),
-			Status:       StatusActive,
+			Status:       seededStatus("GATEWAY_OP_A_STATUS"),
 			Pubkey:       strings.TrimSpace(os.Getenv("GATEWAY_OP_A_PUBKEY")),
 		},
 		{
@@ -140,7 +140,7 @@ func seedJ2Defaults(gdb *gorm.DB) error {
 			HostID:       hostB,
 			OrgID:        orgB,
 			Bonded:       envBonded("GATEWAY_OP_B_BONDED", true),
-			Status:       StatusActive,
+			Status:       seededStatus("GATEWAY_OP_B_STATUS"),
 			Pubkey:       strings.TrimSpace(os.Getenv("GATEWAY_OP_B_PUBKEY")),
 		},
 	}
@@ -167,6 +167,16 @@ func seedJ2Defaults(gdb *gorm.DB) error {
 		}
 	}
 	return nil
+}
+
+// Disabled operators remain disabled across API restarts and reseeding.
+func seededStatus(key string) string {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "", StatusActive:
+		return StatusActive
+	default:
+		return StatusDisabled
+	}
 }
 
 func envBonded(key string, def bool) bool {
