@@ -90,11 +90,18 @@ the `orders:create` scope it is enough for `list_my_orders` and `use_my_order`.
 The website keeps your session token in the page's memory only (it is not in
 local storage or a readable cookie), so copy it from a request:
 
-1. In your normal browser, sign in at <https://proxyhubb.com/marketplace/orders>.
-   If your order is listed there as active, this token can use it.
-2. Open DevTools (F12) → **Network**, filter for `orders`, and reload.
-3. Click the `orders` request to `api.proxyhubb.com` and copy the part of the
-   `authorization` request header after `Bearer `.
+1. In your normal browser (not the ProxyHub provider app), sign in at
+   <https://proxyhubb.com/marketplace/orders>. If your order is listed there as
+   active, this token can use it.
+2. Open DevTools (F12) → **Network**, type `v1/orders` in the filter, and reload.
+3. Click the `orders` row of type `fetch`. The website calls the API through its
+   own address, so the request goes to `proxyhubb.com/v1/orders`, not to
+   `api.proxyhubb.com`.
+4. Under **Headers → Request Headers**, copy the part of `authorization` after
+   `Bearer ` (it starts with `eyJ`). Leave out the word `Bearer`.
+
+The token is your full login and lasts up to 24 hours (the control API's default
+`ACCESS_TOKEN_TTL_MINUTES`).
 
 Do **not** use a token from the ProxyHub provider app or CLI: that is a
 *provider node token*, limited to node routes, and every tool here answers
