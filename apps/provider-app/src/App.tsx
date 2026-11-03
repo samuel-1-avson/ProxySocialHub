@@ -21,7 +21,8 @@ export function App() {
   return <Screens ipc={ipc} />;
 }
 
-function Screens({ ipc }: { ipc: Ipc }) {
+/** Exported so the screen tests can drive the same state machine the window runs. */
+export function Screens({ ipc }: { ipc: Ipc }) {
   const app = useApp(ipc);
   const { state } = app;
 

@@ -131,6 +131,18 @@ export function SellerNodeSetup() {
           <span>2</span>Install & verify
         </li>
       </ol>
+      <p className="ui-note">
+        Prefer no commands? On Windows, install the ProxyHubb Provider app
+        instead. It shows a short code, and you approve it on the{" "}
+        <Link className="ui-link" href="/dashboard/provider/pair">
+          Connect a computer
+        </Link>{" "}
+        page. That does not need this form.{" "}
+        <Link className="ui-link" href="/dashboard/provider/cli#desktop-app">
+          Get the app
+        </Link>
+        .
+      </p>
       {!token ? (
         <form className="ui-surface ui-page" onSubmit={submit}>
           <div>
