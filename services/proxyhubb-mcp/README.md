@@ -70,7 +70,7 @@ Claude Desktop / Cursor / any stdio MCP client:
       "command": "node",
       "args": ["<repo>/services/proxyhubb-mcp/src/server.ts"],
       "env": {
-        "PROXYHUBB_ACCESS_TOKEN": "<your dashboard JWT>",
+        "PROXYHUBB_ACCESS_TOKEN": "<your website session token>",
         "PROXYHUBB_BASE_URL": "https://api.proxyhubb.com",
         "PROXYHUBB_PROXY_ENDPOINT": "proxy.proxyhubb.com:8090"
       }
@@ -84,6 +84,23 @@ Claude Desktop / Cursor / any stdio MCP client:
 See [`.env.example`](./.env.example). `PROXYHUBB_API_KEY` (`phub_…`) is optional
 and sent as `X-API-Key` when set. It cannot by itself create sessions, but with
 the `orders:create` scope it is enough for `list_my_orders` and `use_my_order`.
+
+### Getting your access token
+
+The website keeps your session token in the page's memory only (it is not in
+local storage or a readable cookie), so copy it from a request:
+
+1. In your normal browser, sign in at <https://proxyhubb.com/marketplace/orders>.
+   If your order is listed there as active, this token can use it.
+2. Open DevTools (F12) → **Network**, filter for `orders`, and reload.
+3. Click the `orders` request to `api.proxyhubb.com` and copy the part of the
+   `authorization` request header after `Bearer `.
+
+Do **not** use a token from the ProxyHub provider app or CLI: that is a
+*provider node token*, limited to node routes, and every tool here answers
+`403: provider token cannot call this route` with it. In PowerShell, set the
+token with `$env:PROXYHUBB_ACCESS_TOKEN = Read-Host "Token"` so it does not land
+in your command history, and never paste it into a chat or a shared log.
 
 ## Example agent
 
