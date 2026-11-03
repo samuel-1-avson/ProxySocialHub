@@ -5,9 +5,13 @@ import { useQuery } from "@tanstack/react-query";
 import { DataError } from "@/components/workspace/Patterns";
 import { useState, useCallback } from "react";
 import Link from "next/link";
-import { getPeopleYouMayKnow, type SuggestedUser } from "@/lib/friends-api";
+import {
+  dismissSuggestion,
+  getPeopleYouMayKnow,
+  type SuggestedUser,
+} from "@/lib/friends-api";
 import { GlassCard } from "@/components/ui/glass-card";
-import { Sparkles, User, Loader2, ChevronRight } from "lucide-react";
+import { Sparkles, User, Loader2, ChevronRight, X } from "lucide-react";
 import { FriendButton } from "./FriendButton";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useAuth } from "@/lib/auth";
@@ -56,6 +60,15 @@ export function PeopleYouMayKnow({
       else void query.refetch();
     },
     [query],
+  );
+  const handleDismiss = useCallback(
+    (userId: string) => {
+      setHidden((previous) => [...previous, userId]);
+      void dismissSuggestion(userId).catch(() => {
+        setHidden((previous) => previous.filter((id) => id !== userId));
+      });
+    },
+    [],
   );
   if (query.isError)
     return (
@@ -132,13 +145,22 @@ export function PeopleYouMayKnow({
                   </Link>
                   <p className="text-xs text-muted-foreground truncate">
                     {user.reason === "mutual_friends" && user.mutual_count
-                      ? `${user.mutual_count} mutual friends`
-                      : user.reason === "similar_skills"
-                        ? "Similar skills"
+                      ? `${user.mutual_count} mutual ${user.mutual_count === 1 ? "friend" : "friends"}`
+                      : user.reason === "new_member"
+                        ? "New to ProxyHubb"
                         : "Suggested for you"}
                   </p>
                 </div>
-                <div className="shrink-0">
+                <div className="shrink-0 flex items-center gap-1">
+                  <button
+                    type="button"
+                    aria-label={`Dismiss suggestion for ${label}`}
+                    title="Not interested"
+                    onClick={() => handleDismiss(user.id)}
+                    className="p-1 text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
                   <FriendButton
                     userId={user.id}
                     username={label}
