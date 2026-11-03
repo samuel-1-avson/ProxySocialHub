@@ -133,6 +133,8 @@ export function projectPublicData(
         "active_wallets",
         "active_nodes",
         "block_height",
+        "indexed_head_time",
+        "indexed_lag_seconds",
         "total_bandwidth_gb",
         "transactions_per_second",
         "tps_window_hours",
