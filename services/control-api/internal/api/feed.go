@@ -62,7 +62,7 @@ func getFeed(c *gin.Context) {
 				}
 				// Return cached
 				c.JSON(http.StatusOK, gin.H{
-					"events": cachedEvents,
+					"events": feedEventDTOs(cachedEvents),
 					"total":  100, // Estimate
 					"page":   page,
 					"limit":  limit,
@@ -91,7 +91,7 @@ func getFeed(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"events": events,
+		"events": feedEventDTOs(events),
 		"total":  total,
 		"page":   page,
 		"limit":  limit,
@@ -195,14 +195,14 @@ func PublishFeedEvent(event models.FeedEvent) {
 // caller, for goroutines that must not read the package-level client later.
 func publishFeedEvent(rc redisClient.RedisClient, event models.FeedEvent) {
 	// 1. WebSocket Broadcast
-	BroadcastToAll(string(event.EventType), event)
+	BroadcastToAll(string(event.EventType), feedEventDTOFrom(event))
 
 	// 2. Redis Cache (Public Feed)
 	// We only cache public events (e.g. listings, sales)
 	key := "public:feed"
 
 	// Marshal
-	data, _ := json.Marshal(event)
+	data, _ := json.Marshal(feedEventDTOFrom(event))
 
 	// LPUSH + LTRIM
 	if rc != nil {
