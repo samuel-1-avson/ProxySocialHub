@@ -7,19 +7,60 @@
 //! - the window's capability file grants nothing beyond `core:default`.
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::menu::MenuItem;
+use tauri::{AppHandle, Emitter, Manager, State, Wry};
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_opener::OpenerExt as _;
 
 use crate::engine::AppCore;
 use crate::node::{is_allowed_link, locate_sidecar, Sidecar};
-use crate::state::{tooltip_for, AppState};
+use crate::state::{tooltip_for, tray_view_for, AppState, TrayView};
 
 pub type Core = AppCore<Sidecar>;
+
+/// The tray menu's items, kept so the menu can follow the state: only the action that can run
+/// now is enabled, and a status line says what the app is doing.
+pub struct TrayItems {
+    pub status: MenuItem<Wry>,
+    pub pause: MenuItem<Wry>,
+    pub resume: MenuItem<Wry>,
+    pub quit: MenuItem<Wry>,
+    /// What was last applied, so a menu that did not change is not touched every few seconds.
+    applied: Mutex<Option<TrayView>>,
+}
+
+impl TrayItems {
+    pub fn new(
+        status: MenuItem<Wry>,
+        pause: MenuItem<Wry>,
+        resume: MenuItem<Wry>,
+        quit: MenuItem<Wry>,
+    ) -> Self {
+        TrayItems {
+            status,
+            pause,
+            resume,
+            quit,
+            applied: Mutex::new(None),
+        }
+    }
+
+    fn apply(&self, view: TrayView) {
+        let mut applied = self.applied.lock().unwrap_or_else(|e| e.into_inner());
+        if applied.as_ref() == Some(&view) {
+            return;
+        }
+        let _ = self.status.set_text(&view.status);
+        let _ = self.pause.set_enabled(view.pause_enabled);
+        let _ = self.resume.set_enabled(view.resume_enabled);
+        let _ = self.quit.set_text(view.quit_label);
+        *applied = Some(view);
+    }
+}
 
 /// The tray icon's id, so its tooltip can follow the state.
 pub const TRAY_ID: &str = "main-tray";
@@ -64,19 +105,26 @@ pub fn build_core(app: &AppHandle) -> Result<Core, String> {
 }
 
 pub fn emit_state(app: &AppHandle, core: &Core) {
-    let state = core.state();
+    publish(app, core.state());
+}
+
+/// Show a state everywhere it is shown: the window, the tray tooltip and the tray menu.
+fn publish(app: &AppHandle, state: AppState) {
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         let _ = tray.set_tooltip(Some(tooltip_for(&state)));
+    }
+    if let Some(items) = app.try_state::<TrayItems>() {
+        items.apply(tray_view_for(&state));
     }
     let _ = app.emit(STATE_EVENT, state);
 }
 
 /// Keep the node running if the person wants it, and keep the window fresh. Runs for the life
-/// of the app.
+/// of the app. Each pass looks at the node once and uses that for both jobs.
 pub fn spawn_supervisor(app: AppHandle, core: Arc<Core>) {
     thread::spawn(move || loop {
-        core.supervise_once();
-        emit_state(&app, &core);
+        let state = core.tick();
+        publish(&app, state);
         thread::sleep(SUPERVISE_INTERVAL);
     });
 }
@@ -150,6 +198,19 @@ pub async fn set_sharing(
     let core = Arc::clone(&core);
     blocking(move || {
         let result = core.set_sharing(on);
+        emit_state(&app, &core);
+        result
+    })
+    .await?
+}
+
+/// Stop a node the app did not start. The window asks the person to confirm first; a plain
+/// Pause never reaches such a node.
+#[tauri::command]
+pub async fn stop_outside_node(app: AppHandle, core: State<'_, Arc<Core>>) -> Result<(), String> {
+    let core = Arc::clone(&core);
+    blocking(move || {
+        let result = core.stop_outside_node();
         emit_state(&app, &core);
         result
     })

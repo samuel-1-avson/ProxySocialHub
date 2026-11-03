@@ -1,4 +1,4 @@
-// The whole surface between the window and the Rust side: nine commands and two events.
+// The whole surface between the window and the Rust side: ten commands and two events.
 // Nothing here takes a URL or a command line; the Rust side decides what to run and open.
 
 import { invoke } from '@tauri-apps/api/core';
@@ -11,6 +11,7 @@ export interface Ipc {
   beginPairing(): Promise<void>;
   cancelPairing(): Promise<void>;
   setSharing(on: boolean): Promise<void>;
+  stopOutsideNode(): Promise<void>;
   openPairingLink(): Promise<void>;
   openDashboard(): Promise<void>;
   getAutostart(): Promise<boolean>;
@@ -25,6 +26,7 @@ const tauriIpc: Ipc = {
   beginPairing: () => invoke<void>('begin_pairing'),
   cancelPairing: () => invoke<void>('cancel_pairing'),
   setSharing: (on) => invoke<void>('set_sharing', { on }),
+  stopOutsideNode: () => invoke<void>('stop_outside_node'),
   openPairingLink: () => invoke<void>('open_pairing_link'),
   openDashboard: () => invoke<void>('open_dashboard'),
   getAutostart: () => invoke<boolean>('get_autostart'),

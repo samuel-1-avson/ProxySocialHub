@@ -11,7 +11,7 @@ mod state;
 
 use std::sync::Arc;
 
-use tauri::menu::{Menu, MenuItem};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
 use tauri_plugin_autostart::MacosLauncher;
@@ -55,12 +55,27 @@ pub fn run() {
             let core: Arc<Core> = Arc::new(commands::build_core(app.handle())?);
             app.manage(Arc::clone(&core));
 
+            // The first pass of the supervisor (right after this) enables what can run and writes
+            // the status line, so nothing is offered before the state is known.
+            let status = MenuItem::with_id(app, "status", "Starting…", false, None::<&str>)?;
             let open =
                 MenuItem::with_id(app, "open", "Open ProxyHubb Provider", true, None::<&str>)?;
-            let pause = MenuItem::with_id(app, "pause", "Pause sharing", true, None::<&str>)?;
-            let resume = MenuItem::with_id(app, "resume", "Resume sharing", true, None::<&str>)?;
+            let pause = MenuItem::with_id(app, "pause", "Pause sharing", false, None::<&str>)?;
+            let resume = MenuItem::with_id(app, "resume", "Resume sharing", false, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit (stops sharing)", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&open, &pause, &resume, &quit])?;
+            let menu = Menu::with_items(
+                app,
+                &[
+                    &status,
+                    &PredefinedMenuItem::separator(app)?,
+                    &open,
+                    &pause,
+                    &resume,
+                    &PredefinedMenuItem::separator(app)?,
+                    &quit,
+                ],
+            )?;
+            app.manage(commands::TrayItems::new(status, pause, resume, quit));
 
             let mut tray = TrayIconBuilder::with_id(commands::TRAY_ID)
                 .tooltip("ProxyHubb Provider")
@@ -112,6 +127,7 @@ pub fn run() {
             commands::begin_pairing,
             commands::cancel_pairing,
             commands::set_sharing,
+            commands::stop_outside_node,
             commands::open_pairing_link,
             commands::open_dashboard,
             commands::get_autostart,

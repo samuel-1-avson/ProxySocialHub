@@ -14,8 +14,13 @@ const SAMPLES: Record<string, AppState> = {
     link: 'https://proxyhubb.com/dashboard/provider/pair?code=BCDF-GHJK',
     expires_in: 600,
   },
-  connecting: { kind: 'connecting', detail: null, retry: null },
-  connecting_error: { kind: 'connecting', detail: 'The gateway could not be reached.', retry: null },
+  connecting: { kind: 'connecting', detail: null, retry: null, managed_externally: false },
+  connecting_error: {
+    kind: 'connecting',
+    detail: 'The gateway could not be reached.',
+    retry: null,
+    managed_externally: false,
+  },
   connecting_retry: {
     kind: 'connecting',
     detail: 'TCP dial to proxy.proxyhubb.com:8443 failed',
@@ -25,6 +30,13 @@ const SAMPLES: Record<string, AppState> = {
       gateway_total: 2,
       updated_at_unix: Math.floor(Date.now() / 1000) - 12,
     },
+    managed_externally: false,
+  },
+  connecting_external: {
+    kind: 'connecting',
+    detail: null,
+    retry: null,
+    managed_externally: true,
   },
   sharing: {
     kind: 'sharing',
@@ -68,6 +80,7 @@ export function createMockIpc(): Ipc {
     },
     cancelPairing: async () => set(SAMPLES.needs_pairing),
     setSharing: async (on) => set(on ? SAMPLES.sharing : SAMPLES.paused),
+    stopOutsideNode: async () => set(SAMPLES.paused),
     openPairingLink: async () => undefined,
     openDashboard: async () => undefined,
     getAutostart: async () => autostart,
