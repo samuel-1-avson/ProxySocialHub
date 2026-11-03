@@ -657,10 +657,14 @@ func updateGatewayNodeHeartbeat(c *gin.Context) {
 	}
 
 	updates := map[string]interface{}{
-		"last_seen_at":       time.Now(),
 		"is_healthy":         req.IsHealthy,
 		"active_connections": req.ActiveConnections,
 		"latency_ms":         req.LatencyMs,
+	}
+	// An unhealthy report is not a sign of life: stamping last_seen_at here
+	// would keep a dead node looking recently seen.
+	if req.IsHealthy {
+		updates["last_seen_at"] = time.Now()
 	}
 
 	if req.TotalBytesUp > 0 {
@@ -699,7 +703,11 @@ func updateGatewayNodeHeartbeat(c *gin.Context) {
 			if err := db.DB.Model(&node).Update("quality_score", newScore).Error; err != nil {
 				logging.Warn().Str("node_id", nodeID.String()).Err(err).Msg("Failed to update quality score on heartbeat")
 			}
-			reconcileProviderNodeRegistry(node.UserID, node.ID, node.GatewayNodeID, req.LatencyMs)
+			// Reconciling marks the node online and stamps last_seen_at, so it
+			// only follows a healthy report.
+			if req.IsHealthy {
+				reconcileProviderNodeRegistry(node.UserID, node.ID, node.GatewayNodeID, req.LatencyMs)
+			}
 			qualityScore = newScore
 			currentTier = node.Tier
 			basePricePerGB = node.BasePricePerGB
@@ -715,13 +723,15 @@ func updateGatewayNodeHeartbeat(c *gin.Context) {
 			isp = legacyNode.ISP
 			if legacyNode.ProviderUserID != uuid.Nil && legacyNode.GatewayNodeID != "" {
 				if pn := resolveProviderNodeForGateway(legacyNode.ProviderUserID, legacyNode.GatewayNodeID); pn != nil {
-					reconcileProviderNodeRegistry(legacyNode.ProviderUserID, pn.ID, legacyNode.GatewayNodeID, req.LatencyMs)
+					if req.IsHealthy {
+						reconcileProviderNodeRegistry(legacyNode.ProviderUserID, pn.ID, legacyNode.GatewayNodeID, req.LatencyMs)
+					}
 					node = *pn
 					explorerSyncID = pn.ID.String()
 					qualityScore = node.QualityScore
 					currentTier = node.Tier
 					basePricePerGB = node.BasePricePerGB
-				} else {
+				} else if req.IsHealthy {
 					syncProviderNodeFromGateway(legacyNode.ProviderUserID, legacyNode.GatewayNodeID, req.LatencyMs)
 				}
 			}
@@ -766,6 +776,22 @@ type GatewayStatusUpdateRequest struct {
 	Reason    string `json:"reason,omitempty"`
 }
 
+// gatewayStatusUpdates turns an edge status report into column updates.
+// An offline or unhealthy report marks the node offline and leaves last_seen_at
+// alone: the report is not a heartbeat, and stamping it would restart the
+// stale clock at the moment the node went down, so the node kept showing as
+// online for minutes. A healthy report counts as a sign of life.
+func gatewayStatusUpdates(req GatewayStatusUpdateRequest, now time.Time) map[string]interface{} {
+	updates := map[string]interface{}{"is_healthy": req.IsHealthy}
+	if !req.IsHealthy || strings.EqualFold(strings.TrimSpace(req.Status), "offline") {
+		updates["is_healthy"] = false
+		updates["status"] = models.NodeOffline
+		return updates
+	}
+	updates["last_seen_at"] = now
+	return updates
+}
+
 // updateGatewayNodeStatus updates node online/offline status
 func updateGatewayNodeStatus(c *gin.Context) {
 	nodeID, err := uuid.Parse(c.Param("id"))
@@ -780,10 +806,7 @@ func updateGatewayNodeStatus(c *gin.Context) {
 		return
 	}
 
-	updates := map[string]interface{}{
-		"is_healthy":   req.IsHealthy,
-		"last_seen_at": time.Now(),
-	}
+	updates := gatewayStatusUpdates(req, time.Now())
 
 	result := db.DB.Model(&models.ProviderNode{}).Where("id = ?", nodeID).Updates(updates)
 	if result.Error != nil {
@@ -792,7 +815,13 @@ func updateGatewayNodeStatus(c *gin.Context) {
 		return
 	}
 	if result.RowsAffected == 0 {
-		if err := db.DB.Model(&models.Node{}).Where("id = ?", nodeID).Updates(updates).Error; err != nil {
+		// The legacy table has no status column to write; keep to health and
+		// last-seen, as before.
+		legacy := map[string]interface{}{"is_healthy": req.IsHealthy}
+		if _, stamped := updates["last_seen_at"]; stamped {
+			legacy["last_seen_at"] = updates["last_seen_at"]
+		}
+		if err := db.DB.Model(&models.Node{}).Where("id = ?", nodeID).Updates(legacy).Error; err != nil {
 			logging.Error(err).Str("node_id", nodeID.String()).Msg("Failed to update legacy node status")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update status"})
 			return

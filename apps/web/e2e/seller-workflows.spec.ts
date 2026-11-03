@@ -251,9 +251,11 @@ test.describe("seller workflow migration", () => {
     await page
       .getByRole("textbox", { name: "Node name", exact: true })
       .fill("Accra supply");
-    await page
-      .getByRole("textbox", { name: "Country code", exact: true })
-      .fill("GH");
+    // Type to search, then pick from the list.
+    const country = page.getByRole("combobox", { name: "Country", exact: true });
+    await country.fill("gha");
+    await page.getByRole("option", { name: /^Ghana/ }).click();
+    await expect(country).toHaveValue("Ghana");
     await page
       .getByRole("button", { name: "Register node & continue" })
       .click();
@@ -393,6 +395,39 @@ test.describe("seller workflow migration", () => {
     await expect.poll(() => calls.offers.length).toBe(1);
     expect(calls.offers[0]).toMatchObject({ protocol: "http,socks5" });
   });
+  test("picks a country from the list or by searching, and can clear it", async ({
+    page,
+  }) => {
+    const calls = await setup(page);
+    await page.goto(`${base}/provider/listings/new`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page
+      .getByRole("textbox", { name: "Offer title" })
+      .fill("Country picker offer");
+    await page
+      .getByLabel("Available bandwidth (GB)", { exact: true })
+      .fill("20");
+    const country = page.getByRole("combobox", { name: "Country", exact: true });
+    // The node's country is the default.
+    await expect(country).toHaveValue("Ghana");
+    await country.click();
+    const options = page.getByRole("listbox", { name: "Country" }).getByRole("option");
+    await expect(options).toHaveCount(249);
+    await country.fill("côte");
+    await expect(options).toHaveCount(1);
+    await country.fill("kenya");
+    await page.keyboard.press("Enter");
+    await expect(country).toHaveValue("Kenya");
+    await country.fill("zzzz");
+    await expect(page.getByText("No country matches")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(country).toHaveValue("Kenya");
+    await page.getByRole("button", { name: "Review listing" }).click();
+    await page.getByRole("button", { name: "Publish offer" }).click();
+    await expect.poll(() => calls.offers.length).toBe(1);
+    expect(calls.offers[0]).toMatchObject({ country: "KE" });
+  });
   test("blocks publishing when publication policy cannot be loaded", async ({
     page,
   }) => {
@@ -500,6 +535,40 @@ test.describe("seller workflow migration", () => {
     const proof = calls.updates[0].proof as Record<string, unknown>;
     expect(proof.provider_hotkey).toBe(calls.nodeKey!.hotkey);
     expect(proof.signature).toBeTruthy();
+  });
+  test("create flow moves on right after a key replaces a wrong one, without reloading", async ({
+    page,
+  }) => {
+    const calls = await setup(page, { boundOffer: true, proofRequired: true });
+    // Another node's key was saved last, so it sits in the legacy global slot.
+    await page.addInitScript(() =>
+      localStorage.setItem(
+        "proxyhubb_provider_signing_key",
+        "3" + "1".repeat(43),
+      ),
+    );
+    await page.goto(`${base}/provider/listings/new`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page
+      .getByRole("textbox", { name: "Offer title" })
+      .fill("Accra recovered key");
+    await page
+      .getByLabel("Available bandwidth (GB)", { exact: true })
+      .fill("20");
+    await page.getByRole("button", { name: "Review listing" }).click();
+    const publish = page.getByRole("button", { name: "Publish offer" });
+    // That other key does not belong to this node, so signing is blocked.
+    await expect(publish).toBeDisabled();
+    await page
+      .getByPlaceholder("Paste provider_signing_key from provider.toml")
+      .fill(calls.nodeKey!.secret);
+    await page.getByRole("button", { name: "Save key in this browser" }).click();
+    await expect(publish).toBeEnabled();
+    await publish.click();
+    await expect.poll(() => calls.offers.length).toBe(1);
+    const proof = calls.offers[0].proof as Record<string, unknown>;
+    expect(proof.provider_hotkey).toBe(calls.nodeKey!.hotkey);
   });
   test("revokes credentials only after the in-app review and clears stale connection tokens", async ({
     page,
