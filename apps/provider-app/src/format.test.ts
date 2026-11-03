@@ -5,11 +5,16 @@ import {
   formatAgo,
   formatBytes,
   formatCountdown,
+  formatDelay,
   formatDuration,
+  formatRate,
   formatRetrySentence,
+  formatSol,
   noticeForPairingEnd,
   secondsLeft,
+  serverLine,
 } from './format';
+import type { ServerView } from './types';
 
 describe('formatBytes', () => {
   it('uses plain units', () => {
@@ -99,5 +104,78 @@ describe('retry display', () => {
     );
     const single = { ...retry, gateway_total: 1 };
     expect(formatRetrySentence(single, null, 0)).toBe('Trying gw:3128. The node retries automatically.');
+  });
+});
+
+describe('formatSol', () => {
+  it('shows none, dust and ordinary amounts without trailing zeros', () => {
+    expect(formatSol(0)).toBe('0 SOL');
+    expect(formatSol(0.00004)).toBe('<0.0001 SOL');
+    expect(formatSol(0.0001)).toBe('0.0001 SOL');
+    expect(formatSol(0.25)).toBe('0.25 SOL');
+    expect(formatSol(1)).toBe('1 SOL');
+    expect(formatSol(1.23456)).toBe('1.2346 SOL');
+    expect(formatSol(1234.5)).toBe('1234.5 SOL');
+  });
+
+  it('never shows a negative or non-number as an amount', () => {
+    for (const bad of [-1, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      expect(formatSol(bad)).toBe('0 SOL');
+    }
+  });
+});
+
+describe('formatRate', () => {
+  it('switches from kilobits to megabits at one thousand', () => {
+    expect(formatRate(0)).toBe('0 kbps');
+    expect(formatRate(850.4)).toBe('850 kbps');
+    expect(formatRate(999)).toBe('999 kbps');
+    expect(formatRate(1000)).toBe('1.0 Mbps');
+    expect(formatRate(9000)).toBe('9.0 Mbps');
+    expect(formatRate(12_345)).toBe('12.3 Mbps');
+  });
+
+  it('treats a bad number as no traffic', () => {
+    expect(formatRate(-5)).toBe('0 kbps');
+    expect(formatRate(Number.NaN)).toBe('0 kbps');
+  });
+});
+
+describe('formatDelay', () => {
+  it('shows a dash until the node has a sample', () => {
+    expect(formatDelay(0)).toBe('—');
+    expect(formatDelay(Number.NaN)).toBe('—');
+    expect(formatDelay(34.6)).toBe('35 ms');
+  });
+});
+
+describe('serverLine', () => {
+  const all: ServerView[] = [
+    'checking',
+    'online',
+    'not_seen',
+    'not_registered',
+    'key_rejected',
+    'unreachable',
+  ];
+
+  it('has a sentence for every answer and only online is good news', () => {
+    for (const view of all) {
+      const line = serverLine(view);
+      expect(line.text.length).toBeGreaterThan(10);
+      expect(line.tone === 'good').toBe(view === 'online');
+    }
+  });
+
+  it('calls a refused key bad and an unreachable server neither bad nor a stopped node', () => {
+    expect(serverLine('key_rejected').tone).toBe('bad');
+    expect(serverLine('unreachable').tone).toBe('neutral');
+    expect(serverLine('unreachable').text).toContain('does not mean sharing has stopped');
+  });
+
+  it('does not use words the window avoids for a person who is not technical', () => {
+    for (const view of all) {
+      expect(serverLine(view).text).not.toMatch(/api|jwt|token|provider.toml|heartbeat/i);
+    }
   });
 });

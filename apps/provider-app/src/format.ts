@@ -1,6 +1,6 @@
 // Pure helpers for what the screens say. No React, no Tauri: tested on their own.
 
-import type { PairingEnded } from './types';
+import type { PairingEnded, ServerView } from './types';
 
 const UNITS = ['B', 'KB', 'MB', 'GB', 'TB'] as const;
 
@@ -100,4 +100,60 @@ export function formatRetrySentence(retry: RetryInfo, detail: string | null, now
   const base = 'Trying ' + where + '. The node retries automatically.';
   if (!detail) return base;
   return base + ' Last error ' + formatAgo(retry.updated_at_unix, nowMs) + ': ' + detail;
+}
+
+/** An amount of SOL: "0 SOL" for none, "<0.0001 SOL" for dust, otherwise up to four decimals
+ *  without trailing zeros. Nothing that cannot be a real amount is shown as one. */
+export function formatSol(sol: number): string {
+  if (!Number.isFinite(sol) || sol <= 0) return '0 SOL';
+  if (sol < 0.0001) return '<0.0001 SOL';
+  return `${Number(sol.toFixed(4))} SOL`;
+}
+
+/** Speed from kilobits per second: "850 kbps", "9.0 Mbps". */
+export function formatRate(kbps: number): string {
+  if (!Number.isFinite(kbps) || kbps <= 0) return '0 kbps';
+  if (kbps < 1000) return `${Math.round(kbps)} kbps`;
+  return `${(kbps / 1000).toFixed(1)} Mbps`;
+}
+
+/** Round trip to the gateway; 0 means the node has no sample yet. */
+export function formatDelay(ms: number): string {
+  return Number.isFinite(ms) && ms > 0 ? `${Math.round(ms)} ms` : '—';
+}
+
+export interface ServerLine {
+  tone: 'good' | 'neutral' | 'bad';
+  text: string;
+}
+
+/** What ProxyHubb's servers say about this computer, in a sentence. Anything that is not
+ *  "online" says what it may mean, and none of it blames the person. */
+export function serverLine(server: ServerView): ServerLine {
+  switch (server) {
+    case 'checking':
+      return { tone: 'neutral', text: 'Checking with ProxyHubb…' };
+    case 'online':
+      return { tone: 'good', text: 'ProxyHubb sees this computer as online.' };
+    case 'not_seen':
+      return {
+        tone: 'neutral',
+        text: 'ProxyHubb does not show this computer as online yet. This can take a few minutes after connecting.',
+      };
+    case 'not_registered':
+      return {
+        tone: 'neutral',
+        text: 'ProxyHubb does not list this computer on your account. If you just connected, wait a few minutes and press Refresh.',
+      };
+    case 'key_rejected':
+      return {
+        tone: 'bad',
+        text: "ProxyHubb did not accept this computer's key. It may have been revoked in your dashboard, in which case this computer has to be connected again.",
+      };
+    case 'unreachable':
+      return {
+        tone: 'neutral',
+        text: 'Could not reach ProxyHubb to check. That does not mean sharing has stopped.',
+      };
+  }
 }

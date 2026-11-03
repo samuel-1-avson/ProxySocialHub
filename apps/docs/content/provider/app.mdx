@@ -30,6 +30,33 @@ The app asks you to read this before it does anything, and to confirm that you o
 - Only web traffic is allowed (ports 80, 443, 8080 and 8443), and connections to private or local addresses on your own network are blocked.
 - ProxyHubb's rules say buyers must use the service lawfully, but you are the owner of the connection. If someone misuses it, your internet provider may contact you. **Sharing is not risk-free.**
 
+## What the window shows
+
+While you are sharing, the window shows two kinds of numbers.
+
+**From this computer**, refreshed every few seconds: how long the node has been connected, how much it has shared, how many connections it has now (and how many it has served and how many of those failed), its current speed up and down, and the delay to ProxyHubb's gateway. A dash for the delay means the node has not measured one yet.
+
+**From ProxyHubb's servers**, asked every 5 minutes while you are sharing, and when you press **Refresh** (no more than once every 20 seconds):
+
+| Under *On ProxyHubb* | What it means |
+|----------------------|---------------|
+| *ProxyHubb sees this computer as online.* | The servers list this computer as online. |
+| *…does not show this computer as online yet.* | The servers know this computer but have not marked it online. This is normal for a few minutes after connecting. |
+| *…does not list this computer on your account.* | If you just connected, wait a few minutes and press Refresh. |
+| *…did not accept this computer's key.* | The key may have been revoked in your dashboard. The computer has to be connected again. |
+| *Could not reach ProxyHubb to check.* | Your connection or ProxyHubb may be down. This does not mean sharing has stopped. |
+
+**Earnings** show the last 7 days, the last 30 days, what is waiting to be paid and what has been paid, in SOL: the same figures as the earnings page in your dashboard. Earnings are credited when a buyer's session ends and its usage is settled, so they can lag behind what you have shared.
+
+To ask the servers, the app uses this computer's key, the same way the node does. The window never shows IP addresses.
+
+## When it will not connect
+
+On the *Connecting* and *Something needs attention* screens you can:
+
+- Press **Check my connection** to run the node's checks. It can take a minute. The result is a short list in plain words, such as a firewall blocking the connection, or no internet. If nothing is found it says so. Pause stays available while a check runs.
+- Press **Save support details** to write a file for ProxyHubb support and open its folder. The file is kept in `%APPDATA%\com.proxyhubb.provider\support`, and only the newest five are kept. It leaves out your keys and passwords. It does include folder names on this computer, your account's ID and the end of the node's log, so send it only to ProxyHubb support.
+
 ## Pausing, closing and quitting
 
 | You do this | What happens |
@@ -69,8 +96,8 @@ Paired tokens do not expire, so a lost or retired computer should be revoked rat
 
 | You see | What to do |
 |---------|-----------|
-| **Connecting…** for more than a minute | Check your internet connection. The window shows the node's last error; if it names the gateway, a firewall or network filter may be blocking outgoing connections to `proxy.proxyhubb.com` on port 3128. You can press **Pause sharing** at any time. |
-| **Something needs attention** | The message says what failed. Press **Try again**; if it keeps failing, run `provider-node doctor` in a terminal for a detailed check. |
+| **Connecting…** for more than a minute | Check your internet connection. The window shows the node's last error; if it names the gateway, a firewall or network filter may be blocking outgoing connections to `proxy.proxyhubb.com` on port 3128. Press **Check my connection** for a plain-words list of what is wrong. You can press **Pause sharing** at any time. |
+| **Something needs attention** | The message says what failed. Press **Try again**; if it keeps failing, press **Check my connection**, and if that does not explain it, **Save support details** and send the file to ProxyHubb support. |
 | *The code expired* | Press **Connect** for a new one. |
 | *The request was denied* | The code was denied in the dashboard. Nothing was connected. Start again and approve it. |
 | A Windows **SmartScreen** warning when installing | Expected for the preview, which is not signed yet. Only continue if you downloaded the installer from ProxyHubb. |

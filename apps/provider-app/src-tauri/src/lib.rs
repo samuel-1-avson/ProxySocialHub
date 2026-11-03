@@ -3,7 +3,9 @@
 //! The window is a thin view; `engine` holds the behaviour, `node` drives the bundled node,
 //! and `commands` is the only surface the webview can call.
 
+mod account;
 mod commands;
+mod diagnosis;
 mod engine;
 mod node;
 mod settings;
@@ -111,6 +113,7 @@ pub fn run() {
             if !start_hidden {
                 show_main_window(app.handle());
             }
+            commands::spawn_remote_refresher(app.handle().clone(), Arc::clone(&core));
             commands::spawn_supervisor(app.handle().clone(), core);
             Ok(())
         })
@@ -128,6 +131,9 @@ pub fn run() {
             commands::cancel_pairing,
             commands::set_sharing,
             commands::stop_outside_node,
+            commands::refresh_account,
+            commands::run_diagnosis,
+            commands::save_support_details,
             commands::open_pairing_link,
             commands::open_dashboard,
             commands::get_autostart,

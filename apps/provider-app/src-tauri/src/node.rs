@@ -15,10 +15,20 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
 
+use crate::account::{parse_account, AccountFacts};
+use crate::diagnosis::{findings_from, Diagnosis};
 use crate::state::{Metrics, NodeFacts, RetryFacts};
 
 /// The only place the app sends a person's browser.
 const ALLOWED_LINK_PREFIX: &str = "https://proxyhubb.com/";
+
+/// The node gives up on a hung server after 30 s by itself; this only bounds a process that
+/// never returns, so a refresh can never hang the app.
+const ACCOUNT_TIMEOUT: Duration = Duration::from_secs(45);
+/// The doctor probes the network, each probe with its own timeout, one after another.
+const DOCTOR_TIMEOUT: Duration = Duration::from_secs(90);
+/// The support file runs the same checks, then reads the logs.
+const BUNDLE_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// How long `start --background` may take. It normally returns in about a second and waits at
 /// most 20 s for the node to write its PID file; this only bounds a starter that never returns,
@@ -90,6 +100,16 @@ struct MetricsJson {
     bytes_down: u64,
     #[serde(default)]
     active_connections: i32,
+    #[serde(default)]
+    rate_up_kbps: u32,
+    #[serde(default)]
+    rate_down_kbps: u32,
+    #[serde(default)]
+    total_connections: u64,
+    #[serde(default)]
+    failed_connections: u64,
+    #[serde(default)]
+    latency_ms: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -162,6 +182,11 @@ pub fn parse_status(
             bytes_up: m.bytes_up,
             bytes_down: m.bytes_down,
             active_connections: m.active_connections,
+            rate_up_kbps: m.rate_up_kbps,
+            rate_down_kbps: m.rate_down_kbps,
+            total_connections: m.total_connections,
+            failed_connections: m.failed_connections,
+            latency_ms: m.latency_ms,
         }),
         // The engine marks adopted nodes; parsing alone cannot know who started what.
         externally_started: false,
@@ -255,6 +280,15 @@ pub fn friendly_start_error(stderr: &str) -> String {
     }
 }
 
+/// Plain words for a check that could not run or did not finish.
+fn friendly_check_error(e: &std::io::Error) -> String {
+    if e.kind() == std::io::ErrorKind::TimedOut {
+        "The check took too long and was stopped. Please try again.".to_string()
+    } else {
+        "The check could not be run on this computer.".to_string()
+    }
+}
+
 // ── running it ───────────────────────────────────────────────────────────────
 
 /// Handle to the bundled `provider-node`.
@@ -340,6 +374,40 @@ impl Sidecar {
             Ok((status, _)) if status.success() => Ok(()),
             Ok((_, printed)) => Err(friendly_start_error(&printed)),
             Err(e) => Err(friendly_start_error(&e.to_string())),
+        }
+    }
+
+    /// `account --json`: what ProxyHubb's servers say about this computer, and its earnings. It
+    /// asks the network, so it is run every few minutes, not every few seconds.
+    pub fn account(&self) -> Result<AccountFacts, String> {
+        let (_status, printed) = self
+            .run_to_exit(&["account", "--json"], ACCOUNT_TIMEOUT)
+            .map_err(|e| format!("could not run provider-node: {e}"))?;
+        parse_account(&printed)
+    }
+
+    /// `doctor --json`, in plain words. The doctor exits 1 when a check fails, which is the
+    /// answer and not a failure, so only unreadable output is an error.
+    pub fn diagnose(&self) -> Result<Diagnosis, String> {
+        let (_status, printed) = self
+            .run_to_exit(&["doctor", "--json"], DOCTOR_TIMEOUT)
+            .map_err(|e| friendly_check_error(&e))?;
+        findings_from(&printed).map_err(|_| "The check gave no usable answer.".to_string())
+    }
+
+    /// `support bundle --output <path>`: a file with the settings (keys removed), the checks,
+    /// the node's state and the end of its log, for sending to support.
+    pub fn support_bundle(&self, output: &Path) -> Result<(), String> {
+        let path = output
+            .to_str()
+            .ok_or("The support file's location cannot be written down.")?;
+        let (status, _printed) = self
+            .run_to_exit(&["support", "bundle", "--output", path], BUNDLE_TIMEOUT)
+            .map_err(|e| friendly_check_error(&e))?;
+        if status.success() && output.is_file() {
+            Ok(())
+        } else {
+            Err("The support file could not be made.".to_string())
         }
     }
 
@@ -450,6 +518,35 @@ mod tests {
                 m.active_connections
             ),
             (90, 111, 222, 3)
+        );
+    }
+
+    #[test]
+    fn speed_delay_and_connection_counts_come_from_the_local_metrics() {
+        let text = RUNNING_AND_CONNECTED
+            .replace(r#""rate_up_kbps": 1"#, r#""rate_up_kbps": 400"#)
+            .replace(r#""rate_down_kbps": 2"#, r#""rate_down_kbps": 9000"#)
+            .replace(r#""total_connections": 10"#, r#""total_connections": 120"#)
+            .replace(r#""latency_ms": 20"#, r#""latency_ms": 35"#)
+            .replace(
+                r#""bytes_down": 222,"#,
+                r#""bytes_down": 222, "failed_connections": 4,"#,
+            );
+        let m = parse_status(&text, exists).unwrap().metrics.unwrap();
+        assert_eq!((m.rate_up_kbps, m.rate_down_kbps), (400, 9000));
+        assert_eq!((m.total_connections, m.failed_connections), (120, 4));
+        assert_eq!(m.latency_ms, 35);
+    }
+
+    #[test]
+    fn an_older_node_without_the_new_metrics_still_parses_with_zeros() {
+        let text = r#"{"config_path":"/c/p.toml","process":{"running":true,"pid":1,"pid_file":"/c/p.pid"},
+                        "metrics":{"uptime_seconds":5,"bytes_up":1,"bytes_down":2,"active_connections":0},
+                        "control_api":{"url":"x","reachable":false,"nodes":[]}}"#;
+        let m = parse_status(text, exists).unwrap().metrics.unwrap();
+        assert_eq!(
+            (m.rate_up_kbps, m.total_connections, m.latency_ms),
+            (0, 0, 0)
         );
     }
 

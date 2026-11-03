@@ -1,9 +1,29 @@
 // Development only (see loadIpc): a scripted stand-in for the Rust side, so every screen can be
 // opened in an ordinary browser. `?state=sharing` (or any kind) starts on that screen;
 // without it the first-run flow plays out: consent, pairing, connecting, sharing.
+// `?diag=clean|problems|slow|fail` picks what "Check my connection" finds.
 
 import type { Ipc } from './ipc';
-import type { AppState, PairingEnded } from './types';
+import type { AppState, Diagnosis, PairingEnded, RemoteView, SharingDetails } from './types';
+
+const NOW = Math.floor(Date.now() / 1000);
+
+const NOT_ASKED: RemoteView = { server: 'checking', earnings: null, updated_at_unix: null };
+
+const ONLINE: RemoteView = {
+  server: 'online',
+  updated_at_unix: NOW - 150,
+  earnings: { last_7_days_sol: 0.0412, last_30_days_sol: 0.1873, pending_sol: 0.0125, paid_sol: 0.9 },
+};
+
+const details = (remote: RemoteView): SharingDetails => ({
+  rate_up_kbps: 410,
+  rate_down_kbps: 9_200,
+  total_connections: 1_204,
+  failed_connections: 17,
+  latency_ms: 38,
+  remote,
+});
 
 const SAMPLES: Record<string, AppState> = {
   needs_consent: { kind: 'needs_consent' },
@@ -28,7 +48,7 @@ const SAMPLES: Record<string, AppState> = {
       active_gateway: 'proxy.proxyhubb.com:8443',
       gateway_index: 1,
       gateway_total: 2,
-      updated_at_unix: Math.floor(Date.now() / 1000) - 12,
+      updated_at_unix: NOW - 12,
     },
     managed_externally: false,
   },
@@ -45,6 +65,44 @@ const SAMPLES: Record<string, AppState> = {
     bytes_down: 612_000_000,
     active_connections: 3,
     managed_externally: false,
+    details: details(ONLINE),
+  },
+  // The first minutes: the servers have not been asked yet.
+  sharing_checking: {
+    kind: 'sharing',
+    uptime_seconds: 20,
+    bytes_up: 0,
+    bytes_down: 0,
+    active_connections: 0,
+    managed_externally: false,
+    details: { ...details(NOT_ASKED), rate_up_kbps: 0, rate_down_kbps: 0, latency_ms: 0, total_connections: 0, failed_connections: 0 },
+  },
+  sharing_not_seen: {
+    kind: 'sharing',
+    uptime_seconds: 90,
+    bytes_up: 1000,
+    bytes_down: 2000,
+    active_connections: 0,
+    managed_externally: false,
+    details: details({ ...ONLINE, server: 'not_seen', earnings: ONLINE.earnings }),
+  },
+  sharing_rejected: {
+    kind: 'sharing',
+    uptime_seconds: 600,
+    bytes_up: 1000,
+    bytes_down: 2000,
+    active_connections: 0,
+    managed_externally: false,
+    details: details({ server: 'key_rejected', earnings: null, updated_at_unix: NOW - 30 }),
+  },
+  sharing_unreachable: {
+    kind: 'sharing',
+    uptime_seconds: 600,
+    bytes_up: 1000,
+    bytes_down: 2000,
+    active_connections: 1,
+    managed_externally: false,
+    details: details({ server: 'unreachable', earnings: null, updated_at_unix: NOW - 30 }),
   },
   sharing_external: {
     kind: 'sharing',
@@ -53,13 +111,32 @@ const SAMPLES: Record<string, AppState> = {
     bytes_down: 2000,
     active_connections: 0,
     managed_externally: true,
+    details: details(ONLINE),
   },
   paused: { kind: 'paused' },
   problem: { kind: 'problem', reason: 'The node did not start. Please try again.' },
 };
 
+const DIAGNOSES: Record<string, Diagnosis> = {
+  clean: { findings: [] },
+  problems: {
+    findings: [
+      {
+        level: 'problem',
+        text: "This computer could not open a connection to ProxyHubb's gateway. A firewall, VPN or network filter may be blocking it.",
+      },
+      {
+        level: 'note',
+        text: 'The node is not answering on this computer. Pausing and then resuming sharing usually fixes it.',
+      },
+    ],
+  },
+};
+
 export function createMockIpc(): Ipc {
-  const initial = new URLSearchParams(window.location.search).get('state');
+  const params = new URLSearchParams(window.location.search);
+  const initial = params.get('state');
+  const diag = params.get('diag') ?? 'problems';
   let state: AppState = (initial && SAMPLES[initial]) || SAMPLES.needs_consent;
   let autostart = false;
   const stateListeners = new Set<(s: AppState) => void>();
@@ -69,6 +146,7 @@ export function createMockIpc(): Ipc {
     stateListeners.forEach((l) => l(s));
   };
   const later = (ms: number, fn: () => void) => window.setTimeout(fn, ms);
+  const wait = (ms: number) => new Promise<void>((resolve) => later(ms, resolve));
 
   return {
     appState: async () => state,
@@ -76,11 +154,27 @@ export function createMockIpc(): Ipc {
     beginPairing: async () => {
       later(800, () => set(SAMPLES.pairing));
       later(6000, () => set(SAMPLES.connecting));
-      later(8000, () => set(SAMPLES.sharing));
+      later(8000, () => set(SAMPLES.sharing_checking));
+      later(11000, () => set(SAMPLES.sharing));
     },
     cancelPairing: async () => set(SAMPLES.needs_pairing),
     setSharing: async (on) => set(on ? SAMPLES.sharing : SAMPLES.paused),
     stopOutsideNode: async () => set(SAMPLES.paused),
+    refreshAccount: async () => {
+      await wait(600);
+      if (state.kind === 'sharing') {
+        set({ ...state, details: { ...state.details, remote: { ...ONLINE, updated_at_unix: Math.floor(Date.now() / 1000) } } });
+      }
+    },
+    runDiagnosis: async () => {
+      await wait(diag === 'slow' ? 6000 : 1500);
+      if (diag === 'fail') throw 'The check took too long and was stopped. Please try again.';
+      return DIAGNOSES[diag === 'slow' ? 'problems' : diag] ?? DIAGNOSES.problems;
+    },
+    saveSupportDetails: async () => {
+      await wait(900);
+      return 'C:\\Users\\you\\AppData\\Roaming\\com.proxyhubb.provider\\support\\support-details-1700000000.json';
+    },
     openPairingLink: async () => undefined,
     openDashboard: async () => undefined,
     getAutostart: async () => autostart,

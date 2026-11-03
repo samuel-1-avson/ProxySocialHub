@@ -1,9 +1,9 @@
-// The whole surface between the window and the Rust side: ten commands and two events.
+// The whole surface between the window and the Rust side: thirteen commands and two events.
 // Nothing here takes a URL or a command line; the Rust side decides what to run and open.
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import type { AppState, PairingEnded } from './types';
+import type { AppState, Diagnosis, PairingEnded } from './types';
 
 export interface Ipc {
   appState(): Promise<AppState>;
@@ -12,6 +12,12 @@ export interface Ipc {
   cancelPairing(): Promise<void>;
   setSharing(on: boolean): Promise<void>;
   stopOutsideNode(): Promise<void>;
+  /** Ask ProxyHubb's servers now (the engine limits how often it really does). */
+  refreshAccount(): Promise<void>;
+  /** The node's checks, in plain words. Can take a minute. */
+  runDiagnosis(): Promise<Diagnosis>;
+  /** Write the support file and open its folder; resolves to where the file is. */
+  saveSupportDetails(): Promise<string>;
   openPairingLink(): Promise<void>;
   openDashboard(): Promise<void>;
   getAutostart(): Promise<boolean>;
@@ -27,6 +33,9 @@ const tauriIpc: Ipc = {
   cancelPairing: () => invoke<void>('cancel_pairing'),
   setSharing: (on) => invoke<void>('set_sharing', { on }),
   stopOutsideNode: () => invoke<void>('stop_outside_node'),
+  refreshAccount: () => invoke<void>('refresh_account'),
+  runDiagnosis: () => invoke<Diagnosis>('run_diagnosis'),
+  saveSupportDetails: () => invoke<string>('save_support_details'),
   openPairingLink: () => invoke<void>('open_pairing_link'),
   openDashboard: () => invoke<void>('open_dashboard'),
   getAutostart: () => invoke<boolean>('get_autostart'),

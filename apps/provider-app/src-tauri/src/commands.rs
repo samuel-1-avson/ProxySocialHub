@@ -16,6 +16,7 @@ use tauri::{AppHandle, Emitter, Manager, State, Wry};
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_opener::OpenerExt as _;
 
+use crate::diagnosis::Diagnosis;
 use crate::engine::AppCore;
 use crate::node::{is_allowed_link, locate_sidecar, Sidecar};
 use crate::state::{tooltip_for, tray_view_for, AppState, TrayView};
@@ -75,6 +76,10 @@ const DASHBOARD_URL: &str = "https://proxyhubb.com/dashboard/provider";
 /// How often the node is checked and the window refreshed.
 const SUPERVISE_INTERVAL: Duration = Duration::from_secs(5);
 
+/// How often the refresher looks at whether ProxyHubb's servers are due to be asked. The ask
+/// itself is rate-limited by the engine; this only sets how soon after sharing starts it happens.
+const REMOTE_CHECK_INTERVAL: Duration = Duration::from_secs(15);
+
 /// Environment variable that pins the folder the app keeps its settings in. Tauri resolves the
 /// config folder through the Windows Known Folder API, which ignores `%APPDATA%`, so without
 /// this a test run would record consent in a real profile.
@@ -126,6 +131,18 @@ pub fn spawn_supervisor(app: AppHandle, core: Arc<Core>) {
         let state = core.tick();
         publish(&app, state);
         thread::sleep(SUPERVISE_INTERVAL);
+    });
+}
+
+/// Ask ProxyHubb's servers about this computer when it is due, for the life of the app. A
+/// separate thread from the supervisor: an ask waits on the network for up to a minute, and the
+/// node must not go unwatched meanwhile.
+pub fn spawn_remote_refresher(app: AppHandle, core: Arc<Core>) {
+    thread::spawn(move || loop {
+        if core.refresh_remote(false) {
+            emit_state(&app, &core);
+        }
+        thread::sleep(REMOTE_CHECK_INTERVAL);
     });
 }
 
@@ -200,6 +217,41 @@ pub async fn set_sharing(
         let result = core.set_sharing(on);
         emit_state(&app, &core);
         result
+    })
+    .await?
+}
+
+/// The Refresh button: ask ProxyHubb's servers now (no more often than every few seconds).
+#[tauri::command]
+pub async fn refresh_account(app: AppHandle, core: State<'_, Arc<Core>>) -> Result<(), String> {
+    let core = Arc::clone(&core);
+    blocking(move || {
+        if core.refresh_remote(true) {
+            emit_state(&app, &core);
+        }
+    })
+    .await
+}
+
+/// "Check my connection": the node's checks, in plain words.
+#[tauri::command]
+pub async fn run_diagnosis(core: State<'_, Arc<Core>>) -> Result<Diagnosis, String> {
+    let core = Arc::clone(&core);
+    blocking(move || core.diagnose()).await?
+}
+
+/// "Save support details": write the support file and show it in its folder. Returns where it
+/// is. The window never supplies a path; failing to open the folder does not undo the save.
+#[tauri::command]
+pub async fn save_support_details(
+    app: AppHandle,
+    core: State<'_, Arc<Core>>,
+) -> Result<String, String> {
+    let core = Arc::clone(&core);
+    blocking(move || {
+        let file = core.save_support_details()?;
+        let _ = app.opener().reveal_item_in_dir(&file);
+        Ok(file.display().to_string())
     })
     .await?
 }
