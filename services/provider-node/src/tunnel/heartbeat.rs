@@ -6,9 +6,11 @@ use crate::ip::{
 };
 use crate::proofs::{HeartbeatPayload, ProviderProofEnvelope, ProviderSigner};
 use crate::stats::Collector;
+use crate::tunnel::offers::OfferSigner;
 use futures_util::{AsyncReadExt, AsyncWriteExt};
 use serde::Serialize;
 use std::time::{Duration, Instant};
+use tokio::sync::watch;
 use tracing::{debug, error, info, warn};
 
 /// Heartbeat payload sent to the gateway.
@@ -70,6 +72,8 @@ pub struct HeartbeatManager {
     last_api_heartbeat: Option<Instant>,
     provider_signer: Option<ProviderSigner>,
     provider_run_id: String,
+    /// Hands each refreshed gateway JWT to the offer signer (see `tunnel::offers`).
+    token_tx: Option<watch::Sender<String>>,
 }
 
 #[derive(Clone, Debug)]
@@ -117,14 +121,36 @@ impl HeartbeatManager {
             last_api_heartbeat: None,
             provider_signer,
             provider_run_id,
+            token_tx: None,
         }
     }
 
-    /// Run the heartbeat loop until cancelled or an error occurs.
-    ///
+    /// Run the heartbeat loop, and beside it the listing offer signer, until cancelled or a
+    /// heartbeat fails. The signer only runs while this node's tunnel is up, and it uses the
+    /// same gateway JWT this loop keeps fresh.
+    pub async fn run(mut self) {
+        let (token_tx, token_rx) = watch::channel(self.auth_token.clone());
+        let offers = OfferSigner::new(
+            &self.control_api_url,
+            &self.api_node_id,
+            self.provider_signer.clone(),
+            token_rx,
+        );
+        match offers {
+            Some(offers) => {
+                self.token_tx = Some(token_tx);
+                tokio::select! {
+                    _ = self.run_heartbeats() => {}
+                    _ = offers.run() => {}
+                }
+            }
+            None => self.run_heartbeats().await,
+        }
+    }
+
     /// Sends an immediate first heartbeat (tunnel + Control API) so dashboard
     /// Online / listing publish do not wait a full interval (~30s / ~120s).
-    pub async fn run(mut self) {
+    async fn run_heartbeats(&mut self) {
         if let Err(e) = self.send().await {
             error!("Heartbeat failed: {e}");
             return;
@@ -160,6 +186,9 @@ impl HeartbeatManager {
         let access = exchange_gateway_token(&self.control_api_url, self.api_key.trim()).await?;
         self.auth_token = access.token;
         self.auth_expires_at = Some(access.expires_at);
+        if let Some(tx) = &self.token_tx {
+            let _ = tx.send(self.auth_token.clone());
+        }
         info!(
             expires_in_secs = access.expires_in,
             "Refreshed gateway JWT for Control API heartbeats"

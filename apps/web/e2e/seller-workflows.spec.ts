@@ -54,6 +54,8 @@ async function setup(
     proofRequired?: boolean;
     qualityRequired?: boolean;
     assessmentFailure?: boolean;
+    /** How the bound node answers a signing request: it signs (default), refuses, or is not connected. */
+    nodeSigner?: "signs" | "refuses" | "offline";
   } = {},
 ) {
   const nodeKey = options.boundOffer ? await deriveBoundNodeKey() : null;
@@ -83,6 +85,7 @@ async function setup(
     settings: [] as Record<string, unknown>[],
     deletes: 0,
     protocol: 0,
+    signRequests: [] as Record<string, unknown>[],
   };
   await page.routeWebSocket("**/v1/ws**", (socket) => socket.close());
   await page.route("**/v1/**", async (route) => {
@@ -179,6 +182,54 @@ async function setup(
       status: options.assessmentFailure ? "failed" : "passed", tier: "Gold", quality_score: 96, price_per_gb: 1.188, confidence: 0.3, provisional: true,
       samples: 3, successful_samples: options.assessmentFailure ? 0 : 3, summary: options.assessmentFailure ? "The proxy did not complete all three HTTPS transfers." : "Three HTTPS transfers completed. Long-term uptime is not established.", valid_until: new Date(Date.now()+30*60*1000).toISOString()
     });
+    // The node signs offers itself (control API listing_node_signatures.go). The fixture
+    // stands in for the node: it answers with a proof for the node's own hotkey.
+    if (path === `/v1/provider/nodes/${node.id}/offer-signer`)
+      return send({ listening: options.nodeSigner !== "offline" });
+    if (path === "/v1/provider/listings/offer-signatures" && method === "POST") {
+      calls.signRequests.push(body());
+      return send(
+        {
+          id: "sig-1",
+          provider_node_id: node.id,
+          status: "pending",
+          node_listening: true,
+          expires_at: Math.floor(Date.now() / 1000) + 600,
+        },
+        201,
+      );
+    }
+    if (path === "/v1/provider/listings/offer-signatures/sig-1")
+      return send(
+        options.nodeSigner === "refuses"
+          ? {
+              id: "sig-1",
+              provider_node_id: node.id,
+              status: "refused",
+              node_listening: true,
+              expires_at: Math.floor(Date.now() / 1000) + 600,
+              error:
+                "Your node's signature did not match this offer (test). Update the node, or paste its signing key instead.",
+            }
+          : {
+              id: "sig-1",
+              provider_node_id: node.id,
+              status: "signed",
+              node_listening: true,
+              expires_at: Math.floor(Date.now() / 1000) + 600,
+              proof: {
+                message_type: "PROXYHUB_LISTING_OFFER",
+                version: "v1",
+                provider_node_id: node.id,
+                gateway_node_id: "seller-gateway-1",
+                provider_hotkey: nodeKey?.hotkey ?? "",
+                issued_at: Math.floor(Date.now() / 1000),
+                nonce: "node-nonce",
+                payload_hash: "node-payload-hash",
+                signature: "node-signature",
+              },
+            },
+      );
     if (path === "/v1/suggest-price") return send({ suggested_price: 0.99 });
     if (path === "/v1/listings/my")
       return send({ listings, total: listings.length, page: 1, limit: 20 });
@@ -510,7 +561,7 @@ test.describe("seller workflow migration", () => {
     expect(proof.payload_hash).toBeTruthy();
     expect(proof.signature).toBeTruthy();
   });
-  test("blocks bound offer edits until the node key is available", async ({
+  test("bound offer edits are signed by the node itself, with no key to paste", async ({
     page,
   }) => {
     const calls = await setup(page, { boundOffer: true, proofRequired: true });
@@ -519,37 +570,90 @@ test.describe("seller workflow migration", () => {
     });
     await page.getByRole("button", { name: "Edit offer" }).click();
     const modal = page.getByRole("dialog");
+    await expect(modal.getByText("signs this offer with its own key")).toBeVisible();
     await expect(
       modal.getByRole("heading", { name: "signing key" }),
-    ).toBeVisible();
-    await expect(
-      modal.getByRole("button", { name: "Save offer" }),
-    ).toBeDisabled();
-    await modal
-      .getByPlaceholder("Paste provider_signing_key from provider.toml")
-      .fill(calls.nodeKey!.secret);
-    await modal
-      .getByRole("button", { name: "Save key in this browser" })
-      .click();
-    await expect(
-      modal.getByRole("button", { name: "Save offer" }),
-    ).toBeEnabled();
+    ).toHaveCount(0);
     await modal
       .getByRole("textbox", { name: "Offer title" })
-      .fill("Recovered Accra capacity");
+      .fill("Node-signed Accra capacity");
     await modal.getByRole("button", { name: "Save offer" }).click();
     await expect(
-      page.getByRole("heading", { name: "Recovered Accra capacity" }),
+      page.getByRole("heading", { name: "Node-signed Accra capacity" }),
     ).toBeVisible();
+    // The exact change that was saved is what the node was asked to sign.
+    expect(calls.signRequests).toHaveLength(1);
+    expect(calls.signRequests[0].listing_id).toBe(offer.id);
     expect(calls.updates).toHaveLength(1);
-    const proof = calls.updates[0].proof as Record<string, unknown>;
-    expect(proof.provider_hotkey).toBe(calls.nodeKey!.hotkey);
-    expect(proof.signature).toBeTruthy();
+    const { proof, ...saved } = calls.updates[0];
+    expect(calls.signRequests[0].update).toEqual(saved);
+    expect((proof as Record<string, unknown>).provider_hotkey).toBe(
+      calls.nodeKey!.hotkey,
+    );
+    expect((proof as Record<string, unknown>).signature).toBe("node-signature");
   });
-  test("create flow moves on right after a key replaces a wrong one, without reloading", async ({
+  test("publishes a new offer signed by its node", async ({ page }) => {
+    const calls = await setup(page, { boundOffer: true, proofRequired: true });
+    await page.goto(`${base}/provider/listings/new`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page
+      .getByRole("textbox", { name: "Offer title" })
+      .fill("Accra node-signed offer");
+    await page
+      .getByLabel("Available bandwidth (GB)", { exact: true })
+      .fill("20");
+    await page.getByRole("button", { name: "Review listing" }).click();
+    await expect(page.getByText("signs this offer with its own key")).toBeVisible();
+    await expect(
+      page.getByPlaceholder("Paste provider_signing_key from provider.toml"),
+    ).toHaveCount(0);
+    await page.getByRole("button", { name: "Publish offer" }).click();
+    await expect.poll(() => calls.offers.length).toBe(1);
+    const { proof, ...published } = calls.offers[0];
+    expect(calls.signRequests).toHaveLength(1);
+    expect(calls.signRequests[0].listing).toEqual(published);
+    expect((proof as Record<string, unknown>).signature).toBe("node-signature");
+  });
+  test("offers the key fallback up front when the node is not connected", async ({
     page,
   }) => {
-    const calls = await setup(page, { boundOffer: true, proofRequired: true });
+    const calls = await setup(page, {
+      boundOffer: true,
+      proofRequired: true,
+      nodeSigner: "offline",
+    });
+    await page.goto(`${base}/provider/listings/new`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page
+      .getByRole("textbox", { name: "Offer title" })
+      .fill("Accra offline node offer");
+    await page
+      .getByLabel("Available bandwidth (GB)", { exact: true })
+      .fill("20");
+    await page.getByRole("button", { name: "Review listing" }).click();
+    await expect(page.getByText("not connected right now")).toBeVisible();
+    // No failed attempt needed: the fallback and where to find the file are shown at once.
+    await expect(page.getByText("Where is provider.toml?")).toBeVisible();
+    await page
+      .getByPlaceholder("Paste provider_signing_key from provider.toml")
+      .fill(calls.nodeKey!.secret);
+    await page.getByRole("button", { name: "Save key in this browser" }).click();
+    await page.getByRole("button", { name: "Publish offer" }).click();
+    await expect.poll(() => calls.offers.length).toBe(1);
+    const proof = calls.offers[0].proof as Record<string, unknown>;
+    expect(proof.provider_hotkey).toBe(calls.nodeKey!.hotkey);
+    expect(calls.signRequests).toHaveLength(0);
+  });
+  test("falls back to a pasted key when the node cannot sign, ignoring another node's key", async ({
+    page,
+  }) => {
+    const calls = await setup(page, {
+      boundOffer: true,
+      proofRequired: true,
+      nodeSigner: "refuses",
+    });
     // Another node's key was saved last, so it sits in the legacy global slot.
     await page.addInitScript(() =>
       localStorage.setItem(
@@ -568,8 +672,14 @@ test.describe("seller workflow migration", () => {
       .fill("20");
     await page.getByRole("button", { name: "Review listing" }).click();
     const publish = page.getByRole("button", { name: "Publish offer" });
-    // That other key does not belong to this node, so signing is blocked.
-    await expect(publish).toBeDisabled();
+    // That other key does not belong to this node, so the node is asked instead.
+    await publish.click();
+    await expect(page.getByText("did not match this offer")).toBeVisible();
+    expect(calls.offers).toHaveLength(0);
+    // Its refusal opens the way out: paste this node's own key.
+    await expect(
+      page.getByRole("heading", { name: "signing key" }),
+    ).toBeVisible();
     await page
       .getByPlaceholder("Paste provider_signing_key from provider.toml")
       .fill(calls.nodeKey!.secret);
@@ -579,6 +689,9 @@ test.describe("seller workflow migration", () => {
     await expect.poll(() => calls.offers.length).toBe(1);
     const proof = calls.offers[0].proof as Record<string, unknown>;
     expect(proof.provider_hotkey).toBe(calls.nodeKey!.hotkey);
+    // Signed in this browser with the pasted key, not by the node.
+    expect(proof.signature).not.toBe("node-signature");
+    expect(calls.signRequests).toHaveLength(1);
   });
   test("revokes credentials only after the in-app review and clears stale connection tokens", async ({
     page,

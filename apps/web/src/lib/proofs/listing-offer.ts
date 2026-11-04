@@ -175,8 +175,11 @@ export async function signListingOfferProof(
     };
 }
 
-/** Which credential signs the listing proof, or 'none' when the UI must offer key recovery. */
-export type ListingSignerKind = 'local-secret' | 'wallet' | 'dev' | 'none';
+/**
+ * Which credential signs the listing proof. 'node' asks the node itself to sign (it holds
+ * provider_signing_key); 'none' means no signer is possible and the UI offers key recovery.
+ */
+export type ListingSignerKind = 'local-secret' | 'wallet' | 'dev' | 'node' | 'none';
 
 export interface ListingSignerInput {
     /** A browser-stored provider secret exists for this node. */
@@ -193,9 +196,10 @@ export interface ListingSignerInput {
 
 /**
  * Pick the listing-proof signer. A browser secret matching the node hotkey wins, then a
- * connected wallet matching it, then dev server signing. 'none' means the caller must
- * show key recovery (CLI-configured nodes keep their secret in provider.toml, outside
- * this browser) or throw when the policy requires proof.
+ * connected wallet matching it, then dev server signing, then the node itself: a node that
+ * registered a hotkey holds the matching key in provider.toml and signs on request
+ * (control API listing_node_signatures.go). 'none' is left only for a node that never
+ * reported a hotkey; the caller shows key recovery or throws when proof is required.
  */
 export function resolveListingSigner(input: ListingSignerInput): ListingSignerKind {
     const nodeHotkey = input.nodeHotkey.trim();
@@ -212,6 +216,9 @@ export function resolveListingSigner(input: ListingSignerInput): ListingSignerKi
     }
     if (input.devServerSigning) {
         return 'dev';
+    }
+    if (nodeHotkey) {
+        return 'node';
     }
     return 'none';
 }

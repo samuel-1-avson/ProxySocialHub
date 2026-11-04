@@ -25,6 +25,7 @@
     "test:e2e:seller": "playwright test e2e/seller-workflows.spec.ts e2e/workspace.spec.ts --project=chromium --workers=1",
     "test:listing-display": "node scripts/listing-display-contract.mjs",
     "test:listing-signer": "node --test scripts/listing-signer.test.mjs",
+    "test:node-offer-signature": "node --test scripts/node-offer-signature.test.mjs",
     "test:node-status": "node --test scripts/node-status.test.mjs",
     "test:listing-masking": "node --test scripts/listing-masking.test.mjs",
     "test:order-status": "node scripts/order-status-contract.mjs",

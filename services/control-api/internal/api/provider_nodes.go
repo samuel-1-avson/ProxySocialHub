@@ -42,6 +42,13 @@ func RegisterProviderNodeRoutes(rg *gin.RouterGroup) {
 	rg.POST("/provider/nodes/:id/ping", pingProviderNode)
 	rg.PUT("/provider/nodes/:id/location", setNodeLocation)
 	rg.POST("/provider/listings/sign-offer", signListingOfferDev)
+	// Node-signed offers (listing_node_signatures.go). The browser routes sit outside
+	// /provider/nodes/ so a node token cannot reach them; the node routes sit inside it.
+	rg.POST("/provider/listings/offer-signatures", RateLimitMiddleware(), requestOfferSignature)
+	rg.GET("/provider/listings/offer-signatures/:id", getOfferSignature)
+	rg.GET("/provider/nodes/:id/offer-signer", getOfferSignerStatus)
+	rg.GET("/provider/nodes/:id/offer-signatures", pollOfferSignatures)
+	rg.POST("/provider/nodes/:id/offer-signatures/:rid", answerOfferSignature)
 }
 
 // getMyNodes returns user's provider nodes
