@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/ratelimiter"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -30,17 +32,59 @@ func RegisterForumPublicRoutes(rg *gin.RouterGroup) {
 
 // RegisterForumProtectedRoutes registers forum routes that require a user session.
 func RegisterForumProtectedRoutes(rg *gin.RouterGroup) {
-	rg.POST("/forum/threads", RateLimitWithConfig(10, time.Minute), createThread)
-	rg.POST("/forum/threads/:id/posts", RateLimitWithConfig(30, time.Minute), createPost)
+	rg.POST("/forum/threads", forumWriteLimiter("thread", forumThreadsPerMinute), createThread)
+	rg.POST("/forum/threads/:id/posts", forumWriteLimiter("reply", forumRepliesPerMinute), createPost)
 	rg.PATCH("/forum/posts/:id", updatePost)
 	rg.DELETE("/forum/posts/:id", deletePost)
-	rg.POST("/forum/posts/:id/vote", RateLimitWithConfig(60, time.Minute), votePost)
-	rg.POST("/forum/threads/:id/vote", RateLimitWithConfig(60, time.Minute), voteThread)
+	rg.POST("/forum/posts/:id/vote", forumWriteLimiter("post_vote", forumVotesPerMinute), votePost)
+	rg.POST("/forum/threads/:id/vote", forumWriteLimiter("thread_vote", forumVotesPerMinute), voteThread)
 	rg.POST("/forum/threads/:id/report", RateLimitWithConfig(10, time.Minute), reportThread)
 	rg.POST("/forum/posts/:id/report", RateLimitWithConfig(10, time.Minute), reportPost)
 	rg.POST("/forum/posts/:id/solution", markPostSolution)
 	rg.GET("/forum/my-posts", getMyPosts)
 	rg.GET("/forum/my-threads", getMyThreads)
+	rg.GET("/forum/following", getFollowingThreads)
+}
+
+// Discussions work like a timeline: a post is short text with an optional
+// title and an optional topic. Moderators keep the long limits so
+// announcements and guides still fit.
+const (
+	forumPostMaxRunes            = 500
+	forumTitleMaxRunes           = 200
+	forumModeratorThreadMaxRunes = 20000
+	forumModeratorReplyMaxRunes  = 10000
+	forumDefaultCategorySlug     = "general"
+	forumLabelMaxRunes           = 80
+
+	forumThreadsPerMinute = 10
+	forumRepliesPerMinute = 30
+	forumVotesPerMinute   = 120
+)
+
+// forumWriteLimiter is a per-minute limit private to one forum write route.
+//
+// RateLimitWithConfig keys only by caller and reads c.Get("userID"), which the
+// session middleware may not set, so every forum write used to share one
+// budget, possibly per shared edge address. Liking a few posts could then
+// block the next post. This limiter keys each route by the signed-in user
+// (GetUserID), like pairingLimiter in provider_pairing.go.
+func forumWriteLimiter(route string, perMinute int) gin.HandlerFunc {
+	return ratelimiter.AdvancedRateLimit(ratelimiter.AdvancedRateLimitConfig{
+		Algorithm: ratelimiter.SlidingWindow,
+		Limit:     perMinute,
+		Window:    time.Minute,
+		KeyFunc:   forumWriteLimiterKey(route),
+	})
+}
+
+func forumWriteLimiterKey(route string) func(c *gin.Context) string {
+	return func(c *gin.Context) string {
+		if uid, ok := GetUserID(c); ok {
+			return "forum_write:" + route + ":user:" + uid.String()
+		}
+		return "forum_write:" + route + ":ip:" + c.ClientIP()
+	}
 }
 
 // RegisterForumRoutes registers all community forum routes on the given group.
@@ -153,7 +197,7 @@ func getCategoryThreads(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"category": category,
-		"threads":  forumThreadDTOs(threads),
+		"threads":  decoratedForumThreads(c, threads),
 		"total":    total,
 		"page":     page,
 		"limit":    limit,
@@ -220,7 +264,7 @@ func getThreadPosts(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"posts": forumPostDTOs(posts),
+		"posts": decoratedForumPosts(c, posts),
 		"total": totalPosts,
 		"page":  page,
 		"limit": limit,
@@ -261,13 +305,13 @@ func renderThreadWithPosts(c *gin.Context, thread models.ForumThread, incrementV
 
 	var solutionDTO *forumPostDTO
 	if solutionPost != nil {
-		dto := forumPostDTOFrom(*solutionPost)
+		dto := decoratedForumPosts(c, []models.ForumPost{*solutionPost})[0]
 		solutionDTO = &dto
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"thread":        forumThreadDTOFrom(thread),
-		"posts":         forumPostDTOs(posts),
+		"thread":        decoratedForumThreads(c, []models.ForumThread{thread})[0],
+		"posts":         decoratedForumPosts(c, posts),
 		"total_posts":   totalPosts,
 		"page":          page,
 		"limit":         limit,
@@ -302,13 +346,45 @@ func loadThreadPosts(c *gin.Context, threadID uuid.UUID) ([]models.ForumPost, in
 	return posts, totalPosts, page, limit, nil
 }
 
+// CreateThreadRequest is a new post. Only the text is required: a post without
+// a title shows its text alone, and a post without a topic goes to General.
 type CreateThreadRequest struct {
-	CategorySlug string `json:"category_slug" binding:"required"`
-	Title        string `json:"title" binding:"required"`
-	Content      string `json:"content" binding:"required"`
+	CategorySlug string `json:"category_slug"`
+	Title        string `json:"title"`
+	Content      string `json:"content"`
 }
 
-// createThread creates a new forum thread
+// resolvePostCategory finds the topic a new post goes to. An empty slug means
+// General; if General is missing, the first open topic is used instead.
+func resolvePostCategory(slug string) (models.ForumCategory, bool) {
+	var category models.ForumCategory
+	slug = strings.TrimSpace(slug)
+	if slug != "" {
+		err := db.Social().Where("slug = ?", slug).First(&category).Error
+		return category, err == nil
+	}
+	if err := db.Social().Where("slug = ?", forumDefaultCategorySlug).First(&category).Error; err == nil {
+		return category, true
+	}
+	err := db.Social().Where("is_locked = ?", false).
+		Order("sort_order ASC, created_at ASC").First(&category).Error
+	return category, err == nil
+}
+
+// forumThreadLabel is the short name of a post for notifications, the feed and
+// links: its title, or else the start of its first line.
+func forumThreadLabel(title, content string) string {
+	if title = strings.TrimSpace(title); title != "" {
+		return title
+	}
+	line := strings.TrimSpace(content)
+	if i := strings.IndexAny(line, "\r\n"); i >= 0 {
+		line = strings.TrimSpace(line[:i])
+	}
+	return truncateRunes(line, forumLabelMaxRunes)
+}
+
+// createThread publishes a new post.
 func createThread(c *gin.Context) {
 	userID, ok := GetUserID(c)
 	if !ok {
@@ -322,8 +398,27 @@ func createThread(c *gin.Context) {
 		return
 	}
 
-	var category models.ForumCategory
-	if err := db.Social().Where("slug = ?", req.CategorySlug).First(&category).Error; err != nil {
+	title := strings.TrimSpace(req.Title)
+	content := strings.TrimSpace(req.Content)
+	maxContent := forumPostMaxRunes
+	if isPlatformModerator(c) {
+		maxContent = forumModeratorThreadMaxRunes
+	}
+	if content == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Write something before you post"})
+		return
+	}
+	if n := len([]rune(content)); n > maxContent {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Posts can be at most %d characters (this one has %d)", maxContent, n)})
+		return
+	}
+	if len([]rune(title)) > forumTitleMaxRunes {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Titles can be at most %d characters", forumTitleMaxRunes)})
+		return
+	}
+
+	category, found := resolvePostCategory(req.CategorySlug)
+	if !found {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Category not found"})
 		return
 	}
@@ -333,22 +428,11 @@ func createThread(c *gin.Context) {
 		return
 	}
 
-	title := strings.TrimSpace(req.Title)
-	content := strings.TrimSpace(req.Content)
-	if len([]rune(title)) < 5 || len([]rune(title)) > 200 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Title must be 5–200 characters"})
-		return
-	}
-	if len([]rune(content)) < 10 || len([]rune(content)) > 20000 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Content must be 10–20000 characters"})
-		return
-	}
-
 	thread := models.ForumThread{
 		CategoryID: category.ID,
 		AuthorID:   userID,
 		Title:      title,
-		Slug:       slugify(title),
+		Slug:       slugify(forumThreadLabel(title, content)),
 		Content:    content,
 	}
 
@@ -366,7 +450,7 @@ func createThread(c *gin.Context) {
 			models.FeedEventNewThread,
 			"thread",
 			&thread.ID,
-			"posted in "+category.Name+": "+thread.Title,
+			"posted in "+category.Name+": "+forumThreadLabel(thread.Title, thread.Content),
 			map[string]interface{}{
 				"thread_id": thread.ID,
 				"slug":      thread.Slug,
@@ -378,6 +462,23 @@ func createThread(c *gin.Context) {
 	}()
 
 	c.JSON(http.StatusCreated, forumThreadDTOFrom(thread))
+}
+
+// forumReplyContentError checks a reply's text against the same short-post
+// limit as new posts (moderators keep the long limit). It returns "" when the
+// text is fine.
+func forumReplyContentError(c *gin.Context, content string) string {
+	maxContent := forumPostMaxRunes
+	if isPlatformModerator(c) {
+		maxContent = forumModeratorReplyMaxRunes
+	}
+	if content == "" {
+		return "Write something before you reply"
+	}
+	if n := len([]rune(content)); n > maxContent {
+		return fmt.Sprintf("Replies can be at most %d characters (this one has %d)", maxContent, n)
+	}
+	return ""
 }
 
 type CreatePostRequest struct {
@@ -417,8 +518,8 @@ func createPost(c *gin.Context) {
 	}
 
 	content := strings.TrimSpace(req.Content)
-	if len([]rune(content)) < 1 || len([]rune(content)) > 10000 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Content must be 1–10000 characters"})
+	if msg := forumReplyContentError(c, content); msg != "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": msg})
 		return
 	}
 
@@ -498,8 +599,8 @@ func updatePost(c *gin.Context) {
 	}
 
 	content := strings.TrimSpace(req.Content)
-	if len([]rune(content)) < 1 || len([]rune(content)) > 10000 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Content must be 1–10000 characters"})
+	if msg := forumReplyContentError(c, content); msg != "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": msg})
 		return
 	}
 
@@ -743,7 +844,11 @@ func votePost(c *gin.Context) {
 	tx.Commit()
 
 	db.Social().First(&post, "id = ?", postID)
-	c.JSON(http.StatusOK, gin.H{"upvotes": post.Upvotes, "downvotes": post.Downvotes})
+	c.JSON(http.StatusOK, gin.H{
+		"upvotes":     post.Upvotes,
+		"downvotes":   post.Downvotes,
+		"viewer_vote": forumViewerVote("post_id", userID, postID),
+	})
 }
 
 // voteThread handles upvoting/downvoting a thread
@@ -825,7 +930,11 @@ func voteThread(c *gin.Context) {
 	tx.Commit()
 
 	db.Social().First(&thread, "id = ?", threadID)
-	c.JSON(http.StatusOK, gin.H{"upvotes": thread.Upvotes, "downvotes": thread.Downvotes})
+	c.JSON(http.StatusOK, gin.H{
+		"upvotes":     thread.Upvotes,
+		"downvotes":   thread.Downvotes,
+		"viewer_vote": forumViewerVote("thread_id", userID, threadID),
+	})
 }
 
 // listForumThreads serves one paginated, stably ordered thread collection.
@@ -860,7 +969,7 @@ func listForumThreads(c *gin.Context, order string, applyFilter func(*gorm.DB) *
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"threads":  forumThreadDTOs(threads),
+		"threads":  decoratedForumThreads(c, threads),
 		"total":    total,
 		"page":     page,
 		"limit":    limit,
@@ -885,15 +994,20 @@ func getUnansweredThreads(c *gin.Context) {
 	})
 }
 
+var slugUnsafe = regexp.MustCompile("[^a-z0-9]+")
+
+// slugify turns a title into a URL slug. Short posts such as "gm" or an emoji
+// can repeat, so the slug ends with the time and a short random part.
 func slugify(s string) string {
-	s = strings.ToLower(s)
-	reg := regexp.MustCompile("[^a-z0-9]+")
-	s = reg.ReplaceAllString(s, "-")
+	s = slugUnsafe.ReplaceAllString(strings.ToLower(s), "-")
 	s = strings.Trim(s, "-")
 	if len(s) > 50 {
-		s = s[:50]
+		s = strings.TrimRight(s[:50], "-")
 	}
-	return s + "-" + time.Now().Format("20060102150405")
+	if s == "" {
+		s = "post"
+	}
+	return s + "-" + time.Now().Format("20060102150405") + "-" + uuid.NewString()[:6]
 }
 
 // searchForum searches threads by title or content
@@ -928,7 +1042,7 @@ func searchForum(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"threads": forumThreadDTOs(threads),
+		"threads": decoratedForumThreads(c, threads),
 		"total":   total,
 		"page":    page,
 		"limit":   limit,
@@ -963,7 +1077,7 @@ func getMyPosts(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"posts": forumPostDTOs(posts),
+		"posts": decoratedForumPosts(c, posts),
 		"total": total,
 		"page":  page,
 		"limit": limit,
@@ -997,10 +1111,24 @@ func getMyThreads(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"threads": forumThreadDTOs(threads),
-		"total":   total,
-		"page":    page,
-		"limit":   limit,
+		"threads":  decoratedForumThreads(c, threads),
+		"total":    total,
+		"page":     page,
+		"limit":    limit,
+		"has_more": int64(page*limit) < total,
+	})
+}
+
+// getFollowingThreads is the Following tab: posts from people the signed-in
+// user follows, newest first.
+func getFollowingThreads(c *gin.Context) {
+	userID, ok := GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+	listForumThreads(c, "created_at DESC, id DESC", func(q *gorm.DB) *gorm.DB {
+		return q.Where("author_id IN (SELECT following_id FROM follows WHERE follower_id = ?)", userID)
 	})
 }
 
@@ -1031,7 +1159,7 @@ func reportThread(c *gin.Context) {
 	}
 
 	// Validate reason
-	validReasons := map[string]bool{"spam": true, "harassment": true, "inappropriate": true, "other": true}
+	validReasons := map[string]bool{"spam": true, "harassment": true, "inappropriate": true, "offtopic": true, "other": true}
 	if !validReasons[req.Reason] {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid reason"})
 		return
@@ -1082,7 +1210,7 @@ func reportPost(c *gin.Context) {
 	}
 
 	// Validate reason
-	validReasons := map[string]bool{"spam": true, "harassment": true, "inappropriate": true, "other": true}
+	validReasons := map[string]bool{"spam": true, "harassment": true, "inappropriate": true, "offtopic": true, "other": true}
 	if !validReasons[req.Reason] {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid reason"})
 		return

@@ -1,13 +1,20 @@
-import ForumHome from "@/app/community/forum/page";
-import ForumPopular from "@/app/community/forum/popular/page";
-import ForumRecent from "@/app/community/forum/recent/page";
-import ForumUnanswered from "@/app/community/forum/unanswered/page";
-import ForumMyPosts from "@/app/community/forum/my-posts/page";
+import { ForumFeed, type FeedView } from "@/components/community/ForumFeed";
 
 type SearchParams = Promise<{
   sort?: string | string[];
   filter?: string | string[];
 }>;
+
+function first(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+const FILTER_VIEWS: Record<string, FeedView> = {
+  mine: "mine",
+  following: "following",
+  questions: "questions",
+  unanswered: "unanswered",
+};
 
 export default async function HelpForumPage({
   searchParams,
@@ -15,12 +22,9 @@ export default async function HelpForumPage({
   searchParams: SearchParams;
 }) {
   const params = await searchParams;
-  const sort = Array.isArray(params.sort) ? params.sort[0] : params.sort;
-  const filter = Array.isArray(params.filter) ? params.filter[0] : params.filter;
-
-  if (filter === "mine") return <ForumMyPosts />;
-  if (filter === "unanswered") return <ForumUnanswered />;
-  if (sort === "popular") return <ForumPopular />;
-  if (sort === "recent") return <ForumRecent />;
-  return <ForumHome />;
+  const filter = first(params.filter);
+  const sort = first(params.sort);
+  const view: FeedView =
+    (filter && FILTER_VIEWS[filter]) || (sort === "popular" ? "popular" : "latest");
+  return <ForumFeed key={view} view={view} />;
 }

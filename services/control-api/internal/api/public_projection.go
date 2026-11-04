@@ -56,6 +56,11 @@ type forumThreadDTO struct {
 	Category     *models.ForumCategory     `json:"category,omitempty"`
 	Author       *models.UserPublicProfile `json:"author,omitempty"`
 	LastReplier  *models.UserPublicProfile `json:"last_replier,omitempty"`
+	// ViewerVote is the signed-in viewer's own vote (1 = liked); 0 or absent
+	// for anonymous viewers.
+	ViewerVote int `json:"viewer_vote,omitempty"`
+	// HasSolution says a reply has been accepted as the answer.
+	HasSolution bool `json:"has_solution,omitempty"`
 }
 
 func forumThreadDTOFrom(t models.ForumThread) forumThreadDTO {
@@ -105,6 +110,7 @@ type forumPostDTO struct {
 	CreatedAt  time.Time                 `json:"created_at"`
 	UpdatedAt  time.Time                 `json:"updated_at"`
 	Author     *models.UserPublicProfile `json:"author,omitempty"`
+	ViewerVote int                       `json:"viewer_vote,omitempty"`
 }
 
 func forumPostDTOFrom(p models.ForumPost) forumPostDTO {
