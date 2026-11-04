@@ -277,6 +277,15 @@ jobs:
     - name: Install Playwright Chromium
       run: npx playwright install --with-deps chromium
 
+    - name: Hubbie account isolation and security checks
+      run: |
+        npm run test:assistant
+        npx playwright test e2e/assistant.spec.ts --project=chromium --workers=1
+      env:
+        JWT_SECRET: "test-jwt-secret-for-ci-min-32-chars-long"
+        TEST_JWT_SECRET: "test-jwt-secret-for-ci-min-32-chars-long"
+        PLAYWRIGHT_E2E_AUTH_BYPASS: "1"
+
     - name: Marketplace E2E (map, browse, moderation)
       run: npm run test:e2e:marketplace
       env:
