@@ -698,6 +698,57 @@ test("the approval endpoint requires auth, honors the kill switch, and fails clo
   finally { delete process.env.ASSISTANT_ACTIONS_ENABLED; }
 });
 
+test("quality-gated listings prepare at the assessed price and publish with the assessment id", async () => {
+  let polls = 0;
+  const { fetchImpl, calls } = actionFetch({
+    "/v1/provider/nodes": () => json({ nodes: [{ id: "node-1", name: "Home node", country: "GH", status: "online" }] }),
+    "/v1/listings/proof-policy": () => json({ required: true, quality_assessment_required: true }),
+    "POST /v1/proxy-assessments": () => json({ id: "qa-1", status: "queued" }, 202),
+    "/v1/proxy-assessments/qa-1": () => json(++polls < 2 ? { id: "qa-1", status: "running" } : { id: "qa-1", status: "passed", price_per_gb: 1.2345, tier: "Standard" }),
+    "POST /v1/provider/listings/offer-signatures": () => json({ id: "sig-9", status: "signed", node_listening: true, proof: { signature: "proof-qa" } }, 201),
+    "POST /v1/listings": () => json({ id: "lst-qa", status: "active" }, 201),
+  });
+  const context = ctx(fetchImpl, "provider");
+  const prepared = await actions.prepareListing(context, listingArgs);
+  assert.equal(prepared.ok, true);
+  assert.equal(prepared.data.price_per_gb, 1.2345, "card carries the assessed price, not the asked $3");
+  assert.equal(prepared.data.quality_assessed, true);
+  assert.match(prepared.action.summary.join(" "), /quality-assessed price/);
+  const result = await actions.executeDraft(context, prepared.action.draftId);
+  assert.equal(result.status, "done");
+  const create = calls.find((c) => c.path === "/v1/listings" && c.method === "POST");
+  assert.equal(create.body.quality_assessment_id, "qa-1");
+  assert.equal(create.body.price_per_gb, 1.2345);
+  const queued = calls.find((c) => c.path === "/v1/proxy-assessments" && c.method === "POST");
+  assert.equal(queued.body.rotation_type, "static");
+  assert.equal(queued.body.country, "GH");
+});
+
+test("draft store survives separate route module loads, and masked countries are never truncated", async () => {
+  // Next bundles route handlers separately but shares one process global;
+  // simulate that by evaluating the module twice in one VM context.
+  const deps = { "../assistant": knowledge, "./assistant-platform": platform };
+  const sandbox = {
+    exports: {}, process, fetch, Response, Request, Headers, AbortSignal, AbortController, URL, URLSearchParams,
+    TextDecoder, TextEncoder, ReadableStream, Buffer, console, setTimeout, clearTimeout,
+    require(name) { if (!(name in deps)) throw new Error(`Unexpected dependency ${name}`); return deps[name]; },
+  };
+  const context = vm.createContext(sandbox);
+  const code = ts.transpileModule(readFileSync(new URL("../src/lib/server/assistant-actions.ts", import.meta.url), "utf8"), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const evaluate = () => {
+    sandbox.__nextExports = {};
+    vm.runInContext("(() => { const exports = __nextExports;\n" + code + "\n})();", context);
+    return sandbox.__nextExports;
+  };
+  const first = evaluate();
+  const second = evaluate();
+  assert.equal(second.getAssistantDraftStore(), first.getAssistantDraftStore());
+  const masked = await tools.executeAssistantTool("find_listings", { country: "", proxy_type: "", max_price: null }, ctx(async () => json({ listings: [{ id: "lst-m", title: "Masked", country: "Hidden until session", price_per_gb: 1 }] })));
+  assert.equal(masked.data.listings[0].country, null);
+});
+
 test("assistant rejects cross-site fetches and non-JSON authenticated requests", async () => {
   const route = routeModule();
   assert.equal((await route.POST(request(undefined, { "sec-fetch-site": "cross-site" }))).status, 403);
