@@ -189,19 +189,16 @@ test("desktop dock shifts the page and preserves chat through minimize and navig
   await page.screenshot({ path: testInfo.outputPath("hubbie-desktop.png"), animations: "disabled" });
 });
 
-test("navigation shortcuts open the panel without changing the workspace URL", async ({ page }) => {
+test("the floating launcher is the only workspace AI entry point and bookmarks still open the panel", async ({ page }) => {
   await mockAI(page);
   await page.goto("/app/assistant");
   await expect(page).toHaveURL(/\/app$/);
   await expect(page.getByRole("dialog", { name: "Hubbie AI assistant" })).toBeVisible();
   await scope(page).getByRole("button", { name: "Close Hubbie" }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
-  await page.getByRole("navigation", { name: "Workspace utilities" }).getByRole("button", { name: "Hubbie AI" }).click();
-  await expect(page.getByRole("dialog")).toBeVisible();
-  await expect(page).toHaveURL(/\/app$/);
-  await scope(page).getByRole("button", { name: "Close Hubbie" }).click();
-  await expect(page.getByRole("dialog")).not.toBeVisible();
-  await page.getByRole("button", { name: "Open Hubbie AI panel", exact: true }).click();
+  await expect(page.locator(".workspace-header").getByRole("button", { name: /hubbie/i })).toHaveCount(0);
+  await expect(page.getByRole("navigation", { name: "Workspace utilities" }).getByRole("button", { name: /hubbie/i })).toHaveCount(0);
+  await page.getByRole("button", { name: /^Open Hubbie AI assistant/ }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await expect(page).toHaveURL(/\/app$/);
 });
@@ -257,9 +254,7 @@ test("mobile account navigation fits and the launcher clears the bottom tabs", a
   await expect(scope(page)).toBeVisible();
   await scope(page).getByRole("button", { name: "Close Hubbie" }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
-  const shortcut = await page.getByRole("button", { name: "Open Hubbie AI panel", exact: true }).boundingBox();
   const account = await page.getByRole("button", { name: "Account menu", exact: true }).boundingBox();
-  expect(shortcut!.x + shortcut!.width).toBeLessThanOrEqual(390);
   expect(account!.x + account!.width).toBeLessThanOrEqual(390);
   const launcher = await page.getByRole("button", { name: /^Open Hubbie AI assistant/ }).boundingBox();
   const tabs = await page.getByRole("navigation", { name: "Mobile primary" }).boundingBox();
