@@ -25,7 +25,7 @@ The build deliberately supplied an empty `NEXT_PUBLIC_GOOGLE_CLIENT_ID`. The bui
 - `/login`, `/register`, `/api/auth/google-config`, and `/v1/auth/capabilities` return HTTP 200. Runtime client ID matches the API. Capabilities report both Google sign-in and managed-wallet sign-up available.
 - A deliberately invalid token sent through the production `/v1/auth/google` route returned HTTP 401 with the expected sign-in error. This did not create a production account or wallet.
 - Real Google-hosted controls render on both live account pages. In installed Brave, clicking the sign-in control opened Google's account chooser for `proxyhubb.com` with the expected client ID and origin. No account was selected by the agent.
-- The embedded test browser could render Google's button but its FedCM request failed with a network error. The installed browser's normal Google popup reached the account chooser successfully. The account-specific Google consent and completed production session require the user to finish sign-in.
+- The embedded test browser could render Google's button but its FedCM request failed with a network error. The installed browser's normal Google popup reached the account chooser successfully. The user then completed Google sign-in and reported success. Browser verification confirmed navigation to `https://proxyhubb.com/dashboard` with the `Overview` heading.
 
 GitHub Actions jobs did not start: the check annotation states that the account is locked due to a billing issue. Cloud Build and the local checks supplied the deployment validation; GitHub CI is not recorded as passing.
 
@@ -33,4 +33,4 @@ GitHub Actions jobs did not start: the check annotation states that the account 
 
 Root-only original container metadata is retained at `/var/backups/proxyhubb-google-runtime/206f1a00009b14fd72932a643a66839c875ec040/before-private.json`; it contains credentials and must not be published. The safe `verification.json` records the live revision, image ID, health, preserved containers, and environment comparison.
 
-Previous frontend image ID: `sha256:fa284fd4f63a0f87d19e0e3efc6a1a25efe4c053c1f21a6c2cdd92fe31a619cc`. A rollback should change only the web image using its existing Compose overlay chain. No database migration, wallet operation, or on-chain transaction was part of this release.
+Previous frontend image ID: `sha256:fa284fd4f63a0f87d19e0e3efc6a1a25efe4c053c1f21a6c2cdd92fe31a619cc`. A rollback should change only the web image using its existing Compose overlay chain. The deployment itself required no database migration or on-chain transaction.
