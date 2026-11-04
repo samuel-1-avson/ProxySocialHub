@@ -144,14 +144,20 @@ export function getExtensionFirefoxAddonsUrl(): string {
     return (process.env.NEXT_PUBLIC_EXTENSION_AMO_URL || '').trim();
 }
 
+export const CHROME_EXTENSION_RELEASE_URL =
+    'https://github.com/samuel-1-avson/ProxySocialHub/releases/tag/extension-v0.7.0';
+export const CHROME_EXTENSION_DOWNLOAD_URL =
+    'https://github.com/samuel-1-avson/ProxySocialHub/releases/download/extension-v0.7.0/proxyhubb-extension-chrome-0.7.0.zip';
+
 /**
- * Where this browser installs the extension: its store page, or the test
- * build served next to a tunnelled dev site. Empty when there is none.
+ * Prefer an approved store listing, then a local test build when enabled.
+ * Chrome can otherwise install the published GitHub preview.
  */
 export function getExtensionInstallUrl(browser: BrowserFamily): string {
     const testBuilds = process.env.NEXT_PUBLIC_EXTENSION_TEST_DOWNLOAD === '1';
     if (browser === 'chrome') {
-        return getExtensionChromeWebStoreUrl() || (testBuilds ? '/proxyhubb-extension-chrome.zip' : '');
+        return getExtensionChromeWebStoreUrl()
+            || (testBuilds ? '/proxyhubb-extension-chrome.zip' : CHROME_EXTENSION_DOWNLOAD_URL);
     }
     if (browser === 'firefox') {
         return getExtensionFirefoxAddonsUrl() || (testBuilds ? '/proxyhubb-extension-firefox.zip' : '');

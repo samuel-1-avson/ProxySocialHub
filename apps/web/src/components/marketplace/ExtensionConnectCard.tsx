@@ -5,6 +5,8 @@ import { CheckCircle2, Puzzle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { startExtensionPair } from '@/lib/api/extension';
 import {
+    CHROME_EXTENSION_DOWNLOAD_URL,
+    CHROME_EXTENSION_RELEASE_URL,
     clearStoredUnpackedExtensionId,
     detectBrowser,
     extensionDevToolsEnabled,
@@ -64,7 +66,9 @@ export function ExtensionConnectCard({ orderId, listingTitle = '', compact = fal
     const installed = Boolean(ping?.ok && ping.installed);
     const isOn = connected || (ping?.connectionState === 'on' && ping.orderId === orderId);
     const installUrl = getExtensionInstallUrl(browser);
-    const testBuild = installUrl.endsWith('.zip');
+    const unpackedBuild = installUrl.endsWith('.zip');
+    const localDownload = installUrl.startsWith('/');
+    const releasePreview = installUrl === CHROME_EXTENSION_DOWNLOAD_URL;
 
     const applyPing = useCallback(
         (res: ExtensionPingResponse | null) => {
@@ -184,6 +188,8 @@ export function ExtensionConnectCard({ orderId, listingTitle = '', compact = fal
         hint = 'One click and every site you open in this browser uses this proxy.';
     } else if (!canUseExtension) {
         hint = `${browserLabel} can't use the ProxyHubb extension. Use the details below in your proxy settings instead.`;
+    } else if (releasePreview) {
+        hint = 'Chrome Web Store review is pending. Download the extension from GitHub to use your proxy now.';
     } else if (installUrl) {
         hint = `Add the free ProxyHubb extension to ${browserLabel} once. After that it's one click.`;
     } else {
@@ -241,21 +247,37 @@ export function ExtensionConnectCard({ orderId, listingTitle = '', compact = fal
                 <div className="space-y-2">
                     <a
                         href={installUrl}
-                        target={testBuild ? undefined : '_blank'}
-                        rel="noreferrer"
-                        download={testBuild || undefined}
+                        target={localDownload ? undefined : '_blank'}
+                        rel="noopener noreferrer"
+                        download={localDownload || undefined}
                         className="inline-flex w-full items-center justify-center rounded-[var(--radius-md)] bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
                         data-testid="extension-install-link"
                     >
-                        Add to {browserLabel}
+                        {unpackedBuild ? 'Download extension ZIP' : `Add to ${browserLabel}`}
                     </a>
-                    {testBuild ? (
-                        <p className="text-xs text-muted-foreground">
-                            Test build: unzip it, then{' '}
-                            {browser === 'firefox'
-                                ? 'open about:debugging, choose This Firefox, Load Temporary Add-on, and pick manifest.json.'
-                                : 'open chrome://extensions, turn on Developer mode, choose Load unpacked, and pick the folder.'}
-                        </p>
+                    {unpackedBuild ? (
+                        <div className="space-y-2 text-xs text-muted-foreground" data-testid="extension-install-steps">
+                            <ol className="list-decimal space-y-1 pl-4">
+                                <li>Unzip the download into a folder you will keep on your computer.</li>
+                                <li>
+                                    {browser === 'firefox'
+                                        ? 'Open about:debugging, choose This Firefox, then Load Temporary Add-on and select manifest.json.'
+                                        : 'Open chrome://extensions, enable Developer mode, choose Load unpacked, and select the extracted folder containing manifest.json.'}
+                                </li>
+                                <li>Reload this page, then choose Turn on proxy.</li>
+                            </ol>
+                            {releasePreview ? (
+                                <a
+                                    href={CHROME_EXTENSION_RELEASE_URL}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-block font-medium text-primary underline underline-offset-2"
+                                    data-testid="extension-release-link"
+                                >
+                                    Full installation guide on GitHub
+                                </a>
+                            ) : null}
+                        </div>
                     ) : null}
                     <button
                         type="button"
