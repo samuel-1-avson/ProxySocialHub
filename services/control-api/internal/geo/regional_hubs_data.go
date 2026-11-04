@@ -15,6 +15,18 @@ var regionalHubsByCountry = map[string][]regionalHub{
 		mkHub("Bibiani", 6.4632, -2.3192, "western north", "western north region", "sefwi", "sefwi-wiawso", "wiawso", "bibiani"),
 		mkHub("Cape Coast", 5.1053, -1.2466, "central", "central region"),
 		mkHub("Tamale", 9.4035, -0.8429, "northern", "northern region"),
+		// Remaining regional capitals, so every one of Ghana's 16 regions has a hub
+		// and nodes there are not pulled to a city in another region.
+		mkHub("Koforidua", 6.0941, -0.2591, "eastern", "eastern region", "new juaben"),
+		mkHub("Ho", 6.6008, 0.4713, "volta", "volta region"),
+		mkHub("Dambai", 8.0667, 0.1833, "oti", "oti region"),
+		mkHub("Sunyani", 7.3399, -2.3268, "bono", "bono region", "brong ahafo", "brong ahafo region"),
+		mkHub("Techiman", 7.5833, -1.9333, "bono east", "bono east region"),
+		mkHub("Goaso", 6.8036, -2.5172, "ahafo", "ahafo region"),
+		mkHub("Bolgatanga", 10.7856, -0.8514, "upper east", "upper east region", "bolga"),
+		mkHub("Wa", 10.0601, -2.5099, "upper west", "upper west region"),
+		mkHub("Nalerigu", 10.5272, -0.3698, "north east", "north east region"),
+		mkHub("Damongo", 9.0833, -1.8167, "savannah", "savannah region"),
 	},
 	"US": {
 		mkHub("New York", 40.7128, -74.0060, "new york", "nyc", "ny", "new york state", "brooklyn", "manhattan", "queens", "bronx", "long island", "newark", "jersey city", "new jersey", "nj", "connecticut", "ct"),

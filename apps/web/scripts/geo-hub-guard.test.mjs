@@ -49,3 +49,42 @@ test('in-country coordinate snaps still resolve', () => {
 test('text matches are not distance-bound', () => {
   assert.equal(hubs.resolveRegionalHub('GH', 'Kumasi', '', 0, 0)?.name, 'Kumasi');
 });
+
+test('every Ghana region resolves to its own capital', () => {
+  const cases = {
+    'Eastern Region': 'Koforidua',
+    'Volta Region': 'Ho',
+    'Oti Region': 'Dambai',
+    'Bono Region': 'Sunyani',
+    'Bono East Region': 'Techiman',
+    'Ahafo Region': 'Goaso',
+    'Upper East Region': 'Bolgatanga',
+    'Upper West Region': 'Wa',
+    'North East Region': 'Nalerigu',
+    'Savannah Region': 'Damongo',
+    'Western North Region': 'Bibiani',
+    'Western Region': 'Takoradi',
+  };
+  for (const [region, want] of Object.entries(cases)) {
+    assert.equal(hubs.resolveRegionalHub('GH', '', region, 0, 0)?.name, want, region);
+  }
+});
+
+test('hub text matches whole words only', () => {
+  // "wa" hides inside Kwadaso and Awaso; "ho" inside Hohoe.
+  for (const city of ['Kwadaso', 'Awaso', 'Hohoe']) {
+    const got = hubs.resolveRegionalHub('GH', city, '', 0, 0)?.name;
+    assert.ok(got !== 'Wa' && got !== 'Ho', `${city} matched ${got}`);
+  }
+  assert.equal(hubs.resolveRegionalHub('GH', 'Wa', '', 0, 0)?.name, 'Wa');
+  assert.equal(hubs.resolveRegionalHub('GH', 'Accra, Ghana', '', 0, 0)?.name, 'Accra');
+  assert.notEqual(hubs.resolveRegionalHub('US', '', 'California', 0, 0)?.name, 'Seattle');
+});
+
+test('the location picker lists every Ghana regional capital', () => {
+  const names = hubs.regionalHubsForCountry('GH').map((h) => h.name);
+  assert.equal(names.length, 16);
+  for (const name of ['Kumasi', 'Sunyani', 'Ho', 'Wa', 'Bolgatanga', 'Koforidua']) {
+    assert.ok(names.includes(name), name);
+  }
+});

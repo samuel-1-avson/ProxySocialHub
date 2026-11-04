@@ -106,8 +106,9 @@ export function normalizeCountryCode(country?: string): string {
     return '';
 }
 
-function placeKey(raw?: string): string {
-    return (raw ?? '').trim().toLowerCase().replace(/-/g, ' ').replace(/\s+/g, ' ');
+/** Lowercase words of a place name; spaces, hyphens and punctuation separate words. */
+function placeTokens(raw?: string): string[] {
+    return (raw ?? '').trim().toLowerCase().split(/[\s\-_,.;:()/\\'"`]+/).filter(Boolean);
 }
 
 /** Spacing-insensitive key so typed names like "Capecoast" still hit "Cape Coast". */
@@ -115,18 +116,40 @@ function compactKey(key: string): string {
     return key.replace(/ /g, '');
 }
 
+function containsTokenRun(hay: string[], needle: string[]): boolean {
+    if (needle.length === 0 || needle.length > hay.length) return false;
+    for (let i = 0; i + needle.length <= hay.length; i++) {
+        if (needle.every((word, j) => hay[i + j] === word)) return true;
+    }
+    return false;
+}
+
+/**
+ * Mirrors matchRegionalHubByText in the Go control-api: exact name/alias first,
+ * then the longest whole-word match ("western north" beats "western"). Whole
+ * words only, so short names cannot hide inside others ("wa" in "Kwadaso").
+ */
 function matchHubByText(hubs: RegionalHub[], raw?: string): RegionalHub | undefined {
-    const key = placeKey(raw);
-    if (!key) return undefined;
+    const keyTokens = placeTokens(raw);
+    if (keyTokens.length === 0) return undefined;
+    const key = keyTokens.join(' ');
+    let best: RegionalHub | undefined;
+    let bestScore = 0;
     for (const hub of hubs) {
-        const name = placeKey(hub.name);
-        if (name === key || compactKey(name) === compactKey(key)) return hub;
-        for (const alias of hub.aliases) {
-            const a = placeKey(alias);
-            if (a === key || compactKey(a) === compactKey(key) || key.includes(a) || a.includes(key)) return hub;
+        for (const candidate of [hub.name, ...hub.aliases]) {
+            const candTokens = placeTokens(candidate);
+            if (candTokens.length === 0) continue;
+            const cand = candTokens.join(' ');
+            if (cand === key || compactKey(cand) === compactKey(key)) return hub;
+            if (containsTokenRun(keyTokens, candTokens) || containsTokenRun(candTokens, keyTokens)) {
+                if (cand.length > bestScore) {
+                    best = hub;
+                    bestScore = cand.length;
+                }
+            }
         }
     }
-    return undefined;
+    return best;
 }
 
 function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {

@@ -11,12 +11,22 @@ const h = (name: string, lat: number, lon: number, aliases: string[] = []): Regi
 
 export const HUBS_BY_COUNTRY: Record<string, RegionalHub[]> = {
     GH: [
-        h('Accra', 5.6037, -0.187, ['greater accra', 'tema', 'madina']),
-        h('Kumasi', 6.6885, -1.6244, ['ashanti', 'ashanti region']),
-        h('Takoradi', 4.8845, -1.7554, ['sekondi', 'western', 'western region']),
+        h('Accra', 5.6037, -0.187, ['greater accra', 'greater accra region', 'tema', 'teshie', 'madina', 'east legon']),
+        h('Kumasi', 6.6885, -1.6244, ['ashanti', 'ashanti region', 'asante']),
+        h('Takoradi', 4.8845, -1.7554, ['sekondi', 'sekondi-takoradi', 'western', 'western region']),
         h('Bibiani', 6.4632, -2.3192, ['western north', 'western north region', 'sefwi', 'sefwi-wiawso', 'wiawso', 'bibiani']),
         h('Cape Coast', 5.1053, -1.2466, ['central', 'central region']),
         h('Tamale', 9.4035, -0.8429, ['northern', 'northern region']),
+        h('Koforidua', 6.0941, -0.2591, ['eastern', 'eastern region', 'new juaben']),
+        h('Ho', 6.6008, 0.4713, ['volta', 'volta region']),
+        h('Dambai', 8.0667, 0.1833, ['oti', 'oti region']),
+        h('Sunyani', 7.3399, -2.3268, ['bono', 'bono region', 'brong ahafo', 'brong ahafo region']),
+        h('Techiman', 7.5833, -1.9333, ['bono east', 'bono east region']),
+        h('Goaso', 6.8036, -2.5172, ['ahafo', 'ahafo region']),
+        h('Bolgatanga', 10.7856, -0.8514, ['upper east', 'upper east region', 'bolga']),
+        h('Wa', 10.0601, -2.5099, ['upper west', 'upper west region']),
+        h('Nalerigu', 10.5272, -0.3698, ['north east', 'north east region']),
+        h('Damongo', 9.0833, -1.8167, ['savannah', 'savannah region']),
     ],
     US: [
         h('New York', 40.7128, -74.006, ['new york', 'nyc', 'ny', 'brooklyn', 'manhattan', 'new jersey', 'nj', 'connecticut']),
