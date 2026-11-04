@@ -85,6 +85,24 @@ Popups show `geo.display_label` and estimated badges via `geo-labels.ts` on the 
 1. Verify `provider_nodes.country` / `city` and listing `country`.
 2. Check `geo_source` on the map point — centroids are intentional when IP is missing.
 3. Re-run enrich after correcting provider metadata.
+4. The edge gateway's country comes from its GeoLite2-Country file
+   (`/app/geoip/GeoLite2-Country.mmdb`), which places some satellite (Starlink) IPs
+   in the US. The owner fixes it in Node settings: a saved country/city sets
+   `location_user_set`, and gateway geo never overrides it after that.
+
+### Pin in the middle of the country / every node in one city
+
+- **Middle of the country** is expected when the owner's map precision
+  (Settings > Privacy, `profiles.map_precision`) is `country`, the default: the
+  public map then ignores the city. Node settings says so next to the city field.
+- **Every node in one city** (testnet 2026-11-04: all Ghana nodes were "Kumasi")
+  came from snapping the country-area pin to the nearest hub and saving that
+  hub as the node's city. Fixed: a country-area pin (`geo.IsCountryAreaGuess`)
+  never snaps to a hub, and only a fresh IP lookup counts as coordinate
+  evidence. Cities invented before the fix stay in `provider_nodes.city` with
+  `location_user_set = false` until the owner sets the real city.
+- Hub names are matched as whole words (`"Wa"` does not match inside
+  `"Kwadaso"`); all 16 Ghana regional capitals have hubs.
 
 ### Stale coordinates after deploy
 

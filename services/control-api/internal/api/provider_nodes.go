@@ -120,12 +120,12 @@ func createNode(c *gin.Context) {
 	}
 
 	node := models.ProviderNode{
-		ID:        uuid.New(),
-		UserID:    userID,
-		Name:      req.Name,
-		IPAddress: req.IPAddress,
-		Country:   req.Country,
-		City:      req.City,
+		ID:              uuid.New(),
+		UserID:          userID,
+		Name:            req.Name,
+		IPAddress:       req.IPAddress,
+		Country:         req.Country,
+		City:            req.City,
 		Status:          models.NodeOffline,
 		LocationUserSet: locationDeclared,
 	}
