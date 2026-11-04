@@ -1,7 +1,8 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { AuthMethodDivider, GoogleSignInButton, googleSignInEnabled } from "@/components/auth/GoogleSignInButton";
+import { AuthMethodDivider, GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
+import { useGoogleSignInConfig } from "@/lib/google-sign-in";
 import Link from "next/link";
 import { WalletBoundary } from "@/providers/WalletBoundary";
 import { MarketingHeader } from "@/components/marketing/MarketingHeader";
@@ -24,25 +25,26 @@ const WalletAuthPanel = dynamic(
 );
 
 export default function LoginPage() {
+  const { data: googleClientId } = useGoogleSignInConfig();
   return (
     <div className="min-h-screen bg-background text-foreground">
       <MarketingHeader />
       <main id="main-content" tabIndex={-1} className="auth-layout">
         <aside className="auth-story" aria-label="About ProxyHubb access">
           <div className="auth-story-copy">
-            <p className="landing-section-kicker">WALLET / ACCESS</p>
+            <p className="landing-section-kicker">ACCOUNT / ACCESS</p>
             <h2>
-              One signature.
+              Your account.
               <br />
               <span>Your network workspace.</span>
             </h2>
             <p>
-              Use your Solana wallet to manage proxy connections, offers, and
+              Sign in to manage proxy connections, offers, and
               network activity from one place.
             </p>
           </div>
           <div className="auth-story-footer">
-            ACCESS CONTROL / WALLET SIGN-IN
+            ACCESS CONTROL / ACCOUNT SIGN-IN
           </div>
         </aside>
         <section className="auth-main" aria-labelledby="login-title">
@@ -50,14 +52,14 @@ export default function LoginPage() {
             <p className="landing-section-kicker">RETURNING USER / LOGIN</p>
             <h1 id="login-title">Sign in</h1>
             <p>
-              {googleSignInEnabled
+              {googleClientId
                 ? "Continue with Google, or connect your Solana wallet."
                 : "Connect the Solana wallet associated with your ProxyHubb account."}
             </p>
             <div className="auth-card">
               <WalletBoundary>
                 <GoogleSignInButton text="signin_with" />
-                  {googleSignInEnabled && <AuthMethodDivider />}
+                  <AuthMethodDivider />
                   <WalletAuthPanel
                   mode="login"
                   actionLabel="Sign in with wallet"

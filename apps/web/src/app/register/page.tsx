@@ -1,7 +1,8 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { AuthMethodDivider, GoogleSignInButton, googleSignInEnabled } from "@/components/auth/GoogleSignInButton";
+import { AuthMethodDivider, GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
+import { useGoogleSignInConfig } from "@/lib/google-sign-in";
 import Link from "next/link";
 import { useEffect, useSyncExternalStore } from "react";
 import { Check } from "lucide-react";
@@ -36,6 +37,7 @@ const steps = [
 ];
 
 export default function RegisterPage() {
+  const { data: googleClientId } = useGoogleSignInConfig();
   const referralCode = useSyncExternalStore(
     subscribeToReferral,
     getReferralSnapshot,
@@ -57,7 +59,7 @@ export default function RegisterPage() {
               GET CONNECTED / PROVIDE OR BUY
             </p>
             <h2>
-              Bring your wallet.
+              Create your account.
               <br />
               <span>Find your place in the network.</span>
             </h2>
@@ -67,14 +69,14 @@ export default function RegisterPage() {
             </p>
           </div>
           <div className="auth-story-footer">
-            ACCESS CONTROL / WALLET SIGN-IN
+            ACCESS CONTROL / ACCOUNT SIGN-IN
           </div>
         </aside>
         <section className="auth-main" aria-labelledby="register-title">
           <div className="auth-panel">
             <p className="landing-section-kicker">NEW ACCOUNT / REGISTER</p>
             <h1 id="register-title">Create your account</h1>
-            <p>Connect a Solana wallet to create your ProxyHubb account.</p>
+            <p>{googleClientId ? 'Continue with Google, or connect a Solana wallet to create your account.' : 'Connect a Solana wallet to create your ProxyHubb account.'}</p>
             {referralCode ? (
               <p className="auth-referral-note">
                 Invite code <code>{referralCode}</code> will apply on first
@@ -82,23 +84,23 @@ export default function RegisterPage() {
               </p>
             ) : null}
             <div className="auth-card">
-              <ol className="auth-steps">
-                {steps.map((step, index) => (
-                  <li key={step}>
-                    <span>
-                      <Check size={14} aria-hidden="true" />
-                    </span>
-                    <span>
-                      <small>STEP 0{index + 1}</small>
-                      {step}
-                    </span>
-                  </li>
-                ))}
-              </ol>
               <WalletBoundary>
                 <GoogleSignInButton text="signup_with" />
-                  {googleSignInEnabled && <AuthMethodDivider />}
-                  <WalletAuthPanel
+                <AuthMethodDivider />
+                <ol className="auth-steps">
+                  {steps.map((step, index) => (
+                    <li key={step}>
+                      <span>
+                        <Check size={14} aria-hidden="true" />
+                      </span>
+                      <span>
+                        <small>STEP 0{index + 1}</small>
+                        {step}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+                <WalletAuthPanel
                   mode="register"
                   actionLabel="Create account with wallet"
                 />
@@ -108,7 +110,7 @@ export default function RegisterPage() {
               Already have an account? <Link href={ROUTES.login}>Sign in</Link>
             </p>
             <p className="auth-legal">
-              By connecting your wallet, you agree to the{" "}
+              By creating an account, you agree to the{" "}
               <Link className="underline underline-offset-4" href={ROUTES.terms}>Terms of Service</Link> and{" "}
               <Link className="underline underline-offset-4" href={ROUTES.privacy}>Privacy Policy</Link>.
             </p>

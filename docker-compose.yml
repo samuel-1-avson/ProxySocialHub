@@ -466,6 +466,8 @@ services:
     environment:
       # Server-side only — used by Next.js API routes and rewrite proxy
       - API_URL=http://control-api:8080
+      # Public OAuth client ID read at runtime by /api/auth/google-config.
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set}
       # Session assistant (/api/concierge/draft). Empty: it answers 503 and the page keeps the plain form.
       - MODEL_API_KEY=${MODEL_API_KEY:-}
