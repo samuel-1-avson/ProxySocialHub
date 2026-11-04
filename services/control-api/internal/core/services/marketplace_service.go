@@ -107,7 +107,7 @@ func (s *marketplaceService) UpdateListing(ctx context.Context, sellerID, listin
 		return nil, domain.ErrListingForbidden
 	}
 	if listing.Status == domain.ListingPendingReview {
-		if updates.PricePerGB != nil || updates.Title != nil || updates.Description != nil ||
+		if updates.QualityAssessmentID != nil || updates.PricePerGB != nil || updates.Title != nil || updates.Description != nil ||
 			updates.MinPurchaseGB != nil || updates.AvailableBandwidthGB != nil || updates.MaxConcurrency != nil {
 			return nil, fmt.Errorf("listing is pending review: price and content cannot be changed until approved")
 		}

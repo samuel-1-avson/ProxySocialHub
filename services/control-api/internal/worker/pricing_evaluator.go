@@ -4,18 +4,18 @@ import (
 	"log"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/quality"
 )
 
 // PricingEvaluator runs periodically to evaluate and update the dynamic pricing tiers of proxy nodes.
 //
 // Tier thresholds based on Quality Score (0-100), USD/GB guidance for nodes:
 //
-//	Bronze: 0 - 69   (Base price: $0.80/GB)
+//	Bronze: 0 - 69   (Base price: $0.792/GB)
 //	Silver: 70 - 89  (Base price: $0.99/GB)
-//	Gold:   90+      (Base price: $1.25/GB)
+//	Gold:   90+      (Base price: $1.188/GB)
 type PricingEvaluator struct{}
 
 // StartPricingEvaluator starts a background goroutine that evaluates node pricing tiers every 15 minutes.
@@ -37,13 +37,11 @@ func computeDynamicPricingTier(node models.Node) (score float64, tier string, pr
 	// Re-use the existing formula from models/node.go
 	score = node.CalculateQualityScore()
 
-	if score >= 90 {
-		return score, "Gold", 1.25
-	} else if score >= 70 {
-		return score, "Silver", 0.99
-	} else {
-		return score, "Bronze", 0.80
+	proxyType := node.ConnectionType
+	if quality.BasePrice(proxyType) == 0 {
+		proxyType = "residential"
 	}
+	return score, quality.Tier(score), quality.PriceForScore(proxyType, score)
 }
 
 // runPricingEvaluation queries all active nodes and updates their quality score, tier, and price.
@@ -79,25 +77,12 @@ func runPricingEvaluation() {
 				continue
 			}
 
-			// P2-A10: Update linked marketplace listings for this provider
-			// If a provider has multiple nodes, we update their listings with the aggregate performance
-			// of their active infrastructure.
-			if node.ProviderUserID != uuid.Nil {
-				var avgScore float64
-				db.DB.Model(&models.Node{}).
-					Where("provider_user_id = ? AND is_healthy = ?", node.ProviderUserID, true).
-					Select("AVG(quality_score)").
-					Scan(&avgScore)
-
-				// Map avg score to a tier for the listing
-				_, tier, _ := computeDynamicPricingTier(models.Node{QualityScore: avgScore})
-
+			// Legacy hints are scoped to the actual node. Assessed offers retain
+			// their evidence-backed score and provider-accepted price.
+			if node.ProviderNodeID != nil {
 				db.DB.Model(&models.ProxyListing{}).
-					Where("seller_id = ? AND status = ?", node.ProviderUserID, models.ListingStatusActive).
-					Updates(map[string]interface{}{
-						"quality_score": avgScore,
-						"current_tier":  tier,
-					})
+					Where("provider_node_id = ? AND quality_assessment_id IS NULL AND status = ?", *node.ProviderNodeID, models.ListingStatusActive).
+					Updates(map[string]interface{}{"quality_score": score, "current_tier": quality.Tier(score)})
 			}
 			updated++
 		}

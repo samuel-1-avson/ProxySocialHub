@@ -39,6 +39,7 @@ mod pool;
 mod pricing; // P2-A10: Real-time Pricing Awareness (optional)
 mod proofs;
 mod provider_ping;
+mod provider_quality;
 mod provider_transport;
 mod proxy;
 mod qos;
@@ -541,6 +542,9 @@ async fn proxy(
 
     // control-api liveness probe: PING down the provider tunnel (shared-secret auth).
     if method == Method::POST {
+        if let Some(node_id) = provider_quality::node_id_from_path(path) {
+            return Ok(provider_quality::handle(state.clone(), node_id, req.headers()).await);
+        }
         if let Some(node_id) = provider_ping::node_id_from_path(path) {
             return Ok(provider_ping::handle(state.clone(), node_id, req.headers()).await);
         }

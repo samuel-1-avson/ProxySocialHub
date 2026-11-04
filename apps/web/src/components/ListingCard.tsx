@@ -120,6 +120,7 @@ export function ListingCard({ listing, onSelect }: ListingCardProps) {
                 </div>
             </div>
 
+            {listing.quality_assessment && <p className="px-6 py-3 text-xs text-muted-foreground">Provisional quality assessment · confidence {Math.round(listing.quality_assessment.confidence * 100)}% · {new Date(listing.quality_assessment.completed_at).toLocaleDateString()}</p>}
             {/* Technical Detail Grid */}
             <div className="relative z-10 px-6 py-4 grid grid-cols-2 gap-4 border-t border-b border-border bg-secondary">
                 <div className="space-y-1.5">
@@ -127,12 +128,12 @@ export function ListingCard({ listing, onSelect }: ListingCardProps) {
                         <Signal size={10} className="text-primary/40" /> Latency
                     </div>
                     <div className="text-sm font-semibold text-foreground flex items-baseline gap-1">
-                        {listing.avg_latency_ms || '40'}<span className="text-xs text-muted-foreground">ms</span>
+                        {listing.avg_latency_ms > 0 ? listing.avg_latency_ms : '—'}<span className="text-xs text-muted-foreground">ms</span>
                     </div>
                     <div className="h-1 w-full bg-secondary rounded-full overflow-hidden">
                         <motion.div
                             initial={{ width: 0 }}
-                            animate={{ width: `${Math.min(100, 100 - (listing.avg_latency_ms || 40) / 2)}%` }}
+                            animate={{ width: `${Math.min(100, 100 - (listing.avg_latency_ms || 0) / 2)}%` }}
                             className="h-full bg-primary/40"
                         />
                     </div>
@@ -142,12 +143,12 @@ export function ListingCard({ listing, onSelect }: ListingCardProps) {
                         <Activity size={10} className="text-primary/40" /> Capacity
                     </div>
                     <div className="text-sm font-semibold text-foreground flex items-baseline gap-1">
-                        {Number(listing.quality_score || 95).toFixed(0)}<span className="text-xs text-muted-foreground">%</span>
+                        {Number(listing.quality_score ?? 0).toFixed(0)}<span className="text-xs text-muted-foreground">%</span>
                     </div>
                     <div className="h-1 w-full bg-secondary rounded-full overflow-hidden">
                         <motion.div
                             initial={{ width: 0 }}
-                            animate={{ width: `${listing.quality_score || 95}%` }}
+                            animate={{ width: `${listing.quality_score ?? 0}%` }}
                             className="h-full bg-primary/40"
                         />
                     </div>

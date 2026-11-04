@@ -52,6 +52,8 @@ async function setup(
     pendingReview?: boolean;
     boundOffer?: boolean;
     proofRequired?: boolean;
+    qualityRequired?: boolean;
+    assessmentFailure?: boolean;
   } = {},
 ) {
   const nodeKey = options.boundOffer ? await deriveBoundNodeKey() : null;
@@ -160,15 +162,23 @@ async function setup(
             options.proofRequired
               ? {
                   required: true,
+                  quality_assessment_required: options.qualityRequired ?? false,
                   mode: "enforce",
                   dev_server_signing: false,
                 }
               : {
                   required: false,
+                  quality_assessment_required: options.qualityRequired ?? false,
                   mode: "optional",
                   dev_server_signing: false,
                 },
           );
+    if (path === "/v1/proxy-assessments" && method === "POST") return send({ id: "assessment-1", status: "queued" }, 202);
+    if (path === "/v1/proxy-assessments/assessment-1") return send({
+      id: "assessment-1", provider_node_id: node.id, proxy_type: "residential", protocol: "http", rotation_type: "sticky", country: "GH", max_concurrency: 10,
+      status: options.assessmentFailure ? "failed" : "passed", tier: "Gold", quality_score: 96, price_per_gb: 1.188, confidence: 0.3, provisional: true,
+      samples: 3, successful_samples: options.assessmentFailure ? 0 : 3, summary: options.assessmentFailure ? "The proxy did not complete all three HTTPS transfers." : "Three HTTPS transfers completed. Long-term uptime is not established.", valid_until: new Date(Date.now()+30*60*1000).toISOString()
+    });
     if (path === "/v1/suggest-price") return send({ suggested_price: 0.99 });
     if (path === "/v1/listings/my")
       return send({ listings, total: listings.length, page: 1, limit: 20 });
@@ -659,5 +669,41 @@ test.describe("seller workflow migration", () => {
     await expect(
       page.getByRole("navigation", { name: "Mobile primary" }),
     ).toBeVisible();
+  });
+});
+
+
+test.describe("quality-based listing prices", () => {
+  test.setTimeout(180_000);
+  test("requires measured evidence and explicit price acceptance, then submits the assessment", async ({ page }) => {
+    const calls = await setup(page, { qualityRequired: true });
+    await page.goto(base+"/provider/listings/new", { waitUntil: "domcontentloaded" });
+    await page.getByLabel("Offer title").fill("Measured Accra capacity");
+    await page.getByLabel("Available bandwidth (GB)").fill("20");
+    await expect(page.getByRole("button", { name: "Review listing" })).toBeDisabled();
+    await page.getByRole("button", { name: "Assess this proxy", exact: true }).click();
+    await expect(page.getByText("Gold · 96/100 · provisional")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Review listing" })).toBeDisabled();
+    await page.getByRole("button", { name: "Accept $1.188 / GB" }).click();
+    await expect(page.getByLabel("USD per GB")).toHaveValue("1.188");
+    await expect(page.getByLabel("USD per GB")).toHaveAttribute("readonly", "");
+    await page.getByLabel("Concurrent connections").fill("11");
+    await expect(page.getByRole("button", { name: "Review listing" })).toBeDisabled();
+    await page.getByLabel("Concurrent connections").fill("10");
+    await page.getByRole("button", { name: "Review listing" }).click();
+    await page.getByRole("button", { name: "Publish offer" }).click();
+    await expect.poll(() => calls.offers.length).toBe(1);
+    expect(calls.offers[0].price_per_gb).toBe(1.188);
+    expect(calls.offers[0].quality_assessment_id).toBe("assessment-1");
+  });
+  test("failed assessments block publication", async ({ page }) => {
+    await setup(page, { qualityRequired: true, assessmentFailure: true });
+    await page.goto(base+"/provider/listings/new", { waitUntil: "domcontentloaded" });
+    await page.getByLabel("Offer title").fill("Unavailable Accra capacity");
+    await page.getByLabel("Available bandwidth (GB)").fill("20");
+    await page.getByRole("button", { name: "Assess this proxy", exact: true }).click();
+    await expect(page.getByText("Improvements needed", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Review listing" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: /^Accept \$/ })).toHaveCount(0);
   });
 });

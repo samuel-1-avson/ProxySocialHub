@@ -121,8 +121,8 @@ func createListingAppeal(c *gin.Context) {
 		})
 
 	c.JSON(http.StatusCreated, gin.H{
-		"message": "Appeal opened",
-		"appeal":  appeal,
+		"message":        "Appeal opened",
+		"appeal":         appeal,
 		"listing_status": models.ListingStatusUnderAppeal,
 	})
 }
@@ -226,7 +226,7 @@ func resolveListingAppeal(c *gin.Context) {
 	}
 
 	var listing models.ProxyListing
-	if err := db.DB.Select("id", "seller_id", "status").First(&listing, "id = ?", appeal.ListingID).Error; err != nil {
+	if err := db.DB.First(&listing, "id = ?", appeal.ListingID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Listing not found"})
 		return
 	}
@@ -246,14 +246,20 @@ func resolveListingAppeal(c *gin.Context) {
 		return
 	}
 
+	if nextListing == models.ListingStatusActive {
+		if err := db.ValidateAcceptedListingQuality(db.DB, listing); err != nil {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			return
+		}
+	}
 	tx := db.DB.Begin()
 	updates := map[string]interface{}{
-		"status":            appealStatus,
-		"resolution":        body.Decision,
-		"resolution_notes":  strings.TrimSpace(body.Notes),
-		"resolved_by":       moderatorID,
-		"resolved_at":       now,
-		"updated_at":        now,
+		"status":           appealStatus,
+		"resolution":       body.Decision,
+		"resolution_notes": strings.TrimSpace(body.Notes),
+		"resolved_by":      moderatorID,
+		"resolved_at":      now,
+		"updated_at":       now,
 	}
 	if err := tx.Model(&appeal).Updates(updates).Error; err != nil {
 		tx.Rollback()

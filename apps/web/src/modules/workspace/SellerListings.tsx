@@ -14,6 +14,8 @@ import {
   signListingOfferDev,
   updateListing,
   type CreateListingRequest,
+  type ProxyAssessment,
+  getListingProofPolicy,
   type Listing,
   type UpdateListingRequest,
 } from "@/lib/api/marketplace";
@@ -42,6 +44,8 @@ import {
 import { useSellerNodes } from "./SellerNodes";
 import { NodeKeyImport, useListingSigner } from "./NodeKeyImport";
 import { listingProtocolLabel } from "@/lib/listing-protocols";
+
+import { ProxyAssessmentPanel, assessmentMatches } from "./ProxyAssessmentPanel";
 
 export function SellerListings() {
   const { user } = useAuth();
@@ -193,6 +197,7 @@ export function SellerListings() {
                 </span>
                 <span>{amount(listing.orders_count, 0)} orders</span>
               </div>
+              {listing.quality_assessment && <p className="ui-note">Latest assessment: {listing.quality_assessment.status} · {listing.quality_assessment.summary} Published price changes only when you accept a new assessment.</p>}
               <div className="ui-actions mt-4">
                 <button
                   className="ui-button secondary small"
@@ -205,7 +210,7 @@ export function SellerListings() {
                     className="ui-button secondary small"
                     disabled={status.isPending}
                     onClick={() =>
-                      status.mutate({
+                      listing.status === "paused" ? setEditing(listing) : status.mutate({
                         id: listing.id,
                         state:
                           listing.status === "active" ? "paused" : "active",
@@ -331,6 +336,8 @@ function EditOffer({
   onSaved: () => void;
 }) {
   const [title, setTitle] = useState(listing.title);
+  const [assessment, setAssessment] = useState<ProxyAssessment | null>(null);
+  const qualityPolicy = useQuery({ queryKey: ["listing-proof-policy"], queryFn: getListingProofPolicy, staleTime: 60_000 });
   const [description, setDescription] = useState(listing.description ?? "");
   const [price, setPrice] = useState(String(listing.price_per_gb));
   const [capacity, setCapacity] = useState(
@@ -362,8 +369,13 @@ function EditOffer({
     policyReady &&
     ((bound && needsProof && signerKind === "none" && !devicePending) ||
       (!bound && needsProof));
-  const guidance = evaluateListingPrice(Number(price), listing.proxy_type);
+  const config = { proxy_type: listing.proxy_type, protocol: listing.protocol.toLowerCase().split(",").map(p => p.trim()).sort().join(","), rotation_type: listing.rotation_type || "static", country: listing.country || "", max_concurrency: Number(concurrency) };
+  const qualityRequired = qualityPolicy.data?.quality_assessment_required !== false || Boolean(listing.quality_assessment_id);
+  const accepted = assessmentMatches(assessment, listing.provider_node_id || "", config);
+  const assessedPrice = accepted ? assessment.price_per_gb : Number(price);
+  const guidance = evaluateListingPrice(assessedPrice, listing.proxy_type);
   const valid =
+    (!qualityRequired || accepted) &&
     title.trim() &&
     Number(price) > 0 &&
     Number(capacity) >= 0 &&
@@ -374,10 +386,13 @@ function EditOffer({
   const save = useMutation({
     retry: false,
     mutationFn: async () => {
+      if (qualityRequired && !assessmentMatches(assessment, listing.provider_node_id || "", config)) throw new Error("Assess this proxy and accept the current price first.");
       const data: UpdateListingRequest = {
+        quality_assessment_id: accepted ? assessment.id : undefined,
+        status: listing.status === "paused" ? "active" : undefined,
         title: title.trim(),
         description: description.trim(),
-        price_per_gb: Number(price),
+        price_per_gb: assessedPrice,
         available_bandwidth_gb: Number(capacity),
         min_purchase_gb: Number(minimum),
         max_concurrency: Number(concurrency),
@@ -419,7 +434,7 @@ function EditOffer({
           rotation_type: listing.rotation_type ?? "static",
           country: listing.country ?? "",
           isp: listing.isp ?? "",
-          price_per_gb: Number(price),
+          price_per_gb: assessedPrice,
           min_purchase_gb: Number(minimum),
           available_bandwidth_gb: Number(capacity),
           max_concurrency: Number(concurrency),
@@ -431,7 +446,7 @@ function EditOffer({
             listing.provider_node_id,
             boundNode.gateway_node_id,
             secret,
-            listing.status,
+            listing.status === "paused" ? "active" : listing.status,
           );
         } else if (signer === "wallet" && wallet.signMessage) {
           setProgress("Approve the offer signature in your wallet...");
@@ -442,7 +457,7 @@ function EditOffer({
               boundNode.gateway_node_id,
               freshWalletHotkey,
               wallet.signMessage,
-              listing.status,
+              listing.status === "paused" ? "active" : listing.status,
             ),
             60_000,
             "Wallet did not respond. Unlock it and save again.",
@@ -489,6 +504,7 @@ function EditOffer({
             onChange={(e) => setDescription(e.target.value)}
           />
         </label>
+        <ProxyAssessmentPanel key={JSON.stringify([listing.provider_node_id, config])} nodeId={listing.provider_node_id || ""} config={config} onAccepted={a => { setAssessment(a); setPrice(String(a.price_per_gb)); }} />
         <div className="ui-form-grid">
           <label className="ui-field">
             USD per GB
@@ -499,7 +515,8 @@ function EditOffer({
               min="0.0001"
               max="50"
               step="0.0001"
-              value={price}
+              value={accepted ? String(assessment.price_per_gb) : price}
+              readOnly={qualityRequired || accepted}
               onChange={(e) => setPrice(e.target.value)}
             />
           </label>

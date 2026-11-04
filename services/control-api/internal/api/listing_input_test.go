@@ -89,6 +89,7 @@ func TestCreateListing_PlainValidationMessages(t *testing.T) {
 }
 
 func TestCreateListing_SeveralProtocolsAndFilter(t *testing.T) {
+	t.Setenv("LISTING_QUALITY_MODE", "observe") // Legacy workflow; assessment enforcement has dedicated tests.
 	testutil.SetupTestDB(t)
 	testutil.SetupTestRedis(t)
 	testutil.CleanupTestData(t, "users", "proxy_listings")

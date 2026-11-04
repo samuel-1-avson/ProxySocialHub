@@ -122,6 +122,7 @@ services:
       - COINGECKO_API_URL=${COINGECKO_API_URL:-https://api.coingecko.com/api/v3}
       - COINMARKETCAP_API_KEY=${COINMARKETCAP_API_KEY}
       # --- Edge Gateway ---
+      - LISTING_QUALITY_MODE=${LISTING_QUALITY_MODE:-enforce}
       - EDGE_GATEWAY_MGMT_URL=${EDGE_GATEWAY_MGMT_URL:-http://edge-gateway:8090}
       - EDGE_GATEWAY_BUYER_HOST=${EDGE_GATEWAY_BUYER_HOST:-localhost}
       - EDGE_GATEWAY_BUYER_PORT=${EDGE_GATEWAY_BUYER_PORT:-8090}
