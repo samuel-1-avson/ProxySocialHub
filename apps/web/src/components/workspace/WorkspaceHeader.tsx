@@ -6,6 +6,7 @@ import {
   CircleHelp,
   Inbox,
   LogOut,
+  MessageCircle,
   Search,
   Settings,
   Shield,
@@ -149,6 +150,10 @@ export function WorkspaceHeader() {
           <ThemeSelect />
         </div>
         <div className="workspace-menu-list mt-5">
+          {user && <Link href="/app/assistant" onClick={() => setAccountOpen(false)}>
+            <MessageCircle size={17} aria-hidden="true" />
+            Hubbie · Personal assistant
+          </Link>}
           <Link href="/app/settings" onClick={() => setAccountOpen(false)}>
             <Settings size={17} />
             Settings

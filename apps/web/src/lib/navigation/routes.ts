@@ -1,5 +1,6 @@
 export const ROUTES = {
     workspace: "/app",
+    workspaceAssistant: "/app/assistant",
     workspaceConnections: "/app/connections",
     workspaceActivity: "/app/activity",
     workspaceAudits: "/app/audits",
@@ -152,6 +153,7 @@ export interface RouteLabel {
 }
 
 export const ROUTE_LABELS: Record<string, RouteLabel> = {
+    [ROUTES.workspaceAssistant]: { label: "Hubbie", breadcrumb: "Personal assistant" },
     [ROUTES.home]: { label: "Home", breadcrumb: "Home" },
     [ROUTES.workspaceAudits]: { label: "Regional audits", breadcrumb: "Audits" },
     [ROUTES.marketplace]: { label: "Discover", breadcrumb: "Discover" },

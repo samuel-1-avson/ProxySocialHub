@@ -6,15 +6,36 @@ PROJECT_DIR="${PROJECT_DIR:-/opt/proxyhubb}"
 : "${EXPECTED_REVISION:?Set the source commit SHA}"
 [[ "$EXPECTED_REVISION" =~ ^[a-f0-9]{40}$ ]] || exit 2
 expected_archive="/tmp/proxyhubb-web-${EXPECTED_REVISION}.tar"
-[[ "$IMAGE_ARCHIVE" == "$expected_archive" && -s "$IMAGE_ARCHIVE" ]] || exit 2
+[[ "$IMAGE_ARCHIVE" == "$expected_archive" ]] || exit 2
+[[ "${DEPLOY_PLAN_ONLY:-0}" == 1 || -s "$IMAGE_ARCHIVE" ]] || exit 2
 cd "$PROJECT_DIR"
-compose=(docker compose -f docker-compose.yml -f docker-compose.testnet.yml -f docker-compose.gcp-testnet.yml -f docker-compose.gcp-images.yml)
-old_container=$("${compose[@]}" ps -q web)
-[[ -n "$old_container" ]]
+# Derive the exact live overlays. A fixed historical file list can silently drop
+# current authentication/model settings or undo another production release.
+old_container=$(docker ps -q --filter label=com.docker.compose.project=proxyhubb --filter label=com.docker.compose.service=web)
+[[ -n "$old_container" && "$old_container" != *$'\n'* ]]
+config_files=$(docker inspect "$old_container" --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}')
+[[ -n "$config_files" ]]
+compose=(docker compose --project-directory "$PROJECT_DIR" -p proxyhubb)
+IFS=',' read -r -a live_files <<< "$config_files"
+for file in "${live_files[@]}"; do
+  [[ "$file" = /opt/proxyhubb/* || "$file" = /etc/proxyhubb/releases/* ]]
+  [[ -f "$file" ]]
+  compose+=(-f "$file")
+done
 old_image=$(docker inspect "$old_container" --format '{{.Image}}')
 [[ -n "$old_image" ]]
-override=$(mktemp /tmp/proxyhubb-web-image.XXXXXX.yml)
-cleanup() { rm -f "$override" "$IMAGE_ARCHIVE" "/tmp/proxyhubb-web-${EXPECTED_REVISION}.sh"; }
+if [[ "${DEPLOY_PLAN_ONLY:-0}" == 1 ]]; then
+  "${compose[@]}" config --quiet
+  printf 'Frontend plan validated: overlays=%s old_image=%s revision=%s\n' "${#live_files[@]}" "$old_image" "$EXPECTED_REVISION"
+  exit 0
+fi
+# Persist the image overlay: the next release needs every file recorded in the
+# running container's Compose labels. This file contains no credentials.
+release_dir="$PROJECT_DIR/frontend-releases/web-$EXPECTED_REVISION"
+mkdir -p "$release_dir"
+chmod 700 "$release_dir"
+override="$release_dir/compose.yml"
+cleanup() { rm -f "$IMAGE_ARCHIVE" "/tmp/proxyhubb-web-${EXPECTED_REVISION}.sh"; }
 trap cleanup EXIT
 docker load --input "$IMAGE_ARCHIVE"
 new_image=$(docker image ls --filter "label=org.opencontainers.image.revision=$EXPECTED_REVISION" --format '{{.Repository}}:{{.Tag}}' | grep -E '^ghcr\.io/.+/web:[A-Za-z0-9_.-]+$' | head -n 1)
@@ -25,6 +46,7 @@ local_image="proxyhubb-production/web:$EXPECTED_REVISION"
 docker tag "$new_image" "$local_image"
 write_override() {
   printf 'services:\n  web:\n    image: "%s"\n    pull_policy: never\n' "$1" > "$override"
+  chmod 600 "$override"
 }
 rollback() {
   trap - ERR
@@ -44,6 +66,8 @@ for i in $(seq 1 60); do
   sleep 5
 done
 [[ "$healthy" == true ]]
+private_code=$(curl --max-time 20 -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/assistant)
+[[ "$private_code" == 401 ]]
 code=$(curl --max-time 20 -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/app)
 [[ "$code" =~ ^(200|302|303|307|308)$ ]]
 public_code=$(curl --max-time 30 -sS -o /dev/null -w '%{http_code}' "https://proxyhubb.com/app?release=$EXPECTED_REVISION")

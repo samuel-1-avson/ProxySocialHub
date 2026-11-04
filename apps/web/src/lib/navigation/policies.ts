@@ -5,6 +5,7 @@ export type RoutePolicy = "public" | "authenticated" | "provider" | "admin";
 
 export const ROUTE_POLICIES: Record<RouteKey, RoutePolicy> = {
     workspace: "authenticated",
+    workspaceAssistant: "authenticated",
     workspaceConnections: "authenticated",
     workspaceActivity: "authenticated",
     workspaceAudits: "authenticated",
