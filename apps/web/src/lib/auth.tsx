@@ -7,6 +7,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import bs58 from 'bs58';
 import { MfaChallengeDialog } from '@/components/auth/MfaChallengeDialog';
 import { captureReferralCodeFromSearch, clearReferralCode, peekReferralCode } from '@/lib/referral';
+import { decodeJwtPayload, isTokenRoleStale } from '@/lib/auth-token-role';
 
 // Browser auth calls should stay same-origin and flow through the Next.js
 // /v1 rewrite layer. That keeps Docker/internal backend origins out of the
@@ -45,21 +46,6 @@ async function parseJsonResponse<T>(response: Response, context: string): Promis
     return JSON.parse(raw) as T;
   } catch {
     throw new Error(`${context} returned invalid JSON (status ${response.status}).`);
-  }
-}
-
-function decodeJwtPayload(token: string): Record<string, unknown> | null {
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) {
-      return null;
-    }
-
-    const normalized = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
-    return JSON.parse(atob(padded)) as Record<string, unknown>;
-  } catch {
-    return null;
   }
 }
 
@@ -392,6 +378,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       const apiUser = await parseJsonResponse<any>(res, 'Auth session check');
+      // The role changed since this token was issued (e.g. the provider application was just
+      // approved). Reissue it now: the page guard reads the role from the token cookie and
+      // would otherwise send the new provider to /403 until the token expired.
+      if (isTokenRoleStale(token, apiUser?.role)) {
+        await refreshAccessToken(true);
+      }
       const nextUser = mapApiUser(apiUser);
       setUser(nextUser);
       return nextUser;
