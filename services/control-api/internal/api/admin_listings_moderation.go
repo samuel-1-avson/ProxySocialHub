@@ -106,6 +106,10 @@ func approvePendingListing(c *gin.Context) {
 		return
 	}
 
+	if err := db.ValidateAcceptedListingQuality(db.DB, listing); err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return
+	}
 	if err := db.DB.Model(&listing).Update("status", models.ListingStatusActive).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to approve listing"})
 		return
@@ -166,8 +170,8 @@ func rejectPendingListing(c *gin.Context) {
 		})
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":           "Listing rejected (delisted; seller may appeal)",
-		"listing":           listing,
+		"message":            "Listing rejected (delisted; seller may appeal)",
+		"listing":            listing,
 		"appeal_window_days": decentralization.ListingAppealDays(),
 	})
 }

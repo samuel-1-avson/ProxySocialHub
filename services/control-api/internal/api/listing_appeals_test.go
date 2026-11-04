@@ -17,6 +17,7 @@ import (
 )
 
 func setupAppealTestDB(t *testing.T) {
+	t.Setenv("LISTING_QUALITY_MODE", "observe") // Legacy appeal behavior.
 	t.Helper()
 	gdb, err := gorm.Open(sqlite.Open("file:appeals_"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
 	if err != nil {

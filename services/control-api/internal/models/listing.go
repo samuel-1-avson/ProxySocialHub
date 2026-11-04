@@ -31,9 +31,21 @@ const (
 )
 
 // ProxyListing represents a marketplace listing for proxy bandwidth
+type ListingQualitySummary struct {
+	QualityScore          float64    `json:"quality_score"`
+	Tier                  string     `json:"tier"`
+	Confidence            float64    `json:"confidence"`
+	Provisional           bool       `json:"provisional"`
+	Status                string     `json:"status"`
+	Summary               string     `json:"summary"`
+	CompletedAt           *time.Time `json:"completed_at"`
+	RecommendedPricePerGB float64    `json:"recommended_price_per_gb"`
+}
+
 type ProxyListing struct {
-	ID       uuid.UUID `gorm:"type:uuid;primary_key" json:"id"`
-	SellerID uuid.UUID `gorm:"type:uuid;not null;index:idx_listing_seller" json:"seller_id"`
+	QualityAssessment *ListingQualitySummary `gorm:"-" json:"quality_assessment,omitempty"`
+	ID                uuid.UUID              `gorm:"type:uuid;primary_key" json:"id"`
+	SellerID          uuid.UUID              `gorm:"type:uuid;not null;index:idx_listing_seller" json:"seller_id"`
 
 	// Listing details
 	Title        string     `gorm:"size:200;not null" json:"title"`
@@ -44,7 +56,8 @@ type ProxyListing struct {
 	CircleID     *uuid.UUID `gorm:"type:uuid;index:idx_listing_circle" json:"circle_id,omitempty"`            // Clan link
 
 	// Infrastructure link (dashboard provider node → gateway / explorer geo)
-	ProviderNodeID *uuid.UUID `gorm:"type:uuid;index:idx_listing_provider_node" json:"provider_node_id,omitempty"`
+	QualityAssessmentID *uuid.UUID `gorm:"type:uuid" json:"quality_assessment_id,omitempty"`
+	ProviderNodeID      *uuid.UUID `gorm:"type:uuid;index:idx_listing_provider_node" json:"provider_node_id,omitempty"`
 
 	// Provider-authored listing offer proof metadata.
 	ListingOfferHash              string     `gorm:"type:varchar(64)" json:"listing_offer_hash,omitempty"`
@@ -146,6 +159,7 @@ type SavedListing struct {
 
 // CreateListingRequest represents a request to create a new listing
 type CreateListingRequest struct {
+	QualityAssessmentID   *uuid.UUID     `json:"quality_assessment_id"`
 	Title                 string         `json:"title" binding:"required,min=5,max=200"`
 	Description           string         `json:"description" binding:"max=2000"`
 	ProviderNodeID        *uuid.UUID     `json:"provider_node_id"`
@@ -165,6 +179,7 @@ type CreateListingRequest struct {
 
 // UpdateListingRequest represents a request to update a listing
 type UpdateListingRequest struct {
+	QualityAssessmentID   *uuid.UUID     `json:"quality_assessment_id"`
 	Title                 *string        `json:"title" binding:"omitempty,min=5,max=200"`
 	Description           *string        `json:"description" binding:"omitempty,max=2000"`
 	PricePerGB            *float64       `json:"price_per_gb" binding:"omitempty,gt=0"`

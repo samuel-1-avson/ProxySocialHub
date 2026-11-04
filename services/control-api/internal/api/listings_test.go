@@ -17,6 +17,7 @@ import (
 )
 
 func TestCreateListing_Success(t *testing.T) {
+	t.Setenv("LISTING_QUALITY_MODE", "observe") // Legacy workflow; assessment enforcement has dedicated tests.
 	testutil.SetupTestDB(t)
 	testutil.CleanupTestData(t, "users", "proxy_listings")
 
@@ -547,6 +548,7 @@ func TestInvalidateMarketplaceReadModels(t *testing.T) {
 }
 
 func TestUpdateListing_CalculatedUpdates(t *testing.T) {
+	t.Setenv("LISTING_QUALITY_MODE", "observe") // Legacy workflow; assessment enforcement has dedicated tests.
 	testutil.SetupTestDB(t)
 	testutil.CleanupTestData(t, "users", "proxy_listings")
 
