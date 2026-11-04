@@ -40,7 +40,13 @@ export async function middleware(request: NextRequest) {
         }
 
         if (!isRoleAllowedForPolicy(getRoleFromPayload(payload), routePolicy)) {
-            return redirectToUnauthorized(request, routePolicy)
+            // The token keeps the role it was issued with. Someone whose provider application
+            // was approved a moment ago still carries the old role until the token is reissued,
+            // so ask the API for the account's current role before turning them away.
+            const session = await validateViaBackend(request, token)
+            if (!session.isValid || !isRoleAllowedForPolicy(session.role, routePolicy)) {
+                return redirectToUnauthorized(request, routePolicy)
+            }
         }
 
         return NextResponse.next({ request })
