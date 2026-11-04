@@ -51,6 +51,8 @@ export interface ListingDraft {
   availableBandwidthGb: number;
   minPurchaseGb: number;
   maxConcurrency: number;
+  qualityAssessmentId?: string;
+  assessedTier?: string;
 }
 interface StoredDraft {
   id: string;
@@ -99,10 +101,13 @@ export class AssistantDraftStore {
   }
 }
 
-let storeSingleton: AssistantDraftStore | null = null;
+// Anchored on globalThis, not module state: Next bundles route handlers
+// separately, so a module-level singleton would give the chat route and the
+// actions route different stores and every approval would miss its draft.
+const globalDrafts = globalThis as typeof globalThis & { __hubbieDraftStore?: AssistantDraftStore };
 export function getAssistantDraftStore(): AssistantDraftStore {
-  storeSingleton ??= new AssistantDraftStore();
-  return storeSingleton;
+  globalDrafts.__hubbieDraftStore ??= new AssistantDraftStore();
+  return globalDrafts.__hubbieDraftStore;
 }
 
 export interface PrepareOutcome { ok: boolean; label: string; data: unknown; action?: AssistantAction }
@@ -132,7 +137,7 @@ export async function prepareBuy(ctx: PlatformContext & { userId: string; drafts
     title: `Buy ${bandwidthGb} GB — ${title}`,
     summary: [
       `${bandwidthGb} GB at $${price} / GB · about $${total} total (server confirms the final total at order creation; bulk discounts may lower it)`,
-      `Session: ${sessionType} · Seller-declared country ${str(listing.country, 2) || "—"} (not verified exit evidence)`,
+      `Session: ${sessionType} · Seller-declared country ${typeof listing.country === "string" && /^[A-Za-z]{2}$/.test(listing.country) ? listing.country.toUpperCase() : "hidden until session"} (not verified exit evidence)`,
       payment === "platform_balance"
         ? "Approving creates the order AND locks payment in escrow from your ProxyHubb managed balance."
         : "Approving creates the order only. No money moves until you fund escrow and sign in your wallet on the order page.",
@@ -175,11 +180,54 @@ export async function prepareListing(ctx: PlatformContext & { userId: string; ro
   const node = (nodesRes.body.nodes as unknown[]).map(obj).find((n) => id(n.id) === nodeId);
   if (!node) return failed("Prepare listing", "That node is not on your account.");
   const nodeName = str(node.name);
-  const draft: ListingDraft = { nodeId, nodeName, title, description, proxyType, protocol, country, pricePerGb, availableBandwidthGb, minPurchaseGb, maxConcurrency };
+  // Quality-gated deployments price offers from a live assessment, and the
+  // listing must publish at exactly that price — so resolve the assessment
+  // BEFORE the approval card exists. The card then shows the assessed price.
+  let finalPrice = pricePerGb;
+  let qualityAssessmentId: string | undefined;
+  let assessedTier: string | undefined;
+  const resolvedCountry = country || (str(node.country, 2)?.toUpperCase() ?? "");
+  const policy = await platformGet(ctx, "/v1/listings/proof-policy", false);
+  if (policy.ok && policy.body.quality_assessment_required === true) {
+    const queued = await platformPost(ctx, "/v1/proxy-assessments", {
+      provider_node_id: nodeId, proxy_type: proxyType, protocol,
+      rotation_type: "static", country: resolvedCountry, max_concurrency: maxConcurrency,
+    }, { timeoutMs: 20_000 });
+    if (queued.status === 429) return failed("Prepare listing", "A quality assessment was just queued for this node. Wait a minute and ask again.");
+    const assessmentId = id(queued.body.id);
+    if (!queued.ok || !assessmentId) return failed("Prepare listing", "The required quality assessment could not be queued for this node.");
+    const started = Date.now();
+    let view = queued.body;
+    while (true) {
+      const status = str(view.status, 30);
+      if (status === "passed") {
+        const assessed = num(view.price_per_gb);
+        if (assessed === null || assessed <= 0) return failed("Prepare listing", "The quality assessment finished without a publishable price. Retry from the provider workspace.");
+        finalPrice = assessed;
+        qualityAssessmentId = assessmentId;
+        assessedTier = str(view.tier, 40) ?? undefined;
+        break;
+      }
+      if (status === "failed" || status === "unavailable") {
+        return failed("Prepare listing", str(view.summary, 300) || "The node did not pass its quality assessment, so it cannot be listed yet. Check connectivity and retry.");
+      }
+      if (ctx.signal.aborted || Date.now() - started >= 45_000) {
+        return {
+          ok: true, label: "Quality assessment still running",
+          data: { prepared: false, assessment_pending: true, assessment_id: assessmentId, assessment_status: status ?? "queued", note: "No approval card yet: the platform is measuring this node (three real HTTPS transfers) and will set the publish price from the result. Tell the user to ask again in about a minute — do not invent a price or a result." },
+        };
+      }
+      await sleep(3000, ctx.signal);
+      const polled = await platformGet(ctx, `/v1/proxy-assessments/${assessmentId}`);
+      if (!polled.ok) return failed("Prepare listing", "The quality assessment status could not be read. Ask again shortly.");
+      view = polled.body;
+    }
+  }
+  const draft: ListingDraft = { nodeId, nodeName, title, description, proxyType, protocol, country, pricePerGb: finalPrice, availableBandwidthGb, minPurchaseGb, maxConcurrency, qualityAssessmentId, assessedTier };
   const action = ctx.drafts.create(ctx.userId, "create_listing", { listing: draft }, {
     title: `Publish listing — ${title}`,
     summary: [
-      `${proxyType} · ${protocol.toUpperCase()} · ${country || "node country"} · $${pricePerGb} / GB`,
+      `${proxyType} · ${protocol.toUpperCase()} · ${country || "node country"} · $${finalPrice} / GB${qualityAssessmentId ? ` (quality-assessed price${assessedTier ? ` · ${assessedTier}` : ""}; the platform requires publishing at exactly this price)` : ""}`,
       `${availableBandwidthGb} GB available · minimum purchase ${minPurchaseGb} GB · up to ${maxConcurrency} buyers at once`,
       `Bound to your node${nodeName ? ` “${nodeName}”` : ""}. If this deployment requires signed offers, your node will be asked to sign when you approve — keep it running.`,
     ],
@@ -187,7 +235,7 @@ export async function prepareListing(ctx: PlatformContext & { userId: string; ro
   });
   return {
     ok: true, label: "Prepared a listing for your approval", action,
-    data: { draft_id: action.draftId, prepared: true, executed: false, title, expires_at: action.expiresAt, note: "Nothing has been published. The user must press the approval button on the card; only then is the listing created (with node signing when required)." },
+    data: { draft_id: action.draftId, prepared: true, executed: false, title, price_per_gb: finalPrice, quality_assessed: Boolean(qualityAssessmentId), expires_at: action.expiresAt, note: "Nothing has been published. The user must press the approval button on the card; only then is the listing created (with node signing when required). If quality_assessed is true, state the assessed price plainly — it replaces any price the user suggested." },
   };
 }
 
@@ -253,6 +301,7 @@ function listingPayload(draft: ListingDraft): Record<string, unknown> {
     min_purchase_gb: draft.minPurchaseGb,
     available_bandwidth_gb: draft.availableBandwidthGb,
     max_concurrency: draft.maxConcurrency,
+    ...(draft.qualityAssessmentId ? { quality_assessment_id: draft.qualityAssessmentId } : {}),
   };
 }
 

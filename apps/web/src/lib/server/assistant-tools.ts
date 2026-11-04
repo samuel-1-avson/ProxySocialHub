@@ -39,6 +39,8 @@ export const ASSISTANT_TOOLS = [
 ] as const;
 
 const no = (label: string, error: string): AssistantToolResult => ({ ok: false, label, data: { error }, sources: [] });
+/** Public listing reads mask country as prose ("Hidden until session"); only pass real ISO codes through. */
+const countryCode = (v: unknown): string | null => typeof v === "string" && /^[A-Za-z]{2}$/.test(v) ? v.toUpperCase() : null;
 const unixIso = (v: unknown): string | null => typeof v === "number" && Number.isFinite(v) && v > 0 ? new Date(v * 1000).toISOString() : null;
 const isProvider = (ctx: AssistantToolContext) => ["provider", "both", "admin"].includes(ctx.role || "");
 
@@ -62,7 +64,7 @@ export async function executeAssistantTool(name: string, raw: unknown, ctx: Assi
         const res = await platformGet(ctx, `/v1/listings?${query}`, false);
         if (!res.ok || !Array.isArray(res.body.listings)) return no("Search listings", "Live listings could not be read. Do not infer availability.");
         const listings = rows(res.body.listings).slice(0, 5).filter((r) => id(r.id)).map((r) => ({
-          id: id(r.id), title: str(r.title), country: str(r.country, 2), proxy_type: str(r.proxy_type, 30), protocol: str(r.protocol, 40), status: str(r.status, 40),
+          id: id(r.id), title: str(r.title), country: countryCode(r.country), proxy_type: str(r.proxy_type, 30), protocol: str(r.protocol, 40), status: str(r.status, 40),
           price_usd_per_gb: num(r.price_per_gb), available_bandwidth_gb: num(r.available_bandwidth_gb), min_purchase_gb: num(r.min_purchase_gb),
           measurement_source: str(r.sla_source, 30), location_note: "Seller-declared country; not verified exit evidence.",
         }));
@@ -113,7 +115,7 @@ export async function executeAssistantTool(name: string, raw: unknown, ctx: Assi
         if (!isProvider(ctx)) return no("Read provider nodes", "Provider access is required. Use the provider application to get started.");
         const res = await platformGet(ctx, "/v1/provider/nodes");
         if (!res.ok || !Array.isArray(res.body.nodes)) return no("Read provider nodes", "Your provider nodes could not be read.");
-        const nodes = rows(res.body.nodes).map((r) => ({ id: id(r.id), name: str(r.name), country: str(r.country, 2), status: str(r.status, 40) }));
+        const nodes = rows(res.body.nodes).map((r) => ({ id: id(r.id), name: str(r.name), country: countryCode(r.country), status: str(r.status, 40) }));
         return { ok: true, label: `Read your provider nodes (${nodes.length})`, data: { nodes, sampled: true, checked_at: new Date().toISOString() }, sources: [ASSISTANT_DESTINATIONS.nodes, ASSISTANT_DESTINATIONS.listings, ASSISTANT_DESTINATIONS.earnings] };
       }
       case "get_my_earnings": {
