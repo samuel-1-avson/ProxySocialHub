@@ -1,6 +1,8 @@
 # Hubbie — personal account assistant
 
-**Hubbie** lives at `/app/assistant`, inside the authenticated workspace. Open it from the account menu, workspace utilities, or workspace search. Public pages have no floating chatbot. The Help Center links to the protected account route. No database migration or new package is required. Chat is held in page memory and clears when leaving, reloading, changing accounts, or choosing **New conversation**.
+**Hubbie** opens as a right-hand chat panel while a signed-in user stays on their current page. Open it from the animated bottom-right **Hubbie AI** button, the workspace header's AI button, or the sidebar shortcut. The desktop dock makes room for the page; smaller screens use an overlay, and phones use a full-height modal sheet with focus trapping, Escape dismissal, and keyboard-aware sizing. Motion respects reduced-motion preferences. Guests receive no launcher or chat runtime. Existing `/app/assistant` bookmarks open the panel and return to `/app`.
+
+No database migration or new package is required. Chat is held in root-owned tab memory: messages and drafts survive panel minimization and client-side navigation, including assistant workflow links. Replies may finish while minimized and show an unread marker. Reloading, signing out, switching accounts, or choosing **New conversation** clears the conversation; account changes/unmount abort pending requests. No chat is written to browser storage or a shared database.
 
 Both API methods require a verified bearer session. Signed-in users receive live Meta AI when configured. With no model key, the account interface continues in explicitly labelled guide mode and does not claim to check account data. Anonymous or cookie-only requests receive HTTP 401, including requests for guides and capabilities.
 
@@ -39,7 +41,7 @@ The in-memory limiter allows one active request and twelve requests per ten minu
 - The model has no mutation, credential-fetch, shell, wallet-signing, arbitrary-network, or SQL tool. Prompt-injected instructions cannot grant those capabilities. Account calls return only selected fields, excluding proxy passwords, wallet/payment details, provider keys, private addresses, and contact data.
 - Tool descriptions, listing titles, prior chat, and user messages are treated as untrusted content. Known credentials, common token/key formats, labelled secrets, private-key blocks, and URL credentials are redacted before model context. This does not promise to recognize every possible secret: users must keep secrets out of chat.
 - Model HTML is never executed; images are not rendered; links and source cards are restricted to reviewed product destinations and safe platform record paths. No tracker or arbitrary external URL is clickable from model output.
-- No shared chat store or cross-account conversation lookup exists. The UI renders no account conversation while unauthenticated and aborts pending runs on account change/unmount. API and stream responses use private/no-store caching and vary by Authorization.
+- No shared chat store or cross-account conversation lookup exists. The root provider and lazy chat runtime are bound to the authenticated account. Identity changes synchronously reset the panel, unmount the previous chat controller, and abort its pending run before another account's UI is committed. API and stream responses use private/no-store caching and vary by Authorization.
 
 ## Verify
 
@@ -51,6 +53,6 @@ npm run typecheck
 npx playwright test e2e/assistant.spec.ts --project=chromium --workers=1
 ```
 
-The automated agent tests mock model responses and platform APIs, exercising actual tool execution and replay without spending model tokens. Browser tests cover protected routes, authenticated guide mode, streamed action results, retry/stop, keyboard submission, mobile layout, accessibility, and account changes. These checks run in the frontend PR workflow. A live provider smoke check can be run separately against Meta; never put model keys in fixtures, screenshots, or public reports.
+The automated agent tests mock model responses and platform APIs, exercising actual tool execution and replay without spending model tokens. Browser tests cover account-only access, all launcher/navigation entry points, guide mode, streamed tools, retry/stop, keyboard submission, responsive modal/non-modal behavior, accessibility, reduced motion, unread replies, navigation/minimization persistence, and account changes. These checks run in the frontend PR workflow. A live provider smoke check can be run separately against Meta; never put model keys in fixtures, screenshots, or public reports.
 
 Tool protocol references: [Meta Responses](https://dev.meta.ai/docs/protocols/responses), [Meta tool calling](https://dev.meta.ai/docs/tool-calling).
