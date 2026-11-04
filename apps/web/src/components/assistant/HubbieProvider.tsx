@@ -75,8 +75,3 @@ export function useHubbie() {
   if (!value) throw new Error("Hubbie controls require HubbieProvider.");
   return value;
 }
-
-export function HubbieTrigger({ children, className = "", label }: { children: ReactNode; className?: string; label?: string }) {
-  const { isOpen, openHubbie } = useHubbie();
-  return <button type="button" className={className} aria-label={label} aria-haspopup="dialog" aria-controls="hubbie-drawer" aria-expanded={isOpen} onClick={openHubbie}>{children}</button>;
-}
