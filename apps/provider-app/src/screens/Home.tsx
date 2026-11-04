@@ -4,6 +4,7 @@ import type { Ipc } from '../ipc';
 import type { AppApi } from '../useApp';
 import type { AppState } from '../types';
 import { Diagnose, Earnings, ServerStatus } from './Details';
+import { BlockedSitesPanel } from './BlockedSites';
 import { Disconnect, NodeSettingsPanel } from './Manage';
 
 function StartAtSignIn({ ipc, app }: { ipc: Ipc; app: AppApi }) {
@@ -42,6 +43,7 @@ function Footer({ ipc, app }: { ipc: Ipc; app: AppApi }) {
   return (
     <>
       <NodeSettingsPanel ipc={ipc} />
+      <BlockedSitesPanel ipc={ipc} />
       <StartAtSignIn ipc={ipc} app={app} />
       <p className="muted small">
         Closing this window keeps sharing going. To stop completely, right-click the ProxyHubb icon near the

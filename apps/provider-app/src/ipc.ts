@@ -1,9 +1,18 @@
-// The whole surface between the window and the Rust side: nineteen commands and three events.
+// The whole surface between the window and the Rust side: twenty-one commands and three events.
 // Nothing here takes a URL or a command line; the Rust side decides what to run and open.
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import type { AppState, DisconnectResult, Diagnosis, NodeSettings, PairingEnded, UpdateNotice } from './types';
+import type {
+  AppState,
+  BlockedSitesSaved,
+  DisconnectResult,
+  Diagnosis,
+  NodeSettings,
+  PairingEnded,
+  RulesDraft,
+  UpdateNotice,
+} from './types';
 
 export interface Ipc {
   appState(): Promise<AppState>;
@@ -18,6 +27,10 @@ export interface Ipc {
   disconnect(): Promise<DisconnectResult>;
   /** This computer's node settings, for reading. */
   getNodeSettings(): Promise<NodeSettings>;
+  /** Draft a change to the blocked sites from the provider's own words. Changes nothing. */
+  draftRules(text: string): Promise<RulesDraft>;
+  /** Save the approved blocked sites; restarts a node this app started so they apply at once. */
+  saveBlockedSites(sites: string[]): Promise<BlockedSitesSaved>;
   getUpdateNotice(): Promise<UpdateNotice | null>;
   openTokensPage(): Promise<void>;
   openDownloadPage(): Promise<void>;
@@ -46,6 +59,8 @@ const tauriIpc: Ipc = {
   restartNode: () => invoke<void>('restart_node'),
   disconnect: () => invoke<DisconnectResult>('disconnect_computer'),
   getNodeSettings: () => invoke<NodeSettings>('get_node_settings'),
+  draftRules: (text) => invoke<RulesDraft>('draft_rules', { text }),
+  saveBlockedSites: (sites) => invoke<BlockedSitesSaved>('save_blocked_sites', { sites }),
   getUpdateNotice: () => invoke<UpdateNotice | null>('get_update_notice'),
   openTokensPage: () => invoke<void>('open_tokens_page'),
   openDownloadPage: () => invoke<void>('open_download_page'),

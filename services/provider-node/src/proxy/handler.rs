@@ -230,10 +230,9 @@ impl ProxyHandler {
     }
 
     fn is_host_blocked(&self, host: &str) -> bool {
-        let host_lower = host.to_lowercase();
         self.blocked_hosts
             .iter()
-            .any(|b| host_lower.contains(&b.to_lowercase()))
+            .any(|rule| crate::blocked_sites::host_matches(host, rule))
     }
 
     async fn resolve_allowed_target(
