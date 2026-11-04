@@ -63,6 +63,33 @@ function Get-LatestBundle {
     }
 }
 
+# The versioned exe for $Prefix among the names just extracted from the bundle,
+# preferring the bundle's own version if the archive ever holds more than one.
+# Never searches the install folder: older installs leave their files there.
+function Select-BundleFile([string[]]$Names, [string]$Prefix, [string]$BundleVersion) {
+    $found = @($Names | Where-Object { $_ -like "$Prefix-*-windows-amd64.exe" })
+    $exact = @($found | Where-Object { $_ -eq "$Prefix-$BundleVersion-windows-amd64.exe" })
+    if ($exact.Count -gt 0) { return $exact[0] }
+    if ($found.Count -gt 0) { return $found[0] }
+    return $null
+}
+
+# Copy $Source over $Target. A running exe cannot be overwritten on Windows but
+# can be renamed, so if the copy fails the old file is moved to <name>.old first
+# (the node keeps running the old version until it is restarted).
+function Set-StableCopy([string]$Source, [string]$Target) {
+    try {
+        Copy-Item $Source $Target -Force
+    } catch {
+        if (-not (Test-Path $Target)) { throw }
+        $old = "$Target.old"
+        Remove-Item -Force -ErrorAction SilentlyContinue $old
+        Rename-Item $Target (Split-Path $old -Leaf)
+        Copy-Item $Source $Target -Force
+        Write-Warning "$(Split-Path $Target -Leaf) was in use; restart the node to run the new version."
+    }
+}
+
 # Fail closed: only our own API host (or an explicit local override) is fetched.
 $apiHost = ([uri]$ApiBase).Host.ToLowerInvariant()
 if ($apiHost -ne 'api.proxyhubb.com' -and $apiHost -notmatch '^(localhost|127\.0\.0\.1)$') {
@@ -92,6 +119,7 @@ try {
     New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
     # Extract only the expected console files (never execute from the archive).
     $want = @('provider-node-*-windows-amd64.exe', 'provider-cli-*-windows-amd64.exe', 'Launch-Provider-Console.cmd')
+    $extracted = @()
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $zip = [IO.Compression.ZipFile]::OpenRead($tmpZip)
     try {
@@ -103,18 +131,26 @@ try {
             if (-not $match) { continue }
             if ($name -match '[\\/]|\.\.') { throw "Unsafe archive entry: $name" }
             [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, (Join-Path $InstallDir $name), $true)
+            $extracted += $name
         }
     } finally { $zip.Dispose() }
 
-    $nodeExe = Get-ChildItem $InstallDir -Filter 'provider-node-*-windows-amd64.exe' | Select-Object -First 1
-    if (-not $nodeExe) { throw 'Archive did not contain provider-node' }
+    # Use the files that came out of THIS bundle. Earlier installs leave their own
+    # versioned files in the folder, and taking the first match there picked
+    # provider-node-1.0.11 over 1.0.12 (names sort as text), so a reinstall kept
+    # the old node.
+    $nodeName = Select-BundleFile $extracted 'provider-node' $bundle.Version
+    if (-not $nodeName) { throw 'Archive did not contain provider-node' }
     # Stable names so `provider-node ...` works and `provider-node update`
     # replaces the running file in place (it resolves current_exe()).
-    Copy-Item $nodeExe.FullName (Join-Path $InstallDir 'provider-node.exe') -Force
-    $cliExe = Get-ChildItem $InstallDir -Filter 'provider-cli-*-windows-amd64.exe' | Select-Object -First 1
-    if ($cliExe) { Copy-Item $cliExe.FullName (Join-Path $InstallDir 'provider-cli.exe') -Force }
+    Set-StableCopy (Join-Path $InstallDir $nodeName) (Join-Path $InstallDir 'provider-node.exe')
+    $cliName = Select-BundleFile $extracted 'provider-cli' $bundle.Version
+    if ($cliName) { Set-StableCopy (Join-Path $InstallDir $cliName) (Join-Path $InstallDir 'provider-cli.exe') }
     $reported = (& (Join-Path $InstallDir 'provider-node.exe') --version 2>&1 | Out-String).Trim()
     Write-Host "Installed: $reported -> $InstallDir"
+    if ($bundle.Version -and $reported -notmatch [regex]::Escape($bundle.Version)) {
+        Write-Warning "provider-node.exe reports '$reported' but the bundle is v$($bundle.Version)."
+    }
 }
 finally {
     Remove-Item -Force -ErrorAction SilentlyContinue $tmpZip
