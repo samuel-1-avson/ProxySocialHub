@@ -22,21 +22,25 @@ import (
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/privacy"
 	providerProofs "github.com/proxyhubb/control-api/internal/proofs"
+	"github.com/proxyhubb/control-api/internal/quality"
 )
 
 // getListingProofPolicy exposes whether signed listing offers are mandatory.
 func getListingProofPolicy(c *gin.Context) {
 	mode := providerProofMode()
 	c.JSON(http.StatusOK, gin.H{
-		"mode":               mode,
-		"required":           mode == "enforce",
-		"dev_server_signing": devListingServerSignEnabled(),
+		"quality_assessment_required": quality.Enforced(),
+		"mode":                        mode,
+		"required":                    mode == "enforce",
+		"dev_server_signing":          devListingServerSignEnabled(),
 	})
 }
 
 // RegisterListingRoutes registers marketplace listing routes
 func RegisterListingRoutes(rg *gin.RouterGroup) {
 	RegisterListingCatalogRoutes(rg)
+	rg.POST("/proxy-assessments", RateLimitMiddleware(), createProxyAssessment)
+	rg.GET("/proxy-assessments/:id", getProxyAssessment)
 	rg.GET("/listings", getListings)
 	rg.GET("/listings/featured", getFeaturedListings)
 	rg.GET("/listings/search", searchListings)
@@ -218,6 +222,7 @@ func listingEntityToModel(e domain.ListingEntity) models.ProxyListing {
 	return models.ProxyListing{
 		ID:                            e.ID,
 		SellerID:                      e.SellerID,
+		QualityAssessmentID:           e.QualityAssessmentID,
 		ProviderNodeID:                e.ProviderNodeID,
 		ListingOfferHash:              e.ListingOfferHash,
 		ListingOfferSignature:         e.ListingOfferSignature,
@@ -258,6 +263,9 @@ func listingEntityToModel(e domain.ListingEntity) models.ProxyListing {
 }
 
 func listingUpdateHasChanges(updates domain.ListingUpdate) bool {
+	if updates.QualityAssessmentID != nil {
+		return true
+	}
 	return updates.Title != nil ||
 		updates.Description != nil ||
 		updates.PricePerGB != nil ||
@@ -430,7 +438,7 @@ func createListing(c *gin.Context) {
 	if providerNodeID != nil && (country == "" || isp == "") {
 		var pn models.ProviderNode
 		if db.DB.Select("country", "city").First(&pn, "id = ?", *providerNodeID).Error == nil {
-			if country == "" {
+			if country == "" && req.QualityAssessmentID == nil {
 				country = pn.Country
 			}
 		}
@@ -445,7 +453,12 @@ func createListing(c *gin.Context) {
 		maxConcurrency = 5
 	}
 
+	if len(req.BulkDiscounts) > 0 && (quality.Enforced() || req.QualityAssessmentID != nil) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "bulk discounts are unavailable for quality-priced offers"})
+		return
+	}
 	entity := domain.ListingEntity{
+		QualityAssessmentID:  req.QualityAssessmentID,
 		ProviderNodeID:       providerNodeID,
 		Title:                req.Title,
 		Description:          req.Description,
@@ -627,7 +640,7 @@ func updateListing(c *gin.Context) {
 		return
 	}
 
-	updates := domain.ListingUpdate{}
+	updates := domain.ListingUpdate{QualityAssessmentID: req.QualityAssessmentID}
 	if req.Title != nil {
 		updates.Title = req.Title
 	}
@@ -952,6 +965,7 @@ func getMyListings(c *gin.Context) {
 	}
 
 	listings := listingEntitiesToModels(entities)
+	enrichListingsQuality(listings)
 	maybeEnrichListingsWithCatalog(c, listings)
 
 	c.JSON(http.StatusOK, gin.H{

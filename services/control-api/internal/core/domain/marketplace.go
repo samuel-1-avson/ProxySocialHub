@@ -71,63 +71,65 @@ type SavedListingEntry struct {
 
 // ListingEntity represents the core marketplace product
 type ListingEntity struct {
-	ID                   uuid.UUID
-	SellerID             uuid.UUID
-	ProviderNodeID       *uuid.UUID
-	ListingOfferHash     string
-	ListingOfferSignature string
-	ListingOfferSigner   string
-	ListingOfferSignedAt *time.Time
-	ListingOfferVerified bool
+	QualityAssessmentID           *uuid.UUID
+	ID                            uuid.UUID
+	SellerID                      uuid.UUID
+	ProviderNodeID                *uuid.UUID
+	ListingOfferHash              string
+	ListingOfferSignature         string
+	ListingOfferSigner            string
+	ListingOfferSignedAt          *time.Time
+	ListingOfferVerified          bool
 	ListingOfferVerificationError string
-	ListingOfferNonce    string
-	ListingCommitmentPDA     string
-	ListingCommitmentOnChain bool
-	ListingCommitmentTx      string
-	ListingCommitmentAt      *time.Time
-	Title                string
-	Description          string
-	ProxyType            ProxyType
-	Protocol             string
-	RotationType         string
-	Country              string
-	ISP                  string
-	PricePerGB           float64
-	MinPurchaseGB        float64
-	AvailableBandwidthGB float64
-	MaxConcurrency       int
-	Status               ListingStatus
-	QualityScore         float64
-	AvgLatencyMs         int
-	UptimePercent        float64
-	SuccessRate          float64
-	CurrentTier          string
-	ViewsCount           int
-	SavesCount           int
-	OrdersCount          int
-	ActiveSessionsCount  int
-	AllowDirectMessage   bool
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
-	Seller               *SellerPublicProfile `json:"-"`
+	ListingOfferNonce             string
+	ListingCommitmentPDA          string
+	ListingCommitmentOnChain      bool
+	ListingCommitmentTx           string
+	ListingCommitmentAt           *time.Time
+	Title                         string
+	Description                   string
+	ProxyType                     ProxyType
+	Protocol                      string
+	RotationType                  string
+	Country                       string
+	ISP                           string
+	PricePerGB                    float64
+	MinPurchaseGB                 float64
+	AvailableBandwidthGB          float64
+	MaxConcurrency                int
+	Status                        ListingStatus
+	QualityScore                  float64
+	AvgLatencyMs                  int
+	UptimePercent                 float64
+	SuccessRate                   float64
+	CurrentTier                   string
+	ViewsCount                    int
+	SavesCount                    int
+	OrdersCount                   int
+	ActiveSessionsCount           int
+	AllowDirectMessage            bool
+	CreatedAt                     time.Time
+	UpdatedAt                     time.Time
+	Seller                        *SellerPublicProfile `json:"-"`
 }
 
 type ListingUpdate struct {
-	Title                *string
-	Description          *string
-	PricePerGB           *float64
-	MinPurchaseGB        *float64
-	AvailableBandwidthGB *float64
-	MaxConcurrency       *int
-	Status               *ListingStatus
-	BulkDiscountsJSON    []byte
-	ListingOfferHash     *string
-	ListingOfferSignature *string
-	ListingOfferSigner   *string
-	ListingOfferSignedAt *time.Time
-	ListingOfferVerified *bool
+	QualityAssessmentID           *uuid.UUID
+	Title                         *string
+	Description                   *string
+	PricePerGB                    *float64
+	MinPurchaseGB                 *float64
+	AvailableBandwidthGB          *float64
+	MaxConcurrency                *int
+	Status                        *ListingStatus
+	BulkDiscountsJSON             []byte
+	ListingOfferHash              *string
+	ListingOfferSignature         *string
+	ListingOfferSigner            *string
+	ListingOfferSignedAt          *time.Time
+	ListingOfferVerified          *bool
 	ListingOfferVerificationError *string
-	ListingOfferNonce    *string
+	ListingOfferNonce             *string
 }
 
 // NodeEntity represents physical infrastructure

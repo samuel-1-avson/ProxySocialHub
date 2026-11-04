@@ -12,6 +12,7 @@ import {
   marketplaceKeys,
   signListingOfferDev,
   type CreateListingRequest,
+  type ProxyAssessment,
 } from "@/lib/api/marketplace";
 import { loadProviderSigningKey } from "@/lib/provider-config";
 import {
@@ -45,6 +46,8 @@ import { useSellerNodes } from "./SellerNodes";
 import { NodeKeyImport, useListingSigner } from "./NodeKeyImport";
 
 // Limits the control API applies to a new listing (models.CreateListingRequest).
+import { ProxyAssessmentPanel, assessmentMatches } from "./ProxyAssessmentPanel";
+
 const LIMITS = {
   titleMin: 5,
   title: 200,
@@ -81,6 +84,7 @@ export function ListingEditor() {
   const [concurrency, setConcurrency] = useState("10");
   const [review, setReview] = useState<CreateListingRequest | null>(null);
   const [progress, setProgress] = useState("");
+  const [assessment, setAssessment] = useState<ProxyAssessment | null>(null);
   const [, setImportTick] = useState(0);
   const selectedId =
     nodeId || (nodes.data?.nodes.length === 1 ? nodes.data.nodes[0].id : "");
@@ -100,8 +104,12 @@ export function ListingEditor() {
     staleTime: 60_000,
     retry: 1,
   });
+  const assessmentConfig = { proxy_type: type, protocol: LISTING_PROTOCOLS.filter(p => protocols.includes(p.value)).map(p => p.value).join(","), rotation_type: rotation, country: region, max_concurrency: Number(concurrency) };
+  const qualityRequired = policy.data?.quality_assessment_required !== false;
+  const accepted = assessmentMatches(assessment, selectedId, assessmentConfig);
+  const effectivePrice = accepted ? assessment.price_per_gb : Number(price);
   const guidance = evaluateListingPrice(
-    Number(price),
+    effectivePrice,
     type,
     suggestion.data?.suggested_price,
   );
@@ -126,7 +134,8 @@ export function ListingEditor() {
     problems.push(
       `Concurrent connections must be a whole number from 1 to ${LIMITS.concurrency}.`,
     );
-  if (!(Number(price) > 0)) problems.push("Enter a price per GB.");
+  if (qualityRequired && !accepted) problems.push("Assess this proxy and accept its price.");
+  if (!(effectivePrice > 0)) problems.push("Enter a price per GB.");
   else if (guidance.overHardCap)
     problems.push("The maximum allowed price is $50 / GB.");
   if (!(Number(capacity) > 0)) problems.push("Enter the bandwidth you can supply.");
@@ -142,6 +151,7 @@ export function ListingEditor() {
   const publish = useMutation({
     retry: false,
     mutationFn: async () => {
+      if (qualityRequired && (!accepted || review?.quality_assessment_id !== assessment?.id)) throw new Error("Assessment expired or changed. Go back and assess the proxy again.");
       if (!review || !policy.isSuccess || !selectedNode)
         throw new Error(
           "Load the publication requirements and review your node before publishing.",
@@ -226,7 +236,8 @@ export function ListingEditor() {
       rotation_type: rotation,
       country: region,
       isp: isp.trim(),
-      price_per_gb: Number(price),
+      price_per_gb: effectivePrice,
+      quality_assessment_id: accepted ? assessment.id : undefined,
       available_bandwidth_gb: Number(capacity),
       min_purchase_gb: Number(minimum),
       max_concurrency: Number(concurrency),
@@ -240,7 +251,7 @@ export function ListingEditor() {
       <PageHeading
         eyebrow="Provider workspace"
         title={review ? "Review your offer" : "Create a listing"}
-        description="Describe the capacity you can supply, set its price, and review publication requirements."
+        description="Describe your capacity, assess proxy quality, and accept the proposed price before publishing."
       />
       {nodes.isLoading && <Loading label="Loading your nodes…" />}
       {nodes.isError && (
@@ -265,6 +276,7 @@ export function ListingEditor() {
           <p className="ui-note">
             {review.description || "No additional description."}
           </p>
+          {review.quality_assessment_id && assessment && <p className="ui-note">{assessment.summary} Publishing accepts this assessed price for future purchases.</p>}
           <dl className="ui-detail-list">
             <div>
               <dt>Supply node</dt>
@@ -544,6 +556,7 @@ export function ListingEditor() {
           </section>
           <section className="ui-surface ui-page">
             <h2>Price & capacity</h2>
+            <ProxyAssessmentPanel key={JSON.stringify([selectedId, assessmentConfig])} nodeId={selectedId} config={assessmentConfig} onAccepted={a => { setAssessment(a); setPrice(String(a.price_per_gb)); }} />
             <div className="ui-form-grid">
               <label className="ui-field">
                 USD per GB
@@ -554,7 +567,8 @@ export function ListingEditor() {
                   min="0.0001"
                   max="50"
                   step="0.0001"
-                  value={price}
+                  value={accepted ? String(assessment.price_per_gb) : price}
+                  readOnly={qualityRequired || accepted}
                   onChange={(e) => setPrice(e.target.value)}
                 />
                 <small>
@@ -587,7 +601,7 @@ export function ListingEditor() {
                 />
               </label>
             </div>
-            {suggestion.data && (
+            {!qualityRequired && !accepted && suggestion.data && (
               <p className="ui-note">
                 Suggested price from the pricing API: $
                 {amount(suggestion.data.suggested_price, 4)} / GB.{" "}

@@ -19,6 +19,7 @@ func StartAll(queue events.EventQueue) {
 	StartSessionGatewayCacheReaper() // Wave 2.2 — expire session_gateway_cache spill
 	StartSubscriptionRenewalWorker()
 	StartTelemetryWorker()
+	StartQualityAssessor()
 	StartPricingEvaluator() // AI-Native dynamic proxy pricing engine
 	StartGDPRDeletionWorker()
 	StartPrivacyRetentionWorker()

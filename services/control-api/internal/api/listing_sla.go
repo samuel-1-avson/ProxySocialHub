@@ -15,6 +15,7 @@ type listingSLARow struct {
 
 // enrichListingsSLA overwrites uptime/latency on listings with live gateway → explorer → provider precedence.
 func enrichListingsSLA(listings []models.ProxyListing) {
+	enrichListingsQuality(listings)
 	if len(listings) == 0 {
 		return
 	}
@@ -91,6 +92,10 @@ WHERE pl.id IN ?`
 		byID[r.ListingID] = r
 	}
 	for i := range listings {
+		if listings[i].QualityAssessmentID != nil {
+			listings[i].SLASource = "assessment"
+			continue
+		}
 		row, ok := byID[listings[i].ID.String()]
 		if !ok {
 			continue

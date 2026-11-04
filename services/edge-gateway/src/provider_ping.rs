@@ -78,7 +78,7 @@ where
         .unwrap_or(Err(ProbeError::Timeout))
 }
 
-fn authorized(headers: &HeaderMap, secret: &str) -> bool {
+pub(crate) fn authorized(headers: &HeaderMap, secret: &str) -> bool {
     if secret.is_empty() {
         return false;
     }

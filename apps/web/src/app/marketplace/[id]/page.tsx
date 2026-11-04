@@ -136,7 +136,7 @@ function ListingDetailContent() {
         );
     }
 
-    const metricsMeasured = listing.sla_source === 'gateway' || listing.sla_source === 'explorer' || listing.sla_source === 'provider';
+    const metricsMeasured = listing.sla_source === 'assessment' || listing.sla_source === 'gateway' || listing.sla_source === 'explorer' || listing.sla_source === 'provider';
 
     return (
         <div className="space-y-6">
@@ -230,7 +230,7 @@ function ListingDetailContent() {
                                     </div>
                                     <div className="font-mono font-bold text-lg flex items-center gap-1">
                                         <Activity size={16} className="text-info" />
-                                        {metricsMeasured ? `${listing.uptime_percent}%` : 'Unmeasured'}
+                                        {listing.sla_source === 'assessment' ? 'Not yet established' : metricsMeasured ? `${listing.uptime_percent}%` : 'Unmeasured'}
                                     </div>
                                     {listing.sla_source && (
                                         <div className="ui-note">
@@ -270,6 +270,7 @@ function ListingDetailContent() {
                         <div className="flex justify-between items-baseline mb-6">
                             <span className="ui-stat-label">Price</span>
                             <div className="text-right">
+                                {listing.quality_assessment && <div className="mb-4 text-sm text-muted-foreground"><strong>Provisional quality assessment</strong><p>{listing.quality_assessment.summary}</p><p>Confidence: {Math.round(listing.quality_assessment.confidence * 100)}%. Last checked: {new Date(listing.quality_assessment.completed_at).toLocaleString()}.</p></div>}
                                 <span className="text-4xl font-bold font-mono">{Number(listing.price_per_gb || 0).toFixed(4)}</span>
                                 <span className="text-sm text-muted-foreground font-mono"> USD/GB</span>
                             </div>

@@ -357,7 +357,7 @@ export function Marketplace() {
                         )}
                         <small>
                           {listing.avg_latency_ms > 0
-                            ? ["gateway", "explorer"].includes(
+                            ? ["gateway", "explorer", "assessment"].includes(
                                 listing.sla_source || "",
                               )
                               ? "Measured"
@@ -373,6 +373,7 @@ export function Marketplace() {
                       </dd>
                     </div>
                   </dl>
+                  {listing.quality_assessment && <p className="ui-note">{listing.quality_assessment.status === "unavailable" ? "Latest assessment unavailable" : `${listing.quality_assessment.tier} · ${amount(listing.quality_assessment.quality_score, 1)}/100 · provisional`} · confidence {Math.round(listing.quality_assessment.confidence * 100)}%</p>}
                   <div className="offer-evidence">
                     <span>
                       {listing.listing_offer_verified ? (

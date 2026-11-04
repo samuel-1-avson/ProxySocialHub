@@ -69,6 +69,7 @@ func TestGetPendingListingsForModeration(t *testing.T) {
 }
 
 func TestApprovePendingListing(t *testing.T) {
+	t.Setenv("LISTING_QUALITY_MODE", "observe") // Legacy workflow; assessment enforcement has dedicated tests.
 	testutil.SetupTestDB(t)
 	testutil.CleanupTestData(t, "users", "proxy_listings")
 
