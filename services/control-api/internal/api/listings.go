@@ -427,31 +427,16 @@ func createListing(c *gin.Context) {
 		return
 	}
 
-	providerNodeID, err := resolveListingProviderNode(userID, req.ProviderNodeID)
+	terms, err := resolveListingCreateTerms(userID, req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
-	country := req.Country
-	isp := req.ISP
-	if providerNodeID != nil && (country == "" || isp == "") {
-		var pn models.ProviderNode
-		if db.DB.Select("country", "city").First(&pn, "id = ?", *providerNodeID).Error == nil {
-			if country == "" && req.QualityAssessmentID == nil {
-				country = pn.Country
-			}
-		}
-	}
-
-	rotationType := req.RotationType
-	if rotationType == "" {
-		rotationType = "static"
-	}
-	maxConcurrency := req.MaxConcurrency
-	if maxConcurrency <= 0 {
-		maxConcurrency = 5
-	}
+	providerNodeID := terms.ProviderNodeID
+	country := terms.Country
+	isp := terms.ISP
+	rotationType := terms.RotationType
+	maxConcurrency := terms.MaxConcurrency
 
 	if len(req.BulkDiscounts) > 0 && (quality.Enforced() || req.QualityAssessmentID != nil) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "bulk discounts are unavailable for quality-priced offers"})
@@ -489,23 +474,7 @@ func createListing(c *gin.Context) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "This node has not connected yet. Start the node once so it registers its signing key, then publish the offer.", "code": "node_hotkey_missing"})
 			return
 		}
-		payloadHash := providerProofs.HashListingOfferPayload(providerProofs.ListingOfferPayload{
-			ProviderNodeID:       proofContext.ProviderNodeID,
-			GatewayNodeID:        proofContext.GatewayNodeID,
-			Title:                req.Title,
-			Description:          req.Description,
-			ProxyType:            string(req.ProxyType),
-			Protocol:             req.Protocol,
-			RotationType:         rotationType,
-			Country:              country,
-			ISP:                  isp,
-			PricePerGB:           req.PricePerGB,
-			MinPurchaseGB:        req.MinPurchaseGB,
-			AvailableBandwidthGB: req.AvailableBandwidthGB,
-			MaxConcurrency:       maxConcurrency,
-			Status:               string(models.ListingStatusActive),
-			ExpiresAt:            req.ListingOfferExpiresAt,
-		})
+		payloadHash := providerProofs.HashListingOfferPayload(listingCreateOfferPayload(proofContext, req, terms))
 		proofResult := verifyProviderProof(req.Proof, providerProofs.ListingOfferMessageType, proofContext.Hotkey, payloadHash)
 		if proofResult.Present && !proofResult.Verified {
 			c.JSON(http.StatusForbidden, gin.H{"error": "invalid provider listing proof", "details": proofResult.VerificationError})
@@ -546,6 +515,134 @@ func createListing(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, listingEntityToModel(*published))
+}
+
+// listingCreateTerms are the defaulted terms a new listing is stored and signed with.
+// createListing and a node-signature request (listing_node_signatures.go) both use
+// them, so the payload a node signs is exactly the payload createListing verifies.
+type listingCreateTerms struct {
+	ProviderNodeID *uuid.UUID
+	Country        string
+	ISP            string
+	RotationType   string
+	MaxConcurrency int
+}
+
+func resolveListingCreateTerms(userID uuid.UUID, req models.CreateListingRequest) (listingCreateTerms, error) {
+	providerNodeID, err := resolveListingProviderNode(userID, req.ProviderNodeID)
+	if err != nil {
+		return listingCreateTerms{}, err
+	}
+	terms := listingCreateTerms{
+		ProviderNodeID: providerNodeID,
+		Country:        req.Country,
+		ISP:            req.ISP,
+		RotationType:   req.RotationType,
+		MaxConcurrency: req.MaxConcurrency,
+	}
+	if providerNodeID != nil && (terms.Country == "" || terms.ISP == "") {
+		var pn models.ProviderNode
+		if db.DB.Select("country", "city").First(&pn, "id = ?", *providerNodeID).Error == nil {
+			if terms.Country == "" && req.QualityAssessmentID == nil {
+				terms.Country = pn.Country
+			}
+		}
+	}
+	if terms.RotationType == "" {
+		terms.RotationType = "static"
+	}
+	if terms.MaxConcurrency <= 0 {
+		terms.MaxConcurrency = 5
+	}
+	return terms, nil
+}
+
+// listingCreateOfferPayload is the payload a provider signs to publish a new offer.
+// A new offer is always signed as active; the server may still hold it for review.
+func listingCreateOfferPayload(proofContext listingProofContext, req models.CreateListingRequest, terms listingCreateTerms) providerProofs.ListingOfferPayload {
+	return providerProofs.ListingOfferPayload{
+		ProviderNodeID:       proofContext.ProviderNodeID,
+		GatewayNodeID:        proofContext.GatewayNodeID,
+		Title:                req.Title,
+		Description:          req.Description,
+		ProxyType:            string(req.ProxyType),
+		Protocol:             req.Protocol,
+		RotationType:         terms.RotationType,
+		Country:              terms.Country,
+		ISP:                  terms.ISP,
+		PricePerGB:           req.PricePerGB,
+		MinPurchaseGB:        req.MinPurchaseGB,
+		AvailableBandwidthGB: req.AvailableBandwidthGB,
+		MaxConcurrency:       terms.MaxConcurrency,
+		Status:               string(models.ListingStatusActive),
+		ExpiresAt:            req.ListingOfferExpiresAt,
+	}
+}
+
+// listingUpdateOfferPayload is the payload a provider signs for an offer edit: the
+// stored terms with the edited fields applied, canonicalised the way the web signs them.
+func listingUpdateOfferPayload(proofContext listingProofContext, existing models.ProxyListing, req models.UpdateListingRequest) providerProofs.ListingOfferPayload {
+	title := existing.Title
+	if req.Title != nil {
+		title = *req.Title
+	}
+	description := existing.Description
+	if req.Description != nil {
+		description = *req.Description
+	}
+	pricePerGB := existing.PricePerGB
+	if req.PricePerGB != nil {
+		pricePerGB = *req.PricePerGB
+	}
+	minPurchaseGB := existing.MinPurchaseGB
+	if req.MinPurchaseGB != nil {
+		minPurchaseGB = *req.MinPurchaseGB
+	}
+	availableBandwidthGB := existing.AvailableBandwidthGB
+	if req.AvailableBandwidthGB != nil {
+		availableBandwidthGB = *req.AvailableBandwidthGB
+	}
+	maxConcurrency := existing.MaxConcurrency
+	if req.MaxConcurrency != nil {
+		maxConcurrency = *req.MaxConcurrency
+	}
+	if maxConcurrency <= 0 {
+		maxConcurrency = 5
+	}
+	// Older rows can hold "HTTP" or an empty rotation; sign what the
+	// web canonicalises them to, or edits to those offers never verify.
+	protocol, problem := normalizeListingProtocols(existing.Protocol)
+	if problem != "" {
+		protocol = strings.ToLower(strings.TrimSpace(existing.Protocol))
+		if protocol == "" {
+			protocol = "http"
+		}
+	}
+	rotationType := existing.RotationType
+	if rotationType == "" {
+		rotationType = "static"
+	}
+	status := existing.Status
+	if req.Status != nil {
+		status = *req.Status
+	}
+	return providerProofs.ListingOfferPayload{
+		ProviderNodeID:       proofContext.ProviderNodeID,
+		GatewayNodeID:        proofContext.GatewayNodeID,
+		Title:                title,
+		Description:          description,
+		ProxyType:            string(existing.ProxyType),
+		Protocol:             protocol,
+		RotationType:         rotationType,
+		Country:              existing.Country,
+		ISP:                  existing.ISP,
+		PricePerGB:           pricePerGB,
+		MinPurchaseGB:        minPurchaseGB,
+		AvailableBandwidthGB: availableBandwidthGB,
+		MaxConcurrency:       maxConcurrency,
+		Status:               string(status),
+		ExpiresAt:            req.ListingOfferExpiresAt,
+	}
 }
 
 // resolveListingProviderNode picks or validates the provider_nodes row for a listing.
@@ -701,67 +798,7 @@ func updateListing(c *gin.Context) {
 				c.JSON(http.StatusForbidden, gin.H{"error": "This node has not connected yet. Start the node once so it registers its signing key, then edit the offer.", "code": "node_hotkey_missing"})
 				return
 			}
-			title := existing.Title
-			if req.Title != nil {
-				title = *req.Title
-			}
-			description := existing.Description
-			if req.Description != nil {
-				description = *req.Description
-			}
-			pricePerGB := existing.PricePerGB
-			if req.PricePerGB != nil {
-				pricePerGB = *req.PricePerGB
-			}
-			minPurchaseGB := existing.MinPurchaseGB
-			if req.MinPurchaseGB != nil {
-				minPurchaseGB = *req.MinPurchaseGB
-			}
-			availableBandwidthGB := existing.AvailableBandwidthGB
-			if req.AvailableBandwidthGB != nil {
-				availableBandwidthGB = *req.AvailableBandwidthGB
-			}
-			maxConcurrency := existing.MaxConcurrency
-			if req.MaxConcurrency != nil {
-				maxConcurrency = *req.MaxConcurrency
-			}
-			if maxConcurrency <= 0 {
-				maxConcurrency = 5
-			}
-			// Older rows can hold "HTTP" or an empty rotation; sign what the
-			// web canonicalises them to, or edits to those offers never verify.
-			protocol, problem := normalizeListingProtocols(existing.Protocol)
-			if problem != "" {
-				protocol = strings.ToLower(strings.TrimSpace(existing.Protocol))
-				if protocol == "" {
-					protocol = "http"
-				}
-			}
-			rotationType := existing.RotationType
-			if rotationType == "" {
-				rotationType = "static"
-			}
-			status := existing.Status
-			if req.Status != nil {
-				status = *req.Status
-			}
-			payloadHash := providerProofs.HashListingOfferPayload(providerProofs.ListingOfferPayload{
-				ProviderNodeID:       proofContext.ProviderNodeID,
-				GatewayNodeID:        proofContext.GatewayNodeID,
-				Title:                title,
-				Description:          description,
-				ProxyType:            string(existing.ProxyType),
-				Protocol:             protocol,
-				RotationType:         rotationType,
-				Country:              existing.Country,
-				ISP:                  existing.ISP,
-				PricePerGB:           pricePerGB,
-				MinPurchaseGB:        minPurchaseGB,
-				AvailableBandwidthGB: availableBandwidthGB,
-				MaxConcurrency:       maxConcurrency,
-				Status:               string(status),
-				ExpiresAt:            req.ListingOfferExpiresAt,
-			})
+			payloadHash := providerProofs.HashListingOfferPayload(listingUpdateOfferPayload(proofContext, existing, req))
 			proofResult := verifyProviderProof(req.Proof, providerProofs.ListingOfferMessageType, proofContext.Hotkey, payloadHash)
 			if proofResult.Present && !proofResult.Verified {
 				c.JSON(http.StatusForbidden, gin.H{"error": "invalid provider listing proof", "details": proofResult.VerificationError})
