@@ -24,6 +24,16 @@ for file in "${live_files[@]}"; do
 done
 old_image=$(docker inspect "$old_container" --format '{{.Image}}')
 [[ -n "$old_image" ]]
+# Compare only in memory and never print environment values. Resolve the live
+# Compose inputs before touching the running service; fail if .env drift would
+# change the account verifier or Meta credentials during a frontend-only roll.
+fingerprint='import hashlib,json,sys; e=json.load(sys.stdin); print(hashlib.sha256(json.dumps({k:e.get(k) for k in ("API_URL","JWT_SECRET","MODEL_API_KEY")},sort_keys=True).encode()).hexdigest())'
+old_settings=$(docker inspect "$old_container" --format '{{json .Config.Env}}' | python3 -c 'import json,sys; print(json.dumps(dict(v.split("=",1) for v in json.load(sys.stdin))))' | python3 -c "$fingerprint")
+planned_settings=$("${compose[@]}" config --format json | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["services"]["web"].get("environment",{})))' | python3 -c "$fingerprint")
+if [[ "$old_settings" != "$planned_settings" ]]; then
+  echo 'Refusing frontend rollout: planned authentication/model settings differ from the live container.' >&2
+  exit 1
+fi
 if [[ "${DEPLOY_PLAN_ONLY:-0}" == 1 ]]; then
   "${compose[@]}" config --quiet
   printf 'Frontend plan validated: overlays=%s old_image=%s revision=%s\n' "${#live_files[@]}" "$old_image" "$EXPECTED_REVISION"
@@ -66,6 +76,8 @@ for i in $(seq 1 60); do
   sleep 5
 done
 [[ "$healthy" == true ]]
+new_settings=$(docker inspect "$container" --format '{{json .Config.Env}}' | python3 -c 'import json,sys; print(json.dumps(dict(v.split("=",1) for v in json.load(sys.stdin))))' | python3 -c "$fingerprint")
+[[ "$new_settings" == "$old_settings" ]]
 private_code=$(curl --max-time 20 -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/assistant)
 [[ "$private_code" == 401 ]]
 code=$(curl --max-time 20 -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/app)

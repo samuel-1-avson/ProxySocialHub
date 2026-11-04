@@ -292,3 +292,20 @@ test("chunked and multibyte JSON payloads are limited by bytes", async () => {
   await assert.rejects(bounded.readAssistantJson(new Response(JSON.stringify({ content: "é".repeat(40) })), 50), /too large/);
   assert.equal((await bounded.readAssistantJson(json({ ok: true }), 100)).ok, true);
 });
+
+test("without a local JWT secret the live verifier still must accept the token", async () => {
+  let checked = false;
+  const result = await auth.resolveAssistantUser(authRequest(token()), async () => {
+    checked = true;
+    return json({ error: "signature invalid or revoked" }, 401);
+  }, { API_URL: "https://control.test" });
+  assert.equal(checked, true);
+  assert.equal(result.ok, false);
+  assert.equal(result.status, 401);
+});
+
+test("assistant rejects cross-site fetches and non-JSON authenticated requests", async () => {
+  const route = routeModule();
+  assert.equal((await route.POST(request(undefined, { "sec-fetch-site": "cross-site" }))).status, 403);
+  assert.equal((await route.POST(request(undefined, { "content-type": "text/plain" }))).status, 415);
+});
