@@ -22,6 +22,9 @@ func TestProviderTokenPathAllowed(t *testing.T) {
 		{http.MethodGet, "/v1/cli/download"},
 		{http.MethodGet, "/v1/cli/downloads/latest"},
 		{http.MethodGet, "/v1/provider/nodes/"},
+		// The node fetches offers to sign and answers with its proof.
+		{http.MethodGet, "/v1/provider/nodes/abc/offer-signatures"},
+		{http.MethodPost, "/v1/provider/nodes/abc/offer-signatures/r1"},
 	}
 	for _, tc := range allowed {
 		if !providerTokenPathAllowed(tc.method, tc.path) {
@@ -56,6 +59,9 @@ func TestProviderTokenPathAllowed(t *testing.T) {
 		{http.MethodGet, "/v1/provider/gateway-token"},
 		{http.MethodGet, "/v1/provider/nodesx"},
 		{http.MethodGet, "/v1/provider/lease-other"},
+		// Asking a node to sign an offer is the owner's call, never a node token's.
+		{http.MethodPost, "/v1/provider/listings/offer-signatures"},
+		{http.MethodGet, "/v1/provider/listings/offer-signatures/r1"},
 	}
 	for _, tc := range blocked {
 		if providerTokenPathAllowed(tc.method, tc.path) {

@@ -42,8 +42,17 @@ import {
   amount,
   countryName,
 } from "@/components/workspace/Patterns";
+import {
+  NodeSignatureError,
+  signOfferWithNode,
+} from "@/lib/proofs/node-offer-signature";
 import { useSellerNodes } from "./SellerNodes";
-import { NodeKeyImport, useListingSigner } from "./NodeKeyImport";
+import {
+  NodeKeyImport,
+  NodeSignerNote,
+  useListingSigner,
+  useNodeOfferSignerStatus,
+} from "./NodeKeyImport";
 import { listingProtocolLabel } from "@/lib/listing-protocols";
 
 import { ProxyAssessmentPanel, assessmentMatches } from "./ProxyAssessmentPanel";
@@ -370,6 +379,10 @@ function EditOffer({
     devServerSigning,
     refreshSecret,
   } = useListingSigner(listing.provider_node_id, nodeHotkey);
+  const nodeSigner = useNodeOfferSignerStatus(
+    listing.provider_node_id,
+    bound && signerKind === "node",
+  );
   const [, setImportTick] = useState(0);
   const [progress, setProgress] = useState("");
   const saveBlocked =
@@ -471,6 +484,21 @@ function EditOffer({
           );
         } else if (signer === "dev") {
           data.proof = (await signListingOfferDev(form)).proof;
+        } else if (signer === "node") {
+          const name = boundNode.name;
+          setProgress(`Asking ${name} to sign this change...`);
+          data.proof = await signOfferWithNode(
+            { listing_id: listing.id, update: { ...data } },
+            {
+              nodeName: name,
+              onWaiting: (listening) =>
+                setProgress(
+                  listening
+                    ? `Waiting for ${name} to sign this change...`
+                    : `Waiting for ${name} to connect so it can sign. Make sure it is running...`,
+                ),
+            },
+          );
         } else if (policyRequired) {
           throw new Error(
             "This offer needs its node's signing key. Import it below, use the browser that configured the node, or connect the wallet matching its provider hotkey.",
@@ -576,7 +604,10 @@ function EditOffer({
           offer into review.
         </p>
       )}
-      {policyReady && bound && needsProof && signerKind !== "none" && !devicePending && (
+      {policyReady && bound && needsProof && signerKind === "node" && !devicePending && boundNode && (
+        <NodeSignerNote nodeName={boundNode.name} listening={nodeSigner.listening} />
+      )}
+      {policyReady && bound && needsProof && signerKind !== "none" && signerKind !== "node" && !devicePending && (
         <p className="ui-note">
           Saving re-signs the offer with{" "}
           {signerKind === "local-secret"
@@ -586,11 +617,18 @@ function EditOffer({
               : "the configured development signature."}
         </p>
       )}
-      {policyReady && bound && needsProof && signerKind === "none" && !devicePending && (
+      {policyReady &&
+        bound &&
+        needsProof &&
+        !devicePending &&
+        (signerKind === "none" ||
+          (signerKind === "node" &&
+            (nodeSigner.listening === false || save.error instanceof NodeSignatureError))) && (
         <NodeKeyImport
           nodeId={listing.provider_node_id ?? ""}
           nodeHotkey={nodeHotkey}
           busy={save.isPending}
+          fallback={signerKind === "node"}
           onImported={() => {
             save.reset();
             refreshSecret();

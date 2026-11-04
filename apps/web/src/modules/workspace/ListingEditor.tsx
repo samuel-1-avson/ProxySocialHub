@@ -14,6 +14,10 @@ import {
   type CreateListingRequest,
   type ProxyAssessment,
 } from "@/lib/api/marketplace";
+import {
+  NodeSignatureError,
+  signOfferWithNode,
+} from "@/lib/proofs/node-offer-signature";
 import { loadProviderSigningKey } from "@/lib/provider-config";
 import {
   canonicalListingFields,
@@ -43,7 +47,12 @@ import {
 } from "@/lib/listing-protocols";
 import { CountrySelect } from "@/components/ui/CountrySelect";
 import { useSellerNodes } from "./SellerNodes";
-import { NodeKeyImport, useListingSigner } from "./NodeKeyImport";
+import {
+  NodeKeyImport,
+  NodeSignerNote,
+  useListingSigner,
+  useNodeOfferSignerStatus,
+} from "./NodeKeyImport";
 
 // Limits the control API applies to a new listing (models.CreateListingRequest).
 import { ProxyAssessmentPanel, assessmentMatches } from "./ProxyAssessmentPanel";
@@ -96,6 +105,11 @@ export function ListingEditor() {
   const { signerKind, needsProof, devicePending, refreshSecret } = useListingSigner(
     selectedId,
     nodeHotkey,
+  );
+  // Asked only on the review step, where it decides what the seller sees.
+  const nodeSigner = useNodeOfferSignerStatus(
+    selectedId,
+    review !== null && signerKind === "node",
   );
   const suggestion = useQuery({
     queryKey: ["listing-price-suggestion", region, type],
@@ -208,6 +222,21 @@ export function ListingEditor() {
         } else if (signer === "dev") {
           setProgress("Requesting the configured development signature…");
           payload.proof = (await signListingOfferDev(payload)).proof;
+        } else if (signer === "node") {
+          const name = selectedNode.name;
+          setProgress(`Asking ${name} to sign this offer…`);
+          payload.proof = await signOfferWithNode(
+            { listing: { ...payload } },
+            {
+              nodeName: name,
+              onWaiting: (listening) =>
+                setProgress(
+                  listening
+                    ? `Waiting for ${name} to sign this offer…`
+                    : `Waiting for ${name} to connect so it can sign. Make sure it is running…`,
+                ),
+            },
+          );
         } else if (required)
           throw new Error(
             "This offer needs its node’s signing key. Use the browser that configured the node, or connect the wallet matching its provider hotkey, or import the key below.",
@@ -317,16 +346,30 @@ export function ListingEditor() {
             The server decides whether this offer is active or needs review.
             Node health and offer publication remain separate.
           </p>
-          {policy.isSuccess && needsProof && signerKind !== "none" && !devicePending && (
-            <p className="ui-note">
-              Offer signature:{" "}
-              {signerKind === "local-secret"
-                ? "this browser’s stored node key."
-                : signerKind === "wallet"
-                  ? "your connected wallet. You will approve it there."
-                  : "the configured development signature."}
-            </p>
-          )}
+          {policy.isSuccess &&
+            needsProof &&
+            signerKind === "node" &&
+            !devicePending &&
+            selectedNode && (
+              <NodeSignerNote
+                nodeName={selectedNode.name}
+                listening={nodeSigner.listening}
+              />
+            )}
+          {policy.isSuccess &&
+            needsProof &&
+            signerKind !== "none" &&
+            signerKind !== "node" &&
+            !devicePending && (
+              <p className="ui-note">
+                Offer signature:{" "}
+                {signerKind === "local-secret"
+                  ? "this browser’s stored node key."
+                  : signerKind === "wallet"
+                    ? "your connected wallet. You will approve it there."
+                    : "the configured development signature."}
+              </p>
+            )}
           {nodeNotConnected && (
             <div className="ui-attention" role="alert">
               <p>
@@ -339,13 +382,17 @@ export function ListingEditor() {
           {!nodeNotConnected &&
             policy.isSuccess &&
             needsProof &&
-            signerKind === "none" &&
             !devicePending &&
-            selectedNode && (
+            selectedNode &&
+            (signerKind === "none" ||
+              (signerKind === "node" &&
+                (nodeSigner.listening === false ||
+                  publish.error instanceof NodeSignatureError))) && (
               <NodeKeyImport
                 nodeId={selectedNode.id}
                 nodeHotkey={nodeHotkey}
                 busy={publish.isPending}
+                fallback={signerKind === "node"}
                 onImported={() => {
                   publish.reset();
                   refreshSecret();

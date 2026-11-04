@@ -16,6 +16,8 @@ function load(relative, dependencies = {}) {
   });
   vm.runInNewContext(outputText, {
     exports,
+    crypto: globalThis.crypto,
+    TextEncoder,
     require: (name) => {
       if (!(name in dependencies)) throw new Error(`Unexpected dependency ${name}`);
       return dependencies[name];
@@ -25,7 +27,7 @@ function load(relative, dependencies = {}) {
 }
 
 const protocols = load('../src/lib/listing-protocols.ts');
-const {resolveListingSigner} = load('../src/lib/proofs/listing-offer.ts', {
+const {resolveListingSigner, hashListingOfferPayload} = load('../src/lib/proofs/listing-offer.ts', {
   bs58: {default: bs58},
   '@/lib/listing-protocols': protocols,
 });
@@ -43,8 +45,15 @@ test('browser secret matching the node hotkey wins',()=>{
 test('any browser secret works when the node reported no hotkey',()=>{
   assert.equal(resolveListingSigner(input({hasSecret:true,deviceHotkey:'zzz'})),'local-secret');
 });
-test('CLI-configured node with no browser secret and a different wallet needs recovery',()=>{
-  assert.equal(resolveListingSigner(input({nodeHotkey:HOTKEY,walletConnected:true,walletCanSign:true,walletHotkey:WALLET})),'none');
+test('a node configured outside this browser signs its own offer (no key to paste)',()=>{
+  assert.equal(resolveListingSigner(input({nodeHotkey:HOTKEY,walletConnected:true,walletCanSign:true,walletHotkey:WALLET})),'node');
+  assert.equal(resolveListingSigner(input({nodeHotkey:HOTKEY})),'node');
+});
+test('a browser secret for another key falls through to the node',()=>{
+  assert.equal(resolveListingSigner(input({hasSecret:true,deviceHotkey:'other',nodeHotkey:HOTKEY})),'node');
+});
+test('recovery is left only for a node that never reported a hotkey',()=>{
+  assert.equal(resolveListingSigner(input({})),'none');
 });
 test('wallet matching the node hotkey signs when the secret does not',()=>{
   assert.equal(resolveListingSigner(input({hasSecret:true,deviceHotkey:'other',nodeHotkey:HOTKEY,walletConnected:true,walletCanSign:true,walletHotkey:HOTKEY})),'wallet');
@@ -53,14 +62,37 @@ test('wallet signs when there is no browser secret at all',()=>{
   assert.equal(resolveListingSigner(input({nodeHotkey:WALLET,walletConnected:true,walletCanSign:true,walletHotkey:WALLET})),'wallet');
 });
 test('wallet that cannot sign is skipped',()=>{
-  assert.equal(resolveListingSigner(input({nodeHotkey:HOTKEY,walletConnected:true,walletCanSign:false,walletHotkey:HOTKEY})),'none');
+  assert.equal(resolveListingSigner(input({nodeHotkey:HOTKEY,walletConnected:true,walletCanSign:false,walletHotkey:HOTKEY})),'node');
 });
 test('empty wallet hotkey never matches',()=>{
   assert.equal(resolveListingSigner(input({walletConnected:true,walletCanSign:true,walletHotkey:''})),'none');
 });
-test('dev server signing is the last resort',()=>{
+test('dev server signing comes before asking the node',()=>{
   assert.equal(resolveListingSigner(input({nodeHotkey:HOTKEY,devServerSigning:true})),'dev');
   assert.equal(resolveListingSigner(input({hasSecret:true,deviceHotkey:HOTKEY,nodeHotkey:HOTKEY,devServerSigning:true})),'local-secret');
+});
+// The same vector is pinned in provider-node (proofs.rs) and the control API
+// (TestListingOfferHashVector): the node signs offers the browser used to sign, so
+// all three must hash an offer identically.
+test('listing offer hash matches the vector shared with the node and the API',async()=>{
+  const hash = await hashListingOfferPayload({
+    providerNodeId:'11111111-2222-4333-8444-555555555555',
+    gatewayNodeId:'gw-test',
+    title:'Accra home fibre',
+    description:'Residential line: weekdays only',
+    proxyType:'residential',
+    protocol:'http,https,socks5',
+    rotationType:'rotating',
+    country:'GH',
+    isp:'',
+    pricePerGb:0.792,
+    minPurchaseGb:1,
+    availableBandwidthGb:13,
+    maxConcurrency:10,
+    status:'active',
+    expiresAt:0,
+  });
+  assert.equal(hash,'f4b6a6b64c4ab8f9da2ef33b4d72d349f1de9c2c13ae4376b63380b8dfbb4938');
 });
 test('node hotkey whitespace is ignored',()=>{
   assert.equal(resolveListingSigner(input({hasSecret:true,deviceHotkey:HOTKEY,nodeHotkey:'  '+HOTKEY+'  '})),'local-secret');

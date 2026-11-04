@@ -154,6 +154,8 @@ Keep `provider.toml` private. Never commit signing keys.
 
 If the dashboard shows unsigned usage / “Fix proof”, ensure `provider_signing_key` matches the key bound at registration. CLI `join`/`register` generates it; web-only flows may need the fix banner path.
 
+Marketplace offers are signed with the same key, and the node signs them for you. When you publish or edit an offer on the website, the running node (1.0.13 or newer, or the ProxyHubb desktop app with that node) picks it up within a second or two, signs it on your computer and the website publishes it. The key never leaves `provider.toml`, and each signed offer is written to the node log. If the node is not running, the website says so: start it and publish again. Pasting the key into the browser is only the fallback for when that is not possible.
+
 ## Common errors
 
 | Symptom | Fix |
