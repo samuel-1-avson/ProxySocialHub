@@ -24,6 +24,11 @@ for file in "${live_files[@]}"; do
 done
 old_image=$(docker inspect "$old_container" --format '{{.Image}}')
 [[ -n "$old_image" ]]
+# Keep the button's public OAuth client ID aligned with the API verifier.
+api_container=$(docker ps -q --filter label=com.docker.compose.project=proxyhubb --filter label=com.docker.compose.service=control-api)
+[[ -n "$api_container" && "$api_container" != *$'\n'* ]]
+google_client_id=$(docker inspect "$api_container" --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^GOOGLE_CLIENT_ID=//p')
+[[ -z "$google_client_id" || "$google_client_id" =~ ^[A-Za-z0-9_-]+\.apps\.googleusercontent\.com$ ]]
 # Compare only in memory and never print environment values. Resolve the live
 # Compose inputs before touching the running service; fail if .env drift would
 # change the account verifier or Meta credentials during a frontend-only roll.
@@ -57,6 +62,7 @@ docker tag "$new_image" "$local_image"
 write_override() {
   printf 'services:\n  web:\n    image: "%s"\n    pull_policy: never\n' "$1" > "$override"
   chmod 600 "$override"
+  printf '    environment:\n      GOOGLE_CLIENT_ID: "%s"\n' "$google_client_id" >> "$override"
 }
 rollback() {
   trap - ERR
@@ -78,6 +84,8 @@ done
 [[ "$healthy" == true ]]
 new_settings=$(docker inspect "$container" --format '{{json .Config.Env}}' | python3 -c 'import json,sys; print(json.dumps(dict(v.split("=",1) for v in json.load(sys.stdin))))' | python3 -c "$fingerprint")
 [[ "$new_settings" == "$old_settings" ]]
+# Verify runtime configuration too: a healthy page can still hide Google access.
+curl --fail --max-time 20 -sS http://127.0.0.1:3000/api/auth/google-config | python3 -c 'import json,sys; assert json.load(sys.stdin).get("clientId") == sys.argv[1]' "$google_client_id"
 private_code=$(curl --max-time 20 -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/assistant)
 [[ "$private_code" == 401 ]]
 code=$(curl --max-time 20 -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/app)
