@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 pub const HEARTBEAT_MESSAGE_TYPE: &str = "PROXYHUB_PROVIDER_HEARTBEAT";
+pub const LISTING_OFFER_MESSAGE_TYPE: &str = "PROXYHUB_LISTING_OFFER";
 pub const PROOF_VERSION: &str = "v1";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -38,6 +39,28 @@ pub struct HeartbeatPayload<'a> {
     pub active_connections: i32,
     pub uptime_percent: f64,
     pub issued_at: i64,
+}
+
+/// A marketplace listing offer, field for field what the control API hashes in
+/// `HashListingOfferPayload` (control-api/internal/proofs/provider_signatures.go) and the
+/// web in `hashListingOfferPayload` (apps/web/src/lib/proofs/listing-offer.ts).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ListingOfferPayload {
+    pub provider_node_id: String,
+    pub gateway_node_id: String,
+    pub title: String,
+    pub description: String,
+    pub proxy_type: String,
+    pub protocol: String,
+    pub rotation_type: String,
+    pub country: String,
+    pub isp: String,
+    pub price_per_gb: f64,
+    pub min_purchase_gb: f64,
+    pub available_bandwidth_gb: f64,
+    pub max_concurrency: i64,
+    pub status: String,
+    pub expires_at: i64,
 }
 
 impl ProviderSigner {
@@ -96,6 +119,31 @@ impl ProviderSigner {
             payload_hash,
             signature: String::new(),
         };
+        self.sign_envelope(envelope)
+    }
+
+    /// Sign a listing offer the way the website would with this key. `issued_at` is the
+    /// signing time (Unix seconds); the control API accepts the proof for 10 minutes.
+    pub fn sign_listing_offer(
+        &self,
+        payload: &ListingOfferPayload,
+        issued_at: i64,
+    ) -> ProviderProofEnvelope {
+        let envelope = ProviderProofEnvelope {
+            message_type: LISTING_OFFER_MESSAGE_TYPE.to_string(),
+            version: PROOF_VERSION.to_string(),
+            provider_node_id: payload.provider_node_id.clone(),
+            gateway_node_id: payload.gateway_node_id.clone(),
+            provider_hotkey: self.public_key.clone(),
+            issued_at,
+            nonce: uuid::Uuid::new_v4().to_string(),
+            payload_hash: hash_listing_offer_payload(payload),
+            signature: String::new(),
+        };
+        self.sign_envelope(envelope)
+    }
+
+    fn sign_envelope(&self, envelope: ProviderProofEnvelope) -> ProviderProofEnvelope {
         let message = build_provider_proof_message(&envelope);
         let signature = self.signing_key.sign(message.as_bytes());
         ProviderProofEnvelope {
@@ -103,6 +151,29 @@ impl ProviderSigner {
             ..envelope
         }
     }
+}
+
+/// SHA-256 (hex) of the canonical listing offer string. Numbers use 9 decimals, as Go's
+/// `%.9f`; both round the exact binary value half-to-even, so equal floats give equal text.
+pub fn hash_listing_offer_payload(p: &ListingOfferPayload) -> String {
+    sha256_hex(&format!(
+        "PROXYHUB_LISTING_OFFER_PAYLOAD:v1:{}:{}:{}:{}:{}:{}:{}:{}:{}:{:.9}:{:.9}:{:.9}:{}:{}:{}",
+        p.provider_node_id,
+        p.gateway_node_id,
+        p.title,
+        p.description,
+        p.proxy_type,
+        p.protocol,
+        p.rotation_type,
+        p.country,
+        p.isp,
+        p.price_per_gb,
+        p.min_purchase_gb,
+        p.available_bandwidth_gb,
+        p.max_concurrency,
+        p.status,
+        p.expires_at
+    ))
 }
 
 pub fn build_provider_proof_message(envelope: &ProviderProofEnvelope) -> String {
@@ -405,6 +476,69 @@ mod tests {
         assert_eq!(proof.version, PROOF_VERSION);
         assert_eq!(proof.provider_hotkey, signer.public_key());
         assert!(!proof.signature.is_empty());
+    }
+
+    fn vector_offer() -> ListingOfferPayload {
+        ListingOfferPayload {
+            provider_node_id: "11111111-2222-4333-8444-555555555555".into(),
+            gateway_node_id: "gw-test".into(),
+            title: "Accra home fibre".into(),
+            description: "Residential line: weekdays only".into(),
+            proxy_type: "residential".into(),
+            protocol: "http,https,socks5".into(),
+            rotation_type: "rotating".into(),
+            country: "GH".into(),
+            isp: String::new(),
+            price_per_gb: 0.792,
+            min_purchase_gb: 1.0,
+            available_bandwidth_gb: 13.0,
+            max_concurrency: 10,
+            status: "active".into(),
+            expires_at: 0,
+        }
+    }
+
+    // Same vector as the web's formula (apps/web/src/lib/proofs/listing-offer.ts) and
+    // the control API test TestListingOfferHashVector: all three must agree byte for byte.
+    #[test]
+    fn listing_offer_hash_matches_the_shared_vector() {
+        assert_eq!(
+            hash_listing_offer_payload(&vector_offer()),
+            "f4b6a6b64c4ab8f9da2ef33b4d72d349f1de9c2c13ae4376b63380b8dfbb4938"
+        );
+    }
+
+    #[test]
+    fn signed_listing_offer_verifies_with_the_node_hotkey() {
+        let signer = ProviderSigner::from_base58(&bs58::encode([9_u8; 32]).into_string()).unwrap();
+        let offer = vector_offer();
+        let proof = signer.sign_listing_offer(&offer, 1_777_675_904);
+
+        assert_eq!(proof.message_type, LISTING_OFFER_MESSAGE_TYPE);
+        assert_eq!(proof.version, PROOF_VERSION);
+        assert_eq!(proof.provider_node_id, offer.provider_node_id);
+        assert_eq!(proof.gateway_node_id, offer.gateway_node_id);
+        assert_eq!(proof.provider_hotkey, signer.public_key());
+        assert_eq!(proof.payload_hash, hash_listing_offer_payload(&offer));
+        assert_eq!(proof.issued_at, 1_777_675_904);
+
+        let key: [u8; 32] = bs58::decode(&proof.provider_hotkey)
+            .into_vec()
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let sig: [u8; 64] = bs58::decode(&proof.signature)
+            .into_vec()
+            .unwrap()
+            .try_into()
+            .unwrap();
+        ed25519_dalek::VerifyingKey::from_bytes(&key)
+            .unwrap()
+            .verify_strict(
+                build_provider_proof_message(&proof).as_bytes(),
+                &ed25519_dalek::Signature::from_bytes(&sig),
+            )
+            .expect("signature verifies");
     }
 
     #[test]
