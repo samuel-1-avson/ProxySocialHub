@@ -13,6 +13,8 @@ import { CatalogProductBadge } from '@/components/marketplace/CatalogProductBadg
 import { ListingSocialPanel } from '@/components/marketplace/ListingSocialPanel';
 import { ListingQASection } from '@/components/marketplace/ListingQASection';
 import { MarketplaceDiscoverTabs } from '@/components/marketplace/MarketplaceDiscoverTabs';
+import { MapVisibilityNotice } from '@/components/marketplace/MapVisibilityNotice';
+import { ROUTES } from '@/lib/navigation/routes';
 import {
     getListing,
     getListingFacets,
@@ -230,6 +232,13 @@ function MarketplaceMapContent({ highlightListingId }: { highlightListingId: str
                     </>
                 }
             />
+
+            <MapVisibilityNotice />
+            {data && !error && data.listing_count === 0 ? (
+                <p className="ui-note" data-testid="map-empty-note">
+                    No offers are on the map {searchBBox ? 'in this area' : (proxyType || protocol || country || minPrice || maxPrice || minUptime || maxLatency) ? 'with these filters' : 'yet'}. Providers choose whether their offers appear here, so the <Link className="ui-link" href={ROUTES.marketplace}>list view</Link> can show offers the map does not.
+                </p>
+            ) : null}
 
             <div className="market-map">
                 <div className="market-map-stage">
