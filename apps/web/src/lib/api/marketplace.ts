@@ -757,6 +757,41 @@ export function getPaystackPreview(listingId: string, gb: number) {
     return apiGet<PaystackPreview>(`/v1/listings/${listingId}/paystack-preview`, { gb: String(gb) });
 }
 
+/**
+ * SOL-first checkout preview for a managed-wallet (Google) buyer. SOL in the ProxyHubb
+ * wallet is the main way to pay; `amount_ghs` (card / mobile money) is only present when
+ * card payments are enabled and the wallet is short.
+ */
+export type ManagedCheckoutPreview =
+    | {
+          active_plan: true;
+          active_plan_order_id?: string;
+          active_plan_gb?: number;
+          active_plan_since?: string;
+          fiat_enabled: boolean;
+      }
+    | {
+          active_plan: false;
+          usd_total: number;
+          sol_price_usd: number;
+          /** SOL locked in escrow for the provider. */
+          amount_sol: number;
+          /** SOL the wallet must hold: the price plus escrow rent, fees and a reserve. */
+          required_sol: number;
+          balance_sol: number;
+          shortfall_sol: number;
+          pay_from_balance: boolean;
+          wallet_address: string;
+          fiat_enabled: boolean;
+          amount_ghs?: number;
+          credit_ghs?: number;
+          fiat_error?: string;
+      };
+
+export function getManagedCheckoutPreview(listingId: string, gb: number) {
+    return apiGet<ManagedCheckoutPreview>(`/v1/listings/${listingId}/checkout-preview`, { gb: String(gb) });
+}
+
 /** Ask the server to confirm a Paystack charge and open the escrow. 202 = still in progress. */
 export function verifyPaystackPayment(orderId: string, reference: string) {
     return apiPost<{ status: string; message?: string; error?: string; amount_ghs?: number }>(

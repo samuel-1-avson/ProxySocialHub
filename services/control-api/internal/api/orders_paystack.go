@@ -193,6 +193,7 @@ func RegisterFiatOrderRoutes(rg *gin.RouterGroup) {
 	rg.POST("/orders/:id/pay/paystack/verify", requireBulkScope("orders:create"), verifyPaystackPayment)
 	rg.POST("/orders/:id/pay/balance", requireBulkScope("orders:create"), StrictRateLimit(), payOrderFromManagedBalance)
 	rg.GET("/listings/:id/paystack-preview", requireBulkScope("orders:create"), previewPaystackPrice)
+	rg.GET("/listings/:id/checkout-preview", requireBulkScope("orders:create"), previewManagedCheckout)
 }
 
 // RegisterPaystackWebhook mounts the unauthenticated Paystack webhook.
@@ -508,48 +509,67 @@ func fiatPaymentInProgress(orderID uuid.UUID) bool {
 	return n > 0
 }
 
-// previewPaystackPrice shows a managed-wallet buyer the exact GHS charge for a listing
-// and bandwidth before any order or Paystack transaction exists.
-func previewPaystackPrice(c *gin.Context) {
-	if !fiatPaymentsEnabled() {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Card and mobile money payments are not enabled", "code": "fiat_disabled"})
-		return
+// managedCheckout is what a managed-wallet buyer's wallet must hold to buy a listing,
+// worked out before any order exists. Both checkout previews start from it.
+type managedCheckout struct {
+	buyer    *managedBuyer
+	usdTotal float64
+	solUSD   float64
+	escrow   uint64 // lamports locked in escrow for the provider
+	total    uint64 // lamports the wallet must hold: escrow + escrow rent + fees + reserve
+	balance  uint64
+	// activePlan is set (and nothing else is) when the buyer already has a plan with
+	// this provider, which blocks a second escrow.
+	activePlan gin.H
+}
+
+// shortfall is the SOL the wallet is missing for this checkout.
+func (m *managedCheckout) shortfall() uint64 {
+	if m.balance >= m.total {
+		return 0
 	}
+	return m.total - m.balance
+}
+
+// loadManagedCheckout reads the listing, the buyer's managed wallet and its balance for
+// `gb` of bandwidth. On failure it has already written the error response.
+func loadManagedCheckout(c *gin.Context) (*managedCheckout, bool) {
 	userID, err := parseAuthenticatedUserID(c)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
-		return
+		return nil, false
 	}
 	gb, err := strconv.ParseFloat(c.Query("gb"), 64)
 	if err != nil || gb <= 0 || gb > 10_000 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "gb must be a positive number"})
-		return
+		return nil, false
 	}
 	var listing models.ProxyListing
 	if err := db.DB.First(&listing, "id = ?", c.Param("id")).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Listing not found"})
-		return
+		return nil, false
 	}
 	buyer, err := loadManagedBuyer(userID)
 	if err != nil {
 		respondManagedBuyerError(c, err)
-		return
+		return nil, false
 	}
 	ctx := c.Request.Context()
+	out := &managedCheckout{buyer: buyer}
 
 	existing, err := activePlanWithSeller(db.DB, userID, listing.SellerID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check existing plans"})
-		return
+		return nil, false
 	}
 	if existing != nil {
-		c.JSON(http.StatusOK, gin.H{
+		out.activePlan = gin.H{
 			"active_plan":          true,
 			"active_plan_order_id": existing.ID,
 			"active_plan_gb":       existing.BandwidthGB,
 			"active_plan_since":    existing.CreatedAt,
-		})
-		return
+		}
+		return out, true
 	}
 	// An escrow with this provider can also exist without a live order (for example
 	// one whose order was removed). It blocks a new escrow just the same.
@@ -557,44 +577,116 @@ func previewPaystackPrice(c *gin.Context) {
 	if err := db.DB.Where("user_id = ? AND chain = ? AND is_primary = true", listing.SellerID, models.ChainSolana).
 		First(&sellerWallet).Error; err == nil {
 		if seller, err := sol.PublicKeyFromBase58(sellerWallet.Address); err == nil && fiatLegacyEscrow(ctx, buyer.address, seller) != nil {
-			c.JSON(http.StatusOK, gin.H{"active_plan": true})
-			return
+			out.activePlan = gin.H{"active_plan": true}
+			return out, true
 		}
 	}
 
-	usdTotal := calculatePriceWithDiscounts(&listing, gb)
-	solUSD, err := fiatSOLPriceUSD(ctx)
-	if err != nil || solUSD <= 0 {
+	out.usdTotal = calculatePriceWithDiscounts(&listing, gb)
+	out.solUSD, err = fiatSOLPriceUSD(ctx)
+	if err != nil || out.solUSD <= 0 {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "SOL price unavailable. Try again shortly."})
-		return
+		return nil, false
 	}
 	rent, err := fiatEscrowRent(ctx)
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Could not reach Solana. Try again shortly."})
-		return
+		return nil, false
 	}
-	total := models.SOLToLamports(usdTotal/solUSD) + rent + fiatFeeBufferLamports + rentExemptMinLamports
-	balance, err := fiatWalletBalance(ctx, buyer.address)
+	out.escrow = models.SOLToLamports(out.usdTotal / out.solUSD)
+	out.total = out.escrow + rent + fiatFeeBufferLamports + rentExemptMinLamports
+	out.balance, err = fiatWalletBalance(ctx, buyer.address)
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Could not read your wallet balance. Try again shortly."})
+		return nil, false
+	}
+	return out, true
+}
+
+// fiatCreditGHS is the part of the wallet balance (above the rent reserve) that a card
+// payment would not need to charge again, in GHS.
+func fiatCreditGHS(m *managedCheckout, charge *fiatCharge) float64 {
+	if m.balance <= rentExemptMinLamports {
+		return 0
+	}
+	credit := models.LamportsToSOL(m.balance-rentExemptMinLamports) * m.solUSD * charge.USDGHSRate
+	return math.Floor(credit*100) / 100
+}
+
+// previewPaystackPrice shows a managed-wallet buyer the exact GHS charge for a listing
+// and bandwidth before any order or Paystack transaction exists.
+//
+// Kept for web builds released before the SOL-first checkout; new code calls
+// previewManagedCheckout, which also works while card payments are off.
+func previewPaystackPrice(c *gin.Context) {
+	if !fiatPaymentsEnabled() {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Card and mobile money payments are not enabled", "code": "fiat_disabled"})
 		return
 	}
-	resp := gin.H{"active_plan": false, "usd_total": usdTotal}
-	if balance >= total {
+	m, ok := loadManagedCheckout(c)
+	if !ok {
+		return
+	}
+	if m.activePlan != nil {
+		c.JSON(http.StatusOK, m.activePlan)
+		return
+	}
+	resp := gin.H{"active_plan": false, "usd_total": m.usdTotal}
+	if m.shortfall() == 0 {
 		resp["pay_from_balance"] = true
 		resp["amount_ghs"] = 0
 		c.JSON(http.StatusOK, resp)
 		return
 	}
-	charge, err := priceFiatShortfall(ctx, total-balance)
+	charge, err := priceFiatShortfall(c.Request.Context(), m.shortfall())
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		return
 	}
 	resp["amount_ghs"] = float64(charge.AmountMinor) / 100
-	if balance > rentExemptMinLamports {
-		credit := models.LamportsToSOL(balance-rentExemptMinLamports) * solUSD * charge.USDGHSRate
-		resp["credit_ghs"] = math.Floor(credit*100) / 100
+	if credit := fiatCreditGHS(m, charge); credit > 0 {
+		resp["credit_ghs"] = credit
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+// previewManagedCheckout is the SOL-first checkout preview for a managed-wallet buyer.
+// SOL in the ProxyHubb wallet is the main way to pay; card and mobile money only buy
+// the SOL the wallet is missing, and only when they are enabled. It never fails just
+// because card payments are off or their GHS price cannot be worked out.
+func previewManagedCheckout(c *gin.Context) {
+	m, ok := loadManagedCheckout(c)
+	if !ok {
+		return
+	}
+	fiatOn := fiatPaymentsEnabled()
+	if m.activePlan != nil {
+		m.activePlan["fiat_enabled"] = fiatOn
+		c.JSON(http.StatusOK, m.activePlan)
+		return
+	}
+	short := m.shortfall()
+	resp := gin.H{
+		"active_plan":      false,
+		"usd_total":        m.usdTotal,
+		"sol_price_usd":    m.solUSD,
+		"amount_sol":       models.LamportsToSOL(m.escrow),
+		"required_sol":     models.LamportsToSOL(m.total),
+		"balance_sol":      models.LamportsToSOL(m.balance),
+		"shortfall_sol":    models.LamportsToSOL(short),
+		"pay_from_balance": short == 0,
+		"wallet_address":   m.buyer.address.String(),
+		"fiat_enabled":     fiatOn,
+	}
+	if short > 0 && fiatOn {
+		if charge, err := priceFiatShortfall(c.Request.Context(), short); err != nil {
+			resp["fiat_error"] = err.Error()
+		} else {
+			resp["amount_ghs"] = float64(charge.AmountMinor) / 100
+			if credit := fiatCreditGHS(m, charge); credit > 0 {
+				resp["credit_ghs"] = credit
+			}
+		}
 	}
 	c.JSON(http.StatusOK, resp)
 }
