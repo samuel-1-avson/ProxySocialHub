@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"os"
@@ -94,6 +95,8 @@ func createNode(c *gin.Context) {
 	} else if geoip.IsControlPlanePublicIP(req.IPAddress) {
 		req.IPAddress = ""
 	}
+	// A country or city the owner gave is theirs; gateway IP geo must not replace it.
+	locationDeclared := req.Country != "" || req.City != ""
 	// Auto-detect country from the registering client's public IP when omitted.
 	// City stays optional — never force-fill a city from GeoIP at registration time.
 	if strings.TrimSpace(req.Country) == "" {
@@ -117,15 +120,14 @@ func createNode(c *gin.Context) {
 	}
 
 	node := models.ProviderNode{
-		ID:        uuid.New(),
-		UserID:    userID,
-		Name:      req.Name,
-		IPAddress: req.IPAddress,
-		Country:   req.Country,
-		City:      req.City,
-		Status:    models.NodeOffline,
-		// A city typed or picked at registration is the owner's; gateway IP geo must not replace it.
-		LocationUserSet: strings.TrimSpace(req.City) != "",
+		ID:              uuid.New(),
+		UserID:          userID,
+		Name:            req.Name,
+		IPAddress:       req.IPAddress,
+		Country:         req.Country,
+		City:            req.City,
+		Status:          models.NodeOffline,
+		LocationUserSet: locationDeclared,
 	}
 
 	// PostgreSQL inet column rejects empty string — omit the column so it defaults to NULL
@@ -273,34 +275,81 @@ func updateNode(c *gin.Context) {
 		return
 	}
 
-	var req CreateNodeRequest
+	var req UpdateNodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	req.IPAddress, req.Country, req.City = normalizeProviderNodeGeo(req.IPAddress, req.Country, req.City)
-	if stored := geoip.ProviderIPForStorage(req.IPAddress); stored != "" {
-		req.IPAddress = stored
-	} else if geoip.IsControlPlanePublicIP(req.IPAddress) {
-		req.IPAddress = ""
+	updates, err := nodeUpdateValues(node, req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
 	}
-
-	updates := map[string]interface{}{
-		"name":    req.Name,
-		"country": req.Country,
-		"city":    req.City,
+	if len(updates) > 0 {
+		if err := db.DB.Model(&node).Updates(updates).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update node"})
+			return
+		}
 	}
-	if req.IPAddress != "" {
-		updates["ip_address"] = req.IPAddress
-	} else {
-		updates["ip_address"] = nil // explicitly NULL-out if cleared
-	}
-	db.DB.Model(&node).Updates(updates)
+	_ = db.DB.Where("id = ?", node.ID).First(&node).Error
 	invalidateMarketplaceReadModels()
 	scheduleNodeGeoEnrich(nodeID.String())
 
 	c.JSON(http.StatusOK, node)
+}
+
+// UpdateNodeRequest is a partial update: a field left out keeps its value.
+// (Every field used to be overwritten, so saving the name from the web form,
+// which sends no ip_address, erased the node's IP.)
+type UpdateNodeRequest struct {
+	Name      *string `json:"name"`
+	IPAddress *string `json:"ip_address"`
+	Country   *string `json:"country"`
+	City      *string `json:"city"`
+}
+
+// nodeUpdateValues turns an owner's partial update into column values.
+//
+// A country or city the owner saves is their declared location: it is marked
+// location_user_set so gateway IP data (a satellite ISP once made a Ghana node
+// "US") and map enrichment never replace it, and the old IP-derived region is
+// cleared so it cannot pull the pin elsewhere. Clearing both hands the
+// location back to automatic detection.
+func nodeUpdateValues(node models.ProviderNode, req UpdateNodeRequest) (map[string]interface{}, error) {
+	updates := map[string]interface{}{}
+	if req.Name != nil {
+		name := strings.TrimSpace(*req.Name)
+		if name == "" {
+			return nil, errors.New("name cannot be empty")
+		}
+		updates["name"] = name
+	}
+	if req.IPAddress != nil {
+		ip, _, _ := normalizeProviderNodeGeo(*req.IPAddress, "", "")
+		if stored := geoip.ProviderIPForStorage(ip); stored != "" {
+			updates["ip_address"] = stored
+		} else {
+			updates["ip_address"] = nil // explicitly NULL-out if cleared
+		}
+	}
+	if req.Country != nil || req.City != nil {
+		country, city := node.Country, node.City
+		if req.Country != nil {
+			country = *req.Country
+		}
+		if req.City != nil {
+			city = *req.City
+		}
+		_, country, city = normalizeProviderNodeGeo("", country, city)
+		if country != node.Country || city != node.City || (country != "" || city != "") != node.LocationUserSet {
+			updates["country"] = country
+			updates["city"] = city
+			updates["region"] = ""
+			updates["location_user_set"] = country != "" || city != ""
+		}
+	}
+	return updates, nil
 }
 
 // deleteNode deletes a provider node

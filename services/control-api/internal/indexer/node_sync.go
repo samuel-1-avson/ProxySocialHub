@@ -277,25 +277,27 @@ func (ns *NodeSync) syncNode(node models.ProviderNode, stats SessionStats) error
 		providerUpdates["country"] = country
 		node.Country = country
 	}
-	city = firstNonEmpty(explicitCity, city, node.City, cityHint)
+	ipCity := city
 	// Declared region wins for hub selection (Western North → Bibiani).
 	hubRegion := firstNonEmpty(node.Region, region)
 	if hubRegion == "unknown" {
 		hubRegion = ipRegion
 	}
-	hubCity, hubLat, hubLon, hubOK := geo.ApplyRegionalHubCoords(
-		firstNonEmpty(node.Country, country),
-		city,
-		hubRegion,
-		lat,
-		lon,
-	)
+	// lat/lon here come only from this tick's IP lookup, never from the stored
+	// pin, and a declared city is kept even when the pin uses a nearby hub.
+	pinCountry := firstNonEmpty(node.Country, country)
+	hubCity, hubLat, hubLon, hubOK := geo.NodeHub(pinCountry, explicitCity, hubRegion, lat, lon)
 	if hubOK {
 		city = hubCity
 		lat, lon = hubLat, hubLon
-	} else if (math.Abs(lat) < 0.01 && math.Abs(lon) < 0.01) && city != "" {
-		if clat, clon, ok := geo.CityCentroid(city, firstNonEmpty(node.Country, country)); ok {
-			lat, lon = clat, clon
+	} else {
+		city = firstNonEmpty(hubCity, ipCity)
+		if math.Abs(lat) < 0.01 && math.Abs(lon) < 0.01 {
+			if clat, clon, ok := geo.CityCentroid(city, pinCountry); ok && city != "" {
+				lat, lon = clat, clon
+			} else if clat, clon, ok := geo.CountryCentroid(pinCountry, node.ID.String()); ok {
+				lat, lon = clat, clon
+			}
 		}
 	}
 	if city != "" && city != node.City {
@@ -330,7 +332,9 @@ func (ns *NodeSync) syncNode(node models.ProviderNode, stats SessionStats) error
 	}
 	// Preserve a previously corrected residential hub when this sync tick has no
 	// trustworthy IP geo (classic race: gateway re-advertises GCP WAN → Chicago).
-	if explorerNode.ID != uuid.Nil {
+	// Never when the owner set the location, and never to keep a city the node
+	// no longer has (that resurrected an old "Kumasi" snap after a correction).
+	if explorerNode.ID != uuid.Nil && !node.LocationUserSet && strings.EqualFold(strings.TrimSpace(explorerNode.City), mapCity) {
 		existingCountry := geo.NormalizeCountryCode(explorerNode.Country)
 		incomingCountry := geo.NormalizeCountryCode(mapCountry)
 		existingHubOK := math.Abs(explorerNode.Latitude) > 0.01 && math.Abs(explorerNode.Longitude) > 0.01

@@ -91,9 +91,6 @@ func enrichExplorerForProviderNode(providerNodeID string, force bool) bool {
 		(geo.NormalizeCountryCode(explorer.Country) != "" && geo.NormalizeCountryCode(explorer.Country) != country)) {
 		updates["country"] = country
 	}
-	if city != "" && (explorer.City == "" || explorer.City == "Unknown" || force) {
-		updates["city"] = city
-	}
 	if effectiveISP != "" && explorer.ISP == "" {
 		updates["isp"] = effectiveISP
 	}
@@ -107,6 +104,7 @@ func enrichExplorerForProviderNode(providerNodeID string, force bool) bool {
 	explorerCountry := geo.NormalizeCountryCode(explorer.Country)
 	countryMismatch := country != "" && explorerCountry != "" && explorerCountry != country
 	needsIPResolve := force || countryMismatch || (math.Abs(lat) < 0.01 && math.Abs(lon) < 0.01)
+	ipResolved := false
 	if needsIPResolve && effectiveIP != "" {
 		if result, ok := Resolve(effectiveIP); ok {
 			// Cloud/control-plane WAN (e.g. Google Cloud → Chicago) must not
@@ -114,6 +112,7 @@ func enrichExplorerForProviderNode(providerNodeID string, force bool) bool {
 			if IsCloudHostedISP(result.ISP) && country != "" {
 				lat, lon = 0, 0
 			} else {
+				ipResolved = true
 				lat, lon = result.Latitude, result.Longitude
 				ipCountry := normalizeCountryCode(result.Country)
 				if result.ISP != "" && !IsCloudHostedISP(result.ISP) {
@@ -152,26 +151,43 @@ func enrichExplorerForProviderNode(providerNodeID string, force bool) bool {
 		updates["country"] = country
 	}
 	// Declared city/region (Bibiani / Western North) must beat IP-city snaps
-	// (Ghana mobile egress often geolocates to Accra).
-	hubCity, hubLat, hubLon, hubOK := geo.ApplyRegionalHubCoords(
+	// (Ghana mobile egress often geolocates to Accra). Only a fresh IP result
+	// counts as coordinate evidence: the stored pin may be a country-area
+	// guess or an old hub, and snapping it again is how every Ghana node
+	// without a city was saved as "Kumasi".
+	coordsFromIP := ipResolved && (math.Abs(lat) > 0.01 || math.Abs(lon) > 0.01)
+	evidenceLat, evidenceLon := 0.0, 0.0
+	if coordsFromIP {
+		evidenceLat, evidenceLon = lat, lon
+	}
+	hubCity, hubLat, hubLon, hubOK := geo.NodeHub(
 		country,
 		firstNonEmptyStr(city, node.City),
 		firstNonEmptyStr(node.Region, regionHint),
-		lat,
-		lon,
+		evidenceLat,
+		evidenceLon,
 	)
-	if hubOK {
+	city = hubCity
+	switch {
+	case hubOK:
 		lat, lon = hubLat, hubLon
-		city = hubCity
-		updates["city"] = hubCity
-	} else if (force || math.Abs(lat) < 0.01 && math.Abs(lon) < 0.01) && city != "" {
+	case coordsFromIP:
+		// No hub for these coordinates: keep the IP position; the public map
+		// resolves it to a city or country area at read time.
+	default:
+		lat, lon = 0, 0
 		if clat, clon, ok := geo.CityCentroid(city, country); ok {
 			lat, lon = clat, clon
-		}
-	} else if (force || math.Abs(lat) < 0.01 && math.Abs(lon) < 0.01) && country != "" {
-		if clat, clon, ok := geo.CountryCentroid(country, providerNodeID); ok {
+		} else if clat, clon, ok := geo.CountryCentroid(country, providerNodeID); ok {
 			lat, lon = clat, clon
 		}
+	}
+	// The explorer row mirrors the node's city, including clearing one that
+	// was never the owner's (an old snap or a city from another country).
+	if city != explorer.City {
+		updates["city"] = city
+	} else {
+		delete(updates, "city")
 	}
 	if city != "" && city != node.City {
 		providerUpdates["city"] = city
@@ -188,12 +204,7 @@ func enrichExplorerForProviderNode(providerNodeID string, force bool) bool {
 	} else if country != "" {
 		effectiveCountry = country
 	}
-	effectiveCity := explorer.City
-	if v, ok := updates["city"].(string); ok && v != "" {
-		effectiveCity = v
-	} else if city != "" {
-		effectiveCity = city
-	}
+	effectiveCity := city
 	anchor := geo.MapGeoAnchor(providerNodeID, "", "")
 	_, _, fallbackGeo := geo.ApplyMapCoords(lat, lon, effectiveCountry, effectiveCity, regionHint, anchor)
 	geoSource := geo.ResolveNodeMapGeoSource(

@@ -1,19 +1,23 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useId, useState } from 'react';
+import Link from 'next/link';
+import { useQuery } from '@tanstack/react-query';
 import { Loader2, LocateFixed } from 'lucide-react';
-import {
-    hubCountryCodes, nearestHubWorldwide, normalizeCountryCode, regionalHubsForCountry,
-} from '@/lib/geo/regional-hubs';
+import { useAuth } from '@/lib/auth';
+import { apiGet } from '@/lib/api/client';
+import { CountrySelect } from '@/components/ui/CountrySelect';
+import { PRIVACY_SETTINGS_HREF } from '@/components/marketplace/MapVisibilityNotice';
+import { nearestHubWorldwide, regionalHubsForCountry } from '@/lib/geo/regional-hubs';
 
 export interface NodeLocation {
     country: string;
     city: string;
 }
 
-const selectClass = 'ui-select w-full';
+type MapPrivacy = { map_visible: boolean; map_precision: 'country' | 'city' };
 
-function countryName(code: string): string {
+function countryLabel(code: string): string {
     try {
         return new Intl.DisplayNames(['en'], { type: 'region' }).of(code) ?? code;
     } catch {
@@ -22,37 +26,86 @@ function countryName(code: string): string {
 }
 
 function geoErrorMessage(err: GeolocationPositionError): string {
-    if (err.code === err.PERMISSION_DENIED) return 'Location permission was blocked. Pick your city from the list.';
-    if (err.code === err.TIMEOUT) return 'Finding your location took too long. Try again or pick your city.';
-    return "Couldn't find your location. Pick your city from the list.";
+    if (err.code === err.PERMISSION_DENIED) return 'Location permission was blocked. Type or pick your city.';
+    if (err.code === err.TIMEOUT) return 'Finding your location took too long. Try again or type your city.';
+    return "Couldn't find your location. Type or pick your city.";
+}
+
+/** Matches a typed city to a known one regardless of case ("kumasi" → "Kumasi"). */
+function knownCity(cities: string[], typed: string): string | undefined {
+    const key = typed.trim().toLowerCase();
+    return cities.find((name) => name.toLowerCase() === key);
 }
 
 /**
- * Country + city picker for a provider node's map pin. "Use my location" reads the
- * device position once, in the browser, and snaps it to the nearest known city;
- * the coordinates themselves are never sent anywhere.
+ * What the public map will actually show for this node. Map precision is a
+ * privacy setting (country area by default), and with it the map pins the
+ * middle of the country whatever city is saved here, which looked like the
+ * map getting the location wrong.
  */
-export function NodeLocationPicker({
+function MapPrecisionNote({ location }: { location: NodeLocation }) {
+    const { user } = useAuth();
+    const privacy = useQuery({
+        queryKey: ['privacy', user?.id],
+        queryFn: () => apiGet<MapPrivacy>('/v1/profile/privacy'),
+        enabled: !!user,
+        staleTime: 30_000,
+        retry: false,
+    });
+    if (!privacy.data) return null;
+    const place = location.country ? countryLabel(location.country) : 'your country';
+    const settings = (
+        <Link className="ui-link" href={PRIVACY_SETTINGS_HREF}>
+            privacy settings
+        </Link>
+    );
+    if (!privacy.data.map_visible) {
+        return (
+            <p className="ui-note" data-testid="node-map-precision-note">
+                Your nodes are hidden from the public map. You can show them in {settings}.
+            </p>
+        );
+    }
+    if (privacy.data.map_precision !== 'city') {
+        return (
+            <p className="ui-note" data-testid="node-map-precision-note">
+                The public map shows your nodes by country only, so the pin sits in the middle of {place}
+                {location.city ? `, not at ${location.city}` : ''}. To show the city area instead, change map
+                precision in {settings}.
+            </p>
+        );
+    }
+    return (
+        <p className="ui-note" data-testid="node-map-precision-note">
+            The public map shows {location.city ? `the ${location.city} area` : `the ${place} area`}.
+        </p>
+    );
+}
+
+/**
+ * Country and city fields for a provider node's location. Known cities come
+ * from the same regional hub list the map uses, so picking one gives an exact
+ * city-area pin; any other name is kept and the map shows the country area.
+ * "Use my location" reads the device position once, in the browser, and only
+ * the nearest known city is filled in; the coordinates are never sent.
+ */
+export function NodeLocationFields({
     value,
     onChange,
+    disabled = false,
 }: {
     value: NodeLocation;
     onChange: (next: NodeLocation) => void;
+    disabled?: boolean;
 }) {
+    const id = useId();
     const [locating, setLocating] = useState(false);
     const [note, setNote] = useState<string | null>(null);
-
-    const country = normalizeCountryCode(value.country);
-    const countries = useMemo(() => {
-        const codes = hubCountryCodes();
-        return country && !codes.includes(country) ? [country, ...codes] : codes;
-    }, [country]);
-    const cities = regionalHubsForCountry(country).map((h) => h.name);
-    if (value.city && !cities.includes(value.city)) cities.unshift(value.city);
+    const cities = regionalHubsForCountry(value.country).map((h) => h.name);
 
     function locateMe() {
         if (typeof navigator === 'undefined' || !navigator.geolocation) {
-            setNote("This browser can't share its location. Pick your city from the list.");
+            setNote("This browser can't share its location. Type or pick your city.");
             return;
         }
         setLocating(true);
@@ -62,7 +115,7 @@ export function NodeLocationPicker({
                 setLocating(false);
                 const nearest = nearestHubWorldwide(pos.coords.latitude, pos.coords.longitude);
                 if (!nearest) {
-                    setNote('No known city nearby. Pick one from the list.');
+                    setNote('No known city nearby. Type your city instead.');
                     return;
                 }
                 onChange({ country: nearest.country, city: nearest.hub.name });
@@ -81,64 +134,66 @@ export function NodeLocationPicker({
         );
     }
 
+    const typedKnown = value.city ? knownCity(cities, value.city) : undefined;
     return (
-        <div className="space-y-2">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                    <label className="text-xs font-mono text-muted-foreground block mb-1.5">
-                        Country
-                    </label>
-                    <select
-                        aria-label="Country"
-                        value={country}
-                        onChange={(e) => onChange({ country: e.target.value, city: '' })}
-                        className={selectClass}
-                    >
-                        <option value="">Choose a country</option>
-                        {countries.map((code) => (
-                            <option key={code} value={code}>
-                                {countryName(code)}
-                            </option>
-                        ))}
-                    </select>
-                </div>
-                <div>
-                    <label className="text-xs font-mono text-muted-foreground block mb-1.5">
-                        City
-                    </label>
-                    <select
-                        aria-label="City"
-                        value={value.city}
-                        onChange={(e) => onChange({ country, city: e.target.value })}
-                        disabled={!country}
-                        className={`${selectClass} disabled:opacity-50`}
-                    >
-                        <option value="">{cities.length ? 'Choose a city' : 'No cities listed'}</option>
-                        {cities.map((name) => (
-                            <option key={name} value={name}>
-                                {name}
-                            </option>
-                        ))}
-                    </select>
-                </div>
+        <>
+            <div className="ui-field">
+                <span>Country</span>
+                <CountrySelect
+                    value={value.country}
+                    onChange={(country) => onChange({ country, city: country === value.country ? value.city : '' })}
+                    disabled={disabled}
+                />
             </div>
-            <div className="flex flex-wrap items-center gap-3">
-                <button
-                    type="button"
-                    onClick={locateMe}
-                    disabled={locating}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-secondary hover:bg-secondary text-xs font-mono disabled:opacity-50"
-                >
-                    {locating ? <Loader2 size={12} className="animate-spin" /> : <LocateFixed size={12} />}
-                    Use my location
-                </button>
-                <p aria-live="polite" className="text-xs font-mono text-muted-foreground">
-                    {note}
-                </p>
+            <label className="ui-field">
+                City
+                <input
+                    className="ui-input"
+                    maxLength={100}
+                    list={`${id}-cities`}
+                    value={value.city}
+                    disabled={disabled}
+                    onChange={(e) => onChange({ country: value.country, city: e.target.value })}
+                    onBlur={() => {
+                        if (typedKnown && typedKnown !== value.city) onChange({ country: value.country, city: typedKnown });
+                    }}
+                    placeholder={cities.length ? `e.g. ${cities[0]}` : 'Optional'}
+                    aria-describedby={`${id}-city-help`}
+                />
+                <datalist id={`${id}-cities`}>
+                    {cities.map((name) => (
+                        <option key={name} value={name} />
+                    ))}
+                </datalist>
+                <small id={`${id}-city-help`}>
+                    {value.city && cities.length && !typedKnown
+                        ? `${value.city} is not on our city list yet, so the map shows the country area. Pick the nearest listed city for a city-area pin.`
+                        : cities.length
+                          ? 'Pick from the list for an exact city-area pin.'
+                          : 'Optional. The map shows the country area.'}
+                </small>
+            </label>
+            <div className="ui-field">
+                <span>Find it for me</span>
+                <div className="flex flex-wrap items-center gap-3">
+                    <button
+                        type="button"
+                        onClick={locateMe}
+                        disabled={disabled || locating}
+                        className="ui-button secondary"
+                    >
+                        {locating ? <Loader2 size={14} className="animate-spin" /> : <LocateFixed size={14} />}
+                        Use my location
+                    </button>
+                    <p aria-live="polite" className="ui-note">
+                        {note}
+                    </p>
+                </div>
+                <small>Your exact position stays in this browser. Only the city is saved.</small>
             </div>
-            <p className="text-xs font-mono text-muted-foreground/70">
-                Your exact position stays in this browser. Only the city is saved and shown on the public map.
-            </p>
-        </div>
+            <div className="ui-field">
+                <MapPrecisionNote location={value} />
+            </div>
+        </>
     );
 }

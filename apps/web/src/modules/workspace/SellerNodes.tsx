@@ -28,7 +28,10 @@ import { explorerHref } from "@/lib/navigation/workspace";
 import { Modal } from "@/components/patterns/Modal";
 import { CommandBlock } from "@/components/workspace/CommandBlock";
 import { isNodeOnline, lastSeenText, nodeStatusLabel, useNodeClock } from "@/lib/node-status";
-import { CountrySelect } from "@/components/ui/CountrySelect";
+import {
+  NodeLocationFields,
+  type NodeLocation,
+} from "@/components/provider/NodeLocationPicker";
 import {
   PageHeading,
   Loading,
@@ -67,8 +70,10 @@ export function SellerNodeSetup() {
   const { user } = useAuth();
   const client = useQueryClient();
   const [name, setName] = useState("");
-  const [country, setCountry] = useState("");
-  const [city, setCity] = useState("");
+  const [location, setLocation] = useState<NodeLocation>({
+    country: "",
+    city: "",
+  });
   const [registered, setRegistered] = useState<NodeRegistration | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const registration = useMutation({
@@ -93,8 +98,8 @@ export function SellerNodeSetup() {
       } else {
         node = await createNode({
           name: name.trim(),
-          country: country.trim().toUpperCase() || undefined,
-          city: city.trim() || undefined,
+          country: location.country.trim().toUpperCase() || undefined,
+          city: location.city.trim() || undefined,
         });
       }
       setRegistered(node);
@@ -171,27 +176,11 @@ export function SellerNodeSetup() {
                 placeholder="e.g. Accra home node"
               />
             </label>
-            <div className="ui-field">
-              <span>Country</span>
-              <CountrySelect
-                value={country}
-                onChange={setCountry}
-                describedBy="setup-country-help"
-              />
-              <small id="setup-country-help">
-                Optional. Live location is verified separately.
-              </small>
-            </div>
-            <label className="ui-field">
-              City
-              <input
-                className="ui-input"
-                maxLength={100}
-                value={city}
-                onChange={(e) => setCity(e.target.value)}
-                placeholder="Optional"
-              />
-            </label>
+            <NodeLocationFields
+              value={location}
+              onChange={setLocation}
+              disabled={registration.isPending || Boolean(registered)}
+            />
           </fieldset>
           {registration.isError && <DataError error={registration.error} />}
           {registered && (
@@ -573,17 +562,26 @@ function NodeSettings({ node }: { node: NodeRegistration }) {
   const client = useQueryClient();
   const router = useRouter();
   const [name, setName] = useState(node.name);
-  const [country, setCountry] = useState(node.country ?? "");
-  const [city, setCity] = useState(node.city ?? "");
+  const [location, setLocation] = useState<NodeLocation>({
+    country: node.country ?? "",
+    city: node.city ?? "",
+  });
   const [removeOpen, setRemoveOpen] = useState(false);
   const save = useMutation({
     retry: false,
-    mutationFn: () =>
-      updateNode(node.id, {
+    mutationFn: () => {
+      const country = location.country.trim().toUpperCase();
+      const city = location.city.trim();
+      // Send the location only when it changed: a saved location is the
+      // owner's and stops automatic detection, so saving just the name must
+      // not lock in a location nobody chose.
+      const locationChanged =
+        country !== (node.country ?? "") || city !== (node.city ?? "");
+      return updateNode(node.id, {
         name: name.trim(),
-        country: country.trim().toUpperCase(),
-        city: city.trim(),
-      }),
+        ...(locationChanged ? { country, city } : {}),
+      });
+    },
     onSuccess: () => client.invalidateQueries({ queryKey: ["provider-nodes"] }),
   });
   const remove = useMutation({
@@ -616,19 +614,7 @@ function NodeSettings({ node }: { node: NodeRegistration }) {
               onChange={(e) => setName(e.target.value)}
             />
           </label>
-          <div className="ui-field">
-            <span>Country</span>
-            <CountrySelect value={country} onChange={setCountry} />
-          </div>
-          <label className="ui-field">
-            City
-            <input
-              className="ui-input"
-              maxLength={100}
-              value={city}
-              onChange={(e) => setCity(e.target.value)}
-            />
-          </label>
+          <NodeLocationFields value={location} onChange={setLocation} />
         </fieldset>
         {save.isError && <DataError error={save.error} />}
         {save.isSuccess && (

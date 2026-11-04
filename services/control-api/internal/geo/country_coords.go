@@ -80,6 +80,11 @@ func SanitizeMapPlace(country, city, region string) (string, string, string) {
 }
 
 func cityBelongsToOtherCountry(country, city string) bool {
+	// A name that is also a place in the node's own country stays (Ghana's
+	// "Wa" is not the US state alias "wa").
+	if _, ok := matchRegionalHubByText(regionalHubsByCountry[country], city); ok {
+		return false
+	}
 	for otherCC, hubs := range regionalHubsByCountry {
 		if otherCC == country {
 			continue
