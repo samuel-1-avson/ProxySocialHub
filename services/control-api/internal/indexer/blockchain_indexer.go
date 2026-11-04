@@ -66,7 +66,7 @@ type IndexerConfig struct {
 	WriterPrivateKey string
 	PollInterval     time.Duration
 	BatchSize        int
-	StartSlot        uint64 // 0 = auto (start from current slot)
+	StartSlot        uint64 // 0 = auto (resume from the newest indexed block, else current slot)
 	// IndexAll: when true, index every transaction on the chain regardless of
 	// program involvement. Useful for local/devnet environments where the
 	// ProxyHub program has no transactions yet. Set via INDEXER_INDEX_ALL=true.
@@ -146,14 +146,7 @@ func (bi *BlockchainIndexer) Start() {
 
 	// Get starting slot if not set
 	if bi.lastSlot == 0 {
-		slot, err := bi.rpcClient.GetSlot(bi.ctx, rpc.CommitmentConfirmed)
-		if err == nil {
-			bi.lastSlot = slot
-			logging.Info().Uint64("slot", slot).Msg("[BlockchainIndexer] Starting from current slot")
-		} else {
-			logging.Error(err).Msg("[BlockchainIndexer] Failed to get current slot, starting from 0")
-			bi.lastSlot = 0
-		}
+		bi.lastSlot = bi.resumeSlot()
 	}
 
 	logging.Info().
@@ -163,6 +156,47 @@ func (bi *BlockchainIndexer) Start() {
 		Msg("[BlockchainIndexer] Started")
 
 	go bi.loop()
+}
+
+// resumeSlot picks where indexing continues when no explicit start slot is
+// configured: the newest block already stored, so a restart does not skip
+// everything between shutdown and start (audit D1). On an empty table - or
+// when the table cannot be read - it falls back to the chain head, and to 0
+// if the RPC is unreachable. With 0 the loop starts from slot 1 once the RPC
+// answers, exactly as before this change.
+func (bi *BlockchainIndexer) resumeSlot() uint64 {
+	if slot, ok := bi.maxIndexedSlot(); ok {
+		logging.Info().Uint64("slot", slot).Msg("[BlockchainIndexer] Resuming from newest indexed block")
+		return slot
+	}
+	slot, err := bi.rpcClient.GetSlot(bi.ctx, rpc.CommitmentConfirmed)
+	if err == nil {
+		logging.Info().Uint64("slot", slot).Msg("[BlockchainIndexer] Starting from current slot")
+		return slot
+	}
+	logging.Error(err).Msg("[BlockchainIndexer] Failed to get current slot, starting from 0")
+	return 0
+}
+
+// maxIndexedSlot returns the newest canonical block_number in explorer_blocks,
+// matching what the explorer API reports as the indexed head. ok is false when
+// there is no such block or the query fails.
+func (bi *BlockchainIndexer) maxIndexedSlot() (uint64, bool) {
+	if db.DB == nil {
+		return 0, false
+	}
+	var maxSlot uint64
+	if err := db.DB.Model(&models.ExplorerBlock{}).
+		Where("chain = ? AND is_orphaned = ?", "solana", false).
+		Select("COALESCE(MAX(block_number), 0)").
+		Scan(&maxSlot).Error; err != nil {
+		logging.Warn().Err(err).Msg("[BlockchainIndexer] Could not read newest indexed block; starting from chain head")
+		return 0, false
+	}
+	if maxSlot == 0 {
+		return 0, false
+	}
+	return maxSlot, true
 }
 
 // Stop stops the indexer
@@ -361,7 +395,7 @@ func (bi *BlockchainIndexer) indexSlot(slot uint64) error {
 
 	// Index transactions
 	for i := range blockResult.Transactions {
-		if err := bi.indexTransaction(&blockResult.Transactions[i], slot, blockHash, i); err != nil {
+		if err := bi.indexTransaction(&blockResult.Transactions[i], slot, blockHash, blockTime, i); err != nil {
 			logging.Error(err).Msg("[BlockchainIndexer] Failed to index transaction")
 		}
 	}
@@ -369,8 +403,9 @@ func (bi *BlockchainIndexer) indexSlot(slot uint64) error {
 	return nil
 }
 
-// indexTransaction indexes a single transaction
-func (bi *BlockchainIndexer) indexTransaction(txWithMeta *rpc.TransactionWithMeta, blockNumber uint64, blockHash string, index int) error {
+// indexTransaction indexes a single transaction. blockTime is the containing
+// block's chain time; stored transactions carry it, not the fetch time.
+func (bi *BlockchainIndexer) indexTransaction(txWithMeta *rpc.TransactionWithMeta, blockNumber uint64, blockHash string, blockTime time.Time, index int) error {
 	if txWithMeta == nil {
 		return nil
 	}
@@ -494,8 +529,13 @@ func (bi *BlockchainIndexer) indexTransaction(txWithMeta *rpc.TransactionWithMet
 		status = "failed"
 	}
 
-	// Get timestamp
-	timestamp := time.Now()
+	// A transaction's time is its block's time, not when we happened to index
+	// it (audit D4). The zero fallback only fires for a caller that has no
+	// block time; indexSlot substitutes the fetch time when the RPC omits it.
+	timestamp := blockTime
+	if timestamp.IsZero() {
+		timestamp = time.Now()
+	}
 
 	explorerTx := models.ExplorerTransaction{
 		ID:            uuid.New(),
