@@ -102,7 +102,7 @@ export function ManagedWalletCard({ workspace = 'buyer' }: { workspace?: Workspa
                             {balance.isError && <p role="alert" className="mt-3 text-xs text-warning">Balance could not be refreshed. <button type="button" className="underline underline-offset-4" onClick={() => void balance.refetch()}>Try again</button></p>}
                         </div>
 
-                        <div className="flex flex-wrap gap-3">
+                        <div className="flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap">
                             <button ref={receiveTrigger} type="button" className="ui-button min-h-11 gap-2" onClick={() => setReceiveOpen(true)}><ArrowDownLeft size={16} aria-hidden="true" />Receive SOL</button>
                             <Link className="ui-button secondary min-h-11 gap-2" href="/app/wallet?tab=history"><Activity size={16} aria-hidden="true" />View activity</Link>
                         </div>

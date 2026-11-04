@@ -130,6 +130,9 @@ test.describe('Google-created wallet', () => {
       await page.getByRole('button', { name: 'Receive SOL', exact: true }).click();
       await expect(page.getByRole('dialog')).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+      await page.keyboard.press('Escape');
+      await page.getByRole('link', { name: 'View activity', exact: true }).click();
+      await expect(page.getByRole('heading', { name: 'Account ledger' })).toBeVisible();
     });
   }
 
