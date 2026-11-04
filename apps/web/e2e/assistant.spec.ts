@@ -78,6 +78,36 @@ test("pasting a recovery phrase is blocked with an explanation", async ({ page }
   await expect(box).toHaveValue("");
 });
 
+test("approval cards execute once through the actions endpoint and show the result", async ({ page }) => {
+  await seedSignedAuth(page, base, "buyer");
+  const action = {
+    draftId: "draft-e2e-1", kind: "buy_order", title: "Buy 5 GB — Accra Home Residential",
+    summary: ["5 GB at $2.4 / GB · about $12 total", "Approving creates the order only."],
+    confirmLabel: "Create order", expiresAt: new Date(Date.now() + 600_000).toISOString(),
+  };
+  let executedBody: unknown = null;
+  await page.route("**/api/assistant/actions", async (route) => {
+    executedBody = route.request().postDataJSON();
+    await route.fulfill({ json: { status: "needs_funding", title: "Order created — funding is next", message: "Order is pending. Open it to fund the escrow.", href: "/marketplace/orders/order-e2e" } });
+  });
+  await page.route("**/api/assistant", async (route) => {
+    if (route.request().method() === "GET") return route.fulfill({ json: { mode: "ai", provider: "meta" } });
+    await route.fulfill({ json: { ...reply, content: "Prepared below — review and press Create order to approve.", actions: [action] } });
+  });
+  await open(page);
+  const panel = scope(page);
+  await panel.getByRole("textbox", { name: "Your question" }).fill("Buy 5 GB of the Accra listing");
+  await panel.getByRole("button", { name: "Send message" }).click();
+  const card = panel.getByLabel(/Approval needed: Buy 5 GB/);
+  await expect(card).toBeVisible();
+  await expect(card.getByText("about $12 total", { exact: false })).toBeVisible();
+  await card.getByRole("button", { name: "Create order" }).click();
+  await expect(card.getByText("Order created — funding is next", { exact: false })).toBeVisible();
+  await expect(card.getByRole("link", { name: /Open it/ })).toHaveAttribute("href", "/marketplace/orders/order-e2e");
+  expect(executedBody).toEqual({ draft_id: "draft-e2e-1" });
+  await expect(card.getByRole("button", { name: "Create order" })).toHaveCount(0, "the approval cannot be pressed twice");
+});
+
 test("failed requests can be retried without duplicating the user message", async ({ page }) => {
   await seedSignedAuth(page, base, "buyer");
   let requests = 0;

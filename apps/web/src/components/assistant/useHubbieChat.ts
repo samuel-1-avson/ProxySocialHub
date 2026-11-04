@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { getAccessTokenSilently, useAuth } from "@/lib/auth";
-import type { AssistantEvent, AssistantMessage, AssistantReply, AssistantStep } from "@/lib/assistant";
+import type { AssistantActionResult, AssistantEvent, AssistantMessage, AssistantReply, AssistantStep } from "@/lib/assistant";
 
 interface ChatEntry extends AssistantMessage { id: number; reply?: AssistantReply }
 
@@ -129,7 +129,19 @@ export function useHubbieChat(onReply?: () => void) {
     }
   }
 
+  async function approveAction(draftId: string): Promise<AssistantActionResult> {
+    const token = await getAccessTokenSilently();
+    if (!token) throw new Error("Your session expired. Sign in again, then ask Hubbie to prepare it again.");
+    const response = await fetch("/api/assistant/actions", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify({ draft_id: draftId }),
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(typeof body?.error === "string" ? body.error : "The action could not be completed.");
+    return body as AssistantActionResult;
+  }
   const stop = () => abort.current?.abort();
-  return { user, isAuthenticated, messages, draft, setDraft, busy, status, steps, error, mode, liveText, input, clear, send, stop };
+  return { user, isAuthenticated, messages, draft, setDraft, busy, status, steps, error, mode, liveText, input, clear, send, stop, approveAction };
 }
 export type HubbieChat = ReturnType<typeof useHubbieChat>;

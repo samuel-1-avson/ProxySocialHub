@@ -2,11 +2,27 @@
 export interface AssistantMessage { role: "user" | "assistant"; content: string }
 export interface AssistantSource { title: string; href: string }
 export interface AssistantStep { label: string; ok: boolean }
+/** A server-prepared action the user must still approve. Drafts do nothing until approved. */
+export interface AssistantAction {
+  draftId: string;
+  kind: "buy_order" | "create_listing";
+  title: string;
+  summary: string[];
+  confirmLabel: string;
+  expiresAt: string;
+}
+export interface AssistantActionResult {
+  status: "done" | "needs_funding" | "needs_signature" | "failed";
+  title: string;
+  message: string;
+  href?: string;
+}
 export interface AssistantReply {
   mode: "ai" | "guides";
   content: string;
   sources: AssistantSource[];
   steps: AssistantStep[];
+  actions?: AssistantAction[];
 }
 export type AssistantEvent =
   | { type: "status"; label: string }

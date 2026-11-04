@@ -474,6 +474,7 @@ services:
       - CONCIERGE_MODEL=${CONCIERGE_MODEL:-muse-spark-1.3}
       - ASSISTANT_MODEL=${ASSISTANT_MODEL:-muse-spark-1.3}
       - ASSISTANT_ENABLED=${ASSISTANT_ENABLED:-1}
+      - ASSISTANT_ACTIONS_ENABLED=${ASSISTANT_ACTIONS_ENABLED:-1}
       # Hubbie rate limits shared across web replicas; the limiter falls back to in-memory if Redis is unreachable.
       - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379
       # Public vars — must be browser-resolvable (public host/port)

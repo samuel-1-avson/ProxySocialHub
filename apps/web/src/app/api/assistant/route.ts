@@ -4,6 +4,7 @@ import { resolveAssistantUser } from "@/lib/server/assistant-auth";
 import { assistantSettings, AssistantError, runAssistant, type AssistantUsageRecord } from "@/lib/server/assistant-agent";
 import { readAssistantJson } from "@/lib/server/assistant-json";
 import { getAssistantRateLimiter, RATE_LIMIT_MESSAGES } from "@/lib/server/assistant-rate-limit";
+import { accountTag, assistantActionsEnabled, getAssistantDraftStore } from "@/lib/server/assistant-actions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,12 +12,6 @@ export const maxDuration = 120;
 const headers = { "cache-control": "private, no-store", vary: "Authorization" };
 const fail = (status: number, message: string, extra?: Record<string, string>) => NextResponse.json({ error: message, ...extra }, { status, headers });
 
-/** Stable non-identifying correlation id for usage logs (not a security hash). */
-function accountTag(id: string): string {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < id.length; i++) { hash ^= id.charCodeAt(i); hash = Math.imul(hash, 0x01000193); }
-  return (hash >>> 0).toString(16).padStart(8, "0");
-}
 
 /** One JSON line per turn: cost/latency/tool outcomes only, never content. */
 function logUsage(accountId: string, record: AssistantUsageRecord) {
@@ -75,7 +70,7 @@ export async function POST(request: NextRequest) {
         try {
           const reply = await runAssistant({
             settings, messages, pathname,
-            context: { bearer: user.bearer, role: user.role, apiBase: process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:18080", signal },
+            context: { bearer: user.bearer, role: user.role, userId: user.id, actionsEnabled: assistantActionsEnabled(), drafts: getAssistantDraftStore(), apiBase: process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:18080", signal },
             emit, onUsage: (record) => logUsage(user.id, record),
           });
           emit({ type: "reply", reply });
