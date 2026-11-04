@@ -122,6 +122,9 @@ test("mobile layout is accessible and fits the viewport", async ({ page }, testI
   expect(box!.x + box!.width).toBeLessThanOrEqual(390.5);
   const drawer = page.getByRole("dialog", { name: "Hubbie AI assistant" });
   await expect(drawer).toHaveAttribute("aria-modal", "true");
+  // Sticky site navigation must stay beneath the mobile chat, including the
+  // header/context boundary where a marketing header otherwise overlaps it.
+  expect(await drawer.evaluate((element) => element.contains(document.elementFromPoint(window.innerWidth / 2, 90)))).toBe(true);
   await expect(scope(page).getByRole("textbox")).toBeFocused();
   for (let index = 0; index < 14; index++) {
     await page.keyboard.press("Tab");
