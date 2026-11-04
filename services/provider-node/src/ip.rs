@@ -142,9 +142,65 @@ pub fn gateway_token_failure(server_said: &str) -> String {
 }
 
 /// Validate an API key and return (user_id, tunnel JWT) for edge-gateway AUTH.
+/// How many times [`validate_api_key`] tries a Control API it could not reach at all.
+const VALIDATE_ATTEMPTS: u32 = 3;
+/// The wait before try N+1 is N times this (1 s, then 2 s); short in tests.
+const VALIDATE_RETRY_STEP: Duration = if cfg!(test) {
+    Duration::from_millis(20)
+} else {
+    Duration::from_secs(1)
+};
+
+/// Check a provider key once, for `join`, `register`, `doctor` and `status`. (The daemon calls
+/// [`exchange_gateway_token`] from its own reconnect loop instead.)
+///
+/// A request that never reached the server is tried again after 1 s and then 2 s: home and
+/// mobile routers drop a DNS query now and then, and `join` failed for good on one such miss
+/// right after the installer had downloaded from the same host. If it keeps failing on DNS, the
+/// error says so in plain words instead of only "dns error".
 pub async fn validate_api_key(api_url: &str, api_key: &str) -> Result<(String, String)> {
-    let access = exchange_gateway_token(api_url, api_key).await?;
-    Ok((access.user_id, access.token))
+    let mut attempt = 1;
+    loop {
+        match exchange_gateway_token(api_url, api_key).await {
+            Ok(access) => return Ok((access.user_id, access.token)),
+            Err(e) if attempt < VALIDATE_ATTEMPTS && never_reached_server(&e) => {
+                debug!(attempt, error = %format!("{e:#}"), "Control API unreachable; trying again");
+                tokio::time::sleep(VALIDATE_RETRY_STEP * attempt).await;
+                attempt += 1;
+            }
+            Err(e) => return Err(explain_dns_failure(e, api_url)),
+        }
+    }
+}
+
+/// True when the request failed before reaching the server: the name did not resolve or the
+/// connection was refused. Nothing was sent, so trying again is safe. A timeout is not counted:
+/// a host that never answers would make `doctor` and `status` wait 10 s per try.
+fn never_reached_server(err: &anyhow::Error) -> bool {
+    err.chain()
+        .filter_map(|e| e.downcast_ref::<reqwest::Error>())
+        .any(|e| e.is_connect() && !e.is_timeout())
+}
+
+/// Put the plain reason first when the API's name could not be looked up. The words that
+/// mark a refused key (see [`is_key_refusal`]) never appear here, so a DNS failure is never
+/// mistaken for one.
+fn explain_dns_failure(err: anyhow::Error, api_url: &str) -> anyhow::Error {
+    let is_dns = never_reached_server(&err)
+        && format!("{err:#}")
+            .to_ascii_lowercase()
+            .contains("dns error");
+    if !is_dns {
+        return err;
+    }
+    let host = reqwest::Url::parse(api_url)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_string))
+        .unwrap_or_else(|| api_url.to_string());
+    err.context(format!(
+        "Could not look up {host} (a DNS failure on this computer's network), so the key was not \
+         checked. Check the internet connection, then run the same command again."
+    ))
 }
 
 // ── Node Registration ───────────────────────────────────────────────
@@ -360,5 +416,76 @@ mod tests {
         };
         assert!(access.needs_refresh(Duration::from_secs(180)));
         assert!(!access.needs_refresh(Duration::from_secs(30)));
+    }
+
+    /// What a person saw after `join`: "dns error / No such host is known" and nothing about
+    /// what it meant. `.invalid` never resolves (RFC 6761), with or without a network.
+    #[tokio::test]
+    async fn a_name_that_cannot_be_looked_up_is_retried_then_explained() {
+        let started = std::time::Instant::now();
+        let err = validate_api_key("https://proxyhubb-dns-check.invalid", "k")
+            .await
+            .expect_err("an unresolvable host cannot validate a key");
+        let full = format!("{err:#}");
+        assert!(
+            err.to_string()
+                .starts_with("Could not look up proxyhubb-dns-check.invalid"),
+            "{full}"
+        );
+        assert!(full.contains("run the same command again"), "{full}");
+        // The original chain is kept for support, and the key is not blamed.
+        assert!(full.contains("Failed to connect to Control API"), "{full}");
+        assert!(!is_key_refusal(&full), "{full}");
+        // Three tries: waits of 1 and 2 steps between them.
+        assert!(started.elapsed() >= VALIDATE_RETRY_STEP * 3, "{full}");
+    }
+
+    /// A refused connection is retried too (nothing was sent), but it is not a DNS failure, so
+    /// the message is left as it was.
+    #[tokio::test]
+    async fn a_refused_connection_is_retried_but_not_called_a_dns_failure() {
+        let port = {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.local_addr().unwrap().port()
+        };
+        let started = std::time::Instant::now();
+        let err = validate_api_key(&format!("http://127.0.0.1:{port}"), "k")
+            .await
+            .expect_err("nothing listens on a port that was just released");
+        assert!(never_reached_server(&err), "{err:#}");
+        assert_eq!(err.to_string(), "Failed to connect to Control API");
+        assert!(started.elapsed() >= VALIDATE_RETRY_STEP * 3, "{err:#}");
+    }
+
+    /// An answer from the server is never retried: the key was checked, and a refusal must
+    /// reach the person at once.
+    #[tokio::test]
+    async fn a_server_that_answers_is_asked_once() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let mut served = 0u32;
+            while let Ok(Ok((mut sock, _))) =
+                tokio::time::timeout(Duration::from_millis(500), listener.accept()).await
+            {
+                let mut buf = [0u8; 4096];
+                let _ = sock.read(&mut buf).await;
+                let body = r#"{"error":"Invalid or inactive provider token"}"#;
+                let reply = format!(
+                    "HTTP/1.1 401 Unauthorized\r\ncontent-type: application/json\r\n\
+                     content-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = sock.write_all(reply.as_bytes()).await;
+                served += 1;
+            }
+            served
+        });
+        let err = validate_api_key(&format!("http://{addr}"), "k")
+            .await
+            .expect_err("the server refused the key");
+        assert!(is_key_refusal(&err.to_string()), "{err:#}");
+        assert_eq!(server.await.unwrap(), 1, "a refusal was asked again");
     }
 }
