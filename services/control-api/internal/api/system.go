@@ -140,6 +140,7 @@ func getPublicSystemConfig(c *gin.Context) {
 		"legacy_treasury":               solana.GetTreasuryAddress(),
 		"treasury_configured":           val != "",
 		"sol_price_usd":                 billing.GetSOLPriceUSD(),
+		"fiat_payments_enabled":         fiatPaymentsEnabled(),
 		"large_withdraw_threshold_sol":  getLargeWithdrawalThresholdSOL(),
 		"discovery":                     discoveryHonestyMeta(),
 		"provider_registry_gate":        decentralization.ProviderRegistryGateMode(),

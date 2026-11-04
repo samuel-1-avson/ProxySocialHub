@@ -268,6 +268,7 @@ func setupFiatTest(t *testing.T) *fiatTestEnv {
 	r.POST("/webhooks/paystack", handlePaystackWebhook)
 	r.POST("/orders/:id/cancel", cancelOrder)
 	r.GET("/listings/:id/paystack-preview", previewPaystackPrice)
+	r.GET("/listings/:id/checkout-preview", previewManagedCheckout)
 	env.router = r
 	return env
 }

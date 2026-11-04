@@ -7,8 +7,12 @@ import {
   Power,
   AlertCircle,
   CheckCircle,
+  Coins,
+  Copy,
   CreditCard,
+  ExternalLink,
   Loader2,
+  RefreshCw,
   XCircle,
   Clock,
   Info,
@@ -20,17 +24,17 @@ import {
   confirmEscrowPayment,
   createOrderWithProvisioning,
   getOrder,
+  getManagedCheckoutPreview,
   getOrderProxyCredentials,
-  getPaystackPreview,
   initiateSmartContractPayment,
   marketplaceKeys,
   payOrderFromBalance,
   quotePaystackPayment,
   verifyPaystackPayment,
   waitForOrderActive,
+  type ManagedCheckoutPreview,
   type MarketplaceProxyCredentials,
   type Order,
-  type PaystackPreview,
 } from '@/lib/api/marketplace';
 import { useAuth } from '@/lib/auth';
 import { openPaystackCheckout } from '@/lib/paystack';
@@ -44,6 +48,7 @@ import {
   getEscrowInfoByPDA,
   assertExpectedSolanaCluster,
   assertBuyerHasSolOnCluster,
+  shopSolanaCluster,
   shopSolanaClusterLabel,
   WrongSolanaClusterError,
 } from '@/lib/solana';
@@ -198,12 +203,123 @@ function formatGHS(amount: number) {
   return `GH₵${amount.toFixed(2)}`;
 }
 
+function formatUSD(amount: number) {
+  return amount > 0 && amount < 0.01 ? 'less than $0.01' : `$${amount.toFixed(2)}`;
+}
+
+/**
+ * SOL with enough decimals to be meaningful for small orders. `roundUp` is for amounts
+ * the buyer has to send: rounding down would leave the wallet a few lamports short.
+ */
+function formatSOL(amount: number, roundUp = false) {
+  if (!Number.isFinite(amount) || amount <= 0) return '0 SOL';
+  const digits = amount >= 1 ? 3 : amount >= 0.01 ? 4 : 6;
+  const f = 10 ** digits;
+  const v = roundUp ? Math.ceil(amount * f - 1e-7) / f : Math.round(amount * f) / f;
+  // Drop trailing zeros: 0.0079 SOL, not 0.007900 SOL.
+  return `${parseFloat(v.toFixed(digits))} SOL`;
+}
+
 function formatDay(iso?: string) {
   if (!iso) return '';
   const d = new Date(iso);
   return Number.isNaN(d.getTime())
     ? ''
     : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/** How a Google-account buyer pays. SOL is the main way; card / mobile money is the fallback. */
+type ManagedPayMethod = 'sol' | 'card';
+
+/** Whether card / mobile money can be picked for this checkout, and why not. */
+function cardOption(quote: Extract<ManagedCheckoutPreview, { active_plan: false }> | null) {
+  if (!quote) return { available: false, note: '' };
+  if (!quote.fiat_enabled) return { available: false, note: 'Not available yet' };
+  if (quote.pay_from_balance) return { available: false, note: 'Not needed. Your SOL covers this order.' };
+  if (quote.fiat_error || quote.amount_ghs == null) {
+    return { available: false, note: quote.fiat_error || 'Price unavailable right now' };
+  }
+  return { available: true, note: `No SOL? Pay ${formatGHS(quote.amount_ghs)} in Ghana cedis.` };
+}
+
+function AddSolPanel({
+  address,
+  shortfallSOL,
+  refreshing,
+  onRefresh,
+}: {
+  address: string;
+  shortfallSOL: number;
+  refreshing: boolean;
+  onRefresh: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState('');
+  const network = shopSolanaCluster();
+  const label = shopSolanaClusterLabel();
+  const testFunds = network !== 'mainnet-beta';
+  useEffect(() => {
+    if (!copied) return;
+    const t = setTimeout(() => setCopied(false), 2500);
+    return () => clearTimeout(t);
+  }, [copied]);
+
+  async function copy() {
+    setCopyError('');
+    try {
+      await navigator.clipboard.writeText(address);
+      setCopied(true);
+    } catch {
+      setCopyError('Copy is unavailable. Select the address and copy it.');
+    }
+  }
+
+  return (
+    <div
+      className="space-y-3 rounded-[var(--radius-md)] border border-[color-mix(in_srgb,var(--warning)_30%,var(--border))] bg-[color-mix(in_srgb,var(--warning)_6%,transparent)] p-4"
+      data-testid="buy-add-sol"
+    >
+      <p className="text-sm font-medium text-foreground">
+        Add at least {formatSOL(shortfallSOL, true)} to your ProxyHubb wallet
+      </p>
+      <p className="text-xs text-muted-foreground">
+        Send SOL on Solana {label} to this address. Your balance updates here by itself.
+      </p>
+      <code className="block select-all break-all rounded-[var(--radius-sm)] bg-background/60 px-2 py-1.5 font-mono text-xs leading-5 text-foreground">
+        {address}
+      </code>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="button" variant="outline" size="sm" onClick={() => void copy()}>
+          {copied ? <CheckCircle size={14} className="mr-1.5" aria-hidden /> : <Copy size={14} className="mr-1.5" aria-hidden />}
+          {copied ? 'Copied' : 'Copy address'}
+        </Button>
+        <Button type="button" variant="outline" size="sm" onClick={onRefresh} disabled={refreshing}>
+          <RefreshCw size={14} className={`mr-1.5 ${refreshing ? 'animate-spin motion-reduce:animate-none' : ''}`} aria-hidden />
+          Check balance
+        </Button>
+        {testFunds ? (
+          <a
+            href="https://faucet.solana.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex min-h-8 items-center gap-1 text-xs text-primary underline-offset-4 hover:underline"
+          >
+            Get free {label} SOL
+            <ExternalLink size={12} aria-hidden />
+            <span className="sr-only"> (opens in a new tab)</span>
+          </a>
+        ) : null}
+      </div>
+      {testFunds ? (
+        <p className="text-xs text-muted-foreground">
+          Only send {label.toLowerCase()} SOL. This shop does not use real funds.
+        </p>
+      ) : null}
+      <p className="text-xs text-muted-foreground" role="status" aria-live="polite">
+        {copyError || (copied ? 'Address copied.' : '')}
+      </p>
+    </div>
+  );
 }
 
 interface ManagedBuyViewProps {
@@ -218,15 +334,24 @@ interface ManagedBuyViewProps {
   error: string;
   bandwidth: number;
   setBandwidth: (gb: number) => void;
-  preview: PaystackPreview | undefined;
+  /** An order already exists for this amount (resumed, or kept for a retry). */
+  amountLocked: boolean;
+  preview: ManagedCheckoutPreview | undefined;
   priceReady: boolean;
   previewError: string;
+  refreshing: boolean;
+  onRefresh: () => void;
   estimatedCostUSD: number;
-  onPay: () => void;
+  method: ManagedPayMethod;
+  setMethod: (method: ManagedPayMethod) => void;
+  onPay: (method: ManagedPayMethod) => void;
   onRetry: () => void;
 }
 
-/** The buy dialog for Google-account buyers: choose → pay with Paystack → setting up → done. */
+/**
+ * The buy dialog for Google-account buyers: pick an amount → pay with SOL from the
+ * ProxyHubb wallet (main way) or by card / mobile money (fallback) → setting up → done.
+ */
 function ManagedBuyView({
   listing,
   open,
@@ -239,16 +364,26 @@ function ManagedBuyView({
   error,
   bandwidth,
   setBandwidth,
+  amountLocked,
   preview,
   priceReady,
   previewError,
+  refreshing,
+  onRefresh,
   estimatedCostUSD,
+  method,
+  setMethod,
   onPay,
   onRetry,
 }: ManagedBuyViewProps) {
   const minGb = listing.min_purchase_gb || 1;
   const maxGb = Math.min(listing.available_bandwidth_gb || 1000, 100);
   const quote = preview && !preview.active_plan ? preview : null;
+  const card = cardOption(quote);
+  // A card choice that stopped making sense (SOL arrived, or card payments were
+  // switched off) falls back to SOL.
+  const payMethod: ManagedPayMethod = method === 'card' && card.available ? 'card' : 'sol';
+  const solShort = !!quote && !quote.pay_from_balance;
 
   let title = 'Buy bandwidth';
   let body: ReactNode;
@@ -335,11 +470,13 @@ function ManagedBuyView({
       </div>
     );
   } else {
-    const payLabel = quote?.pay_from_balance
-      ? 'Pay from my ProxyHubb balance'
-      : priceReady && quote
-        ? `Pay ${formatGHS(quote.amount_ghs)}`
-        : 'Pay with card or mobile money';
+    const optionClass = (selected: boolean, disabled: boolean) =>
+      `flex cursor-pointer items-start gap-3 rounded-[var(--radius-md)] border p-3 transition-colors ${
+        selected
+          ? 'border-primary bg-[color-mix(in_srgb,var(--primary)_8%,transparent)]'
+          : 'border-border bg-secondary hover:border-[color-mix(in_srgb,var(--primary)_40%,var(--border))]'
+      } ${disabled ? 'cursor-not-allowed opacity-60 hover:border-border' : ''}`;
+
     body = (
       <div className="space-y-5">
         <div className="space-y-2">
@@ -356,7 +493,7 @@ function ManagedBuyView({
             max={maxGb}
             step={1}
             value={bandwidth}
-            disabled={busy}
+            disabled={busy || amountLocked}
             onChange={(e) => setBandwidth(parseInt(e.target.value, 10))}
             className="w-full accent-[var(--primary)]"
           />
@@ -370,40 +507,130 @@ function ManagedBuyView({
           </div>
         </div>
 
-        <div className="rounded-[var(--radius-md)] border border-border bg-secondary p-4">
-          <p className="text-xs text-muted-foreground">You pay</p>
-          <p
-            className="mt-1 font-mono text-3xl font-semibold text-foreground"
-            data-testid="buy-listing-price-ghs"
+        <fieldset className="space-y-2" disabled={busy}>
+          <legend className="mb-2 text-sm font-medium text-foreground">Pay with</legend>
+          <label className={optionClass(payMethod === 'sol', false)} data-testid="buy-method-sol">
+            <input
+              type="radio"
+              name="buy-pay-method"
+              value="sol"
+              checked={payMethod === 'sol'}
+              onChange={() => setMethod('sol')}
+              className="mt-1 accent-[var(--primary)]"
+            />
+            <span className="min-w-0 flex-1">
+              <span className="flex flex-wrap items-center gap-2 text-sm font-semibold text-foreground">
+                <Coins size={15} className="text-primary" aria-hidden />
+                Solana (SOL)
+                <span className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary-foreground">
+                  Main
+                </span>
+              </span>
+              <span className="mt-1 block text-xs text-muted-foreground">
+                From your ProxyHubb wallet
+                {quote ? <> · You have <span className="font-mono">{formatSOL(quote.balance_sol)}</span></> : null}
+              </span>
+            </span>
+          </label>
+          <label
+            className={optionClass(payMethod === 'card', !card.available)}
+            data-testid="buy-method-card"
+            aria-disabled={!card.available}
           >
-            {quote?.pay_from_balance
-              ? 'Covered by your balance'
-              : priceReady && quote
-                ? formatGHS(quote.amount_ghs)
-                : '…'}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            About ${estimatedCostUSD.toFixed(2)}. Card and mobile money fees included.
-          </p>
-          {quote?.credit_ghs && quote.credit_ghs > 0 && !quote.pay_from_balance ? (
-            <p className="mt-2 text-xs text-[var(--success)]">
-              {formatGHS(quote.credit_ghs)} credit from your ProxyHubb wallet is already taken off.
+            <input
+              type="radio"
+              name="buy-pay-method"
+              value="card"
+              checked={payMethod === 'card'}
+              disabled={!card.available}
+              onChange={() => setMethod('card')}
+              className="mt-1 accent-[var(--primary)]"
+            />
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <CreditCard size={15} aria-hidden />
+                Card or mobile money
+              </span>
+              <span className="mt-1 block text-xs text-muted-foreground">
+                {card.note || (quote ? '' : 'Checking…')}
+              </span>
+            </span>
+          </label>
+        </fieldset>
+
+        {payMethod === 'sol' ? (
+          <div className="rounded-[var(--radius-md)] border border-border bg-secondary p-4">
+            <p className="text-xs text-muted-foreground">You pay</p>
+            <p
+              className="mt-1 font-mono text-3xl font-semibold text-foreground"
+              data-testid="buy-listing-price-sol"
+            >
+              {priceReady && quote ? formatSOL(quote.amount_sol) : '…'}
             </p>
-          ) : null}
-        </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              About {formatUSD(quote?.usd_total ?? estimatedCostUSD)}. Held safely on Solana until you
+              use the bandwidth.
+            </p>
+            {quote ? (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Your wallet needs {formatSOL(quote.required_sol, true)} in total: the price plus
+                about {formatSOL(Math.max(0, quote.required_sol - quote.amount_sol), true)} for
+                Solana network costs and a small reserve that stays in your wallet.
+              </p>
+            ) : null}
+          </div>
+        ) : (
+          <div className="rounded-[var(--radius-md)] border border-border bg-secondary p-4">
+            <p className="text-xs text-muted-foreground">You pay</p>
+            <p
+              className="mt-1 font-mono text-3xl font-semibold text-foreground"
+              data-testid="buy-listing-price-ghs"
+            >
+              {priceReady && quote?.amount_ghs != null ? formatGHS(quote.amount_ghs) : '…'}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              About {formatUSD(quote?.usd_total ?? estimatedCostUSD)}. Card and mobile money fees
+              included.
+            </p>
+            {quote?.credit_ghs && quote.credit_ghs > 0 ? (
+              <p className="mt-2 text-xs text-[var(--success)]">
+                {formatGHS(quote.credit_ghs)} of SOL already in your ProxyHubb wallet is taken off.
+              </p>
+            ) : null}
+          </div>
+        )}
+
+        {payMethod === 'sol' && solShort && quote ? (
+          <>
+            <AddSolPanel
+              address={quote.wallet_address}
+              shortfallSOL={quote.shortfall_sol}
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+            />
+            {!card.available && !quote.fiat_enabled ? (
+              <p className="text-xs text-muted-foreground">
+                Card and mobile money payments are not available yet, so add SOL to buy.
+              </p>
+            ) : null}
+          </>
+        ) : null}
 
         <ol className="space-y-2 text-sm text-muted-foreground">
           <li className="flex gap-2">
             <span className="font-mono text-foreground">1.</span>
-            Pay with card or mobile money.
+            {payMethod === 'sol'
+              ? 'You pay in SOL from your ProxyHubb wallet. No extension needed.'
+              : 'You pay by card or mobile money. We turn it into SOL in your ProxyHubb wallet.'}
           </li>
           <li className="flex gap-2">
             <span className="font-mono text-foreground">2.</span>
-            We hold your money safely until you use the bandwidth.
+            The SOL is held safely on Solana until you use the bandwidth.
           </li>
           <li className="flex gap-2">
             <span className="font-mono text-foreground">3.</span>
-            You get your proxy login right away. Bandwidth you don&apos;t use comes back as credit.
+            You get your proxy login right away. SOL for bandwidth you don&apos;t use comes back to
+            your wallet.
           </li>
         </ol>
 
@@ -427,19 +654,68 @@ function ManagedBuyView({
         ) : null}
       </div>
     );
-    footer = (
-      <Button
-        type="button"
-        data-testid="buy-listing-start-connection"
-        onClick={onPay}
-        disabled={busy || !priceReady}
-        isLoading={busy}
-        className="w-full"
-      >
-        <CreditCard size={18} className="mr-2" aria-hidden />
-        {payLabel}
-      </Button>
-    );
+
+    if (payMethod === 'sol') {
+      footer = (
+        <div className="flex w-full flex-col gap-2">
+          <Button
+            type="button"
+            data-testid="buy-listing-start-connection"
+            onClick={() => onPay('sol')}
+            disabled={busy || !priceReady || solShort}
+            isLoading={busy}
+            className="w-full"
+          >
+            <Coins size={18} className="mr-2" aria-hidden />
+            {!priceReady || !quote
+              ? 'Pay with SOL'
+              : solShort
+                ? 'Add SOL to pay'
+                : `Pay ${formatSOL(quote.amount_sol)}`}
+          </Button>
+          {solShort && card.available && quote?.amount_ghs != null ? (
+            <Button
+              type="button"
+              variant="outline"
+              data-testid="buy-pay-with-card-instead"
+              onClick={() => setMethod('card')}
+              disabled={busy}
+              className="w-full"
+            >
+              <CreditCard size={16} className="mr-2" aria-hidden />
+              No SOL? Pay {formatGHS(quote.amount_ghs)} by card or mobile money
+            </Button>
+          ) : null}
+        </div>
+      );
+    } else {
+      footer = (
+        <div className="flex w-full flex-col gap-2">
+          <Button
+            type="button"
+            data-testid="buy-listing-start-connection"
+            onClick={() => onPay('card')}
+            disabled={busy || !priceReady}
+            isLoading={busy}
+            className="w-full"
+          >
+            <CreditCard size={18} className="mr-2" aria-hidden />
+            {priceReady && quote?.amount_ghs != null
+              ? `Pay ${formatGHS(quote.amount_ghs)}`
+              : 'Pay with card or mobile money'}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => setMethod('sol')}
+            disabled={busy}
+            className="w-full"
+          >
+            Pay with SOL instead
+          </Button>
+        </div>
+      );
+    }
   }
 
   return (
@@ -511,6 +787,9 @@ function BuyListingModalInner({
     null
   );
   const [notice, setNotice] = useState('');
+  // Google-account buyers pay with SOL from their ProxyHubb wallet unless they pick
+  // card / mobile money (only offered when SOL is short and card payments are on).
+  const [payMethod, setPayMethod] = useState<ManagedPayMethod>('sol');
   // Set once the buyer closes the dialog, so a purchase finishing in the background
   // doesn't reopen it with credentials.
   const closedRef = useRef(false);
@@ -557,26 +836,37 @@ function BuyListingModalInner({
   const estimatedCostSOL = solPriceUsd > 0 ? estimatedCostUSD / solPriceUsd : null;
   const bulkRateActive = effectivePricePerGB < listing.price_per_gb - 1e-12;
 
+  const e2eMockBuyFlag =
+    process.env.NODE_ENV !== 'production' &&
+    typeof window !== 'undefined' &&
+    !!(window as Window & { __PROXYHUB_E2E_MOCK_BUY__?: boolean }).__PROXYHUB_E2E_MOCK_BUY__;
   const e2eMockBuy =
     process.env.NODE_ENV !== 'production' &&
-    (process.env.NEXT_PUBLIC_PLAYWRIGHT_E2E_MOCK_BUY === '1' ||
-      (typeof window !== 'undefined' &&
-        !!(window as Window & { __PROXYHUB_E2E_MOCK_BUY__?: boolean }).__PROXYHUB_E2E_MOCK_BUY__));
-  const managedFlow = managedWallet && !e2eMockBuy;
+    (process.env.NEXT_PUBLIC_PLAYWRIGHT_E2E_MOCK_BUY === '1' || e2eMockBuyFlag);
+  // The build-wide e2e flag only fakes browser-wallet signing. Google-account checkout
+  // runs against stubbed APIs, so only a test that asks for the mock explicitly skips it.
+  const managedFlow = managedWallet && !e2eMockBuyFlag;
 
   const {
     data: preview,
-    isFetching: previewLoading,
+    isFetching: previewFetching,
     error: previewError,
     refetch: refetchPreview,
   } = useQuery({
-    queryKey: ['paystack-preview', listing.id, previewGb],
-    queryFn: () => getPaystackPreview(listing.id, previewGb),
+    queryKey: ['managed-checkout-preview', listing.id, previewGb],
+    queryFn: () => getManagedCheckoutPreview(listing.id, previewGb),
     enabled: managedFlow,
     staleTime: 30_000,
+    // While the buyer is adding SOL, notice it arriving without a click.
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      return data && !data.active_plan && !data.pay_from_balance && payMethod === 'sol' && !loading
+        ? 10_000
+        : false;
+    },
   });
-  const priceReady =
-    !!preview && !preview.active_plan && previewGb === bandwidth && !previewLoading;
+  // A background balance re-check keeps the current price on screen; a new amount waits.
+  const priceReady = !!preview && !preview.active_plan && previewGb === bandwidth;
 
   const closeModal = () => {
     closedRef.current = true;
@@ -603,10 +893,12 @@ function BuyListingModalInner({
   };
 
   /**
-   * Google-account buyers: pay in GHS with Paystack (or from SOL already in their
-   * ProxyHubb wallet). The server funds the wallet and signs the on-chain escrow.
+   * Google-account buyers. SOL (the main way): the server opens the on-chain escrow from
+   * SOL already in their ProxyHubb wallet. Card / mobile money (fallback): they pay in
+   * GHS with Paystack, the treasury sends the missing SOL, and the server opens the same
+   * escrow.
    */
-  const handleManagedConnect = async () => {
+  const handleManagedConnect = async (method: ManagedPayMethod) => {
     setLoading(true);
     setError('');
     setNotice('');
@@ -614,6 +906,8 @@ function BuyListingModalInner({
     let orderId: string | null = null;
     let createdHere = false;
     let paid = false;
+    // Set when a SOL payment may still land, so the order is kept for a retry.
+    let keepOrder = false;
     try {
       if (pendingOrderId) {
         orderId = pendingOrderId;
@@ -625,6 +919,28 @@ function BuyListingModalInner({
         });
         orderId = orderResult.order.id;
         createdHere = true;
+      }
+
+      if (method === 'sol') {
+        setPayStartedAt(Date.now());
+        setPayStage('paid');
+        try {
+          await payOrderFromBalance(orderId);
+        } catch (payErr: unknown) {
+          // These answers come before any SOL moves.
+          if (payErr instanceof ApiError && (payErr.status < 500 || payErr.status === 503)) {
+            throw payErr;
+          }
+          // A lost connection or a failed escrow send may still land. Keep this order:
+          // paying again finds an escrow that landed and finishes the same order.
+          keepOrder = true;
+          setPendingOrderId(orderId);
+          throw payErr;
+        }
+        paid = true;
+        setPayStage('active');
+        await finishOrder(orderId);
+        return;
       }
 
       const quote = await quotePaystackPayment(orderId);
@@ -664,9 +980,20 @@ function BuyListingModalInner({
         void refetchPreview();
         return;
       }
-      if (orderId && createdHere && !paid) {
+      if (orderId && createdHere && !paid && !keepOrder) {
         // Nothing was charged: don't leave an unpaid order behind.
         await cancelOrder(orderId).catch(() => undefined);
+      }
+      if (keepOrder) {
+        setError(
+          'We could not confirm your SOL payment yet. Nothing is lost: press Pay again to finish this same order, or check Orders in a minute.'
+        );
+        return;
+      }
+      if (err instanceof ApiError && err.code === 'insufficient_balance') {
+        void refetchPreview();
+        setError('Your ProxyHubb wallet does not have enough SOL for this order yet. Add SOL, or pay by card or mobile money if it is offered.');
+        return;
       }
       if (err instanceof PurchaseOutcomeError) {
         setFailure({ outcome: err.outcome, message: err.message });
@@ -686,13 +1013,13 @@ function BuyListingModalInner({
     }
   };
 
-  const handleConnect = async () => {
+  const handleConnect = async (method: ManagedPayMethod = 'sol') => {
     if (isOwnListing) {
       setError("This is your own listing. Sign in with a different (buyer) wallet to buy it, or open someone else's listing.");
       return;
     }
     if (managedFlow) {
-      await handleManagedConnect();
+      await handleManagedConnect(method);
       return;
     }
     if (paymentInFlight.current) return;
@@ -903,11 +1230,19 @@ function BuyListingModalInner({
         error={error}
         bandwidth={bandwidth}
         setBandwidth={setBandwidth}
+        amountLocked={Boolean(pendingOrderId)}
         preview={preview}
         priceReady={priceReady}
         previewError={previewError ? getErrorMessage(previewError) : ''}
+        refreshing={previewFetching}
+        onRefresh={() => void refetchPreview()}
         estimatedCostUSD={estimatedCostUSD}
-        onPay={() => void handleConnect()}
+        method={payMethod}
+        setMethod={(next) => {
+          setError('');
+          setPayMethod(next);
+        }}
+        onPay={(method) => void handleConnect(method)}
         onRetry={() => {
           setFailure(null);
           void refetchPreview();
