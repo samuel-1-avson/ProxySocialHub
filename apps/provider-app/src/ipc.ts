@@ -1,4 +1,4 @@
-// The whole surface between the window and the Rust side: twenty-one commands and three events.
+// The whole surface between the window and the Rust side: twenty-two commands and three events.
 // Nothing here takes a URL or a command line; the Rust side decides what to run and open.
 
 import { invoke } from '@tauri-apps/api/core';
@@ -8,6 +8,7 @@ import type {
   BlockedSitesSaved,
   DisconnectResult,
   Diagnosis,
+  DoctorExplained,
   NodeSettings,
   PairingEnded,
   RulesDraft,
@@ -38,6 +39,8 @@ export interface Ipc {
   refreshAccount(): Promise<void>;
   /** The node's checks, in plain words. Can take a minute. */
   runDiagnosis(): Promise<Diagnosis>;
+  /** The node's checks, explained with fix steps. `text` is what the provider says is happening. */
+  explainDoctor(text: string | null): Promise<DoctorExplained>;
   /** Write the support file and open its folder; resolves to where the file is. */
   saveSupportDetails(): Promise<string>;
   openPairingLink(): Promise<void>;
@@ -66,6 +69,7 @@ const tauriIpc: Ipc = {
   openDownloadPage: () => invoke<void>('open_download_page'),
   refreshAccount: () => invoke<void>('refresh_account'),
   runDiagnosis: () => invoke<Diagnosis>('run_diagnosis'),
+  explainDoctor: (text) => invoke<DoctorExplained>('explain_doctor', { text }),
   saveSupportDetails: () => invoke<string>('save_support_details'),
   openPairingLink: () => invoke<void>('open_pairing_link'),
   openDashboard: () => invoke<void>('open_dashboard'),

@@ -83,6 +83,38 @@ export interface Diagnosis {
   findings: Finding[];
 }
 
+/** One step to try, from the checked doctor explanation. `checkId` is the failed check it belongs to. */
+export interface DoctorStep {
+  title: string;
+  detail: string;
+  checkId: string | null;
+}
+
+/** The doctor assistant's explanation, checked by ProxyHubb against the checks that failed. */
+export interface DoctorAdvice {
+  summary: string;
+  steps: DoctorStep[];
+  failed: { id: string; severity: string; meaning: string }[];
+  passed: number;
+  /** What the assistant guessed; the provider should check these. */
+  assumptions: string[];
+  cannotDo: string[];
+  notes: { level: string; message: string }[];
+  healthy: boolean;
+  refused: boolean;
+}
+
+/** "Ask the doctor": the plain findings always; the explanation only when the assistant answered. */
+export interface DoctorExplained {
+  diagnosis: Diagnosis;
+  advice: DoctorAdvice | null;
+  /** Why there is no explanation, when `advice` is null. */
+  adviceError: string | null;
+  model: string;
+  /** `standard`: the words are not used for training. */
+  dataMode: string;
+}
+
 // Mirrors src-tauri/src/node_settings.rs, disconnect.rs and app_update.rs.
 
 /** This computer's node settings, for reading. Only `blocked_hosts` can be changed, via `saveBlockedSites`. */
