@@ -123,7 +123,10 @@ fn wording(code: &str) -> Option<&'static str> {
 /// Turn the doctor's report into the findings to show: failed checks only, problems before
 /// notes, the same sentence never twice, at most `MAX_FINDINGS`.
 pub fn findings_from(text: &str) -> Result<Diagnosis, String> {
-    let report: DoctorJson = first_json(text, "doctor")?;
+    Ok(findings_from_report(first_json(text, "doctor")?))
+}
+
+fn findings_from_report(report: DoctorJson) -> Diagnosis {
     let mut problems = Vec::new();
     let mut notes = Vec::new();
     let servers_unreachable = report
@@ -163,7 +166,127 @@ pub fn findings_from(text: &str) -> Result<Diagnosis, String> {
     }
     problems.append(&mut notes);
     problems.truncate(MAX_FINDINGS);
-    Ok(Diagnosis { findings: problems })
+    Diagnosis { findings: problems }
+}
+
+/// One step to try, drafted by the doctor assistant and checked by ProxyHubb against the
+/// checks that actually failed (apps/web/src/lib/provider-doctor.ts).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DoctorStep {
+    pub title: String,
+    pub detail: String,
+    /// The failed check this step belongs to; `None` for a general step.
+    #[serde(default)]
+    pub check_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct DoctorFailedCheck {
+    pub id: String,
+    pub severity: String,
+    pub meaning: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct DoctorNote {
+    pub level: String,
+    pub message: String,
+}
+
+/// The checked explanation (the web `plan`), ready for the window.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DoctorAdvice {
+    #[serde(default)]
+    pub summary: String,
+    #[serde(default)]
+    pub steps: Vec<DoctorStep>,
+    #[serde(default)]
+    pub failed: Vec<DoctorFailedCheck>,
+    #[serde(default)]
+    pub passed: u32,
+    #[serde(default)]
+    pub assumptions: Vec<String>,
+    #[serde(default)]
+    pub cannot_do: Vec<String>,
+    #[serde(default)]
+    pub notes: Vec<DoctorNote>,
+    #[serde(default)]
+    pub healthy: bool,
+    #[serde(default)]
+    pub refused: bool,
+}
+
+/// "Ask the doctor": the plain findings always, the checked explanation when the assistant
+/// answered. The explanation failing never hides the findings.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DoctorExplained {
+    pub diagnosis: Diagnosis,
+    pub advice: Option<DoctorAdvice>,
+    /// Why there is no explanation, when `advice` is `None`.
+    pub advice_error: Option<String>,
+    pub model: String,
+    /// `standard` (not used for training) or `contributor`.
+    pub data_mode: String,
+}
+
+#[derive(Deserialize)]
+struct ExplainOutcome {
+    #[serde(default)]
+    ok: Option<bool>,
+    #[serde(default)]
+    message: Option<String>,
+    #[serde(default)]
+    report: Option<serde_json::Value>,
+    #[serde(default)]
+    advice: Option<DoctorAdvice>,
+    #[serde(default)]
+    model: Option<ModelInfo>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ModelInfo {
+    #[serde(default)]
+    id: String,
+    #[serde(default)]
+    data_mode: String,
+}
+
+/// Read `doctor --explain --json` output: findings from the report it always carries, advice
+/// when the assistant answered. No report at all means the check itself gave nothing usable.
+pub fn parse_explain(text: &str) -> Result<DoctorExplained, String> {
+    let out: ExplainOutcome = first_json(text, "doctor explain")?;
+    let Some(report_value) = out.report else {
+        return Err(out
+            .message
+            .unwrap_or_else(|| "The check gave no usable answer.".to_string()));
+    };
+    let report: DoctorJson = serde_json::from_value(report_value)
+        .map_err(|_| "The check gave no usable answer.".to_string())?;
+    let diagnosis = findings_from_report(report);
+    let model = out.model.unwrap_or(ModelInfo { id: String::new(), data_mode: String::new() });
+    match (out.ok, out.advice) {
+        (Some(true), Some(advice)) => Ok(DoctorExplained {
+            diagnosis,
+            advice: Some(advice),
+            advice_error: None,
+            model: model.id,
+            data_mode: model.data_mode,
+        }),
+        _ => Ok(DoctorExplained {
+            diagnosis,
+            advice: None,
+            advice_error: Some(
+                out.message
+                    .unwrap_or_else(|| "The doctor assistant gave no usable answer.".to_string()),
+            ),
+            model: model.id,
+            data_mode: model.data_mode,
+        }),
+    }
 }
 
 #[cfg(test)]
@@ -414,5 +537,49 @@ mod tests {
             assert!(wording(code).is_some(), "{code}");
         }
         assert!(wording("nonsense").is_none());
+    }
+
+    fn explain_json(ok: bool, with_advice: bool) -> String {
+        let advice = if with_advice {
+            r#","advice":{"summary":"The gateway is unreachable.","steps":[{"title":"Check your firewall","detail":"Allow the app through.","checkId":"gateway"}],
+               "failed":[{"id":"gateway","severity":"error","meaning":"This computer could not open a connection to ProxyHubb's gateway."}],
+               "passed":1,"assumptions":["A VPN may be blocking it."],"cannotDo":["The checks cannot see inside the router."],
+               "notes":[],"healthy":false,"refused":false},"model":{"id":"muse-spark-1.3","dataMode":"standard"}"#
+        } else {
+            r#","message":"The model did not answer.""#
+        };
+        format!(
+            r#"{{"ok":{ok},"report":{}{advice}}}"#,
+            report(&[("gateway", false, "error", Some("gateway_tcp_unreachable")), ("daemon", true, "info", None)])
+        )
+    }
+
+    #[test]
+    fn an_explanation_is_read_next_to_the_plain_findings() {
+        let e = parse_explain(&explain_json(true, true)).unwrap();
+        assert_eq!(e.diagnosis.findings.len(), 1);
+        assert!(e.diagnosis.findings[0].text.contains("could not open a connection"));
+        let advice = e.advice.clone().expect("advice");
+        assert_eq!(advice.steps[0].check_id.as_deref(), Some("gateway"));
+        assert_eq!(advice.cannot_do, vec!["The checks cannot see inside the router."]);
+        assert_eq!(e.model, "muse-spark-1.3");
+        assert_eq!(e.data_mode, "standard");
+        assert_eq!(e.advice_error, None);
+        // The window reads camelCase, and the doctor's own words still never reach it.
+        let json = serde_json::to_value(&e).unwrap();
+        assert_eq!(json["advice"]["cannotDo"][0], "The checks cannot see inside the router.");
+        assert_eq!(json["dataMode"], "standard");
+        assert!(!json.to_string().contains("api_key=abc"));
+    }
+
+    #[test]
+    fn a_failed_explanation_keeps_the_findings_and_says_why() {
+        let e = parse_explain(&explain_json(false, false)).unwrap();
+        assert_eq!(e.diagnosis.findings.len(), 1);
+        assert_eq!(e.advice, None);
+        assert_eq!(e.advice_error.as_deref(), Some("The model did not answer."));
+        // No report at all is a failed check, not an empty answer.
+        assert!(parse_explain(r#"{"ok":false,"message":"could not run"}"#).unwrap_err().contains("could not run"));
+        assert!(parse_explain("no json at all").is_err());
     }
 }
