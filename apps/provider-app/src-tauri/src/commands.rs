@@ -17,7 +17,7 @@ use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_opener::OpenerExt as _;
 
 use crate::app_update::UpdateNotice;
-use crate::diagnosis::Diagnosis;
+use crate::diagnosis::{Diagnosis, DoctorExplained};
 use crate::disconnect::DisconnectResult;
 use crate::engine::AppCore;
 use crate::node::{is_allowed_link, locate_sidecar, Sidecar};
@@ -244,6 +244,16 @@ pub async fn refresh_account(app: AppHandle, core: State<'_, Arc<Core>>) -> Resu
         }
     })
     .await
+}
+
+/// "Ask the doctor": the node's checks, explained with fix steps. Changes nothing.
+#[tauri::command]
+pub async fn explain_doctor(
+    core: State<'_, Arc<Core>>,
+    text: Option<String>,
+) -> Result<DoctorExplained, String> {
+    let core = Arc::clone(&core);
+    blocking(move || core.explain_doctor(text.as_deref())).await?
 }
 
 /// "Check my connection": the node's checks, in plain words.

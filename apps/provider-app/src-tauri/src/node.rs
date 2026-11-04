@@ -17,7 +17,7 @@ use serde::Deserialize;
 
 use crate::account::{parse_account, AccountFacts};
 use crate::app_update::parse_latest_release;
-use crate::diagnosis::{findings_from, Diagnosis};
+use crate::diagnosis::{findings_from, parse_explain, Diagnosis, DoctorExplained};
 use crate::disconnect::{friendly_unpair_error, parse_unpair, DisconnectResult};
 use crate::node_settings::{parse_node_settings, NodeSettings};
 use crate::rules::{parse_draft, parse_set, BlockedSitesReport, RulesDraft};
@@ -41,6 +41,8 @@ const SETTINGS_TIMEOUT: Duration = Duration::from_secs(15);
 const LATEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// The rules assistant asks a model (10-25 s); the node gives up on its own after 75 s.
 const RULES_DRAFT_TIMEOUT: Duration = Duration::from_secs(90);
+/// `doctor --explain` runs the whole doctor first, then waits for the model.
+const DOCTOR_EXPLAIN_TIMEOUT: Duration = Duration::from_secs(180);
 
 /// How long `start --background` may take. It normally returns in about a second and waits at
 /// most 20 s for the node to write its PID file; this only bounds a starter that never returns,
@@ -400,6 +402,20 @@ impl Sidecar {
 
     /// `doctor --json`, in plain words. The doctor exits 1 when a check fails, which is the
     /// answer and not a failure, so only unreadable output is an error.
+    /// `doctor --explain --json`: the checks plus the assistant's checked explanation. The
+    /// node sends only check ids, severities and codes, with its own token. Changes nothing.
+    pub fn explain_doctor(&self, text: Option<&str>) -> Result<DoctorExplained, String> {
+        let text_arg = text.map(|t| format!("--text={t}"));
+        let mut args = vec!["doctor", "--json", "--explain"];
+        if let Some(arg) = text_arg.as_deref() {
+            args.push(arg);
+        }
+        let (_status, printed) = self
+            .run_to_exit(&args, DOCTOR_EXPLAIN_TIMEOUT)
+            .map_err(|e| friendly_check_error(&e))?;
+        parse_explain(&printed).map_err(|_| "The check gave no usable answer.".to_string())
+    }
+
     pub fn diagnose(&self) -> Result<Diagnosis, String> {
         let (_status, printed) = self
             .run_to_exit(&["doctor", "--json"], DOCTOR_TIMEOUT)

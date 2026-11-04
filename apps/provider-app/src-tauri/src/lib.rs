@@ -137,6 +137,7 @@ pub fn run() {
             commands::stop_outside_node,
             commands::refresh_account,
             commands::run_diagnosis,
+            commands::explain_doctor,
             commands::save_support_details,
             commands::restart_node,
             commands::disconnect_computer,
