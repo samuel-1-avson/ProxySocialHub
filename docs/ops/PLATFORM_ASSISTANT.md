@@ -1,6 +1,6 @@
 # Hubbie — personal account assistant
 
-**Hubbie** opens as a right-hand chat panel while a signed-in user stays on their current page. Open it from the animated bottom-right **Hubbie AI** button, the workspace header's AI button, or the sidebar shortcut. The desktop dock makes room for the page; smaller screens use an overlay, and phones use a full-height modal sheet with focus trapping, Escape dismissal, and keyboard-aware sizing. Motion respects reduced-motion preferences. Guests receive no launcher or chat runtime. Existing `/app/assistant` bookmarks open the panel and return to `/app`.
+**Hubbie** opens as a right-hand chat panel while a signed-in user stays on their current page. Open it from the animated bottom-right **Hubbie AI** button. The desktop dock makes room for the page; smaller screens use an overlay, and phones use a full-height modal sheet with focus trapping, Escape dismissal, and keyboard-aware sizing. Motion respects reduced-motion preferences. Guests receive no launcher or chat runtime. Existing `/app/assistant` bookmarks open the panel and return to `/app`.
 
 No database migration or new package is required. Chat is held in root-owned tab memory: messages and drafts survive panel minimization and client-side navigation, including assistant workflow links. Replies may finish while minimized and show an unread marker. Reloading, signing out, switching accounts, or choosing **New conversation** clears the conversation; account changes/unmount abort pending requests. No chat is written to browser storage or a shared database.
 
@@ -53,6 +53,6 @@ npm run typecheck
 npx playwright test e2e/assistant.spec.ts --project=chromium --workers=1
 ```
 
-The automated agent tests mock model responses and platform APIs, exercising actual tool execution and replay without spending model tokens. Browser tests cover account-only access, all launcher/navigation entry points, guide mode, streamed tools, retry/stop, keyboard submission, responsive modal/non-modal behavior, accessibility, reduced motion, unread replies, navigation/minimization persistence, and account changes. These checks run in the frontend PR workflow. A live provider smoke check can be run separately against Meta; never put model keys in fixtures, screenshots, or public reports.
+The automated agent tests mock model responses and platform APIs, exercising actual tool execution and replay without spending model tokens. Browser tests cover account-only access, the floating launcher and bookmarked assistant URL, guide mode, streamed tools, retry/stop, keyboard submission, responsive modal/non-modal behavior, accessibility, reduced motion, unread replies, navigation/minimization persistence, and account changes. These checks run in the frontend PR workflow. A live provider smoke check can be run separately against Meta; never put model keys in fixtures, screenshots, or public reports.
 
 Tool protocol references: [Meta Responses](https://dev.meta.ai/docs/protocols/responses), [Meta tool calling](https://dev.meta.ai/docs/tool-calling).
