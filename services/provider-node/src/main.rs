@@ -4,6 +4,7 @@ mod config;
 mod config_validate;
 mod daemon_ctrl;
 mod doctor;
+mod doctor_explain;
 mod install;
 mod interactive;
 mod ip;
@@ -292,6 +293,18 @@ enum Commands {
 
     /// Pre-flight checks for config, auth, gateway, and local daemon
     Doctor {
+        /// Also ask ProxyHubb's doctor assistant to explain the results in plain words.
+        /// Sends only check ids, severities and codes, never messages, paths or keys.
+        #[arg(long)]
+        explain: bool,
+
+        /// What is happening, in your own words (with --explain; at most 500 characters)
+        #[arg(long)]
+        text: Option<String>,
+
+        /// The website that hosts the assistant (default: the control API's host without `api.`)
+        #[arg(long, env = "PROXYHUB_WEB_URL")]
+        web_url: Option<String>,
         /// Path to configuration file
         #[arg(short, long)]
         config: Option<String>,
@@ -1277,7 +1290,61 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
-        Commands::Doctor { config, json } => {
+        Commands::Doctor {
+            config,
+            json,
+            explain,
+            text,
+            web_url,
+        } => {
+            if explain {
+                if !json {
+                    init_logging(false);
+                }
+                let config_path = config
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(config::Config::default_config_path);
+                let outcome =
+                    match doctor_explain::explain(&config_path, text.as_deref(), web_url.as_deref()).await {
+                        Ok(v) => v,
+                        Err(e) => serde_json::json!({
+                            "ok": false, "status": 0, "code": "explain_failed", "message": e.to_string()
+                        }),
+                    };
+                let ok = outcome["ok"] == true;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&outcome)?);
+                } else {
+                    if let Ok(report) =
+                        serde_json::from_value::<doctor::DoctorReport>(outcome["report"].clone())
+                    {
+                        doctor::print_human(&report);
+                    }
+                    if ok {
+                        let advice = &outcome["advice"];
+                        println!("\n{}", advice["summary"].as_str().unwrap_or_default());
+                        for (i, step) in advice["steps"].as_array().into_iter().flatten().enumerate() {
+                            println!(
+                                "{}. {}: {}",
+                                i + 1,
+                                step["title"].as_str().unwrap_or_default(),
+                                step["detail"].as_str().unwrap_or_default()
+                            );
+                        }
+                        for note in advice["notes"].as_array().into_iter().flatten() {
+                            println!("- {}", note["message"].as_str().unwrap_or_default());
+                        }
+                    } else {
+                        println!(
+                            "{}",
+                            outcome["message"].as_str().unwrap_or("The explanation failed.")
+                        );
+                    }
+                }
+                if !ok {
+                    std::process::exit(1);
+                }
+            } else {
             // Same rule as `status --json`: logging goes to stdout, which would mix into the JSON.
             if !json {
                 init_logging(false);
@@ -1294,6 +1361,8 @@ async fn main() -> anyhow::Result<()> {
             if !report.ok {
                 std::process::exit(1);
             }
+        }
+
         }
 
         Commands::Dashboard { config, refresh_ms } => {

@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { formatAgo, formatSol, serverLine } from '../format';
 import type { Ipc } from '../ipc';
 import type { AppApi } from '../useApp';
-import type { Diagnosis, RemoteView } from '../types';
+import type { Diagnosis, DoctorExplained, RemoteView } from '../types';
+import { DoctorAdviceView } from './DoctorAdvice';
 
 /** What ProxyHubb's servers say about this computer, and how old that answer is. */
 export function ServerStatus({ ipc, app, remote }: { ipc: Ipc; app: AppApi; remote: RemoteView }) {
@@ -72,6 +73,10 @@ export function Diagnose({ ipc }: { ipc: Ipc }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [symptom, setSymptom] = useState('');
+  const [asking, setAsking] = useState(false);
+  const [explained, setExplained] = useState<DoctorExplained | null>(null);
+  const [askError, setAskError] = useState<string | null>(null);
   const alive = useRef(true);
 
   useEffect(() => {
@@ -87,11 +92,28 @@ export function Diagnose({ ipc }: { ipc: Ipc }) {
     setChecking(true);
     setResult(null);
     setCheckError(null);
+    setExplained(null);
     ipc
       .runDiagnosis()
       .then((r) => alive.current && setResult(r))
       .catch((e: unknown) => alive.current && setCheckError(words(e)))
       .finally(() => alive.current && setChecking(false));
+  };
+
+  const ask = () => {
+    setAsking(true);
+    setExplained(null);
+    setAskError(null);
+    ipc
+      .explainDoctor(symptom.trim() || null)
+      .then((e) => {
+        if (!alive.current) return;
+        setResult(e.diagnosis);
+        setCheckError(null);
+        setExplained(e);
+      })
+      .catch((e: unknown) => alive.current && setAskError(words(e)))
+      .finally(() => alive.current && setAsking(false));
   };
 
   const save = () => {
@@ -141,6 +163,41 @@ export function Diagnose({ ipc }: { ipc: Ipc }) {
           </p>
         )}
         {saveError && <p role="alert">{saveError}</p>}
+      </div>
+
+
+      <div className="draft-box">
+        <label className="small" htmlFor="doctor-words">
+          What’s happening? (optional)
+        </label>
+        <textarea
+          id="doctor-words"
+          value={symptom}
+          maxLength={500}
+          rows={2}
+          placeholder="Sharing stopped after I turned my VPN on"
+          onChange={(e) => setSymptom(e.target.value)}
+        />
+        <div className="actions">
+          <button className="secondary" type="button" disabled={asking} onClick={ask}>
+            {asking ? 'Asking… this can take a minute' : 'Ask the doctor'}
+          </button>
+        </div>
+        <p className="muted small">
+          This runs the same checks, then sends the results (no file paths and no keys) and your words to ProxyHubb.
+          An assistant explains them and orders what to try. Nothing on this computer is changed.
+        </p>
+        <div aria-live="polite">
+          {askError && <p role="alert">{askError}</p>}
+          {explained?.adviceError && (
+            <p className="muted">
+              The explanation could not be fetched: {explained.adviceError} The findings above still stand.
+            </p>
+          )}
+          {explained?.advice && (
+            <DoctorAdviceView advice={explained.advice} model={explained.model} dataMode={explained.dataMode} />
+          )}
+        </div>
       </div>
 
       <p className="muted small">

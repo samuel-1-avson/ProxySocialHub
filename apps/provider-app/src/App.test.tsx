@@ -10,6 +10,7 @@ import type {
   AppState,
   BlockedSitesSaved,
   Diagnosis,
+  DoctorExplained,
   NodeSettings,
   RemoteView,
   RulesDraft,
@@ -92,6 +93,36 @@ const DRAFT: RulesDraft = {
   dataMode: 'standard',
 };
 
+const EXPLAINED: DoctorExplained = {
+  diagnosis: {
+    findings: [
+      {
+        level: 'problem',
+        text: 'This computer could not open a connection to ProxyHubb’s gateway. A firewall, VPN or network filter may be blocking it.',
+      },
+    ],
+  },
+  advice: {
+    summary: 'Your computer cannot reach ProxyHubb’s gateway.',
+    steps: [
+      { title: 'Turn the VPN off', detail: 'Then pause and resume sharing; this screen should say Sharing is on.', checkId: 'gateway' },
+      { title: 'Check the firewall allows this app', detail: 'Allow ProxyHubb Provider through and try again.', checkId: 'gateway' },
+    ],
+    failed: [
+      { id: 'gateway', severity: 'error', meaning: 'This computer could not open a connection to ProxyHubb’s gateway.' },
+    ],
+    passed: 9,
+    assumptions: ['A VPN is on.'],
+    cannotDo: ['The checks cannot see which program is blocking the connection.'],
+    notes: [],
+    healthy: false,
+    refused: false,
+  },
+  adviceError: null,
+  model: 'muse-spark-1.3',
+  dataMode: 'standard',
+};
+
 /** The fake Rust side: every command is a spy, and the test decides what each one answers. */
 function fakeRustSide(first: AppState, notice: UpdateNotice | null = null) {
   let emit: ((s: AppState) => void) | null = null;
@@ -124,6 +155,7 @@ function fakeRustSide(first: AppState, notice: UpdateNotice | null = null) {
     setAutostart: vi.fn(async () => undefined),
     refreshAccount: vi.fn(async () => undefined),
     runDiagnosis: vi.fn(async (): Promise<Diagnosis> => ({ findings: [] })),
+    explainDoctor: vi.fn(async (): Promise<DoctorExplained> => EXPLAINED),
     saveSupportDetails: vi.fn(async () => 'C:/support/support-details-1.json'),
     onState: vi.fn(async (cb: (s: AppState) => void) => {
       emit = cb;
@@ -330,6 +362,44 @@ describe('checking the connection', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save support details' }));
     await waitFor(() => expect(fns.saveSupportDetails).toHaveBeenCalledTimes(1));
     expect(await screen.findByText(/Saved\. A folder window opened showing the file/)).toBeTruthy();
+  });
+
+  it('asking the doctor sends the provider’s words and shows the steps in order, next to the findings', async () => {
+    const { fns } = await open(connecting());
+    const words = screen.getByLabelText('What’s happening? (optional)') as HTMLTextAreaElement;
+    expect(words.maxLength).toBe(500);
+    fireEvent.change(words, { target: { value: '  Sharing stopped after I turned my VPN on  ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Ask the doctor' }));
+    await waitFor(() => expect(fns.explainDoctor).toHaveBeenCalledWith('Sharing stopped after I turned my VPN on'));
+
+    expect(await screen.findByText('Your computer cannot reach ProxyHubb’s gateway.')).toBeTruthy();
+    // The deterministic finding shows too: the explanation never replaces it.
+    expect(screen.getByText(/This computer could not open a connection to ProxyHubb/)).toBeTruthy();
+    const steps = screen.getAllByRole('listitem').map((li) => li.textContent ?? '');
+    const vpn = steps.findIndex((t) => t.includes('Turn the VPN off'));
+    const firewall = steps.findIndex((t) => t.includes('Check the firewall allows this app'));
+    expect(vpn).toBeGreaterThanOrEqual(0);
+    expect(firewall).toBeGreaterThan(vpn);
+    expect(screen.getByText('A VPN is on.')).toBeTruthy();
+    expect(screen.getByText('The checks cannot see which program is blocking the connection.')).toBeTruthy();
+    expect(screen.getByText(/Explained by muse-spark-1\.3, data mode standard/)).toBeTruthy();
+    // Asking changes nothing else: no diagnosis rerun command, no sharing change.
+    expect(fns.runDiagnosis).not.toHaveBeenCalled();
+    expect(fns.setSharing).not.toHaveBeenCalled();
+  });
+
+  it('when the explanation cannot be fetched, the findings still show and say why', async () => {
+    const { fns } = await open(connecting());
+    fns.explainDoctor.mockResolvedValueOnce({
+      ...EXPLAINED,
+      advice: null,
+      adviceError: 'The model did not answer. The check results still stand on their own.',
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Ask the doctor' }));
+    await waitFor(() => expect(fns.explainDoctor).toHaveBeenCalledWith(null));
+    expect(await screen.findByText(/The explanation could not be fetched: The model did not answer\./)).toBeTruthy();
+    expect(screen.getByText(/This computer could not open a connection to ProxyHubb/)).toBeTruthy();
+    expect(screen.queryByText('Your computer cannot reach ProxyHubb’s gateway.')).toBeNull();
   });
 });
 

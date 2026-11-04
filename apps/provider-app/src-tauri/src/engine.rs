@@ -12,7 +12,7 @@ use serde::Serialize;
 
 use crate::account::{AccountFacts, AccountSnapshot};
 use crate::app_update::{update_notice_for, UpdateNotice};
-use crate::diagnosis::Diagnosis;
+use crate::diagnosis::{Diagnosis, DoctorExplained};
 use crate::disconnect::DisconnectResult;
 use crate::node::{PairEvent, PairingProcess, Sidecar};
 use crate::node_settings::NodeSettings;
@@ -65,6 +65,8 @@ pub trait NodeControl: Send + Sync + 'static {
     fn draft_rules(&self, text: &str) -> Result<RulesDraft, String>;
     /// Replace the blocked sites in the node's settings. Applies when the node next starts.
     fn set_blocked_sites(&self, sites: &[String]) -> Result<BlockedSitesReport, String>;
+    /// The node's checks plus the assistant's checked explanation. Asks the network; slow.
+    fn explain_doctor(&self, text: Option<&str>) -> Result<DoctorExplained, String>;
 }
 
 fn unix_now() -> u64 {
@@ -110,6 +112,9 @@ impl NodeControl for Sidecar {
     }
     fn set_blocked_sites(&self, sites: &[String]) -> Result<BlockedSitesReport, String> {
         Sidecar::set_blocked_sites(self, sites)
+    }
+    fn explain_doctor(&self, text: Option<&str>) -> Result<DoctorExplained, String> {
+        Sidecar::explain_doctor(self, text)
     }
 }
 
@@ -673,6 +678,13 @@ impl<N: NodeControl> AppCore<N> {
     }
 
     /// Ask the rules assistant to turn the provider's words into a change. Changes nothing.
+    /// "Ask the doctor": the node's checks explained in plain words, with fix steps.
+    /// Changes nothing and carries no state with it.
+    pub fn explain_doctor(&self, text: Option<&str>) -> Result<DoctorExplained, String> {
+        self.require_consent()?;
+        self.node.explain_doctor(text)
+    }
+
     pub fn draft_rules(&self, text: &str) -> Result<RulesDraft, String> {
         self.require_consent()?;
         self.node.draft_rules(text)
@@ -826,6 +838,8 @@ mod tests {
         latest_calls: AtomicUsize,
         draft_result: Mutex<Result<RulesDraft, String>>,
         drafts: Mutex<Vec<String>>,
+        explain_result: Mutex<Result<DoctorExplained, String>>,
+        explains: Mutex<Vec<Option<String>>>,
         set_result: Mutex<Result<BlockedSitesReport, String>>,
         /// The lists passed to `set_blocked_sites`, in order.
         sets: Mutex<Vec<Vec<String>>>,
@@ -867,6 +881,14 @@ mod tests {
                         "model":{"id":"muse-spark-1.3","dataMode":"standard"}}"#,
                 )),
                 drafts: Mutex::new(Vec::new()),
+                explain_result: Mutex::new(crate::diagnosis::parse_explain(
+                    r#"{"ok":true,"report":{"config_path":"x","ok":false,"checks":[{"id":"gateway","ok":false,"severity":"error","message":"m","remediation_code":"gateway_tcp_unreachable"}]},
+                        "advice":{"summary":"The gateway is unreachable.","steps":[{"title":"Check your firewall","detail":"Allow the app through.","checkId":"gateway"}],
+                        "failed":[{"id":"gateway","severity":"error","meaning":"This computer could not open a connection to ProxyHubb's gateway."}],
+                        "passed":0,"assumptions":[],"cannotDo":[],"notes":[],"healthy":false,"refused":false},
+                        "model":{"id":"muse-spark-1.3","dataMode":"standard"}}"#,
+                )),
+                explains: Mutex::new(Vec::new()),
                 set_result: Mutex::new(crate::rules::parse_set(
                     r#"{"blocked_hosts":["bet365.com"],"rejected":[],"truncated":false,"changed":true}"#,
                 )),
@@ -946,6 +968,10 @@ mod tests {
         fn draft_rules(&self, text: &str) -> Result<RulesDraft, String> {
             self.drafts.lock().unwrap().push(text.to_string());
             self.draft_result.lock().unwrap().clone()
+        }
+        fn explain_doctor(&self, text: Option<&str>) -> Result<DoctorExplained, String> {
+            self.explains.lock().unwrap().push(text.map(str::to_string));
+            self.explain_result.lock().unwrap().clone()
         }
         fn set_blocked_sites(&self, sites: &[String]) -> Result<BlockedSitesReport, String> {
             self.events.lock().unwrap().push("set-sites");
@@ -1866,6 +1892,25 @@ mod tests {
         *node.set_result.lock().unwrap() = Err("This computer is not connected to an account yet.".into());
         assert!(c.save_blocked_sites(vec!["x.example".into()]).unwrap_err().contains("not connected"));
         assert_eq!(*node.events.lock().unwrap(), vec!["set-sites"], "no restart after a failed save");
+    }
+
+    #[test]
+    #[test]
+    fn asking_the_doctor_needs_consent_and_passes_the_words_through() {
+        let (c, node, _d) = core("doctor-noconsent");
+        assert!(c.explain_doctor(Some("sharing stopped")).is_err());
+        assert!(node.explains.lock().unwrap().is_empty());
+
+        let (c, node, _d) = consented("doctor-ask");
+        let e = c.explain_doctor(Some("Sharing stopped after the VPN went on")).unwrap();
+        assert_eq!(e.advice.expect("advice").summary, "The gateway is unreachable.");
+        assert_eq!(e.diagnosis.findings.len(), 1);
+        let bare = c.explain_doctor(None).unwrap();
+        assert!(bare.advice.is_some());
+        assert_eq!(
+            *node.explains.lock().unwrap(),
+            vec![Some("Sharing stopped after the VPN went on".to_string()), None]
+        );
     }
 
     #[test]

@@ -3,7 +3,8 @@
 // without it the first-run flow plays out: consent, pairing, connecting, sharing.
 // `?diag=clean|problems|slow|fail` picks what "Check my connection" finds. `?update=1` shows the
 // "newer version" notice, `?disconnect=fail` makes Disconnect fail, `?tls=off` turns the
-// certificate-checks warning on in the settings, `?rules=fail` makes the rules assistant fail.
+// certificate-checks warning on in the settings, `?rules=fail` makes the rules assistant fail,
+// `?doctor=fail` makes only the doctor's explanation fail (the findings still show).
 
 import type { Ipc } from './ipc';
 import type {
@@ -252,6 +253,51 @@ export function createMockIpc(): Ipc {
       if (state.kind === 'sharing') {
         set({ ...state, details: { ...state.details, remote: { ...ONLINE, updated_at_unix: Math.floor(Date.now() / 1000) } } });
       }
+    },
+    explainDoctor: async () => {
+      await wait(1800);
+      const diagnosis = DIAGNOSES[diag === 'slow' ? 'problems' : diag] ?? DIAGNOSES.problems;
+      if (params.get('doctor') === 'fail') {
+        return {
+          diagnosis,
+          advice: null,
+          adviceError: 'The model did not answer. The check results still stand on their own.',
+          model: 'muse-spark-1.3',
+          dataMode: 'standard',
+        };
+      }
+      if (params.get('diag') === 'fail') throw 'The check took too long and was stopped. Please try again.';
+      return {
+        diagnosis,
+        advice: {
+          summary: 'Your computer cannot open a connection to ProxyHubb’s gateway, and the node is not answering locally.',
+          steps: [
+            {
+              title: 'Turn the VPN off, then pause and resume sharing',
+              detail: 'A VPN or firewall is the usual reason the gateway cannot be reached. After resuming, this screen should say Sharing is on.',
+              checkId: 'gateway',
+            },
+            {
+              title: 'Check the firewall allows this app',
+              detail: 'If sharing still does not start, allow ProxyHubb Provider through the firewall and try again.',
+              checkId: 'gateway',
+            },
+          ],
+          failed: [
+            { id: 'gateway', severity: 'error', meaning: 'This computer could not open a connection to ProxyHubb’s gateway.' },
+            { id: 'metrics', severity: 'warn', meaning: 'The node is not answering its local status checks.' },
+          ],
+          passed: 9,
+          assumptions: ['A firewall, VPN or network filter is in the way.'],
+          cannotDo: ['The checks cannot see which program is blocking the connection.'],
+          notes: [],
+          healthy: false,
+          refused: false,
+        },
+        adviceError: null,
+        model: 'muse-spark-1.3',
+        dataMode: 'standard',
+      };
     },
     runDiagnosis: async () => {
       await wait(diag === 'slow' ? 6000 : 1500);
