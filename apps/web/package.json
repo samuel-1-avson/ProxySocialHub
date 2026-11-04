@@ -17,6 +17,8 @@
     "test:concierge-draft": "node --test scripts/concierge-draft.test.mjs",
     "test:provider-rules": "node --test scripts/provider-rules.test.mjs",
     "test:provider-rules-draft": "node --test scripts/provider-rules-draft.test.mjs",
+    "test:provider-doctor": "node --test scripts/provider-doctor.test.mjs",
+    "test:provider-doctor-draft": "node --test scripts/provider-doctor-draft.test.mjs",
     "eval:concierge": "node scripts/concierge-eval/run.mjs",
     "test:measurements": "node --test scripts/measurements.test.mjs",
     "test:e2e:live-data": "playwright test e2e/live-data.spec.ts --project=chromium --workers=1",
