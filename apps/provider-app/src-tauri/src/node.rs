@@ -20,6 +20,7 @@ use crate::app_update::parse_latest_release;
 use crate::diagnosis::{findings_from, Diagnosis};
 use crate::disconnect::{friendly_unpair_error, parse_unpair, DisconnectResult};
 use crate::node_settings::{parse_node_settings, NodeSettings};
+use crate::rules::{parse_draft, parse_set, BlockedSitesReport, RulesDraft};
 use crate::state::{Metrics, NodeFacts, RetryFacts};
 
 /// The only place the app sends a person's browser.
@@ -38,6 +39,8 @@ const UNPAIR_TIMEOUT: Duration = Duration::from_secs(60);
 const SETTINGS_TIMEOUT: Duration = Duration::from_secs(15);
 /// One small request; the node gives up on its own after 20 s.
 const LATEST_TIMEOUT: Duration = Duration::from_secs(30);
+/// The rules assistant asks a model (10-25 s); the node gives up on its own after 75 s.
+const RULES_DRAFT_TIMEOUT: Duration = Duration::from_secs(90);
 
 /// How long `start --background` may take. It normally returns in about a second and waits at
 /// most 20 s for the node to write its PID file; this only bounds a starter that never returns,
@@ -458,6 +461,38 @@ impl Sidecar {
             )
             .map_err(|e| format!("could not run provider-node: {e}"))?;
         parse_latest_release(&printed).map(|r| r.version)
+    }
+
+    /// `rules draft --json`: the node asks the rules assistant with its own token. Changes nothing.
+    pub fn draft_rules(&self, text: &str) -> Result<RulesDraft, String> {
+        let arg = format!("--text={text}");
+        let (_status, printed) = self
+            .run_to_exit(&["rules", "draft", &arg, "--json"], RULES_DRAFT_TIMEOUT)
+            .map_err(|e| format!("could not run provider-node: {e}"))?;
+        parse_draft(&printed)
+    }
+
+    /// `config set-blocked-sites --from-file <list> --json`. The list goes through a file because
+    /// a long one would not fit on a Windows command line.
+    pub fn set_blocked_sites(&self, sites: &[String]) -> Result<BlockedSitesReport, String> {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let list = std::env::temp_dir().join(format!(
+            "proxyhubb-provider-sites-{}-{nanos}.json",
+            std::process::id()
+        ));
+        let body = serde_json::to_string(sites).map_err(|e| e.to_string())?;
+        std::fs::write(&list, body).map_err(|e| format!("could not write the site list: {e}"))?;
+        let list_arg = list.to_string_lossy().into_owned();
+        let ran = self.run_to_exit(
+            &["config", "set-blocked-sites", "--from-file", &list_arg, "--json"],
+            SETTINGS_TIMEOUT,
+        );
+        let _ = std::fs::remove_file(&list);
+        let (_status, printed) = ran.map_err(|e| format!("could not run provider-node: {e}"))?;
+        parse_set(&printed)
     }
 
     /// `stop`: ends the detached daemon if one is running.

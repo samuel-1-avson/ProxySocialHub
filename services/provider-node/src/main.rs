@@ -1,4 +1,5 @@
 mod account;
+mod blocked_sites;
 mod config;
 mod config_validate;
 mod daemon_ctrl;
@@ -13,6 +14,7 @@ mod paths;
 mod process_util;
 mod proofs;
 mod proxy;
+mod rules_draft;
 mod runtime_state;
 mod service;
 mod settings_view;
@@ -346,12 +348,63 @@ enum Commands {
         #[command(subcommand)]
         command: SupportCommands,
     },
+
+    /// The sites this computer refuses to connect to, described in your own words
+    Rules {
+        #[command(subcommand)]
+        command: RulesCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum RulesCommands {
+    /// Ask ProxyHubb's rules assistant to turn your words into a change to the blocked sites.
+    /// Changes nothing: save the result with `config set-blocked-sites`.
+    Draft {
+        /// What to block or allow, in your own words (at most 500 characters)
+        #[arg(long)]
+        text: String,
+
+        /// The website that hosts the assistant (default: the control API's host without `api.`)
+        #[arg(long, env = "PROXYHUB_WEB_URL")]
+        web_url: Option<String>,
+
+        /// Path to configuration file
+        #[arg(short, long)]
+        config: Option<String>,
+
+        /// Emit JSON for scripts
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
 enum ConfigCommands {
     /// Show this computer's node settings (never a key or token)
     Show {
+        /// Path to configuration file
+        #[arg(short, long)]
+        config: Option<String>,
+
+        /// Emit JSON for scripts
+        #[arg(long)]
+        json: bool,
+    },
+    /// Replace the sites this computer refuses to connect to (each blocks its subdomains too).
+    /// Changes only blocked_hosts; restart the node to apply.
+    SetBlockedSites {
+        /// Site names or URLs; an empty list clears the block list
+        sites: Vec<String>,
+
+        /// Read a JSON array of site names from stdin instead of arguments
+        #[arg(long, default_value_t = false)]
+        stdin: bool,
+
+        /// Read a JSON array of site names from this file instead of arguments
+        #[arg(long)]
+        from_file: Option<String>,
+
         /// Path to configuration file
         #[arg(short, long)]
         config: Option<String>,
@@ -685,6 +738,107 @@ async fn main() -> anyhow::Result<()> {
                     "Latest {} release: v{} ({})",
                     latest.package_type, latest.version, latest.filename
                 );
+            }
+        }
+
+        Commands::Config {
+            command:
+                ConfigCommands::SetBlockedSites {
+                    sites,
+                    stdin,
+                    from_file,
+                    config,
+                    json,
+                },
+        } => {
+            if !json {
+                init_logging(false);
+            }
+            let config_path = config
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(config::Config::default_config_path);
+            let entries: Vec<String> = if let Some(file) = from_file {
+                let buf = std::fs::read_to_string(&file).with_context(|| format!("Failed to read {file}"))?;
+                serde_json::from_str(&buf).context("the file must hold a JSON array of site names")?
+            } else if stdin {
+                use std::io::Read;
+                let mut buf = String::new();
+                std::io::stdin()
+                    .read_to_string(&mut buf)
+                    .context("Failed to read the site list from stdin")?;
+                serde_json::from_str(&buf).context("stdin must be a JSON array of site names")?
+            } else {
+                sites
+            };
+            let report = match blocked_sites::set(&config_path, &entries) {
+                Ok(r) => r,
+                Err(e) if json => {
+                    println!("{}", serde_json::json!({ "ok": false, "message": e.to_string() }));
+                    std::process::exit(1);
+                }
+                Err(e) => return Err(e),
+            };
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                if report.blocked_hosts.is_empty() {
+                    println!("No sites are blocked.");
+                } else {
+                    println!("Blocked sites ({}): {}", report.blocked_hosts.len(), report.blocked_hosts.join(", "));
+                }
+                if !report.rejected.is_empty() {
+                    println!("Left out, not site names: {}", report.rejected.join(", "));
+                }
+                if report.truncated {
+                    println!("Only the first {} sites were kept.", blocked_sites::MAX_BLOCKED_SITES);
+                }
+                if report.changed {
+                    println!("Saved to {}. Restart the node to apply.", report.config_path);
+                }
+            }
+        }
+
+        Commands::Rules {
+            command:
+                RulesCommands::Draft {
+                    text,
+                    web_url,
+                    config,
+                    json,
+                },
+        } => {
+            if !json {
+                init_logging(false);
+            }
+            let config_path = config
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(config::Config::default_config_path);
+            let outcome = match rules_draft::draft(&config_path, &text, web_url.as_deref()).await {
+                Ok(v) => v,
+                Err(e) => serde_json::json!({ "ok": false, "status": 0, "code": "draft_failed", "message": e.to_string() }),
+            };
+            let ok = outcome["ok"] == true;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&outcome)?);
+            } else if ok {
+                let plan = &outcome["plan"];
+                let list = |key: &str| -> Vec<String> {
+                    plan[key]
+                        .as_array()
+                        .map(|a| a.iter().filter_map(|c| c["host"].as_str().map(str::to_string)).collect())
+                        .unwrap_or_default()
+                };
+                println!("Would add: {}", list("added").join(", "));
+                println!("Would remove: {}", list("removed").join(", "));
+                for note in plan["notes"].as_array().into_iter().flatten() {
+                    println!("- {}", note["message"].as_str().unwrap_or_default());
+                }
+                println!("Nothing was changed. Save with: provider-node config set-blocked-sites ...");
+            } else {
+                println!("{}", outcome["message"].as_str().unwrap_or("The draft failed."));
+            }
+            if !ok {
+                std::process::exit(1);
             }
         }
 

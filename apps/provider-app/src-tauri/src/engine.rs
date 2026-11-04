@@ -16,6 +16,7 @@ use crate::diagnosis::Diagnosis;
 use crate::disconnect::DisconnectResult;
 use crate::node::{PairEvent, PairingProcess, Sidecar};
 use crate::node_settings::NodeSettings;
+use crate::rules::{BlockedSitesReport, BlockedSitesSaved, RulesDraft};
 use crate::settings::{self, Settings};
 use crate::state::{derive_state, with_remote, AppState, NodeFacts, PairingView};
 
@@ -60,6 +61,10 @@ pub trait NodeControl: Send + Sync + 'static {
     fn settings(&self) -> Result<NodeSettings, String>;
     /// The version of the newest published installer. Asks the network; slow.
     fn latest_release(&self) -> Result<String, String>;
+    /// A change to the blocked sites drafted from the provider's words. Asks the network; slow.
+    fn draft_rules(&self, text: &str) -> Result<RulesDraft, String>;
+    /// Replace the blocked sites in the node's settings. Applies when the node next starts.
+    fn set_blocked_sites(&self, sites: &[String]) -> Result<BlockedSitesReport, String>;
 }
 
 fn unix_now() -> u64 {
@@ -99,6 +104,12 @@ impl NodeControl for Sidecar {
     }
     fn latest_release(&self) -> Result<String, String> {
         Sidecar::latest_release(self)
+    }
+    fn draft_rules(&self, text: &str) -> Result<RulesDraft, String> {
+        Sidecar::draft_rules(self, text)
+    }
+    fn set_blocked_sites(&self, sites: &[String]) -> Result<BlockedSitesReport, String> {
+        Sidecar::set_blocked_sites(self, sites)
     }
 }
 
@@ -661,6 +672,42 @@ impl<N: NodeControl> AppCore<N> {
         self.node.settings()
     }
 
+    /// Ask the rules assistant to turn the provider's words into a change. Changes nothing.
+    pub fn draft_rules(&self, text: &str) -> Result<RulesDraft, String> {
+        self.require_consent()?;
+        self.node.draft_rules(text)
+    }
+
+    /// Save the blocked sites the provider approved, and put them in force: a node this app
+    /// started and that is running is restarted. One started elsewhere is left alone, and the
+    /// window says it needs a restart.
+    pub fn save_blocked_sites(&self, sites: Vec<String>) -> Result<BlockedSitesSaved, String> {
+        self.require_consent()?;
+        let report = {
+            let _one_at_a_time = self.node_ops.lock().unwrap_or_else(|e| e.into_inner());
+            self.node.set_blocked_sites(&sites)?
+        };
+        let (mut restarted, mut needs_restart) = (false, false);
+        if report.changed {
+            let facts = self.node.status()?;
+            if facts.process_running {
+                if self.lock().started_by_app {
+                    self.restart_node()?;
+                    restarted = true;
+                } else {
+                    needs_restart = true;
+                }
+            }
+        }
+        Ok(BlockedSitesSaved {
+            blocked_hosts: report.blocked_hosts,
+            rejected: report.rejected,
+            changed: report.changed,
+            restarted,
+            needs_restart,
+        })
+    }
+
     /// The notice to show, if a newer installer than this app exists.
     pub fn update_notice(&self) -> Option<UpdateNotice> {
         self.lock().update.clone()
@@ -777,6 +824,11 @@ mod tests {
         settings_result: Mutex<Result<NodeSettings, String>>,
         latest_result: Mutex<Result<String, String>>,
         latest_calls: AtomicUsize,
+        draft_result: Mutex<Result<RulesDraft, String>>,
+        drafts: Mutex<Vec<String>>,
+        set_result: Mutex<Result<BlockedSitesReport, String>>,
+        /// The lists passed to `set_blocked_sites`, in order.
+        sets: Mutex<Vec<Vec<String>>>,
     }
 
     impl FakeNode {
@@ -810,6 +862,15 @@ mod tests {
                 .unwrap())),
                 latest_result: Mutex::new(Ok("0.1.2".into())),
                 latest_calls: AtomicUsize::new(0),
+                draft_result: Mutex::new(crate::rules::parse_draft(
+                    r#"{"ok":true,"plan":{"blocked":["bet365.com"],"added":[{"host":"bet365.com","source":"category:gambling"}]},
+                        "model":{"id":"muse-spark-1.3","dataMode":"standard"}}"#,
+                )),
+                drafts: Mutex::new(Vec::new()),
+                set_result: Mutex::new(crate::rules::parse_set(
+                    r#"{"blocked_hosts":["bet365.com"],"rejected":[],"truncated":false,"changed":true}"#,
+                )),
+                sets: Mutex::new(Vec::new()),
             }
         }
     }
@@ -881,6 +942,15 @@ mod tests {
         fn latest_release(&self) -> Result<String, String> {
             self.latest_calls.fetch_add(1, Ordering::SeqCst);
             self.latest_result.lock().unwrap().clone()
+        }
+        fn draft_rules(&self, text: &str) -> Result<RulesDraft, String> {
+            self.drafts.lock().unwrap().push(text.to_string());
+            self.draft_result.lock().unwrap().clone()
+        }
+        fn set_blocked_sites(&self, sites: &[String]) -> Result<BlockedSitesReport, String> {
+            self.events.lock().unwrap().push("set-sites");
+            self.sets.lock().unwrap().push(sites.to_vec());
+            self.set_result.lock().unwrap().clone()
         }
     }
 
@@ -1746,6 +1816,64 @@ mod tests {
         *node.facts.lock().unwrap() = Ok(paired_facts(true, false)); // and it is connecting
         node.events.lock().unwrap().clear();
         (c, node, d)
+    }
+
+    #[test]
+    fn saved_sites_restart_a_node_the_app_started_so_they_apply_now() {
+        let (c, node, _d) = running_core("sites-restart");
+        let saved = c.save_blocked_sites(vec!["bet365.com".into()]).unwrap();
+        assert!(saved.restarted && !saved.needs_restart);
+        assert_eq!(*node.sets.lock().unwrap(), vec![vec!["bet365.com".to_string()]]);
+        assert_eq!(
+            *node.events.lock().unwrap(),
+            vec!["set-sites", "stop", "start-begin", "start-end"]
+        );
+    }
+
+    #[test]
+    fn saved_sites_never_restart_a_node_started_elsewhere() {
+        let (c, node, _d) = consented("sites-outside");
+        *node.facts.lock().unwrap() = Ok(paired_facts(true, true));
+        let saved = c.save_blocked_sites(vec!["bet365.com".into()]).unwrap();
+        assert!(!saved.restarted && saved.needs_restart);
+        assert_eq!(*node.events.lock().unwrap(), vec!["set-sites"]);
+    }
+
+    #[test]
+    fn saved_sites_on_a_stopped_node_or_without_a_change_restart_nothing() {
+        let (c, node, _d) = consented("sites-stopped");
+        *node.facts.lock().unwrap() = Ok(paired_facts(false, false));
+        let saved = c.save_blocked_sites(vec![]).unwrap();
+        assert!(!saved.restarted && !saved.needs_restart);
+
+        let (c, node, _d) = running_core("sites-unchanged");
+        *node.set_result.lock().unwrap() = crate::rules::parse_set(
+            r#"{"blocked_hosts":["bet365.com"],"rejected":[],"truncated":false,"changed":false}"#,
+        );
+        let saved = c.save_blocked_sites(vec!["bet365.com".into()]).unwrap();
+        assert!(!saved.changed && !saved.restarted);
+        assert_eq!(*node.events.lock().unwrap(), vec!["set-sites"]);
+    }
+
+    #[test]
+    fn rules_need_consent_and_a_failed_save_changes_nothing_else() {
+        let (c, node, _d) = core("sites-noconsent");
+        assert!(c.draft_rules("no gambling").is_err());
+        assert!(c.save_blocked_sites(vec![]).is_err());
+        assert!(node.sets.lock().unwrap().is_empty() && node.drafts.lock().unwrap().is_empty());
+
+        let (c, node, _d) = running_core("sites-fail");
+        *node.set_result.lock().unwrap() = Err("This computer is not connected to an account yet.".into());
+        assert!(c.save_blocked_sites(vec!["x.example".into()]).unwrap_err().contains("not connected"));
+        assert_eq!(*node.events.lock().unwrap(), vec!["set-sites"], "no restart after a failed save");
+    }
+
+    #[test]
+    fn a_draft_passes_the_words_through_and_returns_the_plan() {
+        let (c, node, _d) = consented("sites-draft");
+        let d = c.draft_rules("No gambling please").unwrap();
+        assert_eq!(d.plan.blocked, vec!["bet365.com"]);
+        assert_eq!(*node.drafts.lock().unwrap(), vec!["No gambling please".to_string()]);
     }
 
     #[test]

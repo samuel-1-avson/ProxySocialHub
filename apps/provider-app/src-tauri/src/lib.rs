@@ -11,6 +11,7 @@ mod disconnect;
 mod engine;
 mod node;
 mod node_settings;
+mod rules;
 mod settings;
 mod state;
 
@@ -140,6 +141,8 @@ pub fn run() {
             commands::restart_node,
             commands::disconnect_computer,
             commands::get_node_settings,
+            commands::draft_rules,
+            commands::save_blocked_sites,
             commands::get_update_notice,
             commands::open_tokens_page,
             commands::open_download_page,
