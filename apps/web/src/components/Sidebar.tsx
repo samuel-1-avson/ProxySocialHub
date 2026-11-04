@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowUpRight, CircleHelp, Globe2, Settings } from "lucide-react";
+import { ArrowUpRight, CircleHelp, Globe2, MessageCircle, Settings } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
@@ -62,6 +62,10 @@ export function Sidebar() {
         ))}
       </nav>
       <nav className="workspace-secondary" aria-label="Workspace utilities">
+        {isAuthenticated && <Link href="/app/assistant" className={pathname === "/app/assistant" ? "active" : ""} aria-current={pathname === "/app/assistant" ? "page" : undefined}>
+          <MessageCircle size={18} aria-hidden="true" />
+          Hubbie
+        </Link>}
         <a href={explorerHref()}>
           <Globe2 size={18} aria-hidden="true" />
           Explorer

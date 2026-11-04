@@ -61,6 +61,7 @@ Buyers discover proxy listings, fund an on-chain escrow, and route traffic throu
 - Pay-as-you-go orders backed by Solana escrow — no custodial balance required
 
 **Buyer experience**
+- Hubbie, your personal account assistant powered by the Meta Model API: help guides, live listing discovery, account checks, and guided next steps ([setup](docs/ops/PLATFORM_ASSISTANT.md))
 - Chrome extension: pair with a purchased order and toggle the proxy per browser profile
 - Official SDKs for Node.js, Python, and Go
 - Bulk proxy pools and machine API keys for B2B integrations

@@ -13,7 +13,15 @@ export default function HelpPage() {
       eyebrow="Support"
       title="Help Center"
       summary="Find the core paths for buying proxy bandwidth, running provider nodes, wallet setup, and community support."
+      links={[
+        { href: "/app/assistant", label: "Meet Hubbie" },
+        { href: "/help/contact", label: "Contact support", secondary: true },
+      ]}
       sections={[
+        {
+          title: "Meet Hubbie, your personal assistant",
+          body: "Sign in and open Hubbie from your account menu or workspace sidebar. Your personal assistant can find proxy listings, check your own recent orders and provider nodes, and guide your next step. Chat is held in page memory and clears when you leave, reload, or change accounts. Meta receives messages and requested summaries for live AI; never paste credentials or private keys. Payments and account changes stay in their existing review flows.",
+        },
         {
           title: "Test network status",
           body: "Use Solana Devnet only. Test SOL, balances, and inventory can reset; never send mainnet funds. The current deployment runs on a single server and is not highly available. Marketplace discovery and gateway access are operated by ProxyHubb. A complete funded purchase, verified traffic, and accepted earnings run has not yet been confirmed end to end.",
