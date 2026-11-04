@@ -30,6 +30,7 @@ import {
 import { displayListingTitle } from "@/lib/listing-display";
 import { evaluateListingPrice } from "@/lib/listing-price";
 import { CatalogProductBadge } from "@/components/marketplace/CatalogProductBadge";
+import { MapVisibilityNotice } from "@/components/marketplace/MapVisibilityNotice";
 import { Modal } from "@/components/patterns/Modal";
 import {
   PageHeading,
@@ -94,6 +95,12 @@ export function SellerListings() {
             <Plus size={16} aria-hidden="true" />
             Create listing
           </Link>
+        }
+      />
+      <MapVisibilityNotice
+        hasListings={
+          query.isSuccess &&
+          (query.data.total ?? query.data.listings.length) > 0
         }
       />
       <section className="ui-stats" aria-label="Listing summary">
