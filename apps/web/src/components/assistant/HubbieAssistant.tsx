@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ClipboardEvent, type FormEvent, type 
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import { ArrowDown, ArrowRight, Check, CircleHelp, MessageCircle, RotateCcw, Send, ShieldCheck, Square, X } from "lucide-react";
-import { containsLikelySecret, safeAssistantHref } from "@/lib/assistant";
+import { containsLikelySecret, safeAssistantHref, type AssistantAction, type AssistantActionResult } from "@/lib/assistant";
 import type { HubbieChat } from "./useHubbieChat";
 
 const PROMPTS = [
@@ -18,8 +18,50 @@ function HubbieLink({ href, children }: { href: string; children: ReactNode }) {
   return href.startsWith("/") ? <Link href={href} prefetch={false}>{children}</Link> : <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
 }
 
+/** Approval card for a Hubbie-prepared draft. Nothing runs until Approve is pressed. */
+function AssistantActionCard({ action, approve }: { action: AssistantAction; approve: (draftId: string) => Promise<AssistantActionResult> }) {
+  const [state, setState] = useState<"idle" | "working" | "done" | "error" | "dismissed">("idle");
+  const [result, setResult] = useState<AssistantActionResult | null>(null);
+  const [failure, setFailure] = useState("");
+  if (state === "dismissed") return null;
+  async function run() {
+    setState("working");
+    try {
+      const outcome = await approve(action.draftId);
+      setResult(outcome);
+      setState("done");
+    } catch (caught) {
+      setFailure(caught instanceof Error ? caught.message : "The action could not be completed.");
+      setState("error");
+    }
+  }
+  return (
+    <div className="assistant-action" aria-label={`Approval needed: ${action.title}`}>
+      <p className="assistant-action-title"><ShieldCheck size={14} aria-hidden="true" />{action.title}</p>
+      <ul className="assistant-action-summary">
+        {action.summary.map((line) => <li key={line}>{line}</li>)}
+      </ul>
+      {state === "idle" && (
+        <div className="assistant-action-buttons">
+          <button type="button" className="assistant-action-approve" onClick={() => void run()}>{action.confirmLabel}</button>
+          <button type="button" className="assistant-action-dismiss" onClick={() => setState("dismissed")}>Not now</button>
+          <span className="assistant-action-expiry">Expires {new Date(action.expiresAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>
+        </div>
+      )}
+      {state === "working" && <p className="assistant-action-result" role="status"><span className="assistant-working-dot" />Working… keep this tab open.</p>}
+      {state === "done" && result && (
+        <div className="assistant-action-result" role="status">
+          <p><strong>{result.title}.</strong> {result.message}</p>
+          {result.href && safeAssistantHref(result.href) && <HubbieLink href={result.href}>Open it<ArrowRight size={13} aria-hidden="true" /></HubbieLink>}
+        </div>
+      )}
+      {state === "error" && <p className="assistant-action-result" role="alert">{failure}</p>}
+    </div>
+  );
+}
+
 export default function HubbieAssistant({ chat, onClose }: { chat: HubbieChat; onClose: () => void }) {
-  const { user, isAuthenticated, messages, draft, setDraft, busy, status, steps, error, mode, liveText, input, clear, send, stop } = chat;
+  const { user, isAuthenticated, messages, draft, setDraft, busy, status, steps, error, mode, liveText, input, clear, send, stop, approveAction } = chat;
   const [pasteBlocked, setPasteBlocked] = useState(false);
   const log = useRef<HTMLDivElement>(null);
   useEffect(() => { if (log.current) log.current.scrollTop = log.current.scrollHeight; }, [messages, steps, busy, liveText]);
@@ -68,6 +110,7 @@ export default function HubbieAssistant({ chat, onClose }: { chat: HubbieChat; o
                   <ReactMarkdown components={{ a: ({ href, children }) => href && safeAssistantHref(href) ? <HubbieLink href={href}>{children}</HubbieLink> : <span>{children}</span>, img: () => null }}>{message.content}</ReactMarkdown>
                 </div>
                 {message.reply?.sources.length ? <div className="assistant-sources" aria-label="Sources and next steps">{message.reply.sources.filter((source) => safeAssistantHref(source.href)).map((source) => <HubbieLink key={source.href} href={source.href}>{source.title}<ArrowRight size={13} aria-hidden="true" /></HubbieLink>)}</div> : null}
+                {message.reply?.actions?.map((action) => <AssistantActionCard key={action.draftId} action={action} approve={approveAction} />)}
               </article>
             ))}
             {liveText && (

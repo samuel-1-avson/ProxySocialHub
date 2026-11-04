@@ -25,11 +25,14 @@ const auditAuth = load("../src/lib/server/audit-auth.ts", { "node:crypto": crypt
 const auth = load("../src/lib/server/assistant-auth.ts", { "./audit-auth": auditAuth, "./assistant-json": bounded });
 const gatewayProbe = load("../src/lib/server/assistant-gateway-probe.ts", { "node:net": net });
 const rateLimit = load("../src/lib/server/assistant-rate-limit.ts", { "node:net": net, "node:tls": tls });
-const tools = load("../src/lib/server/assistant-tools.ts", { "../assistant": knowledge, "./assistant-gateway-probe": gatewayProbe });
+const platform = load("../src/lib/server/assistant-platform.ts", { "../assistant": knowledge });
+const actions = load("../src/lib/server/assistant-actions.ts", { "../assistant": knowledge, "./assistant-platform": platform });
+const tools = load("../src/lib/server/assistant-tools.ts", { "../assistant": knowledge, "./assistant-gateway-probe": gatewayProbe, "./assistant-platform": platform, "./assistant-actions": actions });
 const agent = load("../src/lib/server/assistant-agent.ts", { "../assistant": knowledge, "./assistant-tools": tools, "./assistant-json": bounded });
 const json = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
 const plain = (value) => JSON.parse(JSON.stringify(value));
-const ctx = (fetchImpl, role = "buyer", extra = {}) => ({ bearer: "caller-bearer-secret-value", role, apiBase: "https://platform.test", signal: new AbortController().signal, fetchImpl, gatewayProbeImpl: async () => ({ reachable: true, httpStatus: 407, authRequired: true, endpoint: "gw.test:8090", elapsedMs: 3 }), ...extra });
+let draftSeq = 0;
+const ctx = (fetchImpl, role = "buyer", extra = {}) => ({ bearer: "caller-bearer-secret-value", role, userId: "acct-test", actionsEnabled: true, drafts: new actions.AssistantDraftStore({ newId: () => `draft-${++draftSeq}` }), apiBase: "https://platform.test", signal: new AbortController().signal, fetchImpl, gatewayProbeImpl: async () => ({ reachable: true, httpStatus: 407, authRequired: true, endpoint: "gw.test:8090", elapsedMs: 3 }), ...extra });
 const settings = { apiKey: "meta-api-key-secret-value", baseUrl: "https://api.meta.ai/v1", model: "muse-spark-1.3" };
 const final = (text = "Review your order before taking the next step.") => ({ status: "completed", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text }] }] });
 const call = (name, args = {}, call_id = "call_1") => ({ type: "function_call", name, arguments: JSON.stringify(args), call_id });
@@ -173,6 +176,7 @@ function routeModule({ run, authenticated = true, configured = true } = {}) {
     "@/lib/server/assistant-auth": { resolveAssistantUser: async (request) => authenticated && /^Bearer\s+\S+$/i.test(request.headers.get("authorization") || "") ? { ok: true, user: { id: request.headers.get("authorization").slice(7), role: "buyer", bearer: request.headers.get("authorization").slice(7) } } : { ok: false, status: 401, message: "Sign in to use Hubbie." } },
     "@/lib/server/assistant-json": bounded,
     "@/lib/server/assistant-rate-limit": load("../src/lib/server/assistant-rate-limit.ts", { "node:net": net, "node:tls": tls }),
+    "@/lib/server/assistant-actions": actions,
     "@/lib/server/assistant-agent": { assistantSettings: () => configured ? settings : null, AssistantError: agent.AssistantError, runAssistant: run ?? (async () => ({ mode: "ai", content: "Done", sources: [], steps: [] })) },
   });
 }
@@ -505,6 +509,193 @@ test("redis failure degrades to in-memory limits instead of failing open", async
   assert.equal(slot.ok, true);
   assert.equal((await limiter.acquire("fallback-acct")).reason, "account_busy");
   await slot.release();
+});
+
+const listingFixture = { id: "lst-1", title: "Accra Home", country: "GH", status: "active", price_per_gb: 2.4, available_bandwidth_gb: 50, min_purchase_gb: 1 };
+function actionFetch(routes) {
+  const calls = [];
+  const fetchImpl = async (url, init = {}) => {
+    const path = new URL(url).pathname;
+    calls.push({ path, method: init.method || "GET", body: init.body ? JSON.parse(init.body) : null, headers: init.headers });
+    const handler = routes[`${init.method || "GET"} ${path}`] || routes[path];
+    if (!handler) return json({ error: "nf" }, 404);
+    return handler();
+  };
+  return { fetchImpl, calls };
+}
+
+test("prepare_buy validates against the live listing and creates an inert approval draft", async () => {
+  const { fetchImpl, calls } = actionFetch({ "/v1/listings/lst-1": () => json(listingFixture) });
+  const context = ctx(fetchImpl);
+  const tooMuch = await tools.executeAssistantTool("prepare_buy", { listing_id: "lst-1", bandwidth_gb: 60, session_type: "rotating", payment: "wallet_signing" }, context);
+  assert.equal(tooMuch.ok, false);
+  const result = await tools.executeAssistantTool("prepare_buy", { listing_id: "lst-1", bandwidth_gb: 5, session_type: "sticky", payment: "wallet_signing" }, context);
+  assert.equal(result.ok, true);
+  assert.equal(result.data.executed, false);
+  assert.equal(result.data.estimated_total_usd, 12);
+  assert.equal(result.action.kind, "buy_order");
+  assert.match(result.action.title, /Buy 5 GB/);
+  assert.ok(result.action.summary.some((line) => /No money moves until you fund/.test(line)));
+  assert.equal(calls.some((c) => c.method === "POST"), false, "preparing performs no mutation");
+  const disabled = await tools.executeAssistantTool("prepare_buy", { listing_id: "lst-1", bandwidth_gb: 5, session_type: "rotating", payment: "wallet_signing" }, ctx(fetchImpl, "buyer", { actionsEnabled: false }));
+  assert.equal(disabled.ok, false);
+});
+
+test("executing a buy draft creates one pending order for wallet signing, exactly once, for its owner only", async () => {
+  const { fetchImpl, calls } = actionFetch({
+    "/v1/listings/lst-1": () => json(listingFixture),
+    "POST /v1/orders": () => json({ order: { id: "order-new", status: "pending" } }, 201),
+  });
+  const context = ctx(fetchImpl);
+  const prepared = await actions.prepareBuy(context, { listing_id: "lst-1", bandwidth_gb: 5, session_type: "rotating", payment: "wallet_signing" });
+  assert.equal(prepared.ok, true);
+  const wrongUser = await actions.executeDraft({ ...context, userId: "someone-else" }, prepared.action.draftId);
+  assert.equal(wrongUser.status, "failed");
+  const result = await actions.executeDraft(context, prepared.action.draftId);
+  assert.equal(result.status, "needs_funding");
+  assert.equal(result.href, "/marketplace/orders/order-new");
+  const posts = calls.filter((c) => c.path === "/v1/orders" && c.method === "POST");
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].body.bandwidth_gb, 5);
+  assert.match(posts[0].headers["idempotency-key"], /^hubbie-draft-/);
+  const again = await actions.executeDraft(context, prepared.action.draftId);
+  assert.equal(again.status, "failed", "a consumed draft cannot execute twice");
+  assert.equal(calls.filter((c) => c.path === "/v1/orders" && c.method === "POST").length, 1);
+});
+
+test("a price change between approval and execution aborts the purchase", async () => {
+  let price = 2.4;
+  const { fetchImpl, calls } = actionFetch({
+    "/v1/listings/lst-1": () => json({ ...listingFixture, price_per_gb: price }),
+    "POST /v1/orders": () => json({ order: { id: "order-x" } }, 201),
+  });
+  const context = ctx(fetchImpl);
+  const prepared = await actions.prepareBuy(context, { listing_id: "lst-1", bandwidth_gb: 5, session_type: "rotating", payment: "wallet_signing" });
+  price = 3.9;
+  const result = await actions.executeDraft(context, prepared.action.draftId);
+  assert.equal(result.status, "failed");
+  assert.match(result.message, /price moved from \$2\.4 to \$3\.9/i);
+  assert.equal(calls.some((c) => c.method === "POST"), false);
+});
+
+test("platform-balance approval funds escrow server-side; shortfalls leave an honest pending order", async () => {
+  const okFlow = actionFetch({
+    "/v1/listings/lst-1": () => json(listingFixture),
+    "POST /v1/orders": () => json({ order: { id: "order-bal", status: "pending" } }, 201),
+    "POST /v1/orders/order-bal/pay/balance": () => json({ status: "funded", escrow_tx: "tx-1" }),
+  });
+  const context = ctx(okFlow.fetchImpl);
+  const prepared = await actions.prepareBuy(context, { listing_id: "lst-1", bandwidth_gb: 2, session_type: "rotating", payment: "platform_balance" });
+  assert.match(prepared.action.summary.join(" "), /locks payment in escrow/);
+  const done = await actions.executeDraft(context, prepared.action.draftId);
+  assert.equal(done.status, "done");
+  assert.equal(done.href, "/marketplace/orders/order-bal");
+
+  const shortFlow = actionFetch({
+    "/v1/listings/lst-1": () => json(listingFixture),
+    "POST /v1/orders": () => json({ order: { id: "order-short", status: "pending" } }, 201),
+    "POST /v1/orders/order-short/pay/balance": () => json({ error: "low", code: "insufficient_balance" }, 402),
+  });
+  const context2 = ctx(shortFlow.fetchImpl);
+  const prepared2 = await actions.prepareBuy(context2, { listing_id: "lst-1", bandwidth_gb: 2, session_type: "rotating", payment: "platform_balance" });
+  const short = await actions.executeDraft(context2, prepared2.action.draftId);
+  assert.equal(short.status, "needs_funding");
+  assert.match(short.message, /balance is too low/);
+  assert.equal(short.href, "/marketplace/orders/order-short");
+});
+
+const listingArgs = { node_id: "node-1", title: "Accra Fast Residential", description: "Home fibre", proxy_type: "residential", protocol: "socks5", country: "GH", price_per_gb: 3, available_bandwidth_gb: 100, min_purchase_gb: 1, max_concurrency: 5 };
+
+test("prepare_listing is provider-gated, node-bound, and inert until approval", async () => {
+  const { fetchImpl, calls } = actionFetch({ "/v1/provider/nodes": () => json({ nodes: [{ id: "node-1", name: "Home node", country: "GH", status: "online" }] }) });
+  const buyer = ctx(fetchImpl, "buyer");
+  assert.equal((await tools.executeAssistantTool("prepare_listing", listingArgs, buyer)).ok, false);
+  assert.equal(calls.length, 0, "role gate runs before any fetch");
+  const provider = ctx(fetchImpl, "provider");
+  const notOwned = await tools.executeAssistantTool("prepare_listing", { ...listingArgs, node_id: "node-9" }, provider);
+  assert.equal(notOwned.ok, false);
+  const result = await tools.executeAssistantTool("prepare_listing", listingArgs, provider);
+  assert.equal(result.ok, true);
+  assert.equal(result.action.kind, "create_listing");
+  assert.equal(result.data.executed, false);
+  assert.equal(calls.some((c) => c.method === "POST"), false);
+});
+
+test("executing a listing draft signs via the node when required, then publishes the signed payload", async () => {
+  const { fetchImpl, calls } = actionFetch({
+    "/v1/provider/nodes": () => json({ nodes: [{ id: "node-1", name: "Home node", country: "GH", status: "online" }] }),
+    "/v1/listings/proof-policy": () => json({ required: true }),
+    "POST /v1/provider/listings/offer-signatures": () => json({ id: "sig-1", status: "signed", node_listening: true, proof: { message_type: "listing_offer", signature: "proof-abc" } }, 201),
+    "POST /v1/listings": () => json({ id: "lst-new", status: "active" }, 201),
+  });
+  const context = ctx(fetchImpl, "provider");
+  const prepared = await actions.prepareListing(context, listingArgs);
+  assert.equal(prepared.ok, true);
+  const result = await actions.executeDraft(context, prepared.action.draftId);
+  assert.equal(result.status, "done");
+  assert.equal(result.href, "/marketplace/lst-new");
+  const create = calls.find((c) => c.path === "/v1/listings" && c.method === "POST");
+  assert.equal(create.body.proof.signature, "proof-abc", "the node proof is attached to the exact published payload");
+  assert.equal(create.body.provider_node_id, "node-1");
+});
+
+test("a refused node signature publishes nothing and says so", async () => {
+  const { fetchImpl, calls } = actionFetch({
+    "/v1/provider/nodes": () => json({ nodes: [{ id: "node-1", name: "Home node", country: "GH", status: "online" }] }),
+    "/v1/listings/proof-policy": () => json({ required: true }),
+    "POST /v1/provider/listings/offer-signatures": () => json({ id: "sig-2", status: "refused", node_listening: true }, 201),
+  });
+  const context = ctx(fetchImpl, "provider");
+  const prepared = await actions.prepareListing(context, listingArgs);
+  const result = await actions.executeDraft(context, prepared.action.draftId);
+  assert.equal(result.status, "needs_signature");
+  assert.match(result.message, /declined to sign/);
+  assert.equal(calls.some((c) => c.path === "/v1/listings" && c.method === "POST"), false);
+});
+
+test("the agent surfaces prepared cards and never executes inside the chat loop", async () => {
+  const { fetchImpl, calls } = actionFetch({ "/v1/listings/lst-1": () => json(listingFixture) });
+  const requests = [];
+  const result = await agent.runAssistant({
+    settings, context: ctx(fetchImpl), messages: [{ role: "user", content: "Buy 5 GB of lst-1" }], pathname: "/marketplace", emit() {},
+    fetchImpl: async (_url, init) => {
+      const body = JSON.parse(init.body); requests.push(body);
+      return json(requests.length === 1
+        ? { status: "completed", output: [call("prepare_buy", { listing_id: "lst-1", bandwidth_gb: 5, session_type: "rotating", payment: "wallet_signing" })] }
+        : final("Prepared below — press Create order to approve."));
+    },
+  });
+  assert.equal(result.actions.length, 1);
+  assert.equal(result.actions[0].kind, "buy_order");
+  const toolOutput = requests[1].input.find((i) => i.type === "function_call_output");
+  assert.match(toolOutput.output, /"executed":false/);
+  assert.equal(calls.some((c) => c.method === "POST"), false, "chat turns never execute drafts");
+});
+
+function actionsRouteModule() {
+  return load("../src/app/api/assistant/actions/route.ts", {
+    "next/server": { NextResponse: { json: (body, init) => new Response(JSON.stringify(body), { ...init, headers: { "content-type": "application/json", ...init?.headers } }) } },
+    "@/lib/server/assistant-auth": { resolveAssistantUser: async (request) => /^Bearer\s+\S+$/i.test(request.headers.get("authorization") || "") ? { ok: true, user: { id: "acct-test", role: "buyer", bearer: "tok" } } : { ok: false, status: 401, message: "Sign in to use Hubbie." } },
+    "@/lib/server/assistant-json": bounded,
+    "@/lib/server/assistant-actions": actions,
+  });
+}
+const actionRequest = (draftId, headers = {}) => {
+  const value = new Request("https://proxyhubb.test/api/assistant/actions", { method: "POST", headers: { "content-type": "application/json", host: "proxyhubb.test", authorization: ["Bearer", "route-test-token"].join(" "), ...headers }, body: JSON.stringify({ draft_id: draftId }) });
+  value.nextUrl = new URL(value.url);
+  return value;
+};
+
+test("the approval endpoint requires auth, honors the kill switch, and fails closed on unknown drafts", async () => {
+  const route = actionsRouteModule();
+  assert.equal((await route.POST(actionRequest("draft-missing", { authorization: "" }))).status, 401);
+  const unknown = await route.POST(actionRequest("draft-missing"));
+  assert.equal(unknown.status, 200);
+  assert.equal((await unknown.json()).status, "failed");
+  assert.equal((await route.POST(actionRequest("../evil"))).status, 400);
+  process.env.ASSISTANT_ACTIONS_ENABLED = "0";
+  try { assert.equal((await route.POST(actionRequest("draft-missing"))).status, 404); }
+  finally { delete process.env.ASSISTANT_ACTIONS_ENABLED; }
 });
 
 test("assistant rejects cross-site fetches and non-JSON authenticated requests", async () => {
