@@ -1,7 +1,19 @@
+"use client";
+
 import Link from "next/link";
-import { ArrowUp, Eye, LockKeyhole, MessageSquare, Pin } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
-import type { ForumThread } from "@/lib/forum-api";
+import { forumPostLabel, type ForumThread } from "@/lib/forum-api";
+import {
+  fullTime,
+  personHref,
+  personName,
+  PostAvatar,
+  PostBadges,
+  PostText,
+  shortTime,
+} from "./post-ui";
+import { PostActions } from "./post-actions";
 
 export function forumDate(value: string) {
   const date = new Date(value);
@@ -10,50 +22,76 @@ export function forumDate(value: string) {
     : "Date unavailable";
 }
 
+export function threadPath(thread: Pick<ForumThread, "id">) {
+  return "/help/forum/thread/" + encodeURIComponent(thread.id);
+}
+
+/** One post in a timeline. Clicking anywhere that is not a control opens it. */
 export function ForumThreadCard({ thread }: { thread: ForumThread }) {
+  const router = useRouter();
+  const href = threadPath(thread);
+  const profile = personHref(thread.author, thread.author_id);
+  const name = personName(thread.author);
+  const label = forumPostLabel(thread, 60);
+  const title = thread.title?.trim();
   return (
-    <article className="forum-thread ui-surface">
-      <div className="forum-thread-votes">
-        <ArrowUp size={15} aria-hidden="true" />
-        <strong>{(thread.upvotes ?? 0) - (thread.downvotes ?? 0)}</strong>
-        <span>votes</span>
-      </div>
-      <div className="forum-thread-body">
-        <div className="forum-thread-labels">
-          {thread.category && <span>{thread.category.name}</span>}
-          {thread.is_pinned && (
-            <span>
-              <Pin size={11} aria-hidden="true" />
-              Pinned
-            </span>
-          )}
-          {thread.is_locked && (
-            <span>
-              <LockKeyhole size={11} aria-hidden="true" />
-              Locked
-            </span>
-          )}
-        </div>
-        <h3>
-          <Link href={"/help/forum/thread/" + thread.id}>{thread.title}</Link>
-        </h3>
-        {thread.content && <p>{thread.content}</p>}
-        <div className="forum-thread-meta">
-          <span>
-            <MessageSquare size={13} aria-hidden="true" />
-            {thread.replies_count ?? 0} replies
-          </span>
-          <span>
-            <Eye size={13} aria-hidden="true" />
-            {thread.views_count ?? 0} views
-          </span>
-          {thread.author && (
-            <Link href={"/profile/" + thread.author.username}>
-              {thread.author.display_name || thread.author.username}
+    <article
+      className="post-card clickable"
+      onClick={(event) => {
+        const target = event.target as HTMLElement;
+        if (target.closest("a, button, input, textarea")) return;
+        if (window.getSelection()?.toString()) return;
+        router.push(href);
+      }}
+    >
+      {profile ? (
+        <Link href={profile} tabIndex={-1} aria-hidden="true" onClick={(event) => event.stopPropagation()}>
+          <PostAvatar person={thread.author} />
+        </Link>
+      ) : (
+        <PostAvatar person={thread.author} />
+      )}
+      <div className="post-card-body">
+        <header className="post-card-head">
+          {profile ? (
+            <Link className="post-name" href={profile}>
+              {name}
             </Link>
+          ) : (
+            <span className="post-name">{name}</span>
           )}
-          <span>{forumDate(thread.created_at)}</span>
-        </div>
+          {thread.author?.username && name !== thread.author.username && (
+            <span className="post-handle username">@{thread.author.username}</span>
+          )}
+          <span className="post-handle" aria-hidden="true">
+            ·
+          </span>
+          <Link className="post-time" href={href} title={fullTime(thread.created_at)}>
+            <time dateTime={thread.created_at}>{shortTime(thread.created_at)}</time>
+            <span className="sr-only">, open post: {label}</span>
+          </Link>
+        </header>
+        <PostBadges thread={thread} />
+        {title && (
+          <h2 className="post-card-title">
+            <Link href={href}>{title}</Link>
+          </h2>
+        )}
+        {thread.content && <PostText text={thread.content} />}
+        <PostActions
+          replies={thread.replies_count ?? 0}
+          replyHref={thread.is_locked ? href : href + "#reply"}
+          like={{
+            kind: "thread",
+            id: thread.id,
+            liked: thread.viewer_vote === 1,
+            count: thread.upvotes ?? 0,
+            label: "post by " + name,
+          }}
+          views={thread.views_count ?? 0}
+          sharePath={href}
+          shareLabel={"post by " + name}
+        />
       </div>
     </article>
   );

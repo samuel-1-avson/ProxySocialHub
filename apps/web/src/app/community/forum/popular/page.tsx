@@ -1,5 +1,5 @@
-import { ForumThreadCollection } from "@/components/community/ForumThreadCollection";
+import { ForumFeed } from "@/components/community/ForumFeed";
 
-export default function ForumPage() {
-  return <ForumThreadCollection view="popular" />;
+export default function ForumPopularPage() {
+  return <ForumFeed view="popular" />;
 }

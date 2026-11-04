@@ -74,35 +74,33 @@ test.describe("workspace UI layout regressions", () => {
     await expect(page).toHaveURL(/max_price=1.25/);
   });
 
-  test("forum topics keep aligned footers and search fits every screen", async ({ page }, info) => {
+  test("forum feed, topics and search fit every screen", async ({ page }, info) => {
     await isolate(page);
     const names = ["Governance", "General Discussion", "Technical Support", "Feature Requests", "Provider Showcase", "Buying & Selling"];
-    const categories = names.map((name, index) => ({ id: String(index), name, slug: "topic-" + index, thread_count: index, description: index === 1 ? "General topics and practical discussions about proxy services, capacity, and the community." : "Get help and share advice with the community." }));
+    const categories = names.map((name, index) => ({ id: String(index), name, slug: "topic-" + index, thread_count: index, description: "Get help and share advice with the community." }));
+    const threads = [
+      { id: "long", title: "", content: "A long post that wraps across the card. ".repeat(12), created_at: "2026-11-01T10:00:00Z", upvotes: 1200, replies_count: 14, views_count: 25300, category: categories[3], author: { id: "a", username: "averyveryverylongusername_here", display_name: "A person with a rather long display name" } },
+      { id: "short", title: "Short title", content: "gm 👋 #providers https://example.com/a/very/long/path/that/should/wrap/somewhere", created_at: "2026-11-04T10:00:00Z", upvotes: 0, replies_count: 0, views_count: 3, category: categories[1] },
+    ];
     await page.route("**/v1/forum/categories", route => route.fulfill({ json: { categories } }));
-    await page.route("**/v1/forum/recent**", route => route.fulfill({ json: { threads: [] } }));
+    await page.route("**/v1/forum/recent**", route => route.fulfill({ json: { threads, total: 2 } }));
     await page.route("**/v1/forum/search**", route => route.fulfill({ json: { threads: [] } }));
     await page.goto(base + "/help/forum", { waitUntil: "domcontentloaded" });
-    await expect(page.locator(".forum-category")).toHaveCount(6, { timeout: 60_000 });
-    await expect(page.getByRole("navigation", { name: "Community and network" }).getByRole("link", { name: "Forum", exact: true })).toHaveAttribute("aria-current", "page");
+    await expect(page.locator(".feed-topics a")).toHaveCount(6, { timeout: 60_000 });
+    await expect(page.locator(".post-card")).toHaveCount(2);
+    await expect(page.getByRole("navigation", { name: "Community and network" }).getByRole("link", { name: "Discussions", exact: true })).toHaveAttribute("aria-current", "page");
     for (const width of widths) {
       await resize(page, width);
       await fitsPage(page);
-      const cards = page.locator(".forum-category");
-      const first = await cards.nth(0).boundingBox();
-      const second = await cards.nth(1).boundingBox();
-      if (Math.abs(first!.y - second!.y) < 1) {
-        const footerA = await cards.nth(0).locator(":scope > span").boundingBox();
-        const footerB = await cards.nth(1).locator(":scope > span").boundingBox();
-        expect(Math.abs(footerA!.y - footerB!.y)).toBeLessThanOrEqual(1);
-      }
       if (width === 390 || width === 1440) await capture(page, info, "forum-" + width);
     }
     await resize(page, 320, 740);
-    await page.getByLabel("Search discussions", { exact: true }).fill("SOCKS5");
-    await page.getByRole("search").getByRole("button", { name: "Search", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "No matching discussions" })).toBeVisible();
+    const search = page.getByLabel("Search posts", { exact: true });
+    await search.fill("SOCKS5");
+    await search.press("Enter");
+    await expect(page.getByRole("heading", { name: "No matching posts" })).toBeVisible();
     await page.getByRole("button", { name: "Clear forum search" }).click();
-    await expect(page.locator(".forum-category")).toHaveCount(6);
+    await expect(page.locator(".post-card")).toHaveCount(2);
   });
 
   test("account and authenticator dialogs stay within short and narrow viewports", async ({ page }, info) => {

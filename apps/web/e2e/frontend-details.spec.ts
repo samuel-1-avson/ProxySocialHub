@@ -204,37 +204,34 @@ test.describe("frontend details and public content", () => {
     );
     await page.goto(base + "/help/forum", { waitUntil: "domcontentloaded" });
     await expect(
-      page.getByRole("heading", { name: "Latest conversations" }),
+      page.getByRole("heading", { name: "Discussions", exact: true, level: 1 }),
     ).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByRole("link", { name: thread.title })).toBeVisible({
-      timeout: 30_000,
-    });
-    await page.getByLabel("Search discussions", { exact: true }).fill("SOCKS5");
-    await page
-      .getByRole("search")
-      .getByRole("button", { name: "Search", exact: true })
-      .click();
+    await expect(
+      page.getByRole("link", { name: thread.title, exact: true }),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(
+      page.locator(".post-card").getByRole("link", { name: "#" + category.name }),
+    ).toBeVisible();
+    const search = page.getByLabel("Search posts", { exact: true });
+    await search.fill("SOCKS5");
+    await search.press("Enter");
     const error = page
       .getByRole("alert")
       .filter({ hasText: "Search could not be completed" });
     await expect(error).toBeVisible({ timeout: 30_000 });
     searchAvailable = true;
     await error.getByRole("button", { name: "Try again" }).click();
-    await expect(page.getByRole("link", { name: thread.title })).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: thread.title, exact: true }),
+    ).toBeVisible();
     await page.getByRole("button", { name: "Clear forum search" }).click();
     await capture(page, info.outputPath("forum-desktop.png"));
-    await page
-      .getByRole("navigation", { name: "Forum sections" })
-      .getByRole("link", { name: "Recent", exact: true })
-      .click();
+    const feeds = page.getByRole("navigation", { name: "Discussion feeds" });
+    await feeds.getByRole("link", { name: "Popular", exact: true }).click();
+    await expect(page).toHaveURL(/sort=popular/);
     await expect(
-      page.getByRole("heading", { name: "Recent discussions", exact: true }),
-    ).toBeVisible({ timeout: 30_000 });
-    await expect(
-      page
-        .getByRole("navigation", { name: "Forum sections" })
-        .getByRole("link", { name: "Recent", exact: true }),
-    ).toHaveAttribute("aria-current", "page");
+      feeds.getByRole("link", { name: "Popular", exact: true }),
+    ).toHaveAttribute("aria-current", "page", { timeout: 30_000 });
     await page.setViewportSize({ width: 360, height: 800 });
     await noOverflow(page);
   });
@@ -336,7 +333,7 @@ test.describe("frontend details and public content", () => {
     });
   });
 
-  test("forum category pagination requests the next page and preserves a useful empty state", async ({
+  test("forum topic loads more posts and says when only the team posts", async ({
     page,
   }) => {
     await isolate(page);
@@ -361,7 +358,14 @@ test.describe("frontend details and public content", () => {
         json: {
           threads:
             pageNumber === "2"
-              ? []
+              ? [
+                  {
+                    id: "guide-2",
+                    title: "",
+                    content: "Second page: keep the node app open.",
+                    created_at: "2026-10-30T10:00:00Z",
+                  },
+                ]
               : [
                   {
                     id: "guide",
@@ -378,23 +382,19 @@ test.describe("frontend details and public content", () => {
       waitUntil: "domcontentloaded",
     });
     await expect(
-      page.getByRole("heading", { name: "Provider setup guides", exact: true }),
+      page.getByRole("heading", { name: "#Provider setup guides", exact: true }),
     ).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText(/This category is read-only/)).toBeVisible();
+    await expect(page.getByText(/Only the team posts in this topic/)).toBeVisible();
+    await expect(page.getByLabel("Post text", { exact: true })).toHaveCount(0);
     await expect(
-      page.getByRole("button", { name: "Previous", exact: true }),
-    ).toBeDisabled();
-    await page.getByRole("button", { name: "Next", exact: true }).click();
-    await expect(page.getByText("Page 2 of 2")).toBeVisible();
+      page.getByRole("link", { name: "Registering your first provider node", exact: true }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Show more posts", exact: true }).click();
     await expect(
-      page.getByRole("heading", { name: "No discussions in this topic" }),
+      page.getByText("Second page: keep the node app open.", { exact: true }),
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: "Next", exact: true }),
-    ).toBeDisabled();
-    await page.getByRole("button", { name: "Previous", exact: true }).click();
-    await expect(
-      page.getByRole("link", { name: "Registering your first provider node" }),
-    ).toBeVisible();
+      page.getByRole("button", { name: "Show more posts", exact: true }),
+    ).toHaveCount(0);
   });
 });

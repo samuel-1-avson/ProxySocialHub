@@ -1,7 +1,49 @@
 // Forum API - Community forum functionality
 import { authApiFetch, publicApiFetch } from "./api/client";
+import { getAccessTokenSilently } from "./auth";
 
 const API_BASE = ''; // relative — proxied by Next.js rewrite in next.config.ts
+
+// Discussions work like a timeline: text is required, a title and a topic
+// are optional. The server enforces the same limits (moderators may post
+// longer announcements).
+export const FORUM_POST_MAX = 500;
+export const FORUM_TITLE_MAX = 200;
+/** Posts without a chosen topic land here. */
+export const FORUM_DEFAULT_TOPIC = "general";
+/** "Ask a question" posts go to this topic, which shows them in the Questions tab. */
+export const FORUM_QUESTION_TOPIC = "support";
+
+/** Short name for a post: its title, or the start of its first line. */
+export function forumPostLabel(thread: Pick<ForumThread, "title" | "content">, max = 80): string {
+    const title = thread.title?.trim();
+    if (title) return title;
+    const line = (thread.content || "").trim().split(/\r?\n/)[0]?.trim() || "";
+    const chars = Array.from(line);
+    return chars.length > max ? chars.slice(0, max).join("") + "…" : line || "Post";
+}
+
+/** Characters as people count them (an emoji is one), matching the server. */
+export function forumCharCount(text: string): number {
+    return Array.from(text.trim()).length;
+}
+
+async function readError(res: Response, fallback: string): Promise<Error> {
+    const body = await res.json().catch(() => ({}));
+    return new Error((body && typeof body.error === "string" && body.error) || fallback);
+}
+
+/**
+ * GET a public forum route as the signed-in viewer when there is one, so the
+ * server can say which posts you liked. Falls back to an anonymous request
+ * if the token is refused.
+ */
+async function viewerFetch(path: string): Promise<Response> {
+    const token = await getAccessTokenSilently().catch(() => null);
+    if (!token) return publicApiFetch(path);
+    const res = await publicApiFetch(path, { headers: { Authorization: `Bearer ${token}` } });
+    return res.status === 401 ? publicApiFetch(path) : res;
+}
 
 // ============== Types ==============
 
@@ -28,8 +70,13 @@ export interface ForumThread {
     downvotes: number;
     is_pinned: boolean;
     is_locked: boolean;
+    is_hidden?: boolean;
     created_at: string;
     updated_at: string;
+    /** Your own vote when signed in: 1 = liked. */
+    viewer_vote?: number;
+    /** A reply has been accepted as the answer. */
+    has_solution?: boolean;
     category?: ForumCategory;
     author?: {
         id: string;
@@ -48,8 +95,11 @@ export interface ForumPost {
     upvotes: number;
     downvotes: number;
     is_solution: boolean;
+    is_hidden?: boolean;
     created_at: string;
     updated_at: string;
+    /** Your own vote when signed in: 1 = liked. */
+    viewer_vote?: number;
     author?: {
         id: string;
         username: string;
@@ -60,9 +110,18 @@ export interface ForumPost {
 }
 
 export interface CreateThreadRequest {
-    category_slug: string;
-    title: string;
+    /** Optional: posts without a topic go to General. */
+    category_slug?: string;
+    /** Optional headline shown above the text. */
+    title?: string;
     content: string;
+}
+
+export interface VoteResult {
+    upvotes: number;
+    downvotes: number;
+    /** Your vote after the toggle: 1, -1, or 0 when it was removed. */
+    viewer_vote?: number;
 }
 
 export interface CreatePostRequest {
@@ -96,12 +155,12 @@ export async function getCategory(slug: string): Promise<{ category: ForumCatego
 export async function getCategoryThreads(
     slug: string,
     params: { page?: number; limit?: number } = {}
-): Promise<{ threads: ForumThread[]; total: number; page: number; limit: number }> {
+): Promise<{ threads: ForumThread[]; total: number; page: number; limit: number; has_more?: boolean }> {
     const query = new URLSearchParams();
     if (params.page) query.set("page", String(params.page));
     if (params.limit) query.set("limit", String(params.limit));
 
-    const res = await publicApiFetch(`${API_BASE}/v1/forum/categories/${slug}/threads?${query}`);
+    const res = await viewerFetch(`${API_BASE}/v1/forum/categories/${encodeURIComponent(slug)}/threads?${query}`);
     if (!res.ok) {
         if (res.status === 401 || res.status === 404) {
             return { threads: [], total: 0, page: params.page || 1, limit: params.limit || 20 };
@@ -121,7 +180,7 @@ export interface ThreadResponse {
 }
 
 export async function getThread(id: string): Promise<ThreadResponse> {
-    const res = await publicApiFetch(`${API_BASE}/v1/forum/threads/${id}`);
+    const res = await viewerFetch(`${API_BASE}/v1/forum/threads/${encodeURIComponent(id)}`);
     if (!res.ok) throw new Error(res.status === 404 ? "Discussion not found" : "Discussion service is unavailable. Try again in a moment.");
     return res.json();
 }
@@ -138,10 +197,7 @@ export async function createThread(data: CreateThreadRequest): Promise<ForumThre
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
     });
-    if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Failed to create thread");
-    }
+    if (!res.ok) throw await readError(res, "Your post was not published");
     return res.json();
 }
 
@@ -155,7 +211,7 @@ export async function getThreadPosts(
     if (params.page) query.set("page", String(params.page));
     if (params.limit) query.set("limit", String(params.limit));
 
-    const res = await publicApiFetch(`${API_BASE}/v1/forum/threads/${threadId}/posts?${query}`);
+    const res = await viewerFetch(`${API_BASE}/v1/forum/threads/${encodeURIComponent(threadId)}/posts?${query}`);
     if (!res.ok) throw new Error("Failed to fetch posts");
     return res.json();
 }
@@ -166,10 +222,7 @@ export async function createPost(threadId: string, data: CreatePostRequest): Pro
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
     });
-    if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Failed to create post");
-    }
+    if (!res.ok) throw await readError(res, "Your reply was not posted");
     return res.json();
 }
 
@@ -179,7 +232,7 @@ export async function updatePost(postId: string, content: string): Promise<Forum
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content }),
     });
-    if (!res.ok) throw new Error("Failed to update post");
+    if (!res.ok) throw await readError(res, "Your reply was not updated");
     return res.json();
 }
 
@@ -193,23 +246,23 @@ export async function deletePost(postId: string): Promise<{ message: string }> {
 
 // ============== Voting API ==============
 
-export async function votePost(postId: string, voteType: "up" | "down"): Promise<{ upvotes: number; downvotes: number }> {
+export async function votePost(postId: string, voteType: "up" | "down"): Promise<VoteResult> {
     const res = await authApiFetch(`${API_BASE}/v1/forum/posts/${postId}/vote`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ vote_type: voteType === "up" ? 1 : -1 }),
     });
-    if (!res.ok) throw new Error("Failed to vote");
+    if (!res.ok) throw await readError(res, "Your like was not saved");
     return res.json();
 }
 
-export async function voteThread(threadId: string, voteType: "up" | "down"): Promise<{ upvotes: number; downvotes: number }> {
+export async function voteThread(threadId: string, voteType: "up" | "down"): Promise<VoteResult> {
     const res = await authApiFetch(`${API_BASE}/v1/forum/threads/${threadId}/vote`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ vote_type: voteType === "up" ? 1 : -1 }),
     });
-    if (!res.ok) throw new Error("Failed to vote");
+    if (!res.ok) throw await readError(res, "Your like was not saved");
     return res.json();
 }
 
@@ -228,7 +281,7 @@ function emptyThreadPage(page: number, limit: number): ThreadListPage {
 }
 
 export async function searchForum(query: string, page = 1): Promise<ThreadListPage> {
-    const res = await publicApiFetch(`${API_BASE}/v1/forum/search?q=${encodeURIComponent(query)}&page=${page}`);
+    const res = await viewerFetch(`${API_BASE}/v1/forum/search?q=${encodeURIComponent(query)}&page=${page}`);
     if (!res.ok) {
         if (res.status === 401 || res.status === 404) return emptyThreadPage(page, 20);
         throw new Error("Search failed");
@@ -244,7 +297,7 @@ export async function searchForum(query: string, page = 1): Promise<ThreadListPa
 }
 
 async function getThreadCollection(path: string, limit: number, page: number, label: string): Promise<ThreadListPage> {
-    const res = await publicApiFetch(`${API_BASE}${path}?limit=${limit}&page=${page}`);
+    const res = await viewerFetch(`${API_BASE}${path}?limit=${limit}&page=${page}`);
     if (!res.ok) {
         if (res.status === 401 || res.status === 404) return emptyThreadPage(page, limit);
         throw new Error("Failed to fetch " + label + " threads");
@@ -269,6 +322,44 @@ export async function getPopularThreads(limit = 20, page = 1): Promise<ThreadLis
 
 export async function getUnansweredThreads(limit = 20, page = 1): Promise<ThreadListPage> {
     return getThreadCollection("/v1/forum/unanswered", limit, page, "unanswered");
+}
+
+/** Questions tab: posts asked with "Ask a question". */
+export async function getQuestionThreads(limit = 20, page = 1): Promise<ThreadListPage> {
+    const data = await getCategoryThreads(FORUM_QUESTION_TOPIC, { limit, page });
+    return {
+        threads: data.threads ?? [],
+        total: data.total ?? 0,
+        page: data.page ?? page,
+        limit: data.limit ?? limit,
+        has_more: data.has_more ?? (data.page ?? page) * (data.limit ?? limit) < (data.total ?? 0),
+    };
+}
+
+/** Following tab: posts from people you follow. Needs a session. */
+export async function getFollowingThreads(limit = 20, page = 1): Promise<ThreadListPage> {
+    const res = await authApiFetch(`${API_BASE}/v1/forum/following?limit=${limit}&page=${page}`);
+    if (!res.ok) throw await readError(res, "Posts from people you follow could not be loaded");
+    const data = await res.json();
+    return {
+        threads: data.threads ?? [],
+        total: data.total ?? 0,
+        page: data.page ?? page,
+        limit: data.limit ?? limit,
+        has_more: Boolean(data.has_more),
+    };
+}
+
+/** Your posts: the posts you started, newest first. */
+export async function getMyThreadPage(limit = 20, page = 1): Promise<ThreadListPage> {
+    const data = await getMyThreads({ limit, page });
+    return {
+        threads: data.threads ?? [],
+        total: data.total ?? 0,
+        page: data.page ?? page,
+        limit: data.limit ?? limit,
+        has_more: (data.page ?? page) * (data.limit ?? limit) < (data.total ?? 0),
+    };
 }
 
 // ============== User Threads ==============

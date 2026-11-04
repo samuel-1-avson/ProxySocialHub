@@ -97,11 +97,12 @@ test.describe("remaining frontend acceptance", () => {
       })),
     ).toEqual([]);
   });
-  test("discussion editor validates, preserves rejected content, and opens the canonical result", async ({
+  test("post box needs only text, keeps rejected text, and opens the new post", async ({
     page,
   }, info) => {
     await isolate(page, "buyer");
     let accepted = false;
+    let lastBody: unknown = null;
     await page.route("**/v1/forum/categories", (route) =>
       route.fulfill({
         json: {
@@ -121,12 +122,10 @@ test.describe("remaining frontend acceptance", () => {
     await page.route("**/v1/forum/threads", async (route) => {
       if (route.request().method() !== "POST")
         return route.fulfill({ json: { threads: [thread], total: 1 } });
-      const body = route.request().postDataJSON();
-      expect(body.title).toBe(thread.title);
-      expect(body.content).toBe(thread.content);
+      lastBody = route.request().postDataJSON();
       return route.fulfill(
         accepted
-          ? { json: thread }
+          ? { status: 201, json: thread }
           : { status: 503, json: { error: "Publishing unavailable" } },
       );
     });
@@ -137,38 +136,43 @@ test.describe("remaining frontend acceptance", () => {
       waitUntil: "domcontentloaded",
     });
     await expect(
-      page.getByRole("heading", { name: "Start a conversation" }),
+      page.getByRole("heading", { name: "Create a post" }),
     ).toBeVisible();
+    const text = page.getByLabel("Post text", { exact: true });
+    const post = page.getByRole("button", { name: "Post", exact: true });
+    await expect(text).toBeFocused();
+    await expect(post).toBeDisabled();
+    // Over the 500-character limit: the counter goes negative and Post waits.
+    await text.fill("a".repeat(501));
+    await expect(page.locator(".post-counter.over")).toContainText("-1");
+    await expect(post).toBeDisabled();
+    await text.fill("  " + thread.content + "  ");
+    await page.getByRole("button", { name: "Choose a topic" }).click();
     await expect(
-      page.getByRole("option", { name: "Announcements" }),
+      page.getByRole("radio", { name: "#Announcements" }),
     ).toHaveCount(0);
-    await page.getByLabel("Category", { exact: true }).selectOption("help");
-    await page
-      .getByLabel("Discussion title", { exact: true })
-      .fill("  " + thread.title + "  ");
-    await page
-      .getByLabel("Message", { exact: true })
-      .fill("  " + thread.content + "  ");
-    await page.getByRole("button", { name: "Preview", exact: true }).click();
-    await expect(page.locator(".discussion-preview")).toContainText(
-      thread.content,
+    await page.getByRole("radio", { name: "#" + category.name }).click();
+    await expect(page.locator(".post-chip")).toContainText(category.name);
+    await post.click();
+    await expect(page.locator("main [role=alert]").first()).toContainText(
+      "Publishing unavailable",
     );
-    await page.getByRole("button", { name: /Publish discussion/ }).click();
-    await expect(page.locator("main [role=alert]").first()).toBeVisible();
-    await page.getByRole("button", { name: "Write", exact: true }).click();
-    await expect(page.getByLabel("Message", { exact: true })).toHaveValue(
-      "  " + thread.content + "  ",
-    );
+    await expect(text).toHaveValue("  " + thread.content + "  ");
+    // No title and no forced category: only what the person chose is sent.
+    expect(lastBody).toEqual({
+      content: thread.content,
+      category_slug: category.slug,
+    });
     await narrow(page);
     await capture(page, info.outputPath("forum-editor-mobile.png"));
     accepted = true;
-    await page.getByRole("button", { name: /Publish discussion/ }).click();
+    await post.click();
     await expect(page).toHaveURL(/\/help\/forum\/thread\/thread-one/);
     await expect(
       page.getByRole("heading", { name: thread.title }),
     ).toBeVisible();
   });
-  test("discussion replies, votes, reports and keyboard dialogs expose failures", async ({
+  test("conversation view: likes, replies and reports expose failures", async ({
     page,
   }, info) => {
     await isolate(page, "buyer");
@@ -179,25 +183,27 @@ test.describe("remaining frontend acceptance", () => {
       waitUntil: "domcontentloaded",
     });
     await expect(page.getByText(reply.content, { exact: true })).toBeVisible();
-    await page
-      .getByRole("button", { name: "Upvote discussion", exact: true })
-      .click();
-    await expect(page.locator("main [role=alert]").first()).toBeVisible();
+    // A like that fails is rolled back and says so.
+    const like = page.getByRole("button", { name: /^Like post by Test buyer/ });
+    await like.click();
+    await expect(
+      page.locator("main [role=alert]").filter({ hasText: "Your like was not saved" }),
+    ).toBeVisible();
+    await expect(like).toHaveAttribute("aria-pressed", "false");
     await page
       .getByLabel("Your reply", { exact: true })
       .fill("Keep this reply after failure.");
-    await page.getByRole("button", { name: "Post reply", exact: true }).click();
+    await page.getByRole("button", { name: "Reply", exact: true }).click();
     await expect(page.getByLabel("Your reply", { exact: true })).toHaveValue(
       "Keep this reply after failure.",
     );
-    await page
-      .getByRole("button", { name: "Share discussion", exact: true })
-      .click();
+    await expect(page.locator("main [role=alert]").last()).toBeVisible();
+    await page.getByRole("button", { name: "Report post", exact: true }).click();
     await expect(page.getByRole("dialog")).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(
-      page.getByRole("button", { name: "Share discussion", exact: true }),
+      page.getByRole("button", { name: "Report post", exact: true }),
     ).toBeFocused();
     await narrow(page);
     await capture(page, info.outputPath("forum-thread-mobile.png"));

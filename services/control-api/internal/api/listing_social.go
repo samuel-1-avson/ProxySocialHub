@@ -685,11 +685,17 @@ func formatPercent(p float64) string {
 	return fmt.Sprintf("%.0f%%", p)
 }
 
+// truncate shortens s to maxLen characters (runes, so an emoji or accented
+// letter is never cut in half), ending with "..." when cut.
 func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
 		return s
 	}
-	return s[:maxLen-3] + "..."
+	if maxLen <= 3 {
+		return string(runes[:maxLen])
+	}
+	return string(runes[:maxLen-3]) + "..."
 }
 
 // estimateResponseTime returns the provider's average first-reply time in

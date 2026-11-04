@@ -104,8 +104,9 @@ func getForumReportsForModeration(c *gin.Context) {
 		}
 		if r.ThreadID != nil {
 			var thread models.ForumThread
-			if err := db.Social().Select("title").First(&thread, "id = ?", *r.ThreadID).Error; err == nil {
-				v.ThreadTitle = thread.Title
+			if err := db.Social().Select("title", "content").First(&thread, "id = ?", *r.ThreadID).Error; err == nil {
+				// Quick posts have no title; show the start of the text instead.
+				v.ThreadTitle = forumThreadLabel(thread.Title, thread.Content)
 			}
 		}
 		if r.PostID != nil {
