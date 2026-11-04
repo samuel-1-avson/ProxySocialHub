@@ -44,6 +44,35 @@ fn resolve_node_id(user_id: &str, caps: &ProviderCapabilities) -> String {
     }
 }
 
+/// A heartbeat frame arrives on one tunnel's mux, so it is that tunnel's
+/// liveness and is recorded under the tunnel's registry id, never under the id
+/// the frame names. Since DP-3 the registry key is the announced
+/// config.node_id, while provider-node (up to 1.0.13) still names its
+/// heartbeats `node_<user_id>`. Filing them under that name left the real
+/// registry entry without heartbeats, so the monitor evicted it about 85 s
+/// after connect and every buyer session pinned to it got 503.
+///
+/// The declared id is still what the node signs, so it is returned for the
+/// proof check, but it has to be one of this tunnel's own names (or empty): a
+/// node must not be able to keep a different node alive. Returns None, and
+/// leaves the message untouched, when it is not.
+fn bind_heartbeat_to_tunnel(
+    msg: &mut crate::heartbeat::HeartbeatMessage,
+    tunnel_node_id: &str,
+    user_id: &str,
+) -> Option<String> {
+    let declared = msg.node_id.trim();
+    let owned =
+        declared.is_empty() || declared == tunnel_node_id || declared == format!("node_{user_id}");
+    if !owned {
+        return None;
+    }
+    Some(std::mem::replace(
+        &mut msg.node_id,
+        tunnel_node_id.to_string(),
+    ))
+}
+
 fn validate_tunnel_claims(claims: &Claims) -> Result<(), String> {
     if claims.role != "provider" {
         return Err(format!("unexpected role: {}", claims.role));
@@ -639,6 +668,7 @@ pub(crate) async fn handle_provider_mux_io<S>(
     while let Some(mut stream) = rx.recv().await {
         let state = state.clone();
         let node_id = node_id.clone();
+        let user_id = user_id.clone();
         tokio::spawn(async move {
             match read_line_frame(&mut stream, MAX_HEARTBEAT_FRAME_BYTES).await {
                 Ok(Some(msg)) => {
@@ -655,7 +685,21 @@ pub(crate) async fn handle_provider_mux_io<S>(
                             match serde_json::from_str::<crate::heartbeat::HeartbeatMessage>(
                                 json_data,
                             ) {
-                                Ok(heartbeat_msg) => {
+                                Ok(mut heartbeat_msg) => {
+                                    // Record under the tunnel's registry id; keep the
+                                    // declared id only for the signature check.
+                                    let Some(declared_node_id) = bind_heartbeat_to_tunnel(
+                                        &mut heartbeat_msg,
+                                        &node_id,
+                                        &user_id,
+                                    ) else {
+                                        warn!(
+                                            node_id = %node_id,
+                                            declared_node_id = %heartbeat_msg.node_id,
+                                            "Heartbeat names a node this tunnel does not own; ignoring it"
+                                        );
+                                        return;
+                                    };
                                     let now = std::time::SystemTime::now()
                                         .duration_since(std::time::UNIX_EPOCH)
                                         .map(|d| d.as_secs())
@@ -714,7 +758,7 @@ pub(crate) async fn handle_provider_mux_io<S>(
                                                 crate::proofs::HeartbeatPayload {
                                                     provider_node_id: &heartbeat_msg
                                                         .provider_node_id,
-                                                    gateway_node_id: &heartbeat_msg.node_id,
+                                                    gateway_node_id: &declared_node_id,
                                                     latency_ms: heartbeat_msg.latency_ms,
                                                     active_connections: heartbeat_msg
                                                         .active_connections,
@@ -979,6 +1023,97 @@ mod tests {
                 "unsane announced id {bad:?} must fall back"
             );
         }
+    }
+
+    fn heartbeat_named(node_id: &str) -> crate::heartbeat::HeartbeatMessage {
+        crate::heartbeat::HeartbeatMessage {
+            node_id: node_id.to_string(),
+            timestamp: 0,
+            provider_node_id: String::new(),
+            provider_run_id: String::new(),
+            latency_ms: 0,
+            active_connections: 0,
+            bandwidth_usage: crate::heartbeat::BandwidthUsage {
+                bytes_up: 0,
+                bytes_down: 0,
+                rate_up_kbps: 0,
+                rate_down_kbps: 0,
+            },
+            system_stats: crate::heartbeat::SystemStats {
+                cpu_percent: 0.0,
+                memory_percent: 0.0,
+                uptime_seconds: 0,
+                goroutines: 0,
+            },
+            provider_lease: String::new(),
+            proof: None,
+        }
+    }
+
+    const TUNNEL_UUID: &str = "d5b1ed8e-3d18-4274-ac35-1d3f1cfe2393";
+    const OWNER: &str = "ccb9993e-6dcf-45f3-a425-29555345a21f";
+
+    // A heartbeat is filed under the tunnel it arrived on. The node may name
+    // either of the tunnel's ids (or none); the declared id is kept for the
+    // signature check.
+    #[test]
+    fn bind_heartbeat_to_tunnel_accepts_the_tunnels_own_names() {
+        for declared in [TUNNEL_UUID, &format!("node_{OWNER}"), "", "  "] {
+            let mut msg = heartbeat_named(declared);
+            assert_eq!(
+                bind_heartbeat_to_tunnel(&mut msg, TUNNEL_UUID, OWNER).as_deref(),
+                Some(declared),
+                "declared id {declared:?} must be accepted and returned"
+            );
+            assert_eq!(msg.node_id, TUNNEL_UUID);
+        }
+    }
+
+    #[test]
+    fn bind_heartbeat_to_tunnel_rejects_other_nodes() {
+        for declared in [
+            "6a3d1b5f-0d2c-4a3b-8e4f-2b3c4d5e6f7a",
+            "node_55315ef4-1d98-4005-9bb8-ba4806d4529f",
+            "node_",
+        ] {
+            let mut msg = heartbeat_named(declared);
+            assert_eq!(bind_heartbeat_to_tunnel(&mut msg, TUNNEL_UUID, OWNER), None);
+            assert_eq!(
+                msg.node_id, declared,
+                "a rejected heartbeat is left as it was"
+            );
+        }
+    }
+
+    // Regression for 2026-11-04 on testnet: provider-node 1.0.13 announces its
+    // config.node_id (registry key since DP-3) but names heartbeats node_<user>.
+    // Filed under that name, the tunnel's own entry went stale and was evicted
+    // ~85 s after connect, so every pinned buyer session got 503.
+    #[tokio::test]
+    async fn runtime_named_heartbeat_keeps_the_announced_tunnel_alive() {
+        use crate::heartbeat::{HeartbeatConfig, HeartbeatMonitor};
+        let monitor = HeartbeatMonitor::new(HeartbeatConfig {
+            expected_interval: std::time::Duration::from_secs(30),
+            timeout: std::time::Duration::from_secs(60),
+            max_missed_heartbeats: 3,
+            check_interval: std::time::Duration::from_secs(10),
+        });
+        monitor.register_provider(TUNNEL_UUID).await;
+
+        let mut msg = heartbeat_named(&format!("node_{OWNER}"));
+        bind_heartbeat_to_tunnel(&mut msg, TUNNEL_UUID, OWNER).expect("own runtime id");
+        monitor.record_heartbeat_details(&msg, 0).await.unwrap();
+
+        let status = monitor.get_status(TUNNEL_UUID).await.expect("tunnel entry");
+        assert_eq!(
+            status.total_heartbeats, 1,
+            "heartbeat must land on the tunnel id"
+        );
+        assert!(monitor.is_healthy(TUNNEL_UUID).await);
+        assert!(
+            monitor.get_status(&format!("node_{OWNER}")).await.is_none(),
+            "no phantom entry under the runtime id"
+        );
     }
 
     #[tokio::test]
