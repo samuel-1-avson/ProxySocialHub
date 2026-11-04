@@ -594,6 +594,47 @@ export function signListingOfferDev(data: CreateListingRequest) {
     );
 }
 
+export interface NodeOfferSignature {
+    id: string;
+    provider_node_id: string;
+    listing_id?: string;
+    /** pending until the node answers; refused carries `error`. */
+    status: 'pending' | 'signed' | 'refused';
+    /** The node asked for work within the last ~45 s. */
+    node_listening: boolean;
+    expires_at: number;
+    proof?: ProviderProofEnvelope;
+    error?: string;
+}
+
+export type NodeOfferSignatureBody =
+    | { listing: CreateListingRequest }
+    | { listing_id: string; update: UpdateListingRequest };
+
+/**
+ * Ask the offer's node to sign it. The node holds provider_signing_key; the browser
+ * never needs it. Send exactly the request that will be published afterwards.
+ */
+export function requestNodeOfferSignature(body: NodeOfferSignatureBody) {
+    return apiPost<NodeOfferSignature, NodeOfferSignatureBody>(
+        '/v1/provider/listings/offer-signatures',
+        body
+    );
+}
+
+export function getNodeOfferSignature(id: string) {
+    return apiGet<NodeOfferSignature>(
+        `/v1/provider/listings/offer-signatures/${encodeURIComponent(id)}`
+    );
+}
+
+/** Whether the node is connected and asking for offers to sign right now. */
+export function getNodeOfferSigner(nodeId: string) {
+    return apiGet<{ listening: boolean }>(
+        `/v1/provider/nodes/${encodeURIComponent(nodeId)}/offer-signer`
+    );
+}
+
 /**
  * Create a new marketplace listing.
  */

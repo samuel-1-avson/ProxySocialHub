@@ -1,7 +1,10 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { getListingProofPolicy } from "@/lib/api/marketplace";
+import {
+  getListingProofPolicy,
+  getNodeOfferSigner,
+} from "@/lib/api/marketplace";
 import {
   loadProviderSigningKey,
   saveProviderSigningKey,
@@ -83,19 +86,77 @@ export function useListingSigner(
 }
 
 /**
- * Recovery panel for CLI-configured nodes: validates a pasted provider_signing_key
- * against the node hotkey and stores it per-node, exactly like Setup-wizard keys.
+ * Whether the node is connected and asking for offers to sign. `listening` is undefined
+ * until known (or when the check fails), so callers only act on a definite `false`.
+ */
+export function useNodeOfferSignerStatus(
+  nodeId: string | undefined,
+  enabled: boolean,
+): { listening: boolean | undefined } {
+  const signer = useQuery({
+    queryKey: ["node-offer-signer", nodeId ?? ""],
+    queryFn: () => getNodeOfferSigner(nodeId ?? ""),
+    enabled: Boolean(nodeId) && enabled,
+    refetchInterval: 10_000,
+    retry: false,
+  });
+  return { listening: signer.data?.listening };
+}
+
+/**
+ * Says up front that the node itself will sign the offer, and whether it is connected to do
+ * so right now. The node holds provider_signing_key, so nothing has to be pasted here.
+ */
+export function NodeSignerNote({
+  nodeName,
+  listening,
+}: {
+  nodeName: string;
+  listening: boolean | undefined;
+}) {
+  if (listening === false) {
+    return (
+      <p className="ui-note" role="status">
+        Offer signature: <strong>{nodeName}</strong> signs this offer with its own
+        key when you publish, but it is not connected right now. Start the ProxyHubb
+        app (or <code>provider-node</code>) on that computer and keep it running. It
+        needs version 1.0.13 or newer.
+      </p>
+    );
+  }
+  return (
+    <p className="ui-note" role="status">
+      Offer signature: <strong>{nodeName}</strong> signs this offer with its own key
+      when you publish{listening ? " (connected)" : ""}. There is no key to copy or
+      paste.
+    </p>
+  );
+}
+
+// Where provider-node keeps provider.toml (services/provider-node/src/paths.rs).
+const PROVIDER_TOML_LOCATIONS = [
+  ["Windows", "%APPDATA%\\proxyhubb\\provider.toml"],
+  ["macOS", "~/Library/Application Support/proxyhubb/provider.toml"],
+  ["Linux", "~/.config/proxyhubb/provider.toml"],
+] as const;
+
+/**
+ * Recovery panel: validates a pasted provider_signing_key against the node hotkey and
+ * stores it per-node, exactly like Setup-wizard keys. Normally the node signs offers
+ * itself; with `fallback` this is the way out when it could not.
  */
 export function NodeKeyImport({
   nodeId,
   nodeHotkey,
   onImported,
   busy,
+  fallback,
 }: {
   nodeId: string;
   nodeHotkey: string;
   onImported: () => void;
   busy?: boolean;
+  fallback?: boolean;
 }) {
   const [importKey, setImportKey] = useState("");
   const [importError, setImportError] = useState("");
@@ -131,14 +192,41 @@ export function NodeKeyImport({
 
   return (
     <section className="ui-attention" aria-label="Node signing key needed">
-      <h3>This browser doesn&apos;t have this node&apos;s signing key</h3>
-      <p className="ui-note">
-        This node was configured outside this browser, so its key was never saved
-        here. Paste the <code>provider_signing_key</code> value from your{
-        } <code>provider.toml</code> to sign offers in this browser. The key stays
-        in this browser&apos;s local storage, exactly as if the node had been
-        configured here. Never share it.
-      </p>
+      {fallback ? (
+        <>
+          <h3>Or sign here with the node&apos;s signing key</h3>
+          <p className="ui-note">
+            Starting the node (version 1.0.13 or newer) and publishing again is the
+            easy way. If that is not possible, paste the{" "}
+            <code>provider_signing_key</code> value from the node&apos;s{" "}
+            <code>provider.toml</code>. The key stays in this browser&apos;s local
+            storage. Never share it.
+          </p>
+        </>
+      ) : (
+        <>
+          <h3>This browser doesn&apos;t have this node&apos;s signing key</h3>
+          <p className="ui-note">
+            This node was configured outside this browser, so its key was never
+            saved here. Paste the <code>provider_signing_key</code> value from your{" "}
+            <code>provider.toml</code> to sign offers in this browser. The key
+            stays in this browser&apos;s local storage. Never share it.
+          </p>
+        </>
+      )}
+      <details className="ui-note">
+        <summary>Where is provider.toml?</summary>
+        <ul>
+          {PROVIDER_TOML_LOCATIONS.map(([os, path]) => (
+            <li key={os}>
+              {os}: <code>{path}</code>
+            </li>
+          ))}
+        </ul>
+        On Windows, paste the path into the File Explorer address bar, open the
+        file with Notepad and copy the text between the quotes on the{" "}
+        <code>provider_signing_key</code> line.
+      </details>
       {nodeHotkey && (
         <p className="ui-note">
           Node hotkey: <code>{nodeHotkey}</code>
