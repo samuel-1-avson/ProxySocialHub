@@ -27,7 +27,7 @@ async function mockAI(page: Page) {
     if (route.request().method() === "GET") return route.fulfill({ json: { mode: "ai", provider: "meta" } });
     expect(route.request().postDataJSON().messages.at(-1).role).toBe("user");
     await route.fulfill({ contentType: "application/x-ndjson", body: [
-      { type: "step", step: reply.steps[0] }, { type: "reply", reply },
+      { type: "step", step: reply.steps[0] }, { type: "delta", text: "Your recent order is **active**." }, { type: "reply", reply },
     ].map((event) => JSON.stringify(event)).join("\n") + "\n" });
   });
 }
@@ -51,6 +51,7 @@ test("drawer shows account scope, streamed tool results, and reviewed links", as
   await expect(scope(page).getByText("Your recent order is", { exact: false })).toBeVisible();
   await expect(scope(page).getByText("Read your recent orders (1)", { exact: true })).toBeVisible();
   await expect(scope(page).getByRole("link", { name: "Review your orders" })).toHaveAttribute("href", "/marketplace/orders");
+  await expect(scope(page).getByRole("article", { name: "Hubbie" })).toHaveCount(1, "streamed draft is replaced by the final reply, not duplicated");
   await expect(page).toHaveURL(/\/help$/);
 });
 
@@ -61,6 +62,20 @@ test("authenticated guide mode remains honest when AI is disabled", async ({ pag
   await scope(page).getByRole("button", { name: "Become a provider" }).click();
   await expect(scope(page).getByText("Hubbie · Help guides", { exact: true })).toBeVisible();
   await expect(scope(page).getByText("Guide answers do not check live data.", { exact: false })).toBeVisible();
+});
+
+test("pasting a recovery phrase is blocked with an explanation", async ({ page }) => {
+  await mockAI(page);
+  await open(page);
+  const box = scope(page).getByRole("textbox", { name: "Your question" });
+  await box.click();
+  await box.evaluate((el) => {
+    const dt = new DataTransfer();
+    dt.setData("text", "abandon ability able about above absent absorb abstract absurd abuse access accident");
+    el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+  });
+  await expect(scope(page).getByRole("alert")).toContainText("seed phrase or private key");
+  await expect(box).toHaveValue("");
 });
 
 test("failed requests can be retried without duplicating the user message", async ({ page }) => {

@@ -16,6 +16,7 @@ export function useHubbieChat(onReply?: () => void) {
   const [status, setStatus] = useState("");
   const [steps, setSteps] = useState<AssistantStep[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [liveText, setLiveText] = useState("");
   const abort = useRef<AbortController | null>(null);
   const active = useRef(false);
   const serial = useRef(0);
@@ -48,7 +49,7 @@ export function useHubbieChat(onReply?: () => void) {
   useEffect(() => () => abort.current?.abort(), []);
 
   function clear() {
-    abort.current?.abort(); setMessages([]); setDraft(""); setError(null); setSteps([]);
+    abort.current?.abort(); setMessages([]); setDraft(""); setError(null); setSteps([]); setLiveText("");
     input.current?.focus();
   }
 
@@ -66,10 +67,12 @@ export function useHubbieChat(onReply?: () => void) {
     const receive = (event: AssistantEvent) => {
       if (controller.signal.aborted || requestIdentity !== identityRef.current) return;
       if (event.type === "status") setStatus(event.label);
-      if (event.type === "step") setSteps((previous) => [...previous, event.step]);
+      if (event.type === "step") { setSteps((previous) => [...previous, event.step]); setLiveText(""); }
+      if (event.type === "delta") setLiveText((previous) => previous + event.text);
       if (event.type === "error") throw new Error(event.message);
       if (event.type === "reply") {
         receivedReply = true;
+        setLiveText("");
         onReply?.();
         setMessages((previous) => [...previous, { id: ++serial.current, role: "assistant", content: event.reply.content, reply: event.reply }]);
       }
@@ -122,11 +125,11 @@ export function useHubbieChat(onReply?: () => void) {
       if (!controller.signal.aborted && requestIdentity === identityRef.current) setError(caught instanceof Error ? caught.message : "The assistant could not answer. Please try again.");
     } finally {
       active.current = false;
-      setBusy(false); setStatus(""); setSteps([]);
+      setBusy(false); setStatus(""); setSteps([]); setLiveText("");
     }
   }
 
   const stop = () => abort.current?.abort();
-  return { user, isAuthenticated, messages, draft, setDraft, busy, status, steps, error, mode, input, clear, send, stop };
+  return { user, isAuthenticated, messages, draft, setDraft, busy, status, steps, error, mode, liveText, input, clear, send, stop };
 }
 export type HubbieChat = ReturnType<typeof useHubbieChat>;
