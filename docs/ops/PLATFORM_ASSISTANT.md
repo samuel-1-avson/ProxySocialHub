@@ -12,6 +12,8 @@ Supply `MODEL_API_KEY` to use the **Meta Model API**, matching the Regional Audi
 
 Meta is the only configured provider. Set `ASSISTANT_ENABLED=0` to retain guides while disabling live AI. The Compose `web` service passes these variables at runtime; rebuild the web image to include the feature, then recreate the service with the chosen runtime configuration. Keys are not build arguments.
 
+The web rollout derives its Compose overlays from the live container and checks in-memory fingerprints of `API_URL`, `JWT_SECRET`, and `MODEL_API_KEY` before and after rollout. Different planned settings stop the release before cutover. It never prints their values. Keep the previous image for rollback. `DEPLOY_PLAN_ONLY=1` validates the actual live overlays and settings without building, loading, or restarting a container.
+
 Authenticated `GET /api/assistant` returns mode, provider (`meta`), and model name. Configuration availability does not prove that the provider accepts the key. A real rejected or failed model request is surfaced as an error, never a fabricated answer.
 
 ## Tools and boundaries
