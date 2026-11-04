@@ -378,8 +378,9 @@ func (ns *NodeSync) syncNode(node models.ProviderNode, stats SessionStats) error
 			return err
 		}
 	} else {
-		// Update existing
-		if err := ns.db.Model(&explorerNode).Updates(explorerNodeData).Error; err != nil {
+		// Update existing. A map, not the struct: GORM skips zero-valued
+		// struct fields, so counts could rise but never return to 0 (audit D5).
+		if err := ns.db.Model(&explorerNode).Updates(explorerNodeSyncValues(explorerNodeData)).Error; err != nil {
 			return err
 		}
 	}
@@ -546,6 +547,41 @@ func (ns *NodeSync) SyncNodeNow(nodeID string) error {
 
 	stats := ns.getSessionStats()
 	return ns.syncNode(node, stats[nodeID])
+}
+
+// explorerNodeSyncValues is the column set node sync owns on explorer_nodes,
+// as a map so GORM writes zero values instead of skipping them (audit D5).
+// Columns sync does not own (geo_source, geo_resolved_at, stake_amount,
+// commission_rate) are absent and stay untouched. provider_user_id is written
+// only when known: "" is invalid for the uuid column. last_heartbeat is
+// written only when the node has been seen, so syncing a never-seen node does
+// not erase a stored heartbeat.
+func explorerNodeSyncValues(data models.ExplorerNode) map[string]interface{} {
+	values := map[string]interface{}{
+		"chain":             data.Chain,
+		"name":              data.Name,
+		"ip":                data.IP,
+		"region":            data.Region,
+		"country":           data.Country,
+		"city":              data.City,
+		"isp":               data.ISP,
+		"latitude":          data.Latitude,
+		"longitude":         data.Longitude,
+		"is_active":         data.IsActive,
+		"is_validator":      data.IsValidator,
+		"uptime_percent":    data.UptimePercent,
+		"total_bandwidth":   data.TotalBandwidth,
+		"active_sessions":   data.ActiveSessions,
+		"provider_username": data.ProviderUsername,
+		"version":           data.Version,
+	}
+	if data.ProviderUserID != "" {
+		values["provider_user_id"] = data.ProviderUserID
+	}
+	if !data.LastHeartbeat.IsZero() {
+		values["last_heartbeat"] = data.LastHeartbeat
+	}
+	return values
 }
 
 func providerNodeLastSeen(node models.ProviderNode) time.Time {

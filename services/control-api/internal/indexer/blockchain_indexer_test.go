@@ -5,10 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/gagliardetto/solana-go/rpc/jsonrpc"
+	"github.com/glebarez/sqlite"
+	"github.com/proxyhubb/control-api/internal/db"
+	"github.com/proxyhubb/control-api/internal/models"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 // rpcErr mimics what GetBlockWithOpts returns, wrapped the way indexSlot wraps it.
@@ -148,6 +154,133 @@ func TestIndexSlotRangeGivesUpAfterRepeatedFailures(t *testing.T) {
 	}
 	if len(bi.slotFailures) != 0 {
 		t.Fatalf("slotFailures = %v, want empty once the slot is passed", bi.slotFailures)
+	}
+}
+
+// setupIndexerSQLite points db.DB at an in-memory database holding only the
+// tables a test asks for, in the style of the explorer metrics lag tests.
+func setupIndexerSQLite(t *testing.T, ddls ...string) *gorm.DB {
+	t.Helper()
+	gdb, err := gorm.Open(sqlite.Open("file:indexer_"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{Logger: logger.Discard})
+	if err != nil {
+		t.Fatalf("sqlite: %v", err)
+	}
+	for _, ddl := range ddls {
+		if err := gdb.Exec(ddl).Error; err != nil {
+			t.Fatalf("create table: %v", err)
+		}
+	}
+	previous := db.DB
+	db.DB = gdb
+	t.Cleanup(func() { db.DB = previous })
+	return gdb
+}
+
+func TestMaxIndexedSlot(t *testing.T) {
+	gdb := setupIndexerSQLite(t, `CREATE TABLE explorer_blocks (
+		block_number INTEGER,
+		chain TEXT,
+		is_orphaned BOOLEAN
+	)`)
+	bi := &BlockchainIndexer{}
+	if slot, ok := bi.maxIndexedSlot(); ok || slot != 0 {
+		t.Fatalf("empty table: got (%d, %v), want (0, false)", slot, ok)
+	}
+	for _, row := range []struct {
+		number   uint64
+		chain    string
+		orphaned bool
+	}{
+		{100, "solana", false},
+		{150, "solana", true},    // an orphaned head is not a resume point
+		{999, "ethereum", false}, // other chains do not count
+	} {
+		if err := gdb.Exec(`INSERT INTO explorer_blocks (block_number, chain, is_orphaned) VALUES (?, ?, ?)`, row.number, row.chain, row.orphaned).Error; err != nil {
+			t.Fatalf("insert block: %v", err)
+		}
+	}
+	if slot, ok := bi.maxIndexedSlot(); !ok || slot != 100 {
+		t.Fatalf("got (%d, %v), want (100, true): newest canonical solana block", slot, ok)
+	}
+}
+
+func TestMaxIndexedSlotWithoutDB(t *testing.T) {
+	previous := db.DB
+	db.DB = nil
+	t.Cleanup(func() { db.DB = previous })
+	bi := &BlockchainIndexer{}
+	if slot, ok := bi.maxIndexedSlot(); ok || slot != 0 {
+		t.Fatalf("nil db: got (%d, %v), want (0, false)", slot, ok)
+	}
+}
+
+const explorerTransactionsDDL = `CREATE TABLE explorer_transactions (
+	id TEXT PRIMARY KEY,
+	tx_hash TEXT,
+	chain TEXT,
+	block_hash TEXT,
+	block_number INTEGER,
+	from_address TEXT,
+	to_address TEXT,
+	amount REAL,
+	currency TEXT,
+	token_mint TEXT,
+	is_orphaned BOOLEAN,
+	fee REAL,
+	status TEXT,
+	tx_type TEXT,
+	program_id TEXT,
+	timestamp DATETIME,
+	confirmations INTEGER,
+	raw_data TEXT,
+	created_at DATETIME,
+	updated_at DATETIME
+)`
+
+func TestIndexTransactionStoresBlockTime(t *testing.T) {
+	gdb := setupIndexerSQLite(t, explorerTransactionsDDL)
+
+	var twm rpc.TransactionWithMeta
+	if err := json.Unmarshal([]byte(`{"transaction":["`+devnetV1Tx+`","base64"]}`), &twm); err != nil {
+		t.Fatalf("unmarshal block transaction: %v", err)
+	}
+
+	blockTime := time.Date(2026, 11, 3, 17, 1, 58, 0, time.UTC)
+	bi := &BlockchainIndexer{indexAll: true, programID: solana.SystemProgramID}
+	if err := bi.indexTransaction(&twm, 518145109, "blockhash", blockTime, 0); err != nil {
+		t.Fatalf("indexTransaction: %v", err)
+	}
+
+	var stored models.ExplorerTransaction
+	if err := gdb.First(&stored).Error; err != nil {
+		t.Fatalf("read stored transaction: %v", err)
+	}
+	if stored.Timestamp.Unix() != blockTime.Unix() {
+		t.Fatalf("timestamp = %v, want the block time %v, not the indexing time", stored.Timestamp, blockTime)
+	}
+}
+
+func TestIndexTransactionFallsBackToNowWithoutBlockTime(t *testing.T) {
+	gdb := setupIndexerSQLite(t, explorerTransactionsDDL)
+
+	var twm rpc.TransactionWithMeta
+	if err := json.Unmarshal([]byte(`{"transaction":["`+devnetV1Tx+`","base64"]}`), &twm); err != nil {
+		t.Fatalf("unmarshal block transaction: %v", err)
+	}
+
+	bi := &BlockchainIndexer{indexAll: true, programID: solana.SystemProgramID}
+	before := time.Now().Add(-time.Second)
+	if err := bi.indexTransaction(&twm, 518145109, "blockhash", time.Time{}, 0); err != nil {
+		t.Fatalf("indexTransaction: %v", err)
+	}
+	after := time.Now().Add(time.Second)
+
+	var stored models.ExplorerTransaction
+	if err := gdb.First(&stored).Error; err != nil {
+		t.Fatalf("read stored transaction: %v", err)
+	}
+	if stored.Timestamp.Before(before) || stored.Timestamp.After(after) {
+		t.Fatalf("timestamp = %v, want within [%v, %v]", stored.Timestamp, before, after)
 	}
 }
 
