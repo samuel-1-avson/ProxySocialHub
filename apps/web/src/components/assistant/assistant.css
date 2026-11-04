@@ -1,6 +1,8 @@
 .assistant-panel button:focus-visible, .assistant-panel a:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
 .hubbie-host, .hubbie-drawer, .hubbie-drawer-loading { --hubbie-width: 430px; }
-.hubbie-page-content { position: relative; isolation: isolate; min-width: 0; transition: margin-right 220ms cubic-bezier(.2,.8,.2,1); }
+.hubbie-page-content { min-width: 0; transition: margin-right 220ms cubic-bezier(.2,.8,.2,1); }
+/* Navigation stays beneath the dock; existing modal and toast layers keep their priority. */
+.hubbie-host[data-hubbie-open="true"] .marketing-header { z-index: 30; }
 .hubbie-ai-badge { display: inline-flex; align-items: center; justify-content: center; padding: 2px 5px; border: 1px solid currentColor; border-radius: 4px; font-family: var(--font-mono); font-size: 9px; font-weight: 500; line-height: 1.2; letter-spacing: .03em; }
 .assistant-header h2 { display: flex; align-items: center; gap: 7px; }
 .assistant-header h2 .hubbie-ai-badge { color: var(--primary); }
