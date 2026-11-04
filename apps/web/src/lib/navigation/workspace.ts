@@ -62,7 +62,6 @@ export const COMMUNITY_DESTINATIONS: WorkspaceDestination[] = [
   },
 ];
 export const SHARED_WORKSPACE_TOOLS = [
-  { label: 'Hubbie · Personal assistant', href: '/app/assistant' },
   { label: 'API keys', href: '/dashboard/settings/api-keys' },
   { label: 'Account data & export', href: '/dashboard/settings/account' },
   { label: 'Help forum', href: '/help/forum' },

@@ -20,7 +20,7 @@ export default function HelpPage() {
       sections={[
         {
           title: "Meet Hubbie, your personal assistant",
-          body: "Sign in and open Hubbie from your account menu or workspace sidebar. Your personal assistant can find proxy listings, check your own recent orders and provider nodes, and guide your next step. Chat is held in page memory and clears when you leave, reload, or change accounts. Meta receives messages and requested summaries for live AI; never paste credentials or private keys. Payments and account changes stay in their existing review flows.",
+          body: "Sign in and open Hubbie using the bottom-right Hubbie AI button, the navigation bar's AI shortcut, or the workspace sidebar. A chat panel opens on the right so you can keep browsing. Your personal assistant can find proxy listings, check your own recent orders and provider nodes, and guide your next step. Messages stay in this tab while you navigate or minimize the panel, and clear on reload, sign-out, or account change. Meta receives messages and requested summaries for live AI; never paste credentials or private keys. Payments and account changes stay in their existing review flows.",
         },
         {
           title: "Test network status",

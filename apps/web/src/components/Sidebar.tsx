@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
 import { BrandLockup } from "@/components/BrandLockup";
+import { HubbieTrigger } from "@/components/assistant/HubbieProvider";
 import {
   COMMUNITY_DESTINATIONS,
   WORKSPACE_DESTINATIONS,
@@ -62,10 +63,11 @@ export function Sidebar() {
         ))}
       </nav>
       <nav className="workspace-secondary" aria-label="Workspace utilities">
-        {isAuthenticated && <Link href="/app/assistant" className={pathname === "/app/assistant" ? "active" : ""} aria-current={pathname === "/app/assistant" ? "page" : undefined}>
+        {isAuthenticated && <HubbieTrigger className="hubbie-sidebar-trigger">
           <MessageCircle size={18} aria-hidden="true" />
           Hubbie
-        </Link>}
+          <span className="hubbie-ai-badge">AI</span>
+        </HubbieTrigger>}
         <a href={explorerHref()}>
           <Globe2 size={18} aria-hidden="true" />
           Explorer
