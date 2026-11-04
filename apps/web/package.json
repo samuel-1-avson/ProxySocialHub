@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "test:assistant": "node --test scripts/assistant.test.mjs",
+    "eval:assistant": "node scripts/assistant-eval.mjs",
     "test:dependency-compat": "node --test scripts/dependency-compat.test.mjs",
     "test:map-evidence": "node --test scripts/map-evidence.test.mjs",
     "test:geo-hub-guard": "node --test scripts/geo-hub-guard.test.mjs",

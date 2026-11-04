@@ -472,6 +472,8 @@ services:
       - CONCIERGE_MODEL=${CONCIERGE_MODEL:-muse-spark-1.3}
       - ASSISTANT_MODEL=${ASSISTANT_MODEL:-muse-spark-1.3}
       - ASSISTANT_ENABLED=${ASSISTANT_ENABLED:-1}
+      # Hubbie rate limits shared across web replicas; the limiter falls back to in-memory if Redis is unreachable.
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379
       # Public vars — must be browser-resolvable (public host/port)
       - NEXT_PUBLIC_API_URL=${API_BASE_URL:-http://localhost:18080}
       - NEXT_PUBLIC_PROXY_ENDPOINT=${NEXT_PUBLIC_PROXY_ENDPOINT:-localhost:8090}
@@ -493,6 +495,8 @@ services:
       - NEXT_PUBLIC_GLOBE_TOPOLOGY=${NEXT_PUBLIC_GLOBE_TOPOLOGY:-false}
     depends_on:
       control-api:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - backend

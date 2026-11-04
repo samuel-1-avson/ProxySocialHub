@@ -1,19 +1,27 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { assistantGuideReply, type AssistantEvent, type AssistantMessage } from "@/lib/assistant";
 import { resolveAssistantUser } from "@/lib/server/assistant-auth";
-import { assistantSettings, AssistantError, runAssistant } from "@/lib/server/assistant-agent";
+import { assistantSettings, AssistantError, runAssistant, type AssistantUsageRecord } from "@/lib/server/assistant-agent";
 import { readAssistantJson } from "@/lib/server/assistant-json";
+import { getAssistantRateLimiter, RATE_LIMIT_MESSAGES } from "@/lib/server/assistant-rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 const headers = { "cache-control": "private, no-store", vary: "Authorization" };
-const fail = (status: number, message: string) => NextResponse.json({ error: message }, { status, headers });
-const recent = new Map<string, { started: number; count: number; busy: boolean }>();
-const WINDOW = 10 * 60_000;
-let fleetWindow = 0;
-let fleetCount = 0;
-let concurrent = 0;
+const fail = (status: number, message: string, extra?: Record<string, string>) => NextResponse.json({ error: message, ...extra }, { status, headers });
+
+/** Stable non-identifying correlation id for usage logs (not a security hash). */
+function accountTag(id: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < id.length; i++) { hash ^= id.charCodeAt(i); hash = Math.imul(hash, 0x01000193); }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+/** One JSON line per turn: cost/latency/tool outcomes only, never content. */
+function logUsage(accountId: string, record: AssistantUsageRecord) {
+  console.info(JSON.stringify({ event: "hubbie.usage", account: accountTag(accountId), ...record }));
+}
 
 /** No account or model secrets are exposed by the capability endpoint. */
 export async function GET(request: NextRequest) {
@@ -50,17 +58,10 @@ export async function POST(request: NextRequest) {
   const settings = assistantSettings();
   if (!settings) return NextResponse.json(assistantGuideReply(messages[messages.length - 1].content), { headers });
 
-  const now = Date.now();
-  for (const [key, value] of recent) if (now - value.started >= WINDOW && !value.busy) recent.delete(key);
-  let limit = recent.get(user.id);
-  if (now - fleetWindow >= WINDOW) { fleetWindow = now; fleetCount = 0; }
-  if (limit?.busy || (limit && now - limit.started < WINDOW && limit.count >= 12) || (!limit && recent.size >= 2000) || fleetCount >= 120 || concurrent >= 16) return fail(429, "Please wait before sending another request. Live assistance allows 12 requests every 10 minutes.");
-  if (!limit || now - limit.started >= WINDOW) { limit = { started: now, count: 0, busy: false }; recent.set(user.id, limit); }
-  limit.count++;
-  limit.busy = true;
-  fleetCount++;
-  concurrent++;
-  const slot = limit;
+  const acquired = await getAssistantRateLimiter().acquire(user.id);
+  if (!acquired.ok) return fail(429, RATE_LIMIT_MESSAGES[acquired.reason], { reason: acquired.reason });
+  let released = false;
+  const release = () => { if (!released) { released = true; void acquired.release(); } };
   const controller = new AbortController();
   const signal = AbortSignal.any([request.signal, controller.signal, AbortSignal.timeout(90_000)]);
   const encoder = new TextEncoder();
@@ -72,18 +73,21 @@ export async function POST(request: NextRequest) {
           if (!closed && !signal.aborted) streamController.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
         };
         try {
-          const reply = await runAssistant({ settings, messages, pathname, context: { bearer: user.bearer, role: user.role, apiBase: process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:18080", signal }, emit });
+          const reply = await runAssistant({
+            settings, messages, pathname,
+            context: { bearer: user.bearer, role: user.role, apiBase: process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:18080", signal },
+            emit, onUsage: (record) => logUsage(user.id, record),
+          });
           emit({ type: "reply", reply });
         } catch (error) {
           if (!closed) streamController.enqueue(encoder.encode(JSON.stringify({ type: "error", message: error instanceof AssistantError ? error.message : "The assistant could not finish this request. Try again or contact support." }) + "\n"));
         } finally {
-          slot.busy = false;
-          concurrent--;
+          release();
           if (!closed) { closed = true; streamController.close(); }
         }
       })();
     },
-    cancel() { closed = true; controller.abort(); },
+    cancel() { closed = true; controller.abort(); release(); },
   });
   return new Response(stream, { headers: { ...headers, "content-type": "application/x-ndjson; charset=utf-8", "x-accel-buffering": "no", "x-content-type-options": "nosniff" } });
 }
