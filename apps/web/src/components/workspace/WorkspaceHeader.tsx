@@ -28,6 +28,7 @@ import { BrandLockup } from "@/components/BrandLockup";
 import { ModeToggle } from "@/components/ModeToggle";
 import { ThemeSelect } from "./ThemeSelect";
 import { NotificationCenter } from "@/components/NotificationCenter";
+import { HubbieTrigger } from "@/components/assistant/HubbieProvider";
 export function WorkspaceHeader() {
   const { user, logout } = useAuth();
   const { isAdmin } = useRole();
@@ -69,6 +70,7 @@ export function WorkspaceHeader() {
       <header className="workspace-header">
         <BrandLockup
           className="workspace-mobile-brand"
+          ariaLabel="ProxyHubb workspace"
           href={mode === "seller" ? "/provider" : "/app"}
         />
         <button
@@ -82,6 +84,9 @@ export function WorkspaceHeader() {
           <kbd aria-hidden="true">Ctrl / ⌘ K</kbd>
         </button>
         <div className="workspace-header-actions">
+          {user && <HubbieTrigger className="hubbie-header-trigger" label="Open Hubbie AI panel">
+            <MessageCircle size={17} aria-hidden="true" /><span className="hubbie-header-name">Hubbie</span><span className="hubbie-ai-badge">AI</span>
+          </HubbieTrigger>}
           <ModeToggle />
           <Link href="/app/wallet" className="workspace-wallet-link">
             <Wallet size={16} aria-hidden="true" />
@@ -150,10 +155,6 @@ export function WorkspaceHeader() {
           <ThemeSelect />
         </div>
         <div className="workspace-menu-list mt-5">
-          {user && <Link href="/app/assistant" onClick={() => setAccountOpen(false)}>
-            <MessageCircle size={17} aria-hidden="true" />
-            Hubbie · Personal assistant
-          </Link>}
           <Link href="/app/settings" onClick={() => setAccountOpen(false)}>
             <Settings size={17} />
             Settings

@@ -8,6 +8,8 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ToastContainer } from "@/components/Toast";
 import { SkipLink } from "@/components/Accessibility";
 import { TestnetEnvironmentBanner } from "@/components/TestnetEnvironmentBanner";
+import { HubbieProvider } from "@/components/assistant/HubbieProvider";
+import "@/components/assistant/assistant.css";
 
 export const metadata: Metadata = {
   title: {
@@ -66,9 +68,11 @@ export default function RootLayout({
         >
           <QueryProvider>
             <AuthProvider>
+              <HubbieProvider>
               <TestnetEnvironmentBanner />
               <ErrorBoundary level="page">{children}</ErrorBoundary>
               <ToastContainer />
+              </HubbieProvider>
             </AuthProvider>
           </QueryProvider>
         </ThemeProvider>
