@@ -28,6 +28,8 @@ function listingQueryParams(params: Record<string, string> = {}): Record<string,
 // ============ Types ============
 
 export interface Listing {
+ quality_assessment?: { quality_score: number; tier: string; confidence: number; provisional: boolean; status: string; summary: string; completed_at: string; recommended_price_per_gb: number };
+    quality_assessment_id?: string;
     id: string;
     seller_id: string;
     node_id: string;
@@ -159,6 +161,7 @@ export interface ListingFilters {
 }
 
 export interface UpdateListingRequest {
+    quality_assessment_id?: string;
     title?: string;
     description?: string;
     price_per_gb?: number;
@@ -199,6 +202,7 @@ export interface CreateOrderResponse {
 }
 
 export interface CreateListingRequest {
+    quality_assessment_id?: string;
     title: string;
     description?: string;
     provider_node_id?: string;
@@ -542,6 +546,7 @@ export function getMyListings(page = 1, limit = 20) {
 
 export interface ListingProofPolicy {
     mode: 'observe' | 'enforce';
+    quality_assessment_required?: boolean;
     required: boolean;
     /** Dev/docker: control-api can sign with PROXYHUB_PROVIDER_SIGNING_KEY when wallet ≠ node hotkey */
     dev_server_signing?: boolean;
@@ -878,3 +883,10 @@ export const marketplaceKeys = {
 };
 
 export { catalogKeys } from './catalog';
+
+export interface ProxyAssessmentConfiguration { proxy_type: string; protocol: string; rotation_type: string; country: string; max_concurrency: number; }
+export interface ProxyAssessment extends ProxyAssessmentConfiguration {
+ id: string; provider_node_id: string; status: 'queued' | 'running' | 'passed' | 'failed' | 'unavailable'; policy_version: string; quality_score: number; tier: string; price_per_gb: number; confidence: number; provisional: boolean; samples: number; successful_samples: number; latency_p50_ms: number; latency_p95_ms: number; throughput_mbps: number; bytes_transferred: number; summary: string; created_at: string; completed_at?: string; valid_until?: string;
+}
+export function createProxyAssessment(nodeId: string, config: ProxyAssessmentConfiguration) { return apiPost<ProxyAssessment>('/v1/proxy-assessments', { provider_node_id: nodeId, ...config }); }
+export function getProxyAssessment(id: string) { return apiGet<ProxyAssessment>('/v1/proxy-assessments/'+id); }

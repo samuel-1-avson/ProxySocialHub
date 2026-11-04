@@ -6,6 +6,7 @@ import (
 
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/quality"
 )
 
 // PricingOracle provides intelligent price recommendations (USD per GB).
@@ -37,20 +38,20 @@ func (o *PricingOracle) SuggestPrice(ctx context.Context, country string, proxyT
 	country = strings.ToUpper(strings.TrimSpace(country))
 
 	// Type baselines (USD/GB) before light region multipliers.
-	baseRate := 0.99 // residential — under IPRoyal ~$1.75 and Bright PAYG
+	baseRate := quality.BaseResidential // residential — under IPRoyal ~$1.75 and Bright PAYG
 	typeMin := 0.70
 	typeMax := 1.75
 	switch proxyType {
 	case "mobile":
-		baseRate = 3.50 // under typical $4–12 mobile
+		baseRate = quality.BaseMobile // under typical $4–12 mobile
 		typeMin = 2.50
 		typeMax = 6.00
 	case "datacenter":
-		baseRate = 0.15 // under shared DC ~$0.40+/GB
+		baseRate = quality.BaseDatacenter // under shared DC ~$0.40+/GB
 		typeMin = 0.08
 		typeMax = 0.35
 	case "residential", "":
-		baseRate = 0.99
+		baseRate = quality.BaseResidential
 		typeMin = 0.70
 		typeMax = 1.75
 	}

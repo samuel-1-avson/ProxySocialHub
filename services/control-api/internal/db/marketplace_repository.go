@@ -12,7 +12,9 @@ import (
 	"github.com/proxyhubb/control-api/internal/core/ports"
 	"github.com/proxyhubb/control-api/internal/marketplace/discovery"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/quality"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type marketplaceRepository struct{}
@@ -59,77 +61,100 @@ func (r *marketplaceRepository) GetListingByID(ctx context.Context, id uuid.UUID
 	}
 
 	return &domain.ListingEntity{
-		ID:                   l.ID,
-		SellerID:             l.SellerID,
-		ProviderNodeID:       l.ProviderNodeID,
-		ListingOfferHash:     l.ListingOfferHash,
-		ListingOfferSignature: l.ListingOfferSignature,
-		ListingOfferSigner:   l.ListingOfferSigner,
-		ListingOfferSignedAt: l.ListingOfferSignedAt,
-		ListingOfferVerified: l.ListingOfferVerified,
+		ID:                            l.ID,
+		SellerID:                      l.SellerID,
+		QualityAssessmentID:           l.QualityAssessmentID,
+		ProviderNodeID:                l.ProviderNodeID,
+		ListingOfferHash:              l.ListingOfferHash,
+		ListingOfferSignature:         l.ListingOfferSignature,
+		ListingOfferSigner:            l.ListingOfferSigner,
+		ListingOfferSignedAt:          l.ListingOfferSignedAt,
+		ListingOfferVerified:          l.ListingOfferVerified,
 		ListingOfferVerificationError: l.ListingOfferVerificationError,
-		ListingOfferNonce:    l.ListingOfferNonce,
-		ListingCommitmentPDA:     l.ListingCommitmentPDA,
-		ListingCommitmentOnChain: l.ListingCommitmentOnChain,
-		ListingCommitmentTx:      l.ListingCommitmentTx,
-		ListingCommitmentAt:      l.ListingCommitmentAt,
-		Title:                l.Title,
-		Description:          l.Description,
-		PricePerGB:           l.PricePerGB,
-		MinPurchaseGB:        l.MinPurchaseGB,
-		AvailableBandwidthGB: l.AvailableBandwidthGB,
-		MaxConcurrency:       l.MaxConcurrency,
-		ProxyType:            domain.ProxyType(l.ProxyType),
-		Protocol:             l.Protocol,
-		RotationType:         l.RotationType,
-		Country:              l.Country,
-		ISP:                  l.ISP,
-		Status:               domain.ListingStatus(l.Status),
-		QualityScore:         l.QualityScore,
-		AvgLatencyMs:         l.AvgLatencyMs,
-		UptimePercent:        l.UptimePercent,
-		SuccessRate:          l.SuccessRate,
-		CurrentTier:          l.CurrentTier,
-		ViewsCount:           l.ViewsCount,
-		SavesCount:           l.SavesCount,
-		OrdersCount:          l.OrdersCount,
-		ActiveSessionsCount:  l.ActiveSessionsCount,
-		AllowDirectMessage:   l.AllowDirectMessage,
-		CreatedAt:            l.CreatedAt,
-		UpdatedAt:            l.UpdatedAt,
+		ListingOfferNonce:             l.ListingOfferNonce,
+		ListingCommitmentPDA:          l.ListingCommitmentPDA,
+		ListingCommitmentOnChain:      l.ListingCommitmentOnChain,
+		ListingCommitmentTx:           l.ListingCommitmentTx,
+		ListingCommitmentAt:           l.ListingCommitmentAt,
+		Title:                         l.Title,
+		Description:                   l.Description,
+		PricePerGB:                    l.PricePerGB,
+		MinPurchaseGB:                 l.MinPurchaseGB,
+		AvailableBandwidthGB:          l.AvailableBandwidthGB,
+		MaxConcurrency:                l.MaxConcurrency,
+		ProxyType:                     domain.ProxyType(l.ProxyType),
+		Protocol:                      l.Protocol,
+		RotationType:                  l.RotationType,
+		Country:                       l.Country,
+		ISP:                           l.ISP,
+		Status:                        domain.ListingStatus(l.Status),
+		QualityScore:                  l.QualityScore,
+		AvgLatencyMs:                  l.AvgLatencyMs,
+		UptimePercent:                 l.UptimePercent,
+		SuccessRate:                   l.SuccessRate,
+		CurrentTier:                   l.CurrentTier,
+		ViewsCount:                    l.ViewsCount,
+		SavesCount:                    l.SavesCount,
+		OrdersCount:                   l.OrdersCount,
+		ActiveSessionsCount:           l.ActiveSessionsCount,
+		AllowDirectMessage:            l.AllowDirectMessage,
+		CreatedAt:                     l.CreatedAt,
+		UpdatedAt:                     l.UpdatedAt,
 	}, nil
 }
 
 func (r *marketplaceRepository) CreateListing(ctx context.Context, entity *domain.ListingEntity) error {
 	m := models.ProxyListing{
-		ID:                   entity.ID,
-		SellerID:             entity.SellerID,
-		ProviderNodeID:       entity.ProviderNodeID,
-		ListingOfferHash:     entity.ListingOfferHash,
-		ListingOfferSignature: entity.ListingOfferSignature,
-		ListingOfferSigner:   entity.ListingOfferSigner,
-		ListingOfferSignedAt: entity.ListingOfferSignedAt,
-		ListingOfferVerified: entity.ListingOfferVerified,
+		ID:                            entity.ID,
+		SellerID:                      entity.SellerID,
+		QualityAssessmentID:           entity.QualityAssessmentID,
+		ProviderNodeID:                entity.ProviderNodeID,
+		ListingOfferHash:              entity.ListingOfferHash,
+		ListingOfferSignature:         entity.ListingOfferSignature,
+		ListingOfferSigner:            entity.ListingOfferSigner,
+		ListingOfferSignedAt:          entity.ListingOfferSignedAt,
+		ListingOfferVerified:          entity.ListingOfferVerified,
 		ListingOfferVerificationError: entity.ListingOfferVerificationError,
-		ListingOfferNonce:    entity.ListingOfferNonce,
-		Title:                entity.Title,
-		Description:          entity.Description,
-		PricePerGB:           entity.PricePerGB,
-		MinPurchaseGB:        entity.MinPurchaseGB,
-		AvailableBandwidthGB: entity.AvailableBandwidthGB,
-		MaxConcurrency:       entity.MaxConcurrency,
-		ProxyType:            models.ProxyType(entity.ProxyType),
-		Protocol:             entity.Protocol,
-		RotationType:         entity.RotationType,
-		Country:              entity.Country,
-		ISP:                  entity.ISP,
-		Status:               models.ListingStatus(entity.Status),
+		ListingOfferNonce:             entity.ListingOfferNonce,
+		Title:                         entity.Title,
+		Description:                   entity.Description,
+		PricePerGB:                    entity.PricePerGB,
+		MinPurchaseGB:                 entity.MinPurchaseGB,
+		AvailableBandwidthGB:          entity.AvailableBandwidthGB,
+		MaxConcurrency:                entity.MaxConcurrency,
+		ProxyType:                     models.ProxyType(entity.ProxyType),
+		Protocol:                      entity.Protocol,
+		RotationType:                  entity.RotationType,
+		Country:                       entity.Country,
+		ISP:                           entity.ISP,
+		Status:                        models.ListingStatus(entity.Status),
 	}
-	return DB.Create(&m).Error
+	return DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := validateListingAssessment(tx, &m); err != nil {
+			return err
+		}
+		// Map inserts must retain measured zero values rather than GORM defaults.
+		if err := tx.Create(&m).Error; err != nil {
+			return err
+		}
+		if m.QualityAssessmentID != nil {
+			if err := tx.Model(&m).Updates(map[string]interface{}{"uptime_percent": 0, "quality_score": m.QualityScore, "success_rate": m.SuccessRate, "current_tier": m.CurrentTier, "avg_latency_ms": m.AvgLatencyMs}).Error; err != nil {
+				return err
+			}
+		}
+		if m.QualityAssessmentID != nil {
+			m.UptimePercent = 0
+		}
+		*entity = listingModelToEntity(m)
+		return nil
+	})
 }
 
 func (r *marketplaceRepository) UpdateListing(ctx context.Context, id uuid.UUID, updates domain.ListingUpdate) (*domain.ListingEntity, error) {
 	values := make(map[string]interface{})
+	if updates.QualityAssessmentID != nil {
+		values["quality_assessment_id"] = updates.QualityAssessmentID
+	}
 	if updates.Title != nil {
 		values["title"] = *updates.Title
 	}
@@ -177,7 +202,34 @@ func (r *marketplaceRepository) UpdateListing(ctx context.Context, id uuid.UUID,
 	}
 
 	if len(values) > 0 {
-		if err := DB.WithContext(ctx).Model(&models.ProxyListing{}).Where("id = ?", id).Updates(values).Error; err != nil {
+		if err := DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			var candidate models.ProxyListing
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&candidate, "id = ?", id).Error; err != nil {
+				return err
+			}
+			needsAssessment := updates.QualityAssessmentID != nil || updates.PricePerGB != nil || updates.MaxConcurrency != nil || (updates.Status != nil && *updates.Status == domain.ListingActive)
+			if len(updates.BulkDiscountsJSON) > 0 && (quality.Enforced() || candidate.QualityAssessmentID != nil) {
+				return errors.New("bulk discounts are unavailable for quality-priced offers")
+			}
+			if needsAssessment {
+				if updates.QualityAssessmentID != nil {
+					candidate.QualityAssessmentID = updates.QualityAssessmentID
+				}
+				if updates.PricePerGB != nil {
+					candidate.PricePerGB = *updates.PricePerGB
+				}
+				if updates.MaxConcurrency != nil {
+					candidate.MaxConcurrency = *updates.MaxConcurrency
+				}
+				if err := validateListingAssessment(tx, &candidate); err != nil {
+					return err
+				}
+				if candidate.QualityAssessmentID != nil {
+					values["quality_score"], values["current_tier"], values["avg_latency_ms"], values["success_rate"], values["uptime_percent"] = candidate.QualityScore, candidate.CurrentTier, candidate.AvgLatencyMs, candidate.SuccessRate, 0
+				}
+			}
+			return tx.Model(&models.ProxyListing{}).Where("id = ?", id).Updates(values).Error
+		}); err != nil {
 			return nil, err
 		}
 	}
@@ -302,44 +354,45 @@ func (r *marketplaceRepository) UpdateQualityScore(ctx context.Context, nodeID u
 
 func listingModelToEntity(l models.ProxyListing) domain.ListingEntity {
 	entity := domain.ListingEntity{
-		ID:                   l.ID,
-		SellerID:             l.SellerID,
-		ProviderNodeID:       l.ProviderNodeID,
-		ListingOfferHash:     l.ListingOfferHash,
-		ListingOfferSignature: l.ListingOfferSignature,
-		ListingOfferSigner:   l.ListingOfferSigner,
-		ListingOfferSignedAt: l.ListingOfferSignedAt,
-		ListingOfferVerified: l.ListingOfferVerified,
+		ID:                            l.ID,
+		SellerID:                      l.SellerID,
+		QualityAssessmentID:           l.QualityAssessmentID,
+		ProviderNodeID:                l.ProviderNodeID,
+		ListingOfferHash:              l.ListingOfferHash,
+		ListingOfferSignature:         l.ListingOfferSignature,
+		ListingOfferSigner:            l.ListingOfferSigner,
+		ListingOfferSignedAt:          l.ListingOfferSignedAt,
+		ListingOfferVerified:          l.ListingOfferVerified,
 		ListingOfferVerificationError: l.ListingOfferVerificationError,
-		ListingOfferNonce:    l.ListingOfferNonce,
-		ListingCommitmentPDA:     l.ListingCommitmentPDA,
-		ListingCommitmentOnChain: l.ListingCommitmentOnChain,
-		ListingCommitmentTx:      l.ListingCommitmentTx,
-		ListingCommitmentAt:      l.ListingCommitmentAt,
-		Title:                l.Title,
-		Description:          l.Description,
-		PricePerGB:           l.PricePerGB,
-		MinPurchaseGB:        l.MinPurchaseGB,
-		AvailableBandwidthGB: l.AvailableBandwidthGB,
-		MaxConcurrency:       l.MaxConcurrency,
-		ProxyType:            domain.ProxyType(l.ProxyType),
-		Protocol:             l.Protocol,
-		RotationType:         l.RotationType,
-		Country:              l.Country,
-		ISP:                  l.ISP,
-		Status:               domain.ListingStatus(l.Status),
-		QualityScore:         l.QualityScore,
-		AvgLatencyMs:         l.AvgLatencyMs,
-		UptimePercent:        l.UptimePercent,
-		SuccessRate:          l.SuccessRate,
-		CurrentTier:          l.CurrentTier,
-		ViewsCount:           l.ViewsCount,
-		SavesCount:           l.SavesCount,
-		OrdersCount:          l.OrdersCount,
-		ActiveSessionsCount:  l.ActiveSessionsCount,
-		AllowDirectMessage:   l.AllowDirectMessage,
-		CreatedAt:            l.CreatedAt,
-		UpdatedAt:            l.UpdatedAt,
+		ListingOfferNonce:             l.ListingOfferNonce,
+		ListingCommitmentPDA:          l.ListingCommitmentPDA,
+		ListingCommitmentOnChain:      l.ListingCommitmentOnChain,
+		ListingCommitmentTx:           l.ListingCommitmentTx,
+		ListingCommitmentAt:           l.ListingCommitmentAt,
+		Title:                         l.Title,
+		Description:                   l.Description,
+		PricePerGB:                    l.PricePerGB,
+		MinPurchaseGB:                 l.MinPurchaseGB,
+		AvailableBandwidthGB:          l.AvailableBandwidthGB,
+		MaxConcurrency:                l.MaxConcurrency,
+		ProxyType:                     domain.ProxyType(l.ProxyType),
+		Protocol:                      l.Protocol,
+		RotationType:                  l.RotationType,
+		Country:                       l.Country,
+		ISP:                           l.ISP,
+		Status:                        domain.ListingStatus(l.Status),
+		QualityScore:                  l.QualityScore,
+		AvgLatencyMs:                  l.AvgLatencyMs,
+		UptimePercent:                 l.UptimePercent,
+		SuccessRate:                   l.SuccessRate,
+		CurrentTier:                   l.CurrentTier,
+		ViewsCount:                    l.ViewsCount,
+		SavesCount:                    l.SavesCount,
+		OrdersCount:                   l.OrdersCount,
+		ActiveSessionsCount:           l.ActiveSessionsCount,
+		AllowDirectMessage:            l.AllowDirectMessage,
+		CreatedAt:                     l.CreatedAt,
+		UpdatedAt:                     l.UpdatedAt,
 	}
 	if l.Seller != nil {
 		entity.Seller = sellerProfileFromUser(l.Seller)

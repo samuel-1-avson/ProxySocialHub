@@ -19,6 +19,7 @@ import (
 	"github.com/proxyhubb/control-api/internal/models"
 	"github.com/proxyhubb/control-api/internal/nats"
 	providerProofs "github.com/proxyhubb/control-api/internal/proofs"
+	"github.com/proxyhubb/control-api/internal/quality"
 	solanaClient "github.com/proxyhubb/control-api/internal/solana"
 	"gorm.io/gorm"
 )
@@ -585,6 +586,14 @@ func nodeHeartbeat(c *gin.Context) {
 	if gatewayNodeID == "" {
 		gatewayNodeID = req.Proof.GatewayNodeID
 	}
+	if providerProofPresent(req.Proof) {
+		binding, err := heartbeatGatewayBinding(userID, gatewayNodeID, req.Proof.GatewayNodeID)
+		if err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+		gatewayNodeID = binding
+	}
 	payloadHash := providerProofs.HashHeartbeatPayload(providerProofs.HeartbeatPayload{
 		ProviderNodeID:    nodeID,
 		GatewayNodeID:     gatewayNodeID,
@@ -738,7 +747,7 @@ func nodeHeartbeat(c *gin.Context) {
 }
 
 func activateProviderListingDraftIfReady(userID uuid.UUID, nodeID uuid.UUID, proofReady bool) {
-	if !proofReady {
+	if quality.Enforced() || !proofReady {
 		return
 	}
 	result := db.DB.Model(&models.ProxyListing{}).

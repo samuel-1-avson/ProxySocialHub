@@ -10,15 +10,16 @@ import (
 	"github.com/proxyhubb/control-api/internal/db"
 	"github.com/proxyhubb/control-api/internal/logging"
 	"github.com/proxyhubb/control-api/internal/models"
+	"github.com/proxyhubb/control-api/internal/quality"
 	"github.com/proxyhubb/control-api/internal/redis"
 )
 
 // Base Prices (USD per GB) — traffic-first floors for fair-price hints only.
 // Seller-set listing.price_per_gb is authoritative on buy/checkout.
 const (
-	BasePriceResidential = 0.99
-	BasePriceMobile      = 3.50
-	BasePriceDatacenter  = 0.15
+	BasePriceResidential = quality.BaseResidential
+	BasePriceMobile      = quality.BaseMobile
+	BasePriceDatacenter  = quality.BaseDatacenter
 )
 
 // Multipliers
@@ -151,14 +152,14 @@ func getActiveConnections(nodeID uuid.UUID) float64 {
 	if redis.Client == nil {
 		return 0
 	}
-	
+
 	ctx := context.Background()
 	key := fmt.Sprintf("node:%s:active_connections", nodeID.String())
-	
+
 	val, err := redis.Client.Get(ctx, key).Float64()
 	if err != nil {
 		return 0
 	}
-	
+
 	return val
 }

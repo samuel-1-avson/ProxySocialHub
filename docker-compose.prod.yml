@@ -111,6 +111,7 @@ services:
       - COINGECKO_API_URL=${COINGECKO_API_URL:-https://api.coingecko.com/api/v3}
       - COINMARKETCAP_API_KEY=${COINMARKETCAP_API_KEY}
       # Edge Gateway
+      - LISTING_QUALITY_MODE=${LISTING_QUALITY_MODE:-enforce}
       - EDGE_GATEWAY_MGMT_URL=${EDGE_GATEWAY_MGMT_URL:-http://edge-gateway:8090}
       # Provider Engine
       - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET:?SUPABASE_JWT_SECRET must be set}
