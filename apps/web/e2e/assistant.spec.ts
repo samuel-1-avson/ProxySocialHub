@@ -174,6 +174,7 @@ test("desktop dock shifts the page and preserves chat through minimize and navig
   await expect(scope(page).getByRole("article")).toHaveCount(2);
   await page.getByRole("main").getByRole("link", { name: "Contact support", exact: true }).click();
   await expect(page).toHaveURL(/\/help\/contact$/);
+  await expect(page.getByRole("main").getByRole("heading", { level: 1 })).toContainText(/contact|support/i);
   await expect(scope(page).getByRole("article")).toHaveCount(2);
   await scope(page).getByRole("link", { name: "Review your orders" }).click();
   await expect(page).toHaveURL(/\/marketplace\/orders$/);
