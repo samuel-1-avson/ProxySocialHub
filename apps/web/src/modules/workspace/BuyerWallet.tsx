@@ -65,6 +65,7 @@ export function BuyerWallet() {
     setResult,
     treasuryConfig,
   } = page;
+  const managed = Boolean(user?.managed_wallet?.address);
   const deposit = useWalletDeposit({
     userId: user?.id,
     wallet,
@@ -113,7 +114,7 @@ export function BuyerWallet() {
         1_000_000_000
       );
     },
-    enabled: Boolean(address),
+    enabled: Boolean(address) && !managed,
     staleTime: 30_000,
     refetchInterval: 30_000,
     retry: 1,
@@ -144,7 +145,6 @@ export function BuyerWallet() {
   );
   // Google accounts get a wallet ProxyHubb holds for them: top up and cash out
   // in cedis instead of linking Phantom and picking networks.
-  const managed = Boolean(user?.managed_wallet?.address);
   const linkedStatus = matching
     ? "Connected"
     : differentWallet
@@ -184,7 +184,7 @@ export function BuyerWallet() {
       <PageHeading
         title="Wallet"
         eyebrow="Account utility"
-        description="Your payment wallet, balance, and account transfers in one place."
+        description={managed ? "Your Google-connected wallet, payments, and activity in one place." : "Your payment wallet, balance, and account transfers in one place."}
         actions={
           <Link
             className="ui-button secondary"
@@ -199,7 +199,7 @@ export function BuyerWallet() {
       <nav className="ui-tabs" aria-label="Wallet views">
         {(managed
           ? [
-              ["overview", "Your money"],
+              ["overview", "Overview"],
               ["history", "Activity"],
             ]
           : [
@@ -220,7 +220,7 @@ export function BuyerWallet() {
       </nav>
       {managed && tab !== "history" && (
         <div className="space-y-4">
-          <ManagedWalletCard />
+          <ManagedWalletCard key={user?.managed_wallet?.address} workspace={workspace} />
           <CashOutCard />
         </div>
       )}

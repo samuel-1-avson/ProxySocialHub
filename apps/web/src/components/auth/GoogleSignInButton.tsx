@@ -4,12 +4,9 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
+import { useGoogleSignInConfig } from '@/lib/google-sign-in';
 
-const GOOGLE_CLIENT_ID = (process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? '').trim();
 const GSI_SRC = 'https://accounts.google.com/gsi/client';
-
-/** True when a Google OAuth client ID is configured for this build. */
-export const googleSignInEnabled = GOOGLE_CLIENT_ID !== '';
 
 type GsiCredentialResponse = { credential?: string };
 
@@ -36,11 +33,19 @@ function loadGoogleIdentityServices(): Promise<void> {
             script.src = GSI_SRC;
             script.async = true;
             script.defer = true;
-            script.onload = () => resolve();
-            script.onerror = () => {
+            const fail = () => {
+                clearTimeout(timeout);
+                script.remove();
                 gsiLoader = null;
                 reject(new Error('Google sign-in script failed to load'));
             };
+            const timeout = setTimeout(fail, 15_000);
+            script.onload = () => {
+                if (!window.google?.accounts?.id) { fail(); return; }
+                clearTimeout(timeout);
+                resolve();
+            };
+            script.onerror = fail;
             document.head.appendChild(script);
         });
     }
@@ -56,7 +61,7 @@ function nextPath(): string {
 /**
  * Google's official "Continue with Google" button (Google Identity Services).
  * First sign-in creates the account and a ProxyHubb-managed Solana wallet.
- * Renders nothing when NEXT_PUBLIC_GOOGLE_CLIENT_ID is not set.
+ * Reads the public OAuth client ID from the running deployment.
  */
 export function GoogleSignInButton({
     text = 'continue_with',
@@ -74,6 +79,8 @@ export function GoogleSignInButton({
     const router = useRouter();
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const { data: clientId, isPending, isError, refetch } = useGoogleSignInConfig();
+    const [loadAttempt, setLoadAttempt] = useState(0);
     const [newAccountsAvailable,setNewAccountsAvailable]=useState<boolean|null>(null);
     useEffect(()=>{let cancelled=false;void fetch("/v1/auth/capabilities").then((res)=>res.ok?res.json():null).then((data:{managed_wallet_signup?:boolean}|null)=>{if(!cancelled&&typeof data?.managed_wallet_signup==="boolean")setNewAccountsAvailable(data.managed_wallet_signup);}).catch(()=>{});return()=>{cancelled=true;};},[]);
 
@@ -92,14 +99,14 @@ export function GoogleSignInButton({
     });
 
     useEffect(() => {
-        if (!googleSignInEnabled) return;
+        if (!clientId) return;
         let cancelled = false;
         loadGoogleIdentityServices()
             .then(() => {
                 const el = containerRef.current;
                 if (cancelled || !el || !window.google?.accounts?.id) return;
                 window.google.accounts.id.initialize({
-                    client_id: GOOGLE_CLIENT_ID,
+                    client_id: clientId,
                     ux_mode: 'popup',
                     auto_select: false,
                     callback: async (resp: GsiCredentialResponse) => {
@@ -134,9 +141,16 @@ export function GoogleSignInButton({
         return () => {
             cancelled = true;
         };
-    }, [router, text]);
+    }, [clientId, router, text, loadAttempt]);
 
-    if (!googleSignInEnabled) return null;
+    if (isPending) return <p role="status" className="text-center text-sm text-muted-foreground">Loading Google sign-in…</p>;
+    if (isError) return (
+        <div className="text-center text-sm">
+            <p role="alert">Couldn&apos;t load Google sign-in.</p>
+            <button type="button" className="underline" onClick={() => void refetch()}>Try again</button>
+        </div>
+    );
+    if (!clientId) return null;
 
     return (
         <div className="space-y-2">
@@ -153,6 +167,7 @@ export function GoogleSignInButton({
             {error && (
                 <p role="alert" className="text-center text-xs text-warning">
                     {error}
+                    {' '}<button type="button" className="underline" onClick={() => { setError(null); setLoadAttempt((attempt) => attempt + 1); }}>Try again</button>
                 </p>
             )}
         </div>
@@ -161,7 +176,8 @@ export function GoogleSignInButton({
 
 /** "or" divider shown between Google and wallet sign-in. */
 export function AuthMethodDivider() {
-    if (!googleSignInEnabled) return null;
+    const { data: clientId } = useGoogleSignInConfig();
+    if (!clientId) return null;
     return (
         <div className="my-6 flex items-center gap-3 text-xs text-muted-foreground">
             <span className="h-px flex-1 bg-border" />
